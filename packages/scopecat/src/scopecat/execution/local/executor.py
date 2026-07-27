@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from itertools import chain
 from typing import cast
 
 from pydantic import JsonValue
@@ -69,7 +68,11 @@ def execute_run_operations(
             journal=journal,
             coverage_observer=coverage_observer,
         )
-        return engine.run(chain(program.preamble, program.coverage))
+        return engine.run(
+            program.preamble,
+            program.coverage,
+            points=program.points.points,
+        )
 
     return _execute_run_host_operations(
         config=config,
@@ -340,7 +343,11 @@ def _execute_provider_result(
     if engine is not None:
         # Engine construction is the ownership hand-off.  Its run boundary is
         # responsible for abort/cleanup and terminal state capture after effects.
-        return engine.run(chain(program.preamble, program.coverage))
+        return engine.run(
+            program.preamble,
+            program.coverage,
+            points=program.points.points,
+        )
     return _finalize_owned_setup(
         run_id=run_id,
         instruments=instruments,

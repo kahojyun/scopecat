@@ -1,9 +1,4 @@
-"""Closed residual operations consumed by the run interpreter.
-
-``RunProgram`` separates point-invariant compute from immutable bounded
-coverage. Exact point coverage and checkpoints preserve logical result identity
-while callers may inspect the complete program repeatedly before admission.
-"""
+"""Closed residual operations consumed by the run interpreter."""
 
 from __future__ import annotations
 
@@ -12,7 +7,7 @@ from dataclasses import dataclass, field
 from scopecat.compiler.typed.program import TypedMeasurementPostprocessor
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.measurements.points import RunPoint, RunPointCatalog
+from scopecat.measurements.points import RunPointCatalog
 from scopecat.measurements.projection import MeasurementProjection
 from scopecat.records.config import ConfigContentHash
 from scopecat.sdk.domain.execution import PreparedDomainExecution
@@ -68,26 +63,6 @@ type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomain
 
 
 @dataclass(frozen=True, slots=True)
-class RunCoverageBlock:
-    """Execute bounded host/domain effects over one exact point coverage.
-
-    Points are admitted when this block is consumed. Checkpoints may commit
-    completed prefixes before the complete block finishes without changing its
-    logical inventory. Physical resources are leased once for the complete run.
-    """
-
-    points: tuple[RunPoint, ...]
-    operations: tuple[RunCoveredOperation, ...]
-
-    @property
-    def point_indices(self) -> tuple[int, ...]:
-        return tuple(point.ordinal for point in self.points)
-
-
-type RunOperation = ComputeOperation | RunCoverageBlock
-
-
-@dataclass(frozen=True, slots=True)
 class RunProgram:
     """Closed residual effect program awaiting durable admission.
 
@@ -100,7 +75,7 @@ class RunProgram:
     config_content_hash: ConfigContentHash
     host: RunHostBinding | None
     preamble: tuple[ComputeOperation, ...]
-    coverage: tuple[RunCoverageBlock, ...] = field(repr=False, compare=False)
+    coverage: tuple[RunCoveredOperation, ...] = field(repr=False, compare=False)
     points: RunPointCatalog = field(repr=False)
     measurements: MeasurementProjection = field(repr=False)
     resource_claims: tuple[ResourceClaim, ...]

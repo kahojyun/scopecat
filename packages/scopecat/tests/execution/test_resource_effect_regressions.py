@@ -505,7 +505,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=FakeExecutionJournal(),
-    ).run(complete_coverage_operations(program))
+    ).run((), complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     assert len(driver.applied) == 1

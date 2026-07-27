@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from scopecat.execution.program import RunCoverageBlock, RunDomainJob
+from scopecat.execution.program import RunDomainJob
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
 
 type CoverageMeasurementObserver = Callable[
-    [RunCoverageBlock, tuple[MeasurementValueCandidate, ...]],
+    [tuple[RunPoint, ...], tuple[MeasurementValueCandidate, ...]],
     None,
 ]
 

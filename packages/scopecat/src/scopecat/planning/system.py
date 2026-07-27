@@ -30,7 +30,6 @@ from scopecat.compiler.typed.program import (
     core_state,
 )
 from scopecat.execution.program import (
-    RunCoverageBlock,
     RunCoverageCheckpoint,
     RunCoverageEffect,
     RunCoveredOperation,
@@ -46,7 +45,6 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.measurements.points import RunPoint, RunPointCatalog
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.local_effects import (
     MaterializedLocalEffects,
@@ -226,7 +224,6 @@ def _compile_system_program(
         system=system,
         linked=linked,
         linked_points=linked_points,
-        point_catalog=point_catalog,
         point_count=point_count,
         domain_calls=domain_calls,
         local_effects=local_effects,
@@ -396,11 +393,10 @@ def _compile_coverage(
     system: ExperimentSystem,
     linked: LinkedPlan,
     linked_points: MaterializedLinkedPoints,
-    point_catalog: RunPointCatalog,
     point_count: int,
     domain_calls: dict[str, DomainCallView],
     local_effects: MaterializedLocalEffects | None,
-) -> tuple[RunCoverageBlock, ...]:
+) -> tuple[RunCoveredOperation, ...]:
     region = tuple(range(point_count))
     if not region:
         return ()
@@ -417,24 +413,21 @@ def _compile_coverage(
                 region,
             )
         )
-    return _coverage_blocks(
+    return _coverage_operations(
         effects=linked.program.effects,
         local_effects=local_effects,
-        run_points=point_catalog.points,
         region=region,
         jobs_by_execution=jobs_by_execution,
     )
 
 
-def _coverage_blocks(
+def _coverage_operations(
     *,
     effects: tuple[CoreEffect, ...],
     local_effects: MaterializedLocalEffects | None,
-    run_points: tuple[RunPoint, ...],
     region: tuple[int, ...],
     jobs_by_execution: dict[str, list[RunDomainJob]],
-) -> tuple[RunCoverageBlock, ...]:
-    run_point_by_ordinal = {point.ordinal: point for point in run_points}
+) -> tuple[RunCoveredOperation, ...]:
     jobs = tuple(job for selected in jobs_by_execution.values() for job in selected)
     selected_compute = () if local_effects is None else local_effects.compute_operations
     selected_effects = () if local_effects is None else local_effects.effect_operations
@@ -468,12 +461,7 @@ def _coverage_blocks(
                 )
         for ordinal in local_region:
             operations.append(RunCoverageCheckpoint(ordinal))
-    return (
-        RunCoverageBlock(
-            tuple(run_point_by_ordinal[ordinal] for ordinal in region),
-            tuple(operations),
-        ),
-    )
+    return tuple(operations)
 
 
 def _local_schedule_regions(

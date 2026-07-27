@@ -14,7 +14,7 @@ from scopecat.execution.local.program import (
     OutputInput,
     StateTarget,
 )
-from scopecat.execution.program import RunCoverageBlock, RunCoverageEffect
+from scopecat.execution.program import RunCoverageCheckpoint, RunCoverageEffect
 from scopecat.graph.values import (
     ComputeOutput,
     OperationId,
@@ -67,7 +67,7 @@ def _claims(*instrument_ids: str) -> tuple[ResourceClaim, ...]:
     return tuple(ResourceClaim(id=instrument_id) for instrument_id in instrument_ids)
 
 
-def test_coverage_iterator_is_consumed_after_each_block_is_delivered() -> None:
+def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     delivered: list[tuple[int, ...]] = []
     points = tuple(
         RunPoint(_logical_point_id("incremental-source", ordinal), {})
@@ -75,9 +75,9 @@ def test_coverage_iterator_is_consumed_after_each_block_is_delivered() -> None:
     )
 
     def operations():
-        yield RunCoverageBlock((points[0],), ())
+        yield RunCoverageCheckpoint(0)
         assert delivered == [(0,)]
-        yield RunCoverageBlock((points[1],), ())
+        yield RunCoverageCheckpoint(1)
 
     result = RunEffectInterpreter(
         run_id="incremental-source-run",
@@ -85,10 +85,10 @@ def test_coverage_iterator_is_consumed_after_each_block_is_delivered() -> None:
         resource_order=(),
         drivers={},
         journal=FakeExecutionJournal(),
-        coverage_observer=lambda block, _candidates: delivered.append(
-            block.point_indices
+        coverage_observer=lambda selected, _candidates: delivered.append(
+            tuple(point.ordinal for point in selected)
         ),
-    ).run(operations())
+    ).run((), operations(), points=points)
 
     assert not result.problems
     assert delivered == [(0,), (1,)]
@@ -247,7 +247,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         resource_order=program.resource_order,
         drivers={},
         journal=FakeExecutionJournal(),
-    ).run(complete_coverage_operations(program))
+    ).run((), complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     assert consumed == [Quantity(value=5.0, unit="GHz")]
@@ -321,12 +321,7 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
         resource_order=program.resource_order,
         drivers={},
         journal=FakeExecutionJournal(),
-    ).run(
-        (
-            run_compute,
-            RunCoverageBlock(points=points, operations=effects),
-        )
-    )
+    ).run((run_compute,), effects, points=points)
 
     assert not result.problems and not result.indeterminate
     assert producer_calls == 1
@@ -398,14 +393,7 @@ def test_multi_point_compute_coverage_evaluates_once_and_seeds_every_point() -> 
         resource_order=(),
         drivers={},
         journal=FakeExecutionJournal(),
-    ).run(
-        (
-            RunCoverageBlock(
-                points=points,
-                operations=(shared, *consumers),
-            ),
-        )
-    )
+    ).run((), (shared, *consumers), points=points)
 
     assert not result.problems and not result.indeterminate
     assert shared_calls == 1
@@ -461,7 +449,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         resource_order=program.resource_order,
         drivers={},
         journal=FakeExecutionJournal(),
-    ).run(complete_coverage_operations(program))
+    ).run((), complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     assert calls == ["first", "second"]
@@ -602,7 +590,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         coverage_observer=lambda _block, candidates: observed_candidates.append(
             candidates
         ),
-    ).run(complete_coverage_operations(program))
+    ).run((), complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     assert len(driver.collect_commands) == 1
@@ -638,7 +626,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         resource_order=program.resource_order,
         drivers={"source-a": first, "source-b": second},
         journal=_BrokenFinalizationJournal(),
-    ).run(complete_coverage_operations(program))
+    ).run((), complete_coverage_operations(program), points=program.points)
 
     assert result.indeterminate
     assert first.abort_count == 1
@@ -683,7 +671,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=journal,
-    ).run(complete_coverage_operations(program))
+    ).run((), complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     completed = next(
@@ -724,7 +712,9 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         journal=journal,
     )
 
-    result = engine.run(complete_coverage_operations(program))
+    result = engine.run(
+        (), complete_coverage_operations(program), points=program.points
+    )
 
     assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
@@ -795,7 +785,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
             second.instrument_id: second,
         },
         journal=journal,
-    ).run(complete_coverage_operations(program))
+    ).run((), complete_coverage_operations(program), points=program.points)
 
     assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
@@ -857,7 +847,9 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
         journal=journal,
     )
 
-    result = engine.run(complete_coverage_operations(program))
+    result = engine.run(
+        (), complete_coverage_operations(program), points=program.points
+    )
 
     assert result.indeterminate
     assert [problem.code for problem in result.problems] == [

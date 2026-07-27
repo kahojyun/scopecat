@@ -27,16 +27,15 @@ from scopecat.execution.local.program import (
 )
 from scopecat.execution.points import AdmittedPointLedger
 from scopecat.execution.program import (
-    RunCoverageBlock,
     RunCoverageCheckpoint,
     RunCoverageEffect,
     RunCoveredOperation,
     RunDomainJob,
-    RunOperation,
 )
 from scopecat.graph.values import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import ProblemPhase
+from scopecat.measurements.points import RunPoint
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import InstrumentDriver
@@ -74,6 +73,7 @@ class RunEffectInterpreter:
             coordinate_ids=tuple(coordinate_ids),
         )
         self.logical_points: dict[int, LogicalPointId] = {}
+        self.run_points: dict[int, RunPoint] = {}
         self.initial_state: list[InstrumentStateSnapshot] = []
         self.final_state: list[InstrumentStateSnapshot] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
@@ -115,7 +115,10 @@ class RunEffectInterpreter:
 
     def run(
         self,
-        operations: Iterable[RunOperation],
+        preamble: Iterable[ComputeOperation],
+        coverage: Iterable[RunCoveredOperation],
+        *,
+        points: Sequence[RunPoint],
     ) -> effect_result.RunEffectResult:
         """Interpret the residual effect sequence exactly in program order."""
 
@@ -124,18 +127,17 @@ class RunEffectInterpreter:
             self._state.current_states = {
                 state.instrument_id: state for state in self.initial_state
             }
-            for operation in operations:
+            for operation in preamble:
                 if bool(self._journal.problems):
                     break
-                match operation:
-                    case ComputeOperation():
-                        self._execute_run_compute(operation)
-                    case RunCoverageBlock():
-                        admitted = self.point_ledger.admit(operation.points)
-                        self.logical_points.update(
-                            (point.ordinal, point.logical_id) for point in admitted
-                        )
-                        self._execute_coverage_block_effects(operation)
+                self._execute_run_compute(operation)
+            if not bool(self._journal.problems):
+                admitted = self.point_ledger.admit(points)
+                self.run_points.update((point.ordinal, point) for point in admitted)
+                self.logical_points.update(
+                    (point.ordinal, point.logical_id) for point in admitted
+                )
+                self._execute_coverage_operations(coverage)
             if (
                 not bool(self._journal.problems)
                 and self.domain_failure is None
@@ -173,39 +175,42 @@ class RunEffectInterpreter:
             self.final_state = self._lifecycle.read_states(phase="terminal")
         return self._result()
 
-    def _execute_coverage_block_effects(self, block: RunCoverageBlock) -> None:
-        for operation in block.operations:
+    def _execute_coverage_operations(
+        self,
+        operations: Iterable[RunCoveredOperation],
+    ) -> None:
+        for operation in operations:
             if isinstance(operation, RunCoverageCheckpoint):
-                self._commit_coverage_checkpoint(block, operation)
+                self._commit_coverage_checkpoint(operation)
                 continue
             self._execute_covered_operation(operation)
             if bool(self._journal.problems):
                 return
         remaining = tuple(
             point_index
-            for point_index in block.point_indices
+            for point_index in self.logical_points
             if point_index not in self._terminal_point_indices
         )
         if remaining:
-            self._commit_coverage(block, remaining)
+            self._commit_coverage(remaining)
 
     def _commit_coverage_checkpoint(
         self,
-        block: RunCoverageBlock,
         checkpoint: RunCoverageCheckpoint,
     ) -> None:
-        if checkpoint.point_index not in block.point_indices:
-            raise AssertionError("coverage checkpoint escapes its effect block")
-        self._commit_coverage(block, (checkpoint.point_index,))
+        if checkpoint.point_index not in self.logical_points:
+            raise AssertionError("coverage checkpoint references an unknown point")
+        self._commit_coverage((checkpoint.point_index,))
 
     def _commit_coverage(
         self,
-        block: RunCoverageBlock,
         point_indices: tuple[int, ...],
     ) -> None:
         self._complete_coverage(point_indices)
         try:
-            self._measurements.commit_coverage(block, point_indices)
+            self._measurements.commit_coverage(
+                tuple(self.run_points[point_index] for point_index in point_indices)
+            )
         except BaseException as error:
             self.coverage_failure = error
             raise _CapturedCoverageFailure from error

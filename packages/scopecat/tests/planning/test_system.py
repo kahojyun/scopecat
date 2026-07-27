@@ -42,7 +42,6 @@ from scopecat.domain.program import (
 )
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.execution.program import (
-    RunCoverageBlock,
     RunCoverageCheckpoint,
     RunCoverageEffect,
     RunDomainJob,
@@ -624,11 +623,10 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
     plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     assert len(plan.points.points) == 2
-    [block] = plan.coverage
-    assert block.point_indices == (0, 1)
+    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert [
         operation.point_ordinals
-        for operation in block.operations
+        for operation in plan.coverage
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
     assert compiler.compile_calls == 2
@@ -646,7 +644,7 @@ def test_local_resource_manifest_is_selected_once_for_complete_point_space(
     plan = ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(linked)
 
     assert calls == [logical_resource_port_id("source")]
-    assert len(tuple(plan.coverage)) == 1
+    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert calls == [logical_resource_port_id("source")]
 
 
@@ -689,8 +687,7 @@ def test_domain_target_instrument_does_not_require_a_local_manifest(
 
     plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
-    [block] = plan.coverage
-    assert block.point_indices == (0, 1)
+    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert calls == []
     assert compiler.compile_calls == 1
     assert set(plan.resource_claims) == {
@@ -714,7 +711,7 @@ def test_mixed_target_builds_manifests_only_for_local_resources(
     ).compile(linked)
 
     assert calls == [logical_resource_port_id("source")]
-    assert len(tuple(plan.coverage)) == 1
+    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert calls == [logical_resource_port_id("source")]
 
 
@@ -756,13 +753,9 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     assert plan.host is None
-    [block] = plan.coverage
-    assert isinstance(block, RunCoverageBlock)
-    assert block.point_indices == (0, 1)
+    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     [domain_job] = (
-        operation
-        for operation in block.operations
-        if isinstance(operation, RunDomainJob)
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
     assert isinstance(domain_job, RunDomainJob)
     assert isinstance(domain_job.execution, PreparedDomainExecution)
@@ -785,21 +778,20 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
 
     plan = system.compile(linked)
 
-    [block] = plan.coverage
-    assert block.point_indices == (0, 1)
+    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert [
         operation.point_ordinals
-        for operation in block.operations
+        for operation in plan.coverage
         if isinstance(operation, RunDomainJob)
     ] == [(0, 1)]
     assert [
         operation.point_indices
-        for operation in block.operations
+        for operation in plan.coverage
         if isinstance(operation, RunCoverageEffect)
     ] == [(0,), (1,)]
     assert [
         operation.point_index
-        for operation in block.operations
+        for operation in plan.coverage
         if isinstance(operation, RunCoverageCheckpoint)
     ] == [0, 1]
     assert provider.describe_calls == 1
@@ -818,10 +810,9 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
         domain_compiler=_DomainCompiler("tests.declared-effect-order"),
     ).compile(linked)
 
-    [block] = plan.coverage
     consequential = tuple(
         operation
-        for operation in block.operations
+        for operation in plan.coverage
         if not isinstance(operation, RunCoverageCheckpoint)
     )
 
@@ -859,14 +850,11 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
     compiler = _DomainCompiler("tests.unused-acquisition")
     plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
-    [block] = plan.coverage
     [domain] = (
-        operation
-        for operation in block.operations
-        if isinstance(operation, RunDomainJob)
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
 
-    assert block.point_indices == (0, 1)
+    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert domain.point_ordinals == (0, 1)
     assert [request.point_ordinals for request in compiler.compile_requests] == [(0, 1)]
 
@@ -880,12 +868,8 @@ def test_equal_materialized_state_values_share_one_domain_region() -> None:
         domain_compiler=compiler,
     ).compile(linked)
 
-    blocks = tuple(plan.coverage)
     jobs = tuple(
-        operation
-        for block in blocks
-        for operation in block.operations
-        if isinstance(operation, RunDomainJob)
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
     assert tuple(job.point_ordinals for job in jobs) == ((0, 1),)
     assert compiler.compile_calls == 1
@@ -913,10 +897,7 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
         {"frequency": Quantity(value=5.1, unit="GHz")},
     ]
     domain_jobs = tuple(
-        operation
-        for block in plan.coverage
-        for operation in block.operations
-        if isinstance(operation, RunDomainJob)
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
     assert tuple(job.point_ordinals for job in domain_jobs) == ((0, 1),)
     [domain_job] = domain_jobs
@@ -938,12 +919,8 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
 
     plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
-    blocks = tuple(plan.coverage)
     jobs = tuple(
-        operation
-        for block in blocks
-        for operation in block.operations
-        if isinstance(operation, RunDomainJob)
+        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
     assert len({job.id for job in jobs}) == 2
     assert plan.resource_claims == (ResourceClaim("tests.domain.target", "target"),)
@@ -1025,9 +1002,10 @@ def test_point_inventory_and_domain_compilation_close_before_program_returns(
 
     assert events == ["materialize", "compile"]
     assert isinstance(plan.coverage, tuple)
-    first_inspection = tuple(block.point_indices for block in plan.coverage)
-    second_inspection = tuple(block.point_indices for block in plan.coverage)
-    assert first_inspection == second_inspection == ((0, 1),)
+    first_inspection = tuple(plan.coverage)
+    second_inspection = tuple(plan.coverage)
+    assert first_inspection == second_inspection
+    assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
 
 
 def test_complete_point_materialization_does_not_evaluate_domain_inputs(
@@ -1062,9 +1040,7 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
     assert local_effects is not None
     assert any(
         operation.operation
-        for block in plan.coverage
-        if isinstance(block, RunCoverageBlock)
-        for operation in block.operations
+        for operation in plan.coverage
         if isinstance(operation, RunCoverageEffect)
         and isinstance(operation.operation, ApplyStateOperation)
     )

@@ -13,7 +13,7 @@ from scopecat.execution.local.receipts import (
     command_evidence,
     validate_readback,
 )
-from scopecat.execution.program import RunCoverageBlock
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.sdk.instruments.contracts import InstrumentDriver
@@ -37,21 +37,17 @@ class MeasurementEffectExecutor:
 
     def commit_coverage(
         self,
-        block: RunCoverageBlock,
-        point_indices: tuple[int, ...],
+        points: tuple[RunPoint, ...],
     ) -> None:
         if self.coverage_observer is None:
             return
-        point_index_set = frozenset(point_indices)
+        point_index_set = frozenset(point.ordinal for point in points)
         candidates = tuple(
             candidate
             for candidate in self.values
             if candidate.logical_point_id.logical_ordinal in point_index_set
         )
-        points = tuple(
-            point for point in block.points if point.ordinal in point_indices
-        )
-        self.coverage_observer(RunCoverageBlock(points, ()), candidates)
+        self.coverage_observer(points, candidates)
         self.values[:] = (
             candidate
             for candidate in self.values

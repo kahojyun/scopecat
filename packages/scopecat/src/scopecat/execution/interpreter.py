@@ -23,7 +23,7 @@ from scopecat.execution.measurement_recording import (
 from scopecat.execution.persistence import (
     validate_run_measurements,
 )
-from scopecat.execution.program import RunCoverageBlock, RunDomainJob, RunProgram
+from scopecat.execution.program import RunDomainJob, RunProgram
 from scopecat.execution.services import (
     ExecutionSession,
 )
@@ -40,6 +40,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.projection import project_measurement_records
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
@@ -100,31 +101,31 @@ def _execute_run(
     append_content_hashes: list[str] = []
 
     def commit_coverage(
-        block: RunCoverageBlock,
+        points: tuple[RunPoint, ...],
         candidates: tuple[MeasurementValueCandidate, ...],
     ) -> None:
         nonlocal committed_measurement_count
         completed_candidates = execute_measurement_postprocessors(
             program.measurement_postprocessors,
             candidates,
-            points=block.points,
+            points=points,
             catalog=program.measurements.catalog,
         )
         values = seal_measurement_values(
             program.measurements.catalog,
             completed_candidates,
-            points=block.points,
+            points=points,
         )
         projected = project_measurement_records(
             program.measurements,
             values,
             run_id=run_id,
-            points=block.points,
+            points=points,
         )
         block_problems = (
             *validate_run_measurements(
                 measurements=projected.records,
-                expected_indices=set(block.point_indices),
+                expected_indices={point.ordinal for point in points},
             ),
         )
         if block_problems:
