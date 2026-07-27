@@ -101,17 +101,3 @@ class ConfigRegistryActivationRecord(_FrozenRegistryModel):
             msg = "previous registry entry id and content hash must be paired"
             raise ValueError(msg)
         return self
-
-
-class ConfigRegistryActiveState(_FrozenRegistryModel):
-    generation: int = Field(ge=1)
-    active_entry_id: str
-    active_entry_content_hash: ConfigContentHash
-    updated_at: datetime = Field(default_factory=utc_now)
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> ConfigRegistryActiveState:
-        if not self.active_entry_id:
-            msg = "config registry active entry id must be non-empty"
-            raise ValueError(msg)
-        return self

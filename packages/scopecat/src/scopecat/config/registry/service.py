@@ -34,7 +34,6 @@ from scopecat.config.registry.ports import (
 from scopecat.config.registry.records import (
     CandidateConfigRegistrySource,
     ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
     ManualConfigDraftRegistrySource,
@@ -91,14 +90,24 @@ class ConfigRegistryEntrySnapshot:
 @dataclass(frozen=True, slots=True)
 class ConfigRegistrySnapshot:
     entries: tuple[ConfigRegistryEntry, ...]
-    active_state: ConfigRegistryActiveState | None
+    activation: ConfigRegistryActivationRecord | None
 
 
 @dataclass(frozen=True, slots=True)
 class ActiveConfigRegistrySnapshot:
     entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
+    activation: ConfigRegistryActivationRecord
     config: ConfigProfileSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigRegistryMutationResult:
+    """Committed registry facts used to publish matching project events."""
+
+    entry: ConfigRegistryEntry
+    activation: ConfigRegistryActivationRecord | None = None
+    registered: bool = False
+    activated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +153,7 @@ def register_manual_config_draft(
     entry_id: str,
     registered_by: str,
     note: str = "",
-) -> tuple[ConfigRegistryEntry, ManualConfigDraftResult]:
+) -> tuple[ConfigRegistryMutationResult, ManualConfigDraftResult]:
     """Recheck and atomically register typed edits without activating them."""
 
     _validate_entry_id(entry_id)
@@ -179,10 +188,8 @@ def register_and_activate_manual_config_draft(
     note: str = "",
     activation_note: str | None = None,
 ) -> tuple[
-    ConfigRegistryEntry,
+    ConfigRegistryMutationResult,
     ManualConfigDraftResult,
-    ConfigRegistryActiveState,
-    ConfigRegistryActivationRecord,
 ]:
     """Recheck typed edits, save one revision, and select it as the default."""
 
@@ -191,7 +198,7 @@ def register_and_activate_manual_config_draft(
     _validate_required_text(operator, field="operator")
     selected_activation_note = note if activation_note is None else activation_note
     with unit_of_work() as work:
-        entry, result = _register_manual_config_draft_locked(
+        registration, result = _register_manual_config_draft_locked(
             work=work,
             base_entry_id=base_entry_id,
             base_config_content_hash=base_config_content_hash,
@@ -203,14 +210,22 @@ def register_and_activate_manual_config_draft(
             registered_by=registered_by,
             note=note,
         )
-        state, activation = _activate_config_registry_entry_locked(
-            entry_id=entry.id,
+        activation = _activate_config_registry_entry_locked(
+            entry_id=registration.entry.id,
             work=work,
             operator=operator,
             expected_generation=base_generation,
             note=selected_activation_note,
         )
-        return entry, result, state, activation
+        return (
+            ConfigRegistryMutationResult(
+                entry=registration.entry,
+                activation=activation.activation,
+                registered=registration.registered,
+                activated=activation.activated,
+            ),
+            result,
+        )
 
 
 def _register_manual_config_draft_locked(
@@ -225,7 +240,7 @@ def _register_manual_config_draft_locked(
     entry_id: str,
     registered_by: str,
     note: str,
-) -> tuple[ConfigRegistryEntry, ManualConfigDraftResult]:
+) -> tuple[ConfigRegistryMutationResult, ManualConfigDraftResult]:
     result = _check_manual_config_draft_locked(
         work=work,
         base_entry_id=base_entry_id,
@@ -281,15 +296,15 @@ def _check_manual_config_draft_locked(
     candidate_id: str,
     updates: Sequence[ParameterUpdate],
 ) -> ManualConfigDraftResult:
-    state = _load_active_config_registry_state_locked(work.registry)
+    activation = _load_active_config_registry_activation_locked(work.registry)
     _require_expected_generation(
-        state,
+        activation,
         base_generation,
         active_ref=work.registry.active_ref,
     )
     if (
-        state.active_entry_id != base_entry_id
-        or state.active_entry_content_hash != base_config_content_hash
+        activation.entry_id != base_entry_id
+        or activation.entry_content_hash != base_config_content_hash
     ):
         raise _registry_failure(
             Conflict,
@@ -299,17 +314,17 @@ def _check_manual_config_draft_locked(
             related_locations=(_registry_storage_location(work.registry.active_ref),),
             details={
                 "expected_entry_id": base_entry_id,
-                "actual_entry_id": state.active_entry_id,
+                "actual_entry_id": activation.entry_id,
                 "expected_content_hash": base_config_content_hash,
-                "actual_content_hash": state.active_entry_content_hash,
+                "actual_content_hash": activation.entry_content_hash,
             },
         )
     loaded = _load_config_registry_entry_locked(entry_id=base_entry_id, work=work)
-    _validate_active_entry_identity(work.registry, state, loaded.entry)
+    _validate_active_entry_identity(work.registry, activation, loaded.entry)
     check = ConfigDraft(loaded.config).apply(*updates).check(candidate_id=candidate_id)
     return ManualConfigDraftResult(
         base_entry=loaded.entry,
-        base_generation=state.generation,
+        base_generation=activation.generation,
         check=check,
     )
 
@@ -321,7 +336,7 @@ def register_config_profile(
     entry_id: str,
     registered_by: str,
     note: str = "",
-) -> ConfigRegistryEntry:
+) -> ConfigRegistryMutationResult:
     _validate_entry_id(entry_id)
     _validate_required_text(registered_by, field="registered_by")
     with unit_of_work() as work:
@@ -344,42 +359,32 @@ def register_and_activate_config_profile(
     note: str = "",
     activation_note: str | None = None,
     expected_generation: int | None = None,
-) -> tuple[
-    ConfigRegistryEntry,
-    ConfigRegistryActiveState,
-    ConfigRegistryActivationRecord,
-]:
+) -> ConfigRegistryMutationResult:
     _validate_entry_id(entry_id)
     _validate_required_text(registered_by, field="registered_by")
     _validate_required_text(operator, field="operator")
-    selected_generation = (
-        current_config_registry_generation(unit_of_work=unit_of_work)
-        if expected_generation is None
-        else expected_generation
-    )
     selected_activation_note = note if activation_note is None else activation_note
     with unit_of_work() as work:
-        current_state = _read_active_state_optional(work.registry)
-        _require_expected_generation(
-            current_state,
-            selected_generation,
-            active_ref=work.registry.active_ref,
-        )
-        entry = _register_config_profile_locked(
+        registration = _register_config_profile_locked(
             config=config,
             work=work,
             entry_id=entry_id,
             registered_by=registered_by,
             note=note,
         )
-        active_state, activation = _activate_config_registry_entry_locked(
-            entry_id=entry.id,
+        activation = _activate_config_registry_entry_locked(
+            entry_id=registration.entry.id,
             work=work,
             operator=operator,
             note=selected_activation_note,
-            expected_generation=selected_generation,
+            expected_generation=expected_generation,
         )
-        return entry, active_state, activation
+        return ConfigRegistryMutationResult(
+            entry=registration.entry,
+            activation=activation.activation,
+            registered=registration.registered,
+            activated=activation.activated,
+        )
 
 
 def _register_config_profile_locked(
@@ -389,7 +394,7 @@ def _register_config_profile_locked(
     entry_id: str,
     registered_by: str,
     note: str,
-) -> ConfigRegistryEntry:
+) -> ConfigRegistryMutationResult:
     entry = ConfigRegistryEntry(
         id=entry_id,
         config_ref=work.registry.config_ref(entry_id),
@@ -416,11 +421,7 @@ def register_and_activate_candidate_config(
     expected_generation: int,
     note: str = "",
     activation_note: str | None = None,
-) -> tuple[
-    ConfigRegistryEntry,
-    ConfigRegistryActiveState,
-    ConfigRegistryActivationRecord,
-]:
+) -> ConfigRegistryMutationResult:
     if entry_id is not None:
         _validate_entry_id(entry_id)
     _validate_required_text(registered_by, field="registered_by")
@@ -429,13 +430,7 @@ def register_and_activate_candidate_config(
     _validate_required_text(proposal_id, field="proposal_id")
     selected_activation_note = note if activation_note is None else activation_note
     with unit_of_work() as work:
-        current_state = _read_active_state_optional(work.registry)
-        _require_expected_generation(
-            current_state,
-            expected_generation,
-            active_ref=work.registry.active_ref,
-        )
-        entry = _register_candidate_config_locked(
+        registration = _register_candidate_config_locked(
             work=work,
             entry_id=entry_id,
             registered_by=registered_by,
@@ -443,14 +438,19 @@ def register_and_activate_candidate_config(
             proposal_id=proposal_id,
             note=note,
         )
-        active_state, activation = _activate_config_registry_entry_locked(
-            entry_id=entry.id,
+        activation = _activate_config_registry_entry_locked(
+            entry_id=registration.entry.id,
             work=work,
             operator=operator,
             note=selected_activation_note,
             expected_generation=expected_generation,
         )
-        return entry, active_state, activation
+        return ConfigRegistryMutationResult(
+            entry=registration.entry,
+            activation=activation.activation,
+            registered=registration.registered,
+            activated=activation.activated,
+        )
 
 
 def _register_candidate_config_locked(
@@ -461,7 +461,7 @@ def _register_candidate_config_locked(
     run_id: str,
     proposal_id: str,
     note: str,
-) -> ConfigRegistryEntry:
+) -> ConfigRegistryMutationResult:
     validated = _validate_candidate_source_records(
         storage=work.runs,
         run_id=run_id,
@@ -604,20 +604,20 @@ def load_config_registry_snapshot(
 
     with unit_of_work() as work:
         entries = _list_config_registry_entries_locked(work.registry)
-        active_state = _read_active_state_optional(work.registry)
-        if active_state is not None:
+        activation = _read_latest_activation(work.registry)
+        if activation is not None:
             loaded = _load_config_registry_entry_locked(
-                entry_id=active_state.active_entry_id,
+                entry_id=activation.entry_id,
                 work=work,
             )
             _validate_active_entry_identity(
                 work.registry,
-                active_state,
+                activation,
                 loaded.entry,
             )
         return ConfigRegistrySnapshot(
             entries=entries,
-            active_state=active_state,
+            activation=activation,
         )
 
 
@@ -666,12 +666,12 @@ def load_active_config_registry_config(
     *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> ConfigProfileSnapshot:
     with unit_of_work() as work:
-        state = _load_active_config_registry_state_locked(work.registry)
+        activation = _load_active_config_registry_activation_locked(work.registry)
         loaded = _load_config_registry_entry_locked(
-            entry_id=state.active_entry_id,
+            entry_id=activation.entry_id,
             work=work,
         )
-        _validate_active_entry_identity(work.registry, state, loaded.entry)
+        _validate_active_entry_identity(work.registry, activation, loaded.entry)
         return loaded.config
 
 
@@ -682,15 +682,15 @@ def load_active_config_registry_snapshot(
     """Read the active head and its immutable config in one transaction."""
 
     with unit_of_work() as work:
-        state = _load_active_config_registry_state_locked(work.registry)
+        activation = _load_active_config_registry_activation_locked(work.registry)
         loaded = _load_config_registry_entry_locked(
-            entry_id=state.active_entry_id,
+            entry_id=activation.entry_id,
             work=work,
         )
-        _validate_active_entry_identity(work.registry, state, loaded.entry)
+        _validate_active_entry_identity(work.registry, activation, loaded.entry)
         return ActiveConfigRegistrySnapshot(
             entry=loaded.entry,
-            active_state=state,
+            activation=activation,
             config=loaded.config,
         )
 
@@ -716,7 +716,7 @@ def activate_config_registry_entry(
     operator: str,
     expected_generation: int,
     note: str = "",
-) -> tuple[ConfigRegistryActiveState, ConfigRegistryActivationRecord]:
+) -> ConfigRegistryMutationResult:
     _validate_entry_id(entry_id)
     _validate_required_text(operator, field="operator")
     with unit_of_work() as work:
@@ -734,28 +734,40 @@ def _activate_config_registry_entry_locked(
     entry_id: str,
     work: ConfigRegistryUnitOfWork,
     operator: str,
-    expected_generation: int,
+    expected_generation: int | None,
     note: str,
-) -> tuple[ConfigRegistryActiveState, ConfigRegistryActivationRecord]:
-    current_state = _read_active_state_optional(work.registry)
-    _require_expected_generation(
-        current_state,
-        expected_generation,
-        active_ref=work.registry.active_ref,
-    )
+) -> ConfigRegistryMutationResult:
+    current_activation = _read_latest_activation(work.registry)
+    if expected_generation is not None:
+        _require_expected_generation(
+            current_activation,
+            expected_generation,
+            active_ref=work.registry.active_ref,
+        )
     loaded = _load_config_registry_entry_locked(
         entry_id=entry_id,
         work=work,
     )
     entry = loaded.entry
-    _validate_derived_entry_base(current_state, entry, work)
+    _validate_derived_entry_base(current_activation, entry, work)
+    if current_activation is not None and current_activation.entry_id == entry.id:
+        _validate_active_entry_identity(work.registry, current_activation, entry)
+        return ConfigRegistryMutationResult(
+            entry=entry,
+            activation=current_activation,
+        )
     previous_entry_id = (
-        current_state.active_entry_id if current_state is not None else None
+        current_activation.entry_id if current_activation is not None else None
     )
     previous_content_hash = (
-        current_state.active_entry_content_hash if current_state is not None else None
+        current_activation.entry_content_hash
+        if current_activation is not None
+        else None
     )
-    generation = expected_generation + 1
+    current_generation = (
+        0 if current_activation is None else current_activation.generation
+    )
+    generation = current_generation + 1
     record = ConfigRegistryActivationRecord(
         id=_activation_record_id(generation, "activation"),
         generation=generation,
@@ -767,17 +779,15 @@ def _activate_config_registry_entry_locked(
         operator=operator,
         note=note,
     )
-    state = ConfigRegistryActiveState(
-        generation=generation,
-        active_entry_id=entry.id,
-        active_entry_content_hash=entry.content_hash,
-        updated_at=record.recorded_at,
-    )
     work.registry.commit_activation(
-        expected_generation=expected_generation,
+        expected_generation=current_generation,
         record=record,
     )
-    return state, record
+    return ConfigRegistryMutationResult(
+        entry=entry,
+        activation=record,
+        activated=True,
+    )
 
 
 def rollback_config_registry(
@@ -786,16 +796,16 @@ def rollback_config_registry(
     operator: str,
     expected_generation: int,
     note: str = "",
-) -> tuple[ConfigRegistryActiveState, ConfigRegistryActivationRecord]:
+) -> ConfigRegistryMutationResult:
     _validate_required_text(operator, field="operator")
     with unit_of_work() as work:
-        current_state = _read_active_state_optional(work.registry)
+        current_activation = _read_latest_activation(work.registry)
         _require_expected_generation(
-            current_state,
+            current_activation,
             expected_generation,
             active_ref=work.registry.active_ref,
         )
-        if current_state is None:
+        if current_activation is None:
             raise _registry_failure(
                 NotFound,
                 code="config_registry.no_active_entry",
@@ -803,14 +813,18 @@ def rollback_config_registry(
                 location=_registry_model_location("active"),
             )
         current = _load_config_registry_entry_locked(
-            entry_id=current_state.active_entry_id,
+            entry_id=current_activation.entry_id,
             work=work,
         )
-        _validate_active_entry_identity(work.registry, current_state, current.entry)
+        _validate_active_entry_identity(
+            work.registry,
+            current_activation,
+            current.entry,
+        )
         history = work.registry.list_activation_history()
         rollback_target = _previous_distinct_activation(
             history,
-            active_entry_id=current_state.active_entry_id,
+            active_entry_id=current_activation.entry_id,
         )
         loaded = _load_config_registry_entry_locked(
             entry_id=rollback_target.entry_id,
@@ -833,22 +847,20 @@ def rollback_config_registry(
             action="rollback",
             entry_id=entry.id,
             entry_content_hash=entry.content_hash,
-            previous_entry_id=current_state.active_entry_id,
-            previous_entry_content_hash=current_state.active_entry_content_hash,
+            previous_entry_id=current_activation.entry_id,
+            previous_entry_content_hash=current_activation.entry_content_hash,
             operator=operator,
             note=note,
-        )
-        state = ConfigRegistryActiveState(
-            generation=generation,
-            active_entry_id=entry.id,
-            active_entry_content_hash=entry.content_hash,
-            updated_at=record.recorded_at,
         )
         work.registry.commit_activation(
             expected_generation=expected_generation,
             record=record,
         )
-        return state, record
+        return ConfigRegistryMutationResult(
+            entry=entry,
+            activation=record,
+            activated=True,
+        )
 
 
 def current_config_registry_generation(
@@ -865,37 +877,37 @@ def load_config_registry_activation_history(
         return work.registry.list_activation_history()
 
 
-def load_active_config_registry_state(
+def load_active_config_registry_activation(
     *, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigRegistryActiveState:
+) -> ConfigRegistryActivationRecord:
     with unit_of_work() as work:
-        return _load_active_config_registry_state_locked(work.registry)
+        return _load_active_config_registry_activation_locked(work.registry)
 
 
-def _load_active_config_registry_state_locked(
+def _load_active_config_registry_activation_locked(
     repository: ConfigRegistryRepository,
-) -> ConfigRegistryActiveState:
-    state = repository.read_active_state()
-    if state is None:
+) -> ConfigRegistryActivationRecord:
+    activation = repository.read_latest_activation()
+    if activation is None:
         raise _registry_failure(
             NotFound,
             code="config_registry.no_active_entry",
             message="config registry has no active entry",
             location=_registry_model_location("active"),
         )
-    return state
+    return activation
 
 
 def load_active_config_registry_entry(
     *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> ConfigRegistryEntry:
     with unit_of_work() as work:
-        state = _load_active_config_registry_state_locked(work.registry)
+        activation = _load_active_config_registry_activation_locked(work.registry)
         loaded = _load_config_registry_entry_locked(
-            entry_id=state.active_entry_id,
+            entry_id=activation.entry_id,
             work=work,
         )
-        _validate_active_entry_identity(work.registry, state, loaded.entry)
+        _validate_active_entry_identity(work.registry, activation, loaded.entry)
         return loaded.entry
 
 
@@ -919,19 +931,19 @@ def _resolve_entry_config_registry_config_source_locked(
 def _resolve_active_config_registry_config_source_locked(
     *, work: ConfigRegistryUnitOfWork
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
-    state = _load_active_config_registry_state_locked(work.registry)
+    activation = _load_active_config_registry_activation_locked(work.registry)
     loaded = _load_config_registry_entry_locked(
-        entry_id=state.active_entry_id,
+        entry_id=activation.entry_id,
         work=work,
     )
     entry = loaded.entry
-    _validate_active_entry_identity(work.registry, state, entry)
+    _validate_active_entry_identity(work.registry, activation, entry)
     source = ConfigRegistryRunConfigSource(
         selector=ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
         entry_id=entry.id,
         config_ref=entry.config_ref,
         content_hash=entry.content_hash,
-        registry_generation=state.generation,
+        registry_generation=activation.generation,
     )
     return loaded.config, source
 
@@ -1001,7 +1013,7 @@ def _commit_registration_locked(
     repository: ConfigRegistryRepository,
     requested_entry: ConfigRegistryEntry,
     config: ConfigProfileSnapshot,
-) -> ConfigRegistryEntry:
+) -> ConfigRegistryMutationResult:
     _require_valid_config(config)
     existing = _find_existing_entry_locked(
         repository=repository,
@@ -1023,12 +1035,15 @@ def _commit_registration_locked(
                 ),
                 details={"entry_id": requested_entry.id},
             )
-        return existing
+        return ConfigRegistryMutationResult(entry=existing)
     repository.commit_registration(
         entry=requested_entry,
         config=config,
     )
-    return requested_entry
+    return ConfigRegistryMutationResult(
+        entry=requested_entry,
+        registered=True,
+    )
 
 
 def _find_existing_entry_locked(
@@ -1075,19 +1090,19 @@ def _same_registration(
     return False
 
 
-def _read_active_state_optional(
+def _read_latest_activation(
     repository: ConfigRegistryRepository,
-) -> ConfigRegistryActiveState | None:
-    return repository.read_active_state()
+) -> ConfigRegistryActivationRecord | None:
+    return repository.read_latest_activation()
 
 
 def _require_expected_generation(
-    state: ConfigRegistryActiveState | None,
+    activation: ConfigRegistryActivationRecord | None,
     expected_generation: int,
     *,
     active_ref: str,
 ) -> None:
-    current_generation = 0 if state is None else state.generation
+    current_generation = 0 if activation is None else activation.generation
     if expected_generation == current_generation:
         return
     raise _registry_failure(
@@ -1129,10 +1144,13 @@ def _read_entry_config(
 
 def _validate_active_entry_identity(
     repository: ConfigRegistryRepository,
-    state: ConfigRegistryActiveState,
+    activation: ConfigRegistryActivationRecord,
     entry: ConfigRegistryEntry,
 ) -> None:
-    if state.active_entry_content_hash == entry.content_hash:
+    if (
+        activation.entry_id == entry.id
+        and activation.entry_content_hash == entry.content_hash
+    ):
         return
     raise _registry_failure(
         DataIntegrityError,
@@ -1145,21 +1163,21 @@ def _validate_active_entry_identity(
 
 
 def _validate_derived_entry_base(
-    state: ConfigRegistryActiveState | None,
+    activation: ConfigRegistryActivationRecord | None,
     entry: ConfigRegistryEntry,
     work: ConfigRegistryUnitOfWork,
 ) -> None:
-    if state is None:
+    if activation is None:
         return
-    if state.active_entry_id == entry.id:
-        _validate_active_entry_identity(work.registry, state, entry)
+    if activation.entry_id == entry.id:
+        _validate_active_entry_identity(work.registry, activation, entry)
         return
     active = _load_config_registry_entry_locked(
-        entry_id=state.active_entry_id,
+        entry_id=activation.entry_id,
         work=work,
     )
     active_entry = active.entry
-    _validate_active_entry_identity(work.registry, state, active_entry)
+    _validate_active_entry_identity(work.registry, activation, active_entry)
     if isinstance(
         entry.source,
         (CandidateConfigRegistrySource, ManualConfigDraftRegistrySource),
@@ -1253,6 +1271,7 @@ __all__ = [
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
     "ActiveConfigRegistrySnapshot",
     "ConfigRegistryEntrySnapshot",
+    "ConfigRegistryMutationResult",
     "ConfigRegistryRepository",
     "ConfigRegistrySnapshot",
     "ConfigRegistryUnitOfWork",
@@ -1261,10 +1280,10 @@ __all__ = [
     "activate_config_registry_entry",
     "current_config_registry_generation",
     "list_config_registry_entries",
+    "load_active_config_registry_activation",
     "load_active_config_registry_config",
     "load_active_config_registry_entry",
     "load_active_config_registry_snapshot",
-    "load_active_config_registry_state",
     "load_config_registry_activation_history",
     "load_config_registry_entry_snapshot",
     "load_config_registry_snapshot",

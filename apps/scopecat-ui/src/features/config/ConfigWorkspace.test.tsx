@@ -50,11 +50,7 @@ afterEach(() => {
 describe("ConfigWorkspace", () => {
   it("presents saved versions as defaults and undo without generation ceremony", async () => {
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 2,
-        active_entry_id: "baseline",
-        active_entry_content_hash: "sha256:baseline",
-      },
+      activation: activation(2, "baseline", "sha256:baseline"),
       activation_history: [
         activation(2, "baseline", "sha256:baseline", "calibrated"),
         activation(1, "calibrated", "sha256:calibrated"),
@@ -121,11 +117,7 @@ describe("ConfigWorkspace", () => {
     async (sourceKind) => {
       const entry = runtimeDerivedEntry(sourceKind);
       vi.mocked(getConfigRegistry).mockResolvedValue({
-        active_state: {
-          generation: 3,
-          active_entry_id: entry.id,
-          active_entry_content_hash: entry.content_hash,
-        },
+        activation: activation(3, entry.id, entry.content_hash),
         activation_history: [activation(3, entry.id, entry.content_hash)],
         entries: [entry],
       });
@@ -157,11 +149,7 @@ describe("ConfigWorkspace", () => {
     const baseline = configEntry("baseline", "sha256:baseline");
     const entries = [entry, baseline];
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 3,
-        active_entry_id: entry.id,
-        active_entry_content_hash: entry.content_hash,
-      },
+      activation: activation(3, entry.id, entry.content_hash),
       activation_history: [activation(3, entry.id, entry.content_hash)],
       entries,
     });
@@ -182,11 +170,7 @@ describe("ConfigWorkspace", () => {
   it("joins candidate proposals, analyses, and approval", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 3,
-        active_entry_id: entry.id,
-        active_entry_content_hash: entry.content_hash,
-      },
+      activation: activation(3, entry.id, entry.content_hash),
       activation_history: [activation(3, entry.id, entry.content_hash)],
       entries: [entry],
     });
@@ -260,11 +244,7 @@ describe("ConfigWorkspace", () => {
   it("keeps approval note and time unresolved while proposals load", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 3,
-        active_entry_id: entry.id,
-        active_entry_content_hash: entry.content_hash,
-      },
+      activation: activation(3, entry.id, entry.content_hash),
       activation_history: [activation(3, entry.id, entry.content_hash)],
       entries: [entry],
     });
@@ -287,11 +267,7 @@ describe("ConfigWorkspace", () => {
   it("does not report missing approval note or time when proposals fail", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 3,
-        active_entry_id: entry.id,
-        active_entry_content_hash: entry.content_hash,
-      },
+      activation: activation(3, entry.id, entry.content_hash),
       activation_history: [activation(3, entry.id, entry.content_hash)],
       entries: [entry],
     });

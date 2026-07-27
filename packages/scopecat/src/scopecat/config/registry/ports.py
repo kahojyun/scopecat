@@ -8,7 +8,6 @@ from typing import Protocol, Self
 
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
     ConfigRegistryEntry,
 )
 from scopecat.records.config import ConfigProfileSnapshot
@@ -35,7 +34,7 @@ class ConfigRegistryRepository(Protocol):
 
     def current_generation(self) -> int: ...
 
-    def read_active_state(self) -> ConfigRegistryActiveState | None: ...
+    def read_latest_activation(self) -> ConfigRegistryActivationRecord | None: ...
 
     def list_activation_history(self) -> tuple[ConfigRegistryActivationRecord, ...]: ...
 

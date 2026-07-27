@@ -33,11 +33,7 @@ describe("config registry reads", () => {
             })
           : jsonResponse({
               entries: [registryEntry("config-a", HASH_A), registryEntry("config-b", HASH_B)],
-              active_state: {
-                generation: 2,
-                active_entry_id: "config-b",
-                active_entry_content_hash: HASH_B,
-              },
+              activation: activation(2, "config-b", HASH_B),
             }),
       ),
     );
@@ -48,9 +44,9 @@ describe("config registry reads", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/config-registry");
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/config-registry/activations");
     expect(overview.entries.map((entry) => entry.id)).toEqual(["config-b", "config-a"]);
-    expect(overview.active_state).toMatchObject({
-      active_entry_id: "config-b",
-      active_entry_content_hash: HASH_B,
+    expect(overview.activation).toMatchObject({
+      entry_id: "config-b",
+      entry_content_hash: HASH_B,
       generation: 2,
     });
     expect(overview.activation_history.map((item) => item.generation)).toEqual([2, 1]);
@@ -63,14 +59,14 @@ describe("config registry reads", () => {
         Promise.resolve(
           String(input).endsWith("/activations")
             ? jsonResponse({ items: [] })
-            : jsonResponse({ entries: [], active_state: null }),
+            : jsonResponse({ entries: [], activation: null }),
         ),
       ),
     );
 
     await expect(getConfigRegistry()).resolves.toEqual({
       entries: [],
-      active_state: null,
+      activation: null,
       activation_history: [],
     });
   });
@@ -203,11 +199,6 @@ describe("typed config drafts", () => {
     };
     const defaultReceipt = {
       ...registrationReceipt,
-      active_state: {
-        generation: 4,
-        active_entry_id: "config-a-edit",
-        active_entry_content_hash: HASH_B,
-      },
       activation: activationRecord,
     };
     const fetchMock = vi

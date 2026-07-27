@@ -72,11 +72,7 @@ describe("RunProposals", () => {
     });
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(older, latest));
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 3,
-        active_entry_id: "baseline",
-        active_entry_content_hash: "sha256:base",
-      },
+      activation: configActivation(),
       activation_history: [],
       entries: [],
     });
@@ -112,11 +108,7 @@ describe("RunProposals", () => {
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
     vi.mocked(approveParameterProposal).mockResolvedValue();
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 3,
-        active_entry_id: "baseline",
-        active_entry_content_hash: "sha256:base",
-      },
+      activation: configActivation(),
       activation_history: [],
       entries: [],
     });
@@ -142,6 +134,19 @@ describe("RunProposals", () => {
     });
   });
 });
+
+function configActivation() {
+  return {
+    id: "activation-3",
+    generation: 3,
+    action: "activation" as const,
+    entry_id: "baseline",
+    entry_content_hash: "sha256:base",
+    operator: "Ada",
+    note: "",
+    recorded_at: "2026-07-24T08:00:00Z",
+  };
+}
 
 function renderProposals() {
   const queryClient = new QueryClient({

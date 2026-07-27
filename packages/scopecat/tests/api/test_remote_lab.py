@@ -17,7 +17,6 @@ from scopecat.api.lab import LabClient
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
     ManualConfigDraftRegistrySource,
@@ -240,7 +239,7 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
 def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> None:
     active_config = load_config()
     stale_config = active_config.model_copy(update={"id": "stale-config"})
-    entry, state, _activation = _config_registry_records(active_config)
+    entry, activation = _config_registry_records(active_config)
     requests: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -249,7 +248,7 @@ def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> 
         return _model(
             ActiveConfigView(
                 entry=entry,
-                active_state=state,
+                activation=activation,
                 config=active_config,
             )
         )
@@ -267,11 +266,11 @@ def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> 
 
 def test_lab_client_owns_local_config_draft_workflow() -> None:
     config = load_config()
-    entry, state, _activation = _config_registry_records(config)
+    entry, activation = _config_registry_records(config)
     preview = _config_draft_preview(
         config=config,
         entry=entry,
-        state=state,
+        activation=activation,
         candidate_id="notebook-tuning",
     )
     defaults: list[ConfigDraftDefaultCommand] = []
@@ -279,10 +278,10 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path == "/api/v1/config-registry":
-            return _model(ConfigRegistryView(entries=(entry,), active_state=state))
+            return _model(ConfigRegistryView(entries=(entry,), activation=activation))
         if path == "/api/v1/config-registry/active" and request.method == "GET":
             return _model(
-                ActiveConfigView(entry=entry, active_state=state, config=config)
+                ActiveConfigView(entry=entry, activation=activation, config=config)
             )
         if path == "/api/v1/config-registry/drafts/preview":
             return _model(preview)
@@ -290,7 +289,7 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
             command = ConfigDraftDefaultCommand.model_validate_json(request.content)
             defaults.append(command)
             return _model(
-                _config_draft_default_receipt(command, preview, state),
+                _config_draft_default_receipt(command, preview, activation),
             )
         raise AssertionError(f"unexpected request: {request.method} {path}")
 
@@ -316,16 +315,16 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
 
 def test_lab_config_intents_hide_registry_coordination() -> None:
     config = load_config()
-    entry, state, activation = _config_registry_records(config)
+    entry, activation = _config_registry_records(config)
     seen: list[DirectConfigDefaultCommand | ConfigRollbackCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path == "/api/v1/config-registry":
-            return _model(ConfigRegistryView(entries=(entry,), active_state=state))
+            return _model(ConfigRegistryView(entries=(entry,), activation=activation))
         if path == "/api/v1/config-registry/active" and request.method == "GET":
             return _model(
-                ActiveConfigView(entry=entry, active_state=state, config=config)
+                ActiveConfigView(entry=entry, activation=activation, config=config)
             )
         if path == "/api/v1/config-registry/default":
             command = DirectConfigDefaultCommand.model_validate_json(request.content)
@@ -333,7 +332,6 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             return _model(
                 ConfigDefaultReceipt(
                     entry=entry,
-                    active_state=state,
                     activation=activation,
                 )
             )
@@ -342,7 +340,6 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             seen.append(command)
             return _model(
                 ConfigActivationReceipt(
-                    active_state=state,
                     activation=activation,
                 )
             )
@@ -354,19 +351,18 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
     undo_receipt = lab.config.undo(note="restore prior values")
 
     assert set_receipt.entry == entry
-    assert undo_receipt.active_state == state
+    assert undo_receipt.activation == activation
     assert seen == [
         DirectConfigDefaultCommand(
             entry_id=config_revision_entry_id(config),
             config=config,
             registered_by="notebook-operator",
             operator="notebook-operator",
-            expected_generation=state.generation,
             note="use tuned values",
         ),
         ConfigRollbackCommand(
             operator="notebook-operator",
-            expected_generation=state.generation,
+            expected_generation=activation.generation,
             note="restore prior values",
         ),
     ]
@@ -439,7 +435,7 @@ def test_run_scratch_uses_active_config_and_bound_system(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
-    entry, state, _activation = _config_registry_records(config)
+    entry, activation = _config_registry_records(config)
     provider = TestSignalInstrumentProvider()
     system = ExperimentSystem(provider=provider)
     captured: dict[str, object] = {}
@@ -447,7 +443,9 @@ def test_run_scratch_uses_active_config_and_bound_system(
 
     def handler(http_request: httpx2.Request) -> httpx2.Response:
         assert http_request.url.path == "/api/v1/config-registry/active"
-        return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
+        return _model(
+            ActiveConfigView(entry=entry, activation=activation, config=config)
+        )
 
     def execute_run(
         self: _DaemonRunner,
@@ -503,12 +501,14 @@ def test_run_scratch_requires_an_explicit_or_bound_system() -> None:
 
 def test_preview_scratch_uses_active_config_without_admission() -> None:
     config = load_config()
-    entry, state, _activation = _config_registry_records(config)
+    entry, activation = _config_registry_records(config)
     requests: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
+        return _model(
+            ActiveConfigView(entry=entry, activation=activation, config=config)
+        )
 
     preview = _DaemonRunner(
         _client(handler),
@@ -544,7 +544,6 @@ def _config_registry_records(
     config: ConfigProfileSnapshot,
 ) -> tuple[
     ConfigRegistryEntry,
-    ConfigRegistryActiveState,
     ConfigRegistryActivationRecord,
 ]:
     entry = ConfigRegistryEntry(
@@ -564,20 +563,14 @@ def _config_registry_records(
         operator="operator",
         recorded_at=_NOW,
     )
-    state = ConfigRegistryActiveState(
-        generation=1,
-        active_entry_id=entry.id,
-        active_entry_content_hash=entry.content_hash,
-        updated_at=_NOW,
-    )
-    return entry, state, activation
+    return entry, activation
 
 
 def _config_draft_preview(
     *,
     config: ConfigProfileSnapshot,
     entry: ConfigRegistryEntry,
-    state: ConfigRegistryActiveState,
+    activation: ConfigRegistryActivationRecord,
     candidate_id: str,
 ) -> ConfigDraftPreview:
     check = (
@@ -592,7 +585,7 @@ def _config_draft_preview(
     return ConfigDraftPreview(
         valid=True,
         base_entry=entry,
-        base_generation=state.generation,
+        base_generation=activation.generation,
         base_content_hash=entry.content_hash,
         config=check.candidate,
         result_content_hash=config_content_hash(check.candidate),
@@ -627,7 +620,7 @@ def _config_draft_registration_receipt(
 def _config_draft_default_receipt(
     command: ConfigDraftDefaultCommand,
     preview: ConfigDraftPreview,
-    previous_state: ConfigRegistryActiveState,
+    previous_activation: ConfigRegistryActivationRecord,
 ) -> ConfigDraftDefaultReceipt:
     registration = _config_draft_registration_receipt(
         command.registration,
@@ -635,27 +628,20 @@ def _config_draft_default_receipt(
     )
     activation = ConfigRegistryActivationRecord(
         id="activation-2",
-        generation=previous_state.generation + 1,
+        generation=previous_activation.generation + 1,
         action="activation",
         entry_id=registration.entry.id,
         entry_content_hash=registration.entry.content_hash,
-        previous_entry_id=previous_state.active_entry_id,
-        previous_entry_content_hash=previous_state.active_entry_content_hash,
+        previous_entry_id=previous_activation.entry_id,
+        previous_entry_content_hash=previous_activation.entry_content_hash,
         operator=command.operator,
         note=command.activation_note or command.registration.note,
         recorded_at=_NOW + timedelta(seconds=1),
-    )
-    state = ConfigRegistryActiveState(
-        generation=activation.generation,
-        active_entry_id=activation.entry_id,
-        active_entry_content_hash=activation.entry_content_hash,
-        updated_at=activation.recorded_at,
     )
     return ConfigDraftDefaultReceipt(
         entry=registration.entry,
         result_content_hash=registration.result_content_hash,
         deltas=registration.deltas,
-        active_state=state,
         activation=activation,
     )
 

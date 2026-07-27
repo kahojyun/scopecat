@@ -94,6 +94,6 @@ def test_drag_beta_candidate_accept_and_undo_round_trip_through_shared_daemon(
     assert candidate.parameter_proposal == proposal
     assert proposals.items[0].approval is not None
     assert proposals.items[0].approval.actor == "operator"
-    assert registry.active_state == restored.active_state
-    assert registry.active_state is not None
-    assert registry.active_state.active_entry_id != accepted.entry.id
+    assert registry.activation == restored.activation
+    assert registry.activation is not None
+    assert registry.activation.entry_id != accepted.entry.id

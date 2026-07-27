@@ -101,7 +101,7 @@ class LabConfigOperations:
                     entry_id=active.entry.id,
                     config_ref=active.entry.config_ref,
                     content_hash=active.entry.content_hash,
-                    registry_generation=active.active_state.generation,
+                    registry_generation=active.activation.generation,
                 ),
             )
         if isinstance(selected, str):
@@ -161,7 +161,7 @@ class LabConfigOperations:
             ConfigDraftCommand(
                 base_entry_id=active.entry.id,
                 base_content_hash=active.entry.content_hash,
-                base_generation=active.active_state.generation,
+                base_generation=active.activation.generation,
                 candidate_id=candidate_id or f"{active.config.id}.draft",
                 updates=draft.updates,
             )
@@ -272,7 +272,6 @@ class LabConfigOperations:
                 config=config,
                 registered_by=selected_registered_by,
                 operator=selected_operator,
-                expected_generation=self._generation(),
                 note=note,
             )
         )
@@ -415,8 +414,8 @@ class LabConfigOperations:
         )
 
     def _generation(self) -> int:
-        state = self.registry().active_state
-        return 0 if state is None else state.generation
+        activation = self.registry().activation
+        return 0 if activation is None else activation.generation
 
 
 def _reviewed_draft_command(

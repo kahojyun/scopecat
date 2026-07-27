@@ -15,8 +15,8 @@ interface ProjectDaemon {
 }
 
 interface ConfigRegistryView {
-  active_state: {
-    active_entry_id: string;
+  activation: {
+    entry_id: string;
     generation: number;
   };
 }
@@ -225,7 +225,7 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
 
   const initialRegistry = await readRegistry(page, daemon.baseUrl);
   const initialHistory = await readActivationHistory(page, daemon.baseUrl);
-  const initialEntryId = initialRegistry.active_state.active_entry_id;
+  const initialEntryId = initialRegistry.activation.entry_id;
   await expect(page.getByTestId("active-config-entry")).toHaveText(initialEntryId);
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
 
@@ -246,8 +246,8 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   await expect(page.locator(".parameter-atom")).toHaveText("256");
   const editedRegistry = await readRegistry(page, daemon.baseUrl);
   const editedHistory = await readActivationHistory(page, daemon.baseUrl);
-  expect(editedRegistry.active_state.active_entry_id).not.toBe(initialEntryId);
-  expect(editedRegistry.active_state.generation).toBe(initialRegistry.active_state.generation + 1);
+  expect(editedRegistry.activation.entry_id).not.toBe(initialEntryId);
+  expect(editedRegistry.activation.generation).toBe(initialRegistry.activation.generation + 1);
   expect(editedHistory.items).toHaveLength(initialHistory.items.length + 1);
 
   const rollbackResponse = page.waitForResponse(
@@ -266,10 +266,8 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   await expect(page.getByText("Runtime-derived default")).toHaveCount(0);
   const rolledBackRegistry = await readRegistry(page, daemon.baseUrl);
   const rolledBackHistory = await readActivationHistory(page, daemon.baseUrl);
-  expect(rolledBackRegistry.active_state.active_entry_id).toBe(initialEntryId);
-  expect(rolledBackRegistry.active_state.generation).toBe(
-    editedRegistry.active_state.generation + 1,
-  );
+  expect(rolledBackRegistry.activation.entry_id).toBe(initialEntryId);
+  expect(rolledBackRegistry.activation.generation).toBe(editedRegistry.activation.generation + 1);
   expect(rolledBackHistory.items).toHaveLength(editedHistory.items.length + 1);
 });
 
@@ -297,12 +295,8 @@ test("accepts a notebook candidate in the GUI and preserves its provenance", asy
   await expect(proposals.getByRole("button", { name: "Default set" })).toBeVisible();
 
   const acceptedRegistry = await readRegistry(page, daemon.baseUrl);
-  expect(acceptedRegistry.active_state.active_entry_id).not.toBe(
-    initialRegistry.active_state.active_entry_id,
-  );
-  expect(acceptedRegistry.active_state.generation).toBe(
-    initialRegistry.active_state.generation + 1,
-  );
+  expect(acceptedRegistry.activation.entry_id).not.toBe(initialRegistry.activation.entry_id);
+  expect(acceptedRegistry.activation.generation).toBe(initialRegistry.activation.generation + 1);
 
   await page.getByRole("button", { name: "Configuration" }).click();
   await expect(page.getByText("Runtime-derived default")).toBeVisible();
@@ -328,7 +322,7 @@ test("accepts a notebook candidate in the GUI and preserves its provenance", asy
     .click();
   await expectResponseOk(await rollbackResponse, "POST");
   await expect(page.getByTestId("active-config-entry")).toHaveText(
-    initialRegistry.active_state.active_entry_id,
+    initialRegistry.activation.entry_id,
   );
 });
 

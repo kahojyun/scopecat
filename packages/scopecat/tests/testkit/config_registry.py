@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from scopecat.analysis.service import AnalysisOutput, save_analysis
@@ -13,12 +12,9 @@ from scopecat.config.changes import (
 )
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
-from scopecat.config.registry.records import (
-    ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
-    ConfigRegistryEntry,
-)
+from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.config.registry.service import (
+    ConfigRegistryMutationResult,
     _register_candidate_config_locked,
     _validate_entry_id,
     _validate_required_text,
@@ -35,13 +31,6 @@ from scopecat.records.parameter_change import (
 from tests.testkit.runtime import sqlite_project_services
 from tests.testkit.signal_testkit import execute_signal_run
 from tests.testkit.workflow_fixtures import load_invocation
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateActivation:
-    entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
-    activation: ConfigRegistryActivationRecord
 
 
 def load_config() -> ConfigProfileSnapshot:
@@ -95,7 +84,7 @@ def register_candidate_config(
             run_id=run_id,
             proposal_id=proposal_id,
             note=note,
-        )
+        ).entry
 
 
 def activate_candidate_config(
@@ -108,13 +97,13 @@ def activate_candidate_config(
     note: str = "",
     activation_note: str | None = None,
     expected_generation: int | None = None,
-) -> CandidateActivation:
+) -> ConfigRegistryMutationResult:
     generation = (
         current_config_registry_generation(unit_of_work=services.config_registry)
         if expected_generation is None
         else expected_generation
     )
-    entry, active_state, activation = register_and_activate_candidate_config(
+    return register_and_activate_candidate_config(
         unit_of_work=services.config_registry,
         entry_id=entry_id,
         registered_by=registered_by,
@@ -124,11 +113,6 @@ def activate_candidate_config(
         expected_generation=generation,
         note=note,
         activation_note=activation_note,
-    )
-    return CandidateActivation(
-        entry=entry,
-        active_state=active_state,
-        activation=activation,
     )
 
 

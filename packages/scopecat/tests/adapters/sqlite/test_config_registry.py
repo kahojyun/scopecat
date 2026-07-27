@@ -14,8 +14,8 @@ from scopecat.config.registry.service import (
     activate_config_registry_entry,
     current_config_registry_generation,
     list_config_registry_entries,
+    load_active_config_registry_activation,
     load_active_config_registry_snapshot,
-    load_active_config_registry_state,
     load_config_registry_entry_snapshot,
     load_config_registry_snapshot,
     register_and_activate_config_profile,
@@ -47,14 +47,14 @@ def test_registration_is_idempotent_and_round_trips(tmp_path: Path) -> None:
         entry_id="contract-entry",
         registered_by="contract",
         note="same request",
-    )
+    ).entry
     repeated = register_config_profile(
         config=config.model_copy(deep=True),
         unit_of_work=unit_of_work,
         entry_id="contract-entry",
         registered_by="contract",
         note="same request",
-    )
+    ).entry
 
     assert repeated == first
     assert (
@@ -92,7 +92,7 @@ def test_activation_uses_generation_cas_and_resolves_source(
 ) -> None:
     unit_of_work = _store(tmp_path).unit_of_work
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    entry, state, _activation = register_and_activate_config_profile(
+    result = register_and_activate_config_profile(
         config=config,
         unit_of_work=unit_of_work,
         entry_id="contract-active",
@@ -100,10 +100,15 @@ def test_activation_uses_generation_cas_and_resolves_source(
         operator="contract",
         expected_generation=0,
     )
+    entry = result.entry
+    activation = result.activation
+    assert activation is not None
 
-    assert state.generation == 1
+    assert activation.generation == 1
     assert current_config_registry_generation(unit_of_work=unit_of_work) == 1
-    assert load_active_config_registry_state(unit_of_work=unit_of_work) == state
+    assert (
+        load_active_config_registry_activation(unit_of_work=unit_of_work) == activation
+    )
     resolved, source = resolve_config_registry_config_source(
         selector="active",
         unit_of_work=unit_of_work,
@@ -221,7 +226,7 @@ def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
         unit_of_work=counted_unit_of_work,
     )
     assert opens == 1
-    assert registry.active_state == active.active_state
+    assert registry.activation == active.activation
     assert active.entry == entry.entry
     assert active.config == entry.config
 
@@ -309,7 +314,7 @@ def test_rollback_persists_contiguous_activation_generations(
 ) -> None:
     store = _store(tmp_path)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    first, _, _ = register_and_activate_config_profile(
+    first = register_and_activate_config_profile(
         config=config,
         unit_of_work=store.unit_of_work,
         entry_id="first",
@@ -326,14 +331,16 @@ def test_rollback_persists_contiguous_activation_generations(
         expected_generation=1,
     )
 
-    state, record = rollback_config_registry(
+    rollback = rollback_config_registry(
         unit_of_work=store.unit_of_work,
         operator="test",
         expected_generation=2,
     )
 
-    assert state.generation == 3
-    assert state.active_entry_id == first.id
+    record = rollback.activation
+    assert record is not None
+    assert record.generation == 3
+    assert record.entry_id == first.entry.id
     assert record.action == "rollback"
     with sqlite3.connect(store.database) as connection:
         generations = [

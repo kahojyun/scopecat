@@ -72,7 +72,7 @@ class ConfigService:
             )
             return ConfigRegistryView(
                 entries=snapshot.entries,
-                active_state=snapshot.active_state,
+                activation=snapshot.activation,
             )
 
     def get_config_activation_history(self) -> ConfigActivationHistoryView:
@@ -90,7 +90,7 @@ class ConfigService:
             )
             return ActiveConfigView(
                 entry=snapshot.entry,
-                active_state=snapshot.active_state,
+                activation=snapshot.activation,
                 config=snapshot.config,
             )
 
@@ -111,19 +111,16 @@ class ConfigService:
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            existing_entries = config_registry_service.list_config_registry_entries(
-                unit_of_work=services.config_registry
-            )
-            existing_ids = {entry.id for entry in existing_entries}
             config = validate_config_profile(command.config)
-            entry = config_registry_service.register_config_profile(
+            result = config_registry_service.register_config_profile(
                 config=config,
                 unit_of_work=services.config_registry,
                 entry_id=command.entry_id,
                 registered_by=command.registered_by,
                 note=command.note,
             )
-            if entry.id not in existing_ids:
+            entry = result.entry
+            if result.registered:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
@@ -143,83 +140,19 @@ class ConfigService:
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            existing_entries = config_registry_service.list_config_registry_entries(
-                unit_of_work=services.config_registry
-            )
-            existing_ids = {entry.id for entry in existing_entries}
-            previous_generation = (
-                config_registry_service.current_config_registry_generation(
-                    unit_of_work=services.config_registry
-                )
-            )
             config = validate_config_profile(command.config)
-            if previous_generation > 0 and config_content_hash(
-                config_registry_service.load_active_config_registry_config(
-                    unit_of_work=services.config_registry
-                )
-            ) == config_content_hash(config):
-                state = config_registry_service.load_active_config_registry_state(
-                    unit_of_work=services.config_registry
-                )
-                entry = config_registry_service.load_active_config_registry_entry(
-                    unit_of_work=services.config_registry
-                )
-                history = (
-                    config_registry_service.load_config_registry_activation_history(
-                        unit_of_work=services.config_registry
-                    )
-                )
-                return ConfigDefaultReceipt(
-                    entry=entry,
-                    active_state=state,
-                    activation=history[-1],
-                )
-            reusable = next(
-                (
-                    entry
-                    for entry in reversed(existing_entries)
-                    if entry.content_hash == config_content_hash(config)
-                ),
-                None,
+            result = config_registry_service.register_and_activate_config_profile(
+                config=config,
+                unit_of_work=services.config_registry,
+                entry_id=command.entry_id,
+                registered_by=command.registered_by,
+                operator=command.operator,
+                note=command.note,
             )
-            if reusable is not None:
-                state, activation = (
-                    config_registry_service.activate_config_registry_entry(
-                        entry_id=reusable.id,
-                        unit_of_work=services.config_registry,
-                        operator=command.operator,
-                        expected_generation=command.expected_generation,
-                        note=command.note,
-                    )
-                )
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_activated",
-                        payload={
-                            "entry_id": reusable.id,
-                            "generation": state.generation,
-                        },
-                        occurred_at=activation.recorded_at,
-                    ),
-                )
-                return ConfigDefaultReceipt(
-                    entry=reusable,
-                    active_state=state,
-                    activation=activation,
-                )
-            entry, state, activation = (
-                config_registry_service.register_and_activate_config_profile(
-                    config=config,
-                    unit_of_work=services.config_registry,
-                    entry_id=command.entry_id,
-                    registered_by=command.registered_by,
-                    operator=command.operator,
-                    expected_generation=command.expected_generation,
-                    note=command.note,
-                )
-            )
-            if entry.id not in existing_ids:
+            entry = result.entry
+            activation = result.activation
+            assert activation is not None
+            if result.registered:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
@@ -228,21 +161,20 @@ class ConfigService:
                         occurred_at=entry.registered_at,
                     ),
                 )
-            if state.generation != previous_generation:
+            if result.activated:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
                         kind="config_activated",
                         payload={
                             "entry_id": entry.id,
-                            "generation": state.generation,
+                            "generation": activation.generation,
                         },
                         occurred_at=activation.recorded_at,
                     ),
                 )
             return ConfigDefaultReceipt(
                 entry=entry,
-                active_state=state,
                 activation=activation,
             )
 
@@ -282,14 +214,8 @@ class ConfigService:
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            existing_ids = {
-                entry.id
-                for entry in config_registry_service.list_config_registry_entries(
-                    unit_of_work=services.config_registry
-                )
-            }
             draft = command.draft
-            entry, result = config_registry_service.register_manual_config_draft(
+            mutation, result = config_registry_service.register_manual_config_draft(
                 unit_of_work=services.config_registry,
                 base_entry_id=draft.base_entry_id,
                 base_config_content_hash=draft.base_content_hash,
@@ -301,7 +227,8 @@ class ConfigService:
                 registered_by=command.registered_by,
                 note=command.note,
             )
-            if entry.id not in existing_ids:
+            entry = mutation.entry
+            if mutation.registered:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
@@ -328,20 +255,9 @@ class ConfigService:
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            existing_ids = {
-                entry.id
-                for entry in config_registry_service.list_config_registry_entries(
-                    unit_of_work=services.config_registry
-                )
-            }
-            previous_generation = (
-                config_registry_service.current_config_registry_generation(
-                    unit_of_work=services.config_registry
-                )
-            )
             registration = command.registration
             draft = registration.draft
-            entry, result, state, activation = (
+            mutation, result = (
                 config_registry_service.register_and_activate_manual_config_draft(
                     unit_of_work=services.config_registry,
                     base_entry_id=draft.base_entry_id,
@@ -359,7 +275,10 @@ class ConfigService:
                     activation_note=command.activation_note,
                 )
             )
-            if entry.id not in existing_ids:
+            entry = mutation.entry
+            activation = mutation.activation
+            assert activation is not None
+            if mutation.registered:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
@@ -371,14 +290,14 @@ class ConfigService:
                         occurred_at=entry.registered_at,
                     ),
                 )
-            if state.generation != previous_generation:
+            if mutation.activated:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
                         kind="config_activated",
                         payload={
                             "entry_id": entry.id,
-                            "generation": state.generation,
+                            "generation": activation.generation,
                         },
                         occurred_at=activation.recorded_at,
                     ),
@@ -387,7 +306,6 @@ class ConfigService:
                 entry=entry,
                 result_content_hash=entry.content_hash,
                 deltas=result.check.deltas,
-                active_state=state,
                 activation=activation,
             )
 
@@ -400,19 +318,16 @@ class ConfigService:
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            previous_generation = (
-                config_registry_service.current_config_registry_generation(
-                    unit_of_work=services.config_registry
-                )
-            )
-            state, activation = config_registry_service.activate_config_registry_entry(
+            result = config_registry_service.activate_config_registry_entry(
                 entry_id=command.entry_id,
                 unit_of_work=services.config_registry,
                 operator=command.operator,
                 expected_generation=command.expected_generation,
                 note=command.note,
             )
-            if state.generation != previous_generation:
+            activation = result.activation
+            assert activation is not None
+            if result.activated:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
@@ -425,7 +340,6 @@ class ConfigService:
                     ),
                 )
             return ConfigActivationReceipt(
-                active_state=state,
                 activation=activation,
             )
 
@@ -438,18 +352,15 @@ class ConfigService:
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            previous_generation = (
-                config_registry_service.current_config_registry_generation(
-                    unit_of_work=services.config_registry
-                )
-            )
-            state, activation = config_registry_service.rollback_config_registry(
+            result = config_registry_service.rollback_config_registry(
                 unit_of_work=services.config_registry,
                 operator=command.operator,
                 expected_generation=command.expected_generation,
                 note=command.note,
             )
-            if state.generation != previous_generation:
+            activation = result.activation
+            assert activation is not None
+            if result.activated:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
@@ -462,7 +373,6 @@ class ConfigService:
                     ),
                 )
             return ConfigActivationReceipt(
-                active_state=state,
                 activation=activation,
             )
 
@@ -475,25 +385,21 @@ class ConfigService:
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            previous_generation = (
-                config_registry_service.current_config_registry_generation(
-                    unit_of_work=services.config_registry
-                )
+            result = config_registry_service.register_and_activate_candidate_config(
+                unit_of_work=services.config_registry,
+                entry_id=command.entry_id,
+                registered_by=command.registered_by,
+                run_id=command.run_id,
+                proposal_id=command.proposal_id,
+                operator=command.operator,
+                expected_generation=command.expected_generation,
+                note=command.note,
+                activation_note=command.activation_note,
             )
-            entry, active_state, activation = (
-                config_registry_service.register_and_activate_candidate_config(
-                    unit_of_work=services.config_registry,
-                    entry_id=command.entry_id,
-                    registered_by=command.registered_by,
-                    run_id=command.run_id,
-                    proposal_id=command.proposal_id,
-                    operator=command.operator,
-                    expected_generation=command.expected_generation,
-                    note=command.note,
-                    activation_note=command.activation_note,
-                )
-            )
-            if active_state.generation != previous_generation:
+            entry = result.entry
+            activation = result.activation
+            assert activation is not None
+            if result.activated:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
@@ -501,7 +407,7 @@ class ConfigService:
                         kind="config_activated",
                         payload={
                             "entry_id": entry.id,
-                            "generation": active_state.generation,
+                            "generation": activation.generation,
                             "source_run_id": command.run_id,
                             "proposal_id": command.proposal_id,
                         },
@@ -510,7 +416,6 @@ class ConfigService:
                 )
             return CandidateConfigActivationReceipt(
                 entry=entry,
-                active_state=active_state,
                 activation=activation,
             )
 

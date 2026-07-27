@@ -75,6 +75,7 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
         entry_id="drag-beta-baseline",
         expected_generation=0,
     )
+    assert baseline.activation is not None
     approval = lab.review_parameter_proposal(
         source_run,
         proposal.id,
@@ -83,9 +84,10 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
     activated = lab.activate(
         candidate,
         entry_id="drag-beta-q0",
-        expected_generation=baseline.active_state.generation,
+        expected_generation=baseline.activation.generation,
         activation_note="use reviewed DRAG beta",
     )
+    assert activated.activation is not None
 
     assert saved.record.id == "analysis-drag-beta-calibration"
     assert saved.inputs[0].kind == "measurement_dataset"
@@ -106,9 +108,10 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
     )
 
     restored = lab.rollback(
-        expected_generation=activated.active_state.generation,
+        expected_generation=activated.activation.generation,
         note="restore baseline",
     )
+    assert restored.activation is not None
     restored_preview = lab.prepare(drag_beta_template, config="active").preview()
     restored_betas = sorted(
         {

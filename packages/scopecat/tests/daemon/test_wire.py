@@ -9,7 +9,6 @@ from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
 )
@@ -82,19 +81,11 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         entry_content_hash=entry.content_hash,
         operator="operator",
     )
-    state = ConfigRegistryActiveState(
-        generation=1,
-        active_entry_id=entry.id,
-        active_entry_content_hash=entry.content_hash,
-        updated_at=activation.recorded_at,
-    )
     activated = ConfigActivationReceipt(
-        active_state=state,
         activation=activation,
     )
     defaulted = ConfigDefaultReceipt(
         entry=entry,
-        active_state=state,
         activation=activation,
     )
     import_command = DirectConfigImportCommand(
@@ -116,7 +107,6 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         config=config,
         registered_by="notebook",
         operator="operator",
-        expected_generation=0,
     )
 
     assert (

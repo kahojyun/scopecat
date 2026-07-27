@@ -152,7 +152,7 @@ class _DaemonRunner:
                 entry_id=active.entry.id,
                 config_ref=active.entry.config_ref,
                 content_hash=active.entry.content_hash,
-                registry_generation=active.active_state.generation,
+                registry_generation=active.activation.generation,
             )
         else:
             selected_config = config

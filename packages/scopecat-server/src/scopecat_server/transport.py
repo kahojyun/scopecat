@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Protocol, override
+from typing import Annotated, override
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -77,6 +77,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import Scope
 
+from .application import DaemonApplication
 from .errors import BackendConflict, BackendNotFound
 
 _API_PREFIX = "/api/v1"
@@ -84,187 +85,8 @@ _SSE_PAGE_SIZE = 100
 _SSE_POLL_SECONDS = 0.5
 
 
-class ConfigOperations(Protocol):
-    def get_config_registry(self) -> ConfigRegistryView: ...
-    def get_config_activation_history(self) -> ConfigActivationHistoryView: ...
-    def get_active_config(self) -> ActiveConfigView: ...
-    def get_config_entry(self, entry_id: str) -> ConfigEntryView: ...
-    def import_direct_config(
-        self,
-        command: DirectConfigImportCommand,
-    ) -> ConfigRegistryEntry: ...
-    def set_direct_config_default(
-        self,
-        command: DirectConfigDefaultCommand,
-    ) -> ConfigDefaultReceipt: ...
-    def preview_config_draft(
-        self,
-        command: ConfigDraftCommand,
-    ) -> ConfigDraftPreview: ...
-    def register_config_draft(
-        self,
-        command: ConfigDraftRegistrationCommand,
-    ) -> ConfigDraftRegistrationReceipt: ...
-    def set_config_draft_default(
-        self,
-        command: ConfigDraftDefaultCommand,
-    ) -> ConfigDraftDefaultReceipt: ...
-    def activate_config_entry(
-        self,
-        command: ConfigEntryActivationCommand,
-    ) -> ConfigActivationReceipt: ...
-    def rollback_config(
-        self,
-        command: ConfigRollbackCommand,
-    ) -> ConfigActivationReceipt: ...
-    def activate_candidate_config(
-        self,
-        command: CandidateConfigActivationCommand,
-    ) -> CandidateConfigActivationReceipt: ...
-
-
-class RunOperations(Protocol):
-    def list_runs(
-        self,
-        *,
-        limit: int,
-        after: int | None,
-        before: int | None,
-        state: ControlRunState | None,
-        latest: bool,
-    ) -> RunSummaryPage: ...
-    def get_run(self, run_id: str) -> RunDetail: ...
-    def get_run_config(self, run_id: str) -> RunConfigView: ...
-    def get_run_request(self, run_id: str) -> RunRequestView: ...
-    def list_run_analyses(self, run_id: str) -> RunAnalysisListView: ...
-    def get_run_analysis(self, run_id: str, selector: str) -> RunAnalysisView: ...
-    def save_run_analysis(
-        self,
-        run_id: str,
-        command: AnalysisSaveCommand,
-    ) -> AnalysisSaveReceipt: ...
-    def get_run_artifact_bytes(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactBytesView: ...
-    def get_run_artifact_text(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactTextResult: ...
-    def get_run_artifact_json(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactJsonResult: ...
-    def get_run_record_json(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunRecordJsonResult: ...
-    def get_run_dataset_content(
-        self,
-        run_id: str,
-        selector: str,
-    ) -> RunMeasurementDatasetResult: ...
-    def attach_run_content(
-        self,
-        run_id: str,
-        command: RunAttachmentCommand,
-    ) -> RunContentEntry: ...
-    def list_parameter_proposals(
-        self,
-        run_id: str,
-    ) -> ParameterProposalListView: ...
-    def approve_parameter_proposal(
-        self,
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalApprovalCommand,
-    ) -> ParameterChangeApprovalRecord: ...
-    def measurements(
-        self,
-        run_id: str,
-        *,
-        limit: int,
-        offset: int,
-    ) -> MeasurementPage: ...
-    def list_events(
-        self,
-        *,
-        limit: int,
-        after: int | None,
-        run_id: str | None,
-        latest: bool,
-    ) -> EventPage: ...
-
-
-class ExecutorOperations(Protocol):
-    def start_executor(
-        self,
-        run_id: str,
-        request: ExecutorStartRequest,
-    ) -> ExecutorLease: ...
-    def heartbeat_executor(
-        self,
-        run_id: str,
-        heartbeat: ExecutorHeartbeat,
-    ) -> ExecutorLease: ...
-    def append_transition(
-        self,
-        run_id: str,
-        command: ExecutionTransitionAppend,
-    ) -> ExecutionTransition: ...
-    def append_measurements(
-        self,
-        run_id: str,
-        command: MeasurementAppendCommand,
-    ) -> MeasurementDatasetReceipt: ...
-    def seal_measurements(
-        self,
-        run_id: str,
-        command: MeasurementSealCommand,
-    ) -> MeasurementDatasetReceipt: ...
-    def commit_terminal(
-        self,
-        run_id: str,
-        command: TerminalRunCommitCommand,
-    ) -> RunManifest: ...
-
-
-class DaemonApplicationContract(Protocol):
-    """Transport-facing composition of narrow application services."""
-
-    @property
-    def config(self) -> ConfigOperations: ...
-
-    @property
-    def runs(self) -> RunOperations: ...
-
-    @property
-    def executor(self) -> ExecutorOperations: ...
-
-    def health(self) -> DaemonHealth: ...
-
-    def submit_run(self, submission: RunSubmission) -> RunAdmission: ...
-
-    def resolve_attention(
-        self,
-        run_id: str,
-    ) -> AttentionResolutionReceipt: ...
-
-
 def create_app(  # noqa: C901 - route registration is intentionally centralized
-    application: DaemonApplicationContract,
+    application: DaemonApplication,
     static_dir: str | Path | None = None,
 ) -> FastAPI:
     """Create transport routes around an already-composed daemon application."""
@@ -612,7 +434,7 @@ def _install_error_mapping(app: FastAPI) -> None:
 
 
 async def _event_stream(
-    application: DaemonApplicationContract,
+    application: DaemonApplication,
     request: Request,
     *,
     after: int | None,

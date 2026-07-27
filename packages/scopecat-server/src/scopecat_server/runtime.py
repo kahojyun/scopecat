@@ -172,7 +172,6 @@ def _bootstrap_config_registry(
             config=validated,
             registered_by="scopecat",
             operator="scopecat",
-            expected_generation=0,
             note="imported while bootstrapping a new lab instance",
         )
     )

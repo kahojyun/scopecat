@@ -31,7 +31,7 @@ from scopecat_server import (
     DaemonHealth,
     create_app,
 )
-from scopecat_server.transport import DaemonApplicationContract
+from scopecat_server.application import DaemonApplication
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 _HASH = f"sha256:{'a' * 64}"
@@ -132,7 +132,7 @@ def _create_test_app(
 ) -> FastAPI:
     # Each test supplies only the service methods reachable through its route.
     return create_app(
-        cast("DaemonApplicationContract", cast("object", backend)),
+        cast("DaemonApplication", cast("object", backend)),
         static_dir=static_dir,
     )
 

@@ -68,6 +68,6 @@ def test_drag_beta_first_use_closes_config_provenance_loop(
     assert default_source.entry_id == accepted.entry.id
     assert proposals.items[0].approval is not None
     assert proposals.items[0].approval.actor == "operator"
-    assert registry.active_state is not None
-    assert registry.active_state == restored.active_state
-    assert registry.active_state.active_entry_id != accepted.entry.id
+    assert registry.activation is not None
+    assert registry.activation == restored.activation
+    assert registry.activation.entry_id != accepted.entry.id

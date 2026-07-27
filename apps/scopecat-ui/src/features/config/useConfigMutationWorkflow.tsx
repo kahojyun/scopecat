@@ -30,7 +30,7 @@ export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
   const [importDraft, setImportDraft] = useState<ImportDraft>();
   const [importError, setImportError] = useState<string>();
   const { requestConfirmation, confirmationDialog } = useConfirmationDialog();
-  const generation = overview?.active_state?.generation ?? 0;
+  const generation = overview?.activation?.generation ?? 0;
 
   const mutation = useMutation({
     mutationFn: async (action: ConfigMutation) => {

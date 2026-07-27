@@ -496,7 +496,6 @@ export interface components {
         /** CandidateConfigActivationReceipt */
         CandidateConfigActivationReceipt: {
             activation: components["schemas"]["ConfigRegistryActivationRecord"];
-            active_state: components["schemas"]["ConfigRegistryActiveState"];
             entry: components["schemas"]["ConfigRegistryEntry"];
         };
         /** CandidateConfigRegistrySource */
@@ -525,7 +524,6 @@ export interface components {
         /** ConfigActivationReceipt */
         ConfigActivationReceipt: {
             activation: components["schemas"]["ConfigRegistryActivationRecord"];
-            active_state: components["schemas"]["ConfigRegistryActiveState"];
         };
         ConfigContentHash: string;
         /**
@@ -557,7 +555,6 @@ export interface components {
         /** ConfigDraftDefaultReceipt */
         ConfigDraftDefaultReceipt: {
             activation: components["schemas"]["ConfigRegistryActivationRecord"];
-            active_state: components["schemas"]["ConfigRegistryActiveState"];
             /** Deltas */
             deltas: [
                 components["schemas"]["ParameterValueDelta-Output"],
@@ -688,19 +685,6 @@ export interface components {
              */
             recorded_at?: string;
         };
-        /** ConfigRegistryActiveState */
-        ConfigRegistryActiveState: {
-            active_entry_content_hash: components["schemas"]["ConfigContentHash"];
-            /** Active Entry Id */
-            active_entry_id: string;
-            /** Generation */
-            generation: number;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at?: string;
-        };
         /** ConfigRegistryEntry */
         ConfigRegistryEntry: {
             /** Config Ref */
@@ -745,7 +729,7 @@ export interface components {
          * @description Registered entries and the current activation head.
          */
         ConfigRegistryView: {
-            active_state?: components["schemas"]["ConfigRegistryActiveState"] | null;
+            activation?: components["schemas"]["ConfigRegistryActivationRecord"] | null;
             /**
              * Entries
              * @default []

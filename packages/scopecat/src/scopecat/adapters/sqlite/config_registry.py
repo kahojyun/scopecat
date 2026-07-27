@@ -13,7 +13,6 @@ from pydantic_core import PydanticSerializationError
 from scopecat.adapters.sqlite.connection import connect
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
     ConfigRegistryEntry,
 )
 from scopecat.kernel.errors import (
@@ -142,7 +141,7 @@ class SQLiteConfigRegistryRepository:
         except sqlite3.Error as error:
             raise _storage_failure(self.active_ref) from error
 
-    def read_active_state(self) -> ConfigRegistryActiveState | None:
+    def read_latest_activation(self) -> ConfigRegistryActivationRecord | None:
         try:
             row = _one(
                 self._connection.execute(
@@ -158,17 +157,11 @@ class SQLiteConfigRegistryRepository:
             raise _storage_failure(self.active_ref) from error
         if row is None:
             return None
-        latest = _parse_model(
+        return _parse_model(
             _text(row, "record_json"),
             ConfigRegistryActivationRecord,
             ref=f"{self.active_ref}#generation-{_integer(row, 'generation')}",
             code="config_registry.activation_record_invalid",
-        )
-        return ConfigRegistryActiveState(
-            generation=latest.generation,
-            active_entry_id=latest.entry_id,
-            active_entry_content_hash=latest.entry_content_hash,
-            updated_at=latest.recorded_at,
         )
 
     def list_activation_history(self) -> tuple[ConfigRegistryActivationRecord, ...]:

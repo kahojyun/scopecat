@@ -65,7 +65,7 @@ drag_beta_summary = {
         and production_source.content_hash == accepted.entry.content_hash
     ),
     "default_restored": (
-        restored.active_state.active_entry_content_hash
+        restored.activation.entry_content_hash
         == accepted.activation.previous_entry_content_hash
     ),
 }

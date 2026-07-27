@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
     ConfigRegistryEntry,
 )
 from scopecat.control.models import ControlRun, ResourceKey
@@ -54,7 +53,7 @@ class ConfigRegistryView(_ViewModel):
     """Registered entries and the current activation head."""
 
     entries: tuple[ConfigRegistryEntry, ...] = ()
-    active_state: ConfigRegistryActiveState | None = None
+    activation: ConfigRegistryActivationRecord | None = None
 
 
 class ConfigActivationHistoryView(_ViewModel):
@@ -65,7 +64,7 @@ class ActiveConfigView(_ViewModel):
     """The active registry identity and its resolved immutable snapshot."""
 
     entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
+    activation: ConfigRegistryActivationRecord
     config: ConfigProfileSnapshot
 
 

@@ -17,7 +17,7 @@ from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry import (
     CandidateConfigRegistrySource,
-    ConfigRegistryActiveState,
+    ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
     ManualConfigDraftRegistrySource,
@@ -25,9 +25,9 @@ from scopecat.config.registry import (
     activate_config_registry_entry,
     current_config_registry_generation,
     list_config_registry_entries,
+    load_active_config_registry_activation,
     load_active_config_registry_config,
     load_active_config_registry_entry,
-    load_active_config_registry_state,
     load_config_registry_activation_history,
     preview_manual_config_draft,
     register_and_activate_config_profile,
@@ -80,7 +80,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
         entry_id="seed",
         registered_by="operator",
         note="seed config",
-    )
+    ).entry
 
     assert isinstance(entry.source, DirectConfigRegistrySource)
     assert entry.config_ref == (
@@ -93,7 +93,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
     )
     assert persisted_config == config
 
-    entry, active_state, _activation = register_and_activate_config_profile(
+    activated = register_and_activate_config_profile(
         config=load_config(),
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="active-seed",
@@ -101,7 +101,10 @@ def test_register_config_profile_writes_and_activates_direct_entry(
         operator="operator",
         note="seed active config",
     )
-    assert active_state.active_entry_id == entry.id
+    entry = activated.entry
+    activation = activated.activation
+    assert activation is not None
+    assert activation.entry_id == entry.id
     assert (
         load_active_config_registry_entry(
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
@@ -109,10 +112,10 @@ def test_register_config_profile_writes_and_activates_direct_entry(
         == entry
     )
     assert (
-        load_active_config_registry_state(
+        load_active_config_registry_activation(
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
-        == active_state
+        == activation
     )
     assert (
         load_active_config_registry_config(
@@ -144,21 +147,21 @@ def test_manual_config_draft_preview_is_read_only_and_registration_records_sourc
     tmp_path: Path,
 ) -> None:
     unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
-    base, active_state = _seed_active_config_registry(tmp_path)
+    base, activation = _seed_active_config_registry(tmp_path)
     entries_before = list_config_registry_entries(unit_of_work=unit_of_work)
 
     preview = preview_manual_config_draft(
         unit_of_work=unit_of_work,
         base_entry_id=base.id,
         base_config_content_hash=base.content_hash,
-        base_generation=active_state.generation,
+        base_generation=activation.generation,
         candidate_id="manual-preview",
         updates=_manual_config_updates(),
     )
 
     assert isinstance(preview, ManualConfigDraftResult)
     assert preview.base_entry == base
-    assert preview.base_generation == active_state.generation
+    assert preview.base_generation == activation.generation
     assert preview.check.ok
     assert preview.check.candidate is not None
     assert preview.check.candidate.id == "manual-preview"
@@ -168,13 +171,15 @@ def test_manual_config_draft_preview_is_read_only_and_registration_records_sourc
         value=Quantity(value=5.2, unit="GHz"),
     )
     assert list_config_registry_entries(unit_of_work=unit_of_work) == entries_before
-    assert load_active_config_registry_state(unit_of_work=unit_of_work) == active_state
+    assert (
+        load_active_config_registry_activation(unit_of_work=unit_of_work) == activation
+    )
 
-    entry, registered = register_manual_config_draft(
+    mutation, registered = register_manual_config_draft(
         unit_of_work=unit_of_work,
         base_entry_id=base.id,
         base_config_content_hash=base.content_hash,
-        base_generation=active_state.generation,
+        base_generation=activation.generation,
         candidate_id="manual-preview",
         updates=_manual_config_updates(),
         expected_result_content_hash=config_content_hash(
@@ -185,11 +190,12 @@ def test_manual_config_draft_preview_is_read_only_and_registration_records_sourc
         note="adjust drive frequency",
     )
 
+    entry = mutation.entry
     assert registered.check.candidate == preview.check.candidate
     assert isinstance(entry.source, ManualConfigDraftRegistrySource)
     assert entry.source.base_entry_id == base.id
     assert entry.source.base_config_content_hash == base.content_hash
-    assert entry.source.base_registry_generation == active_state.generation
+    assert entry.source.base_registry_generation == activation.generation
     persisted = load_config_registry_entry(
         entry_id=entry.id,
         unit_of_work=unit_of_work,
@@ -203,7 +209,9 @@ def test_manual_config_draft_preview_is_read_only_and_registration_records_sourc
         )
         == registered.check.candidate
     )
-    assert load_active_config_registry_state(unit_of_work=unit_of_work) == active_state
+    assert (
+        load_active_config_registry_activation(unit_of_work=unit_of_work) == activation
+    )
 
 
 @pytest.mark.parametrize(
@@ -219,28 +227,29 @@ def test_manual_config_draft_registration_rejects_stale_base_identity(
     expected_code: str,
 ) -> None:
     unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
-    base, active_state = _seed_active_config_registry(tmp_path)
+    base, activation = _seed_active_config_registry(tmp_path)
     preview = preview_manual_config_draft(
         unit_of_work=unit_of_work,
         base_entry_id=base.id,
         base_config_content_hash=base.content_hash,
-        base_generation=active_state.generation,
+        base_generation=activation.generation,
         candidate_id="stale-preview",
         updates=_manual_config_updates(),
     )
     assert preview.check.candidate is not None
-    base_generation = active_state.generation
+    base_generation = activation.generation
     base_content_hash = base.content_hash
     if stale_field == "generation":
-        _newer, newer_state, _activation = register_and_activate_config_profile(
+        newer = register_and_activate_config_profile(
             config=load_config().model_copy(update={"id": "newer-config"}),
             unit_of_work=unit_of_work,
             entry_id="newer-entry",
             registered_by="operator",
             operator="operator",
-            expected_generation=active_state.generation,
+            expected_generation=activation.generation,
         )
-        assert newer_state.generation == active_state.generation + 1
+        assert newer.activation is not None
+        assert newer.activation.generation == activation.generation + 1
     else:
         base_content_hash = "sha256:" + ("0" * 64)
 
@@ -269,14 +278,14 @@ def test_manual_config_draft_registration_rejects_changed_preview_result(
     tmp_path: Path,
 ) -> None:
     unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
-    base, active_state = _seed_active_config_registry(tmp_path)
+    base, activation = _seed_active_config_registry(tmp_path)
 
     with pytest.raises(Conflict) as error:
         register_manual_config_draft(
             unit_of_work=unit_of_work,
             base_entry_id=base.id,
             base_config_content_hash=base.content_hash,
-            base_generation=active_state.generation,
+            base_generation=activation.generation,
             candidate_id="changed-result",
             updates=_manual_config_updates(),
             expected_result_content_hash="sha256:" + ("0" * 64),
@@ -290,38 +299,42 @@ def test_manual_config_draft_registration_rejects_changed_preview_result(
     assert [
         entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
     ] == [base.id]
-    assert load_active_config_registry_state(unit_of_work=unit_of_work) == active_state
+    assert (
+        load_active_config_registry_activation(unit_of_work=unit_of_work) == activation
+    )
 
 
 def test_manual_config_draft_set_default_stale_conflict_leaves_no_entry(
     tmp_path: Path,
 ) -> None:
     unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
-    base, active_state = _seed_active_config_registry(tmp_path)
+    base, activation = _seed_active_config_registry(tmp_path)
     preview = preview_manual_config_draft(
         unit_of_work=unit_of_work,
         base_entry_id=base.id,
         base_config_content_hash=base.content_hash,
-        base_generation=active_state.generation,
+        base_generation=activation.generation,
         candidate_id="stale-default",
         updates=_manual_config_updates(),
     )
     assert preview.check.candidate is not None
-    newer, newer_state, _activation = register_and_activate_config_profile(
+    newer = register_and_activate_config_profile(
         config=load_config().model_copy(update={"id": "newer-config"}),
         unit_of_work=unit_of_work,
         entry_id="newer-entry",
         registered_by="operator",
         operator="operator",
-        expected_generation=active_state.generation,
+        expected_generation=activation.generation,
     )
+    newer_activation = newer.activation
+    assert newer_activation is not None
 
     with pytest.raises(Conflict) as error:
         register_and_activate_manual_config_draft(
             unit_of_work=unit_of_work,
             base_entry_id=base.id,
             base_config_content_hash=base.content_hash,
-            base_generation=active_state.generation,
+            base_generation=activation.generation,
             candidate_id="stale-default",
             updates=_manual_config_updates(),
             expected_result_content_hash=config_content_hash(
@@ -336,20 +349,23 @@ def test_manual_config_draft_set_default_stale_conflict_leaves_no_entry(
     assert "stale-default" not in {
         entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
     }
-    assert load_active_config_registry_state(unit_of_work=unit_of_work) == newer_state
-    assert newer_state.active_entry_id == newer.id
+    assert (
+        load_active_config_registry_activation(unit_of_work=unit_of_work)
+        == newer_activation
+    )
+    assert newer_activation.entry_id == newer.entry.id
 
 
 def test_manual_config_draft_activation_rejects_a_stale_base(
     tmp_path: Path,
 ) -> None:
     unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
-    base, active_state = _seed_active_config_registry(tmp_path)
+    base, activation = _seed_active_config_registry(tmp_path)
     preview = preview_manual_config_draft(
         unit_of_work=unit_of_work,
         base_entry_id=base.id,
         base_config_content_hash=base.content_hash,
-        base_generation=active_state.generation,
+        base_generation=activation.generation,
         candidate_id="manual-candidate",
         updates=_manual_config_updates(),
     )
@@ -358,33 +374,38 @@ def test_manual_config_draft_activation_rejects_a_stale_base(
         unit_of_work=unit_of_work,
         base_entry_id=base.id,
         base_config_content_hash=base.content_hash,
-        base_generation=active_state.generation,
+        base_generation=activation.generation,
         candidate_id="manual-candidate",
         updates=_manual_config_updates(),
         expected_result_content_hash=config_content_hash(preview.check.candidate),
         entry_id="manual-candidate",
         registered_by="operator",
     )
-    newer, newer_state, _activation = register_and_activate_config_profile(
+    newer = register_and_activate_config_profile(
         config=load_config().model_copy(update={"id": "newer-config"}),
         unit_of_work=unit_of_work,
         entry_id="newer-entry",
         registered_by="operator",
         operator="operator",
-        expected_generation=active_state.generation,
+        expected_generation=activation.generation,
     )
+    newer_activation = newer.activation
+    assert newer_activation is not None
 
     with pytest.raises(Conflict) as error:
         activate_config_registry_entry(
-            entry_id=manual.id,
+            entry_id=manual.entry.id,
             unit_of_work=unit_of_work,
             operator="operator",
-            expected_generation=newer_state.generation,
+            expected_generation=newer_activation.generation,
         )
 
     assert error.value.problems[0].code == "config_registry.stale_candidate"
-    assert load_active_config_registry_state(unit_of_work=unit_of_work) == newer_state
-    assert newer_state.active_entry_id == newer.id
+    assert (
+        load_active_config_registry_activation(unit_of_work=unit_of_work)
+        == newer_activation
+    )
+    assert newer_activation.entry_id == newer.entry.id
 
 
 def test_candidate_config_registers_and_activates_parameter_proposal(
@@ -418,13 +439,13 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
 
     assert approval.actor == "operator"
     entry = activation_result.entry
-    active_state = activation_result.active_state
     activation = activation_result.activation
+    assert activation is not None
     assert isinstance(entry.source, CandidateConfigRegistrySource)
     assert entry.source.run_id == run_id
     assert entry.source.proposal_id == proposal.id
     assert entry.source.approval_record_id == f"{proposal.id}-approval"
-    assert active_state.active_entry_id == entry.id
+    assert activation.entry_id == entry.id
 
     stored_proposal = load_parameter_change_proposal(
         run_id=run_id,
@@ -447,7 +468,7 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     assert source.entry_id == entry.id
     assert source.config_ref == entry.config_ref
     assert source.content_hash == entry.content_hash
-    assert source.registry_generation == active_state.generation
+    assert source.registry_generation == activation.generation
     assert config == load_config_registry_config(
         entry_id=entry.id, unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
     )
@@ -470,13 +491,15 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
         reviewer="operator",
     )
     newer_config = load_config().model_copy(update={"id": "newer-base"})
-    _entry, active_state, _activation = register_and_activate_config_profile(
+    active = register_and_activate_config_profile(
         config=newer_config,
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="newer-base",
         registered_by="operator",
         operator="operator",
     )
+    activation = active.activation
+    assert activation is not None
 
     with pytest.raises(Conflict) as error:
         activate_candidate_config(
@@ -489,10 +512,10 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
 
     assert error.value.problems[0].code == "config_registry.stale_candidate"
     assert (
-        load_active_config_registry_state(
+        load_active_config_registry_activation(
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
-        == active_state
+        == activation
     )
 
 
@@ -523,21 +546,22 @@ def test_candidate_registration_requires_approval(tmp_path: Path) -> None:
 def test_activation_generation_is_append_only_and_rejects_stale_writes(
     tmp_path: Path,
 ) -> None:
-    first, first_state, first_record = register_and_activate_config_profile(
+    first = register_and_activate_config_profile(
         config=load_config(),
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed-a",
         registered_by="operator",
         operator="operator",
     )
+    first_record = first.activation
+    assert first_record is not None
     second = register_config_profile(
         config=load_config(),
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed-b",
         registered_by="operator",
-    )
+    ).entry
 
-    assert first_state.generation == 1
     assert first_record.generation == 1
     assert (
         current_config_registry_generation(
@@ -550,46 +574,49 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
     )
 
-    second_state, second_record = activate_config_registry_entry(
+    second_result = activate_config_registry_entry(
         entry_id=second.id,
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         operator="operator",
         expected_generation=1,
     )
+    second_record = second_result.activation
+    assert second_record is not None
     with pytest.raises(Conflict) as error:
         activate_config_registry_entry(
-            entry_id=first.id,
+            entry_id=first.entry.id,
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             operator="stale-operator",
             expected_generation=1,
         )
 
     assert error.value.problems[0].code == "config_registry.conflict"
-    unchanged = load_active_config_registry_state(
+    unchanged = load_active_config_registry_activation(
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
     )
-    assert unchanged == second_state
+    assert unchanged == second_record
     assert [
         record.generation
         for record in load_config_registry_activation_history(
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
     ] == [1, 2]
-    assert second_record.previous_entry_content_hash == first.content_hash
+    assert second_record.previous_entry_content_hash == first.entry.content_hash
     assert isinstance(first_source, ConfigRegistryRunConfigSource)
-    assert first_source.entry_id == first.id
-    assert first_source.content_hash == first.content_hash
+    assert first_source.entry_id == first.entry.id
+    assert first_source.content_hash == first.entry.content_hash
     assert first_source.registry_generation == 1
     assert config_content_hash(resolved_first) == first_source.content_hash
 
-    rolled_back, rollback_record = rollback_config_registry(
+    rollback = rollback_config_registry(
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         operator="operator",
         expected_generation=2,
     )
-    assert rolled_back.generation == 3
-    assert rolled_back.active_entry_id == first.id
+    rollback_record = rollback.activation
+    assert rollback_record is not None
     assert rollback_record.generation == 3
+    assert rollback_record.entry_id == first.entry.id
     assert [
         record.generation
         for record in load_config_registry_activation_history(
@@ -644,7 +671,7 @@ def test_concurrent_registrations_preserve_every_index_entry(tmp_path: Path) -> 
             unit_of_work=unit_of_work,
             entry_id=entry_id,
             registered_by="operator",
-        ).id
+        ).entry.id
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         registered = set(executor.map(register, ("seed-a", "seed-b")))
@@ -659,13 +686,15 @@ def test_concurrent_composite_activations_apply_one_generation(
     tmp_path: Path,
 ) -> None:
     unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
-    _seed, initial_state, _activation = register_and_activate_config_profile(
+    initial = register_and_activate_config_profile(
         config=load_config(),
         unit_of_work=unit_of_work,
         entry_id="seed",
         registered_by="operator",
         operator="operator",
     )
+    initial_activation = initial.activation
+    assert initial_activation is not None
     barrier = Barrier(2)
 
     def activate(entry_id: str) -> tuple[str, str]:
@@ -677,11 +706,11 @@ def test_concurrent_composite_activations_apply_one_generation(
                 entry_id=entry_id,
                 registered_by="operator",
                 operator="operator",
-                expected_generation=initial_state.generation,
+                expected_generation=initial_activation.generation,
             )
         except Conflict as error:
             return "error", error.problems[0].code
-        return "activated", result[0].id
+        return "activated", result.entry.id
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = list(executor.map(activate, ("candidate-a", "candidate-b")))
@@ -690,8 +719,8 @@ def test_concurrent_composite_activations_apply_one_generation(
     assert next(detail for status, detail in outcomes if status == "error") == (
         "config_registry.conflict"
     )
-    state = load_active_config_registry_state(unit_of_work=unit_of_work)
-    assert state.generation == initial_state.generation + 1
+    activation = load_active_config_registry_activation(unit_of_work=unit_of_work)
+    assert activation.generation == initial_activation.generation + 1
     assert len(list_config_registry_entries(unit_of_work=unit_of_work)) == 2
 
 
@@ -790,15 +819,16 @@ def _resolved_candidate(
 
 def _seed_active_config_registry(
     project_root: Path,
-) -> tuple[ConfigRegistryEntry, ConfigRegistryActiveState]:
-    entry, state, _activation = register_and_activate_config_profile(
+) -> tuple[ConfigRegistryEntry, ConfigRegistryActivationRecord]:
+    result = register_and_activate_config_profile(
         config=load_config(),
         unit_of_work=sqlite_config_registry_unit_of_work(project_root),
         entry_id="manual-base",
         registered_by="operator",
         operator="operator",
     )
-    return entry, state
+    assert result.activation is not None
+    return result.entry, result.activation
 
 
 def _manual_config_updates() -> tuple[ParameterUpdate, ...]:

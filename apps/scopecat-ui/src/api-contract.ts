@@ -92,7 +92,6 @@ export type ConfigDraftRegistrationReceipt = Omit<
   deltas: ParameterValueDelta[];
 };
 export type ConfigProfileSnapshot = components["schemas"]["ConfigProfileSnapshot-Input"];
-export type ConfigRegistryActiveState = components["schemas"]["ConfigRegistryActiveState"];
 export type ConfigRegistryEntry = components["schemas"]["ConfigRegistryEntry"];
 export type ConfigRegistryOverview = DaemonUiApi["configRegistry"] & {
   activation_history: ConfigActivationRecord[];

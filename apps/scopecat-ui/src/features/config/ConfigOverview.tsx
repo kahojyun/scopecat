@@ -14,9 +14,9 @@ export function ConfigSummary({
   rollbackPending: boolean;
   onRollback: () => void;
 }) {
-  const active = overview.active_state;
+  const active = overview.activation;
   const history = overview.activation_history;
-  const defaultEntry = overview.entries.find((entry) => entry.id === active?.active_entry_id);
+  const defaultEntry = overview.entries.find((entry) => entry.id === active?.entry_id);
   const runtimeDerived =
     defaultEntry?.source.kind === "manual_parameter_updates" ||
     defaultEntry?.source.kind === "candidate_config";
@@ -24,11 +24,11 @@ export function ConfigSummary({
     <div className="config-summary" aria-label="Configuration summary">
       <div className="config-summary-default">
         <span>Default</span>
-        <strong data-testid="active-config-entry" title={active?.active_entry_id}>
-          {active?.active_entry_id ?? "Not configured"}
+        <strong data-testid="active-config-entry" title={active?.entry_id}>
+          {active?.entry_id ?? "Not configured"}
         </strong>
-        <code title={active?.active_entry_content_hash}>
-          {active ? shorten(active.active_entry_content_hash, 16) : "No content hash"}
+        <code title={active?.entry_content_hash}>
+          {active ? shorten(active.entry_content_hash, 16) : "No content hash"}
         </code>
       </div>
       <dl className="config-summary-facts">

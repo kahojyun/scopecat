@@ -58,7 +58,7 @@ export function ConfigRegistryPanel({
             <RegistryEntryButton
               key={entry.id}
               entry={entry}
-              active={entry.id === overview.active_state?.active_entry_id}
+              active={entry.id === overview.activation?.entry_id}
               selected={entry.id === selectedId}
               onSelect={() => onSelectEntry(entry.id)}
             />

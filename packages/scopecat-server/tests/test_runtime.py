@@ -276,14 +276,14 @@ def test_bootstrap_config_is_active_and_idempotent_across_restarts(
         return LabApplication(bootstrap_config=bootstrap_config)
 
     with LocalDaemonRuntime(tmp_path, application_factory=factory) as runtime:
-        first = runtime.application.config.get_active_config().active_state
+        first = runtime.application.config.get_active_config().activation
         first_events = _events(runtime).items
 
     with LocalDaemonRuntime(tmp_path, application_factory=factory) as reopened:
-        second = reopened.application.config.get_active_config().active_state
+        second = reopened.application.config.get_active_config().activation
         second_events = _events(reopened).items
 
-    assert first.active_entry_id.startswith("daemon-")
+    assert first.entry_id.startswith("daemon-")
     assert second == first
     assert [event.kind for event in first_events] == [
         "config_imported",
@@ -309,15 +309,14 @@ def test_bootstrap_config_does_not_replace_later_activation(
                 entry_id="operator-selected",
                 registered_by="operator",
                 operator="operator",
-                expected_generation=1,
             )
         )
 
     with LocalDaemonRuntime(tmp_path, application_factory=factory) as reopened:
-        state = reopened.application.config.get_active_config().active_state
+        state = reopened.application.config.get_active_config().activation
 
-    assert state.active_entry_id == "operator-selected"
-    assert state == activation.active_state
+    assert state.entry_id == "operator-selected"
+    assert state == activation.activation
 
 
 def test_explicit_runtime_bootstrap_overrides_application_seed(
@@ -335,9 +334,9 @@ def test_explicit_runtime_bootstrap_overrides_application_seed(
         application_factory=factory,
         bootstrap_config=explicit,
     ) as runtime:
-        state = runtime.application.config.get_active_config().active_state
+        state = runtime.application.config.get_active_config().activation
 
-    assert state.active_entry_content_hash == config_content_hash(explicit)
+    assert state.entry_content_hash == config_content_hash(explicit)
 
 
 def test_config_registry_http_workflow_persists_and_publishes_events(
@@ -384,6 +383,14 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
                 expected_generation=1,
             ).model_dump(mode="json"),
         )
+        current_activation = client.post(
+            "/api/v1/config-registry/active",
+            json=ConfigEntryActivationCommand(
+                entry_id="updated",
+                operator="operator",
+                expected_generation=2,
+            ).model_dump(mode="json"),
+        )
         stale_activation = client.post(
             "/api/v1/config-registry/active",
             json=ConfigEntryActivationCommand(
@@ -421,22 +428,24 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert (
             ConfigActivationReceipt.model_validate(
                 first_activation.json()
-            ).active_state.generation
+            ).activation.generation
             == 1
         )
+        second_receipt = ConfigActivationReceipt.model_validate(
+            second_activation.json()
+        )
+        assert second_receipt.activation.generation == 2
         assert (
-            ConfigActivationReceipt.model_validate(
-                second_activation.json()
-            ).active_state.generation
-            == 2
+            ConfigActivationReceipt.model_validate(current_activation.json())
+            == second_receipt
         )
         assert stale_activation.status_code == 409
         rollback = ConfigActivationReceipt.model_validate(rollback_response.json())
         assert rollback.activation.action == "rollback"
-        assert rollback.active_state.generation == 3
-        assert rollback.active_state.active_entry_id == "baseline"
+        assert rollback.activation.generation == 3
+        assert rollback.activation.entry_id == "baseline"
         assert [entry.id for entry in registry.entries] == ["baseline", "updated"]
-        assert registry.active_state is not None
+        assert registry.activation is not None
         assert [record.action for record in activation_history.items] == [
             "activation",
             "activation",
@@ -487,7 +496,6 @@ def test_direct_config_set_default_is_atomic_idempotent_and_durable(
                 config=baseline,
                 registered_by="notebook",
                 operator="notebook",
-                expected_generation=0,
                 note="initialize the default",
             ).model_dump(mode="json"),
         )
@@ -505,7 +513,6 @@ def test_direct_config_set_default_is_atomic_idempotent_and_durable(
             config=tuned,
             registered_by="notebook",
             operator="notebook",
-            expected_generation=1,
             note="use tuned values",
         )
 
@@ -525,13 +532,13 @@ def test_direct_config_set_default_is_atomic_idempotent_and_durable(
         assert initialized.status_code == 200
         assert imported.status_code == 201
         assert retry == first
-        assert first.entry.id == "tuned-existing"
-        assert first.active_state.generation == 2
+        assert first.entry.id == "tuned-generated"
+        assert first.activation.generation == 2
         assert [
             entry.id
             for entry in runtime.application.config.get_config_registry().entries
             if entry.content_hash == config_content_hash(tuned)
-        ] == ["tuned-existing"]
+        ] == ["tuned-existing", "tuned-generated"]
         assert [
             event.kind
             for event in _events(runtime).items
@@ -540,7 +547,7 @@ def test_direct_config_set_default_is_atomic_idempotent_and_durable(
 
     with LocalDaemonRuntime(tmp_path) as reopened:
         active = reopened.application.config.get_active_config()
-        assert active.entry.id == "tuned-existing"
+        assert active.entry.id == "tuned-generated"
         assert active.config == tuned
 
 
@@ -553,7 +560,6 @@ def test_config_default_rolls_back_registry_and_event_when_event_fails(
         config=_config(),
         registered_by="notebook",
         operator="notebook",
-        expected_generation=0,
     )
     append_event = SQLiteControlPlane.append_event_in_transaction
 
@@ -581,7 +587,7 @@ def test_config_default_rolls_back_registry_and_event_when_event_fails(
 
         receipt = runtime.application.config.set_direct_config_default(command)
 
-        assert receipt.active_state.generation == 1
+        assert receipt.activation.generation == 1
         assert [
             entry.id
             for entry in runtime.application.config.get_config_registry().entries
@@ -603,7 +609,7 @@ def test_config_draft_http_workflow_previews_and_atomically_sets_default(
         draft = ConfigDraftCommand(
             base_entry_id=active.entry.id,
             base_content_hash=active.entry.content_hash,
-            base_generation=active.active_state.generation,
+            base_generation=active.activation.generation,
             candidate_id="manual-tuning",
             updates=(
                 ReplaceParameter(
@@ -639,8 +645,8 @@ def test_config_draft_http_workflow_previews_and_atomically_sets_default(
         assert preview.valid
         assert default_response.status_code == 200
         assert default.result_content_hash == preview.result_content_hash
-        assert default.active_state.active_entry_id == "manual-tuning"
-        assert default.active_state.generation == active.active_state.generation + 1
+        assert default.activation.entry_id == "manual-tuning"
+        assert default.activation.generation == active.activation.generation + 1
 
     with LocalDaemonRuntime(tmp_path) as reopened:
         active = reopened.application.config.get_active_config()
@@ -798,7 +804,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert approval.actor == approval_command.actor
         assert approved_proposals.items[0].approval == approval
         assert activation.entry.id == "candidate-fit"
-        assert activation.active_state.generation == 2
+        assert activation.activation.generation == 2
         assert [
             event.kind
             for event in events

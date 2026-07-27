@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 from typing import cast
 
-from scopecat_server.transport import DaemonApplicationContract, create_app
+from scopecat_server.application import DaemonApplication
+from scopecat_server.transport import create_app
 
 OUTPUT = Path(__file__).parent.parent / ".generated" / "ui-api.openapi.json"
 
@@ -42,7 +43,7 @@ _OPERATIONS = {
 
 def main() -> None:
     # Route registration only closes over the backend; schema generation never calls it.
-    app = create_app(cast("DaemonApplicationContract", object()))
+    app = create_app(cast("DaemonApplication", object()))
     openapi = app.openapi()
     paths: dict[str, dict[str, object]] = {}
     for path, method in sorted(_OPERATIONS):

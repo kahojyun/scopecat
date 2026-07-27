@@ -13,7 +13,7 @@ import type {
   ConfigDraftPreview,
   ConfigDraftRegistrationReceipt,
   ConfigProfileSnapshot,
-  ConfigRegistryActiveState,
+  ConfigActivationRecord,
   ConfigRegistryEntry,
   ParameterUpdate,
   StoredParameterValue,
@@ -21,7 +21,7 @@ import type {
 
 export interface ConfigDraftSeed {
   entry: ConfigRegistryEntry;
-  active: ConfigRegistryActiveState;
+  active: ConfigActivationRecord;
   config: ConfigProfileSnapshot;
 }
 
@@ -37,7 +37,7 @@ export function ConfigDraftEditor({
   onRegistered,
 }: {
   seed: ConfigDraftSeed;
-  currentActive?: ConfigRegistryActiveState;
+  currentActive?: ConfigActivationRecord;
   operator: string;
   onCancel: () => void;
   onRegistered: (
@@ -64,7 +64,7 @@ export function ConfigDraftEditor({
   const draft = useMemo<PendingConfigDraft>(
     () => ({
       base_entry_id: seed.entry.id,
-      base_content_hash: seed.active.active_entry_content_hash,
+      base_content_hash: seed.active.entry_content_hash,
       base_generation: seed.active.generation,
       candidate_id: `${seed.config.id}-edit`,
       updates,
@@ -77,8 +77,8 @@ export function ConfigDraftEditor({
     : undefined;
   const stale =
     !currentActive ||
-    currentActive.active_entry_id !== seed.active.active_entry_id ||
-    currentActive.active_entry_content_hash !== seed.active.active_entry_content_hash ||
+    currentActive.entry_id !== seed.active.entry_id ||
+    currentActive.entry_content_hash !== seed.active.entry_content_hash ||
     currentActive.generation !== seed.active.generation;
 
   const previewMutation = useMutation({

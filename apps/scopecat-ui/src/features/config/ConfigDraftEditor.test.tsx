@@ -197,9 +197,14 @@ describe("ConfigDraftEditor", () => {
     const seed = draftSeed();
 
     renderEditor(seed, undefined, {
+      id: "activation-4",
       generation: 4,
-      active_entry_id: "config-b",
-      active_entry_content_hash: HASH_B,
+      action: "activation",
+      entry_id: "config-b",
+      entry_content_hash: HASH_B,
+      operator: "Ada",
+      note: "",
+      recorded_at: "2026-07-24T08:10:00Z",
     });
 
     expect(screen.getByText(/default configuration changed/i)).toBeInTheDocument();
@@ -237,9 +242,14 @@ function draftSeed(): ConfigDraftSeed {
       note: "",
     },
     active: {
+      id: "activation-3",
       generation: 3,
-      active_entry_id: "config-a",
-      active_entry_content_hash: HASH_A,
+      action: "activation",
+      entry_id: "config-a",
+      entry_content_hash: HASH_A,
+      operator: "Ada",
+      note: "",
+      recorded_at: "2026-07-24T08:00:00Z",
     },
     config: snapshot(5, 6.5),
   };
@@ -256,7 +266,7 @@ function validPreview(
     valid: true,
     base_entry: seed.entry,
     base_generation: seed.active.generation,
-    base_content_hash: seed.active.active_entry_content_hash,
+    base_content_hash: seed.active.entry_content_hash,
     config,
     result_content_hash: HASH_B,
     deltas: [
@@ -297,12 +307,6 @@ function defaultReceipt(): ConfigDraftDefaultReceipt {
   return {
     ...registered,
     entry: { ...registered.entry, id: entryId },
-    active_state: {
-      generation: 4,
-      active_entry_id: entryId,
-      active_entry_content_hash: HASH_B,
-      updated_at: "2026-07-24T08:10:00Z",
-    },
     activation: {
       id: "activation-4",
       generation: 4,

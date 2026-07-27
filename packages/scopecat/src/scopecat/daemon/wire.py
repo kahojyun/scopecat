@@ -23,7 +23,6 @@ from pydantic import (
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
     ConfigRegistryEntry,
 )
 from scopecat.control.models import RunPlanSummary
@@ -77,13 +76,11 @@ class DirectConfigDefaultCommand(_WireModel):
     config: ConfigProfileSnapshot
     registered_by: NonEmptyText
     operator: NonEmptyText
-    expected_generation: int = Field(ge=0)
     note: str = ""
 
 
 class ConfigDefaultReceipt(_WireModel):
     entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
 
 
@@ -125,7 +122,6 @@ class ConfigDraftDefaultReceipt(_WireModel):
     entry: ConfigRegistryEntry
     result_content_hash: ConfigContentHash
     deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
-    active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
 
 
@@ -147,7 +143,6 @@ class ConfigRollbackCommand(_WireModel):
 
 
 class ConfigActivationReceipt(_WireModel):
-    active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
 
 
@@ -260,7 +255,6 @@ class CandidateConfigActivationCommand(_WireModel):
 
 class CandidateConfigActivationReceipt(_WireModel):
     entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
 
 

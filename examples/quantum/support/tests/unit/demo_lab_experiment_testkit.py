@@ -16,11 +16,6 @@ from scopecat.config.candidates import (
 )
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.config.registry import service as config_registry_service
-from scopecat.config.registry.records import (
-    ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
-    ConfigRegistryEntry,
-)
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.quantity import Quantity
 from scopecat.planning.check_results import ExperimentCheckResult
@@ -47,19 +42,6 @@ from .demo_lab_test_paths import (
 )
 
 PathInput = str | Path
-
-
-@dataclass(frozen=True, slots=True)
-class _ConfigActivation:
-    active_state: ConfigRegistryActiveState
-    activation: ConfigRegistryActivationRecord
-
-
-@dataclass(frozen=True, slots=True)
-class _RegisteredConfigActivation:
-    entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
-    activation: ConfigRegistryActivationRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,7 +180,7 @@ class InProcessQuantumLab:
         note: str = "",
         activation_note: str | None = None,
         expected_generation: int | None = None,
-    ) -> _RegisteredConfigActivation:
+    ) -> config_registry_service.ConfigRegistryMutationResult:
         selected_generation = (
             config_registry_service.current_config_registry_generation(
                 unit_of_work=self.services.config_registry
@@ -206,23 +188,16 @@ class InProcessQuantumLab:
             if expected_generation is None
             else expected_generation
         )
-        entry, active_state, activation = (
-            config_registry_service.register_and_activate_candidate_config(
-                unit_of_work=self.services.config_registry,
-                entry_id=entry_id,
-                registered_by=registered_by or self.operator,
-                run_id=candidate.source_run_id,
-                proposal_id=candidate.proposal_id,
-                operator=operator or self.operator,
-                expected_generation=selected_generation,
-                note=note,
-                activation_note=activation_note,
-            )
-        )
-        return _RegisteredConfigActivation(
-            entry=entry,
-            active_state=active_state,
-            activation=activation,
+        return config_registry_service.register_and_activate_candidate_config(
+            unit_of_work=self.services.config_registry,
+            entry_id=entry_id,
+            registered_by=registered_by or self.operator,
+            run_id=candidate.source_run_id,
+            proposal_id=candidate.proposal_id,
+            operator=operator or self.operator,
+            expected_generation=selected_generation,
+            note=note,
+            activation_note=activation_note,
         )
 
     def activate_config(
@@ -235,7 +210,7 @@ class InProcessQuantumLab:
         note: str = "",
         activation_note: str | None = None,
         expected_generation: int | None = None,
-    ) -> _RegisteredConfigActivation:
+    ) -> config_registry_service.ConfigRegistryMutationResult:
         selected_generation = (
             config_registry_service.current_config_registry_generation(
                 unit_of_work=self.services.config_registry
@@ -243,22 +218,15 @@ class InProcessQuantumLab:
             if expected_generation is None
             else expected_generation
         )
-        entry, active_state, activation = (
-            config_registry_service.register_and_activate_config_profile(
-                config=config,
-                unit_of_work=self.services.config_registry,
-                entry_id=entry_id,
-                registered_by=registered_by or self.operator,
-                operator=operator or self.operator,
-                note=note,
-                activation_note=activation_note,
-                expected_generation=selected_generation,
-            )
-        )
-        return _RegisteredConfigActivation(
-            entry=entry,
-            active_state=active_state,
-            activation=activation,
+        return config_registry_service.register_and_activate_config_profile(
+            config=config,
+            unit_of_work=self.services.config_registry,
+            entry_id=entry_id,
+            registered_by=registered_by or self.operator,
+            operator=operator or self.operator,
+            note=note,
+            activation_note=activation_note,
+            expected_generation=selected_generation,
         )
 
     def rollback(
@@ -267,16 +235,12 @@ class InProcessQuantumLab:
         expected_generation: int,
         operator: str | None = None,
         note: str = "",
-    ) -> _ConfigActivation:
-        active_state, activation = config_registry_service.rollback_config_registry(
+    ) -> config_registry_service.ConfigRegistryMutationResult:
+        return config_registry_service.rollback_config_registry(
             unit_of_work=self.services.config_registry,
             operator=operator or self.operator,
             expected_generation=expected_generation,
             note=note,
-        )
-        return _ConfigActivation(
-            active_state=active_state,
-            activation=activation,
         )
 
 

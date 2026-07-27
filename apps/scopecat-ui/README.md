@@ -71,8 +71,8 @@ it retains the project and reports the daemon log for manual cleanup.
 
 The configuration view uses the daemon-owned registry directly:
 
-- `GET /api/v1/config-registry` returns `entries` and `active_state`.
-- `GET /api/v1/config-registry/active` returns the active `entry`, `active_state`,
+- `GET /api/v1/config-registry` returns `entries` and the latest `activation`.
+- `GET /api/v1/config-registry/active` returns the active `entry`, `activation`,
   and immutable `config`; `404` means no entry is active.
 - `GET /api/v1/config-registry/entries/{entry_id}` returns one `entry` and
   `config`.
