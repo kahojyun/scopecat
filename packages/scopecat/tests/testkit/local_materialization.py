@@ -111,7 +111,7 @@ def operations_of_type[T: LocalOperation](
         tuple(
             effect.operation
             for effect in inspection.effects
-            if point_index is None or point_index in effect.point_indices
+            if point_index is None or point_index == effect.point_index
         )
         if isinstance(inspection, LocalEffectInspection)
         else inspection
@@ -127,6 +127,4 @@ def effects_at_point(
 ) -> tuple[RunCoverageEffect, ...]:
     """Attach exact singleton coverage to synthetic interpreter operations."""
 
-    return tuple(
-        RunCoverageEffect.at_point(point_index, operation) for operation in operations
-    )
+    return tuple(RunCoverageEffect(point_index, operation) for operation in operations)

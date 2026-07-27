@@ -239,7 +239,7 @@ def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
         if isinstance(effect.operation, ComputeOperation)
     ]
     assert plan.preamble_operations == ()
-    assert [effect.point_indices for effect in compute_effects] == [(0,), (1,)]
+    assert [effect.point_index for effect in compute_effects] == [0, 1]
 
     bound_tables: list[tuple[Row, ...]] = []
     for point in plan.points:

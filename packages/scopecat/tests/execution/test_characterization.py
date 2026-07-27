@@ -7,14 +7,13 @@ import scopecat as sc
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ApplyStateOperation,
-    BoundInput,
     CollectionResultBinding,
     CollectOperation,
     ComputeOperation,
     OutputInput,
     StateTarget,
 )
-from scopecat.execution.program import RunCoverageCheckpoint, RunCoverageEffect
+from scopecat.execution.program import RunCoverageCheckpoint
 from scopecat.graph.values import (
     ComputeOutput,
     OperationId,
@@ -326,78 +325,6 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
     assert not result.problems and not result.indeterminate
     assert producer_calls == 1
     assert consumed == [2.0, 2.0]
-
-
-def test_multi_point_compute_coverage_evaluates_once_and_seeds_every_point() -> None:
-    shared_id = OperationId(SymbolId(local_id="shared-point-compute"))
-    shared_result_id = operation_result_id(shared_id)
-    consumer_id = OperationId(SymbolId(local_id="point-consumer"))
-    consumer_result_id = operation_result_id(consumer_id)
-    shared_calls = 0
-    consumed: list[tuple[int, float]] = []
-
-    def produce() -> float:
-        nonlocal shared_calls
-        shared_calls += 1
-        return 3.0
-
-    def consume(*, point_index: int, value: float) -> float:
-        consumed.append((point_index, value))
-        return value
-
-    points = tuple(
-        RunPoint(
-            LogicalPointId(PointDomainId("shared-point-compute", "root"), index),
-            {},
-        )
-        for index in range(2)
-    )
-    shared = RunCoverageEffect(
-        point_indices=(0, 1),
-        operation=ComputeOperation(
-            operation_id="coverage.compute.shared",
-            semantic_operation_id=shared_id.qualified_name,
-            implementation_id="python.shared.v1",
-            kernel=produce,
-            inputs={},
-            result=ComputeOutput(
-                id=shared_result_id,
-                value_type=Scalar(Float()),
-            ),
-        ),
-    )
-    consumers = tuple(
-        RunCoverageEffect.at_point(
-            index,
-            ComputeOperation(
-                operation_id=f"point-{index}.compute.consumer",
-                semantic_operation_id=consumer_id.qualified_name,
-                implementation_id="python.consumer.v1",
-                kernel=consume,
-                inputs={
-                    "point_index": BoundInput(index),
-                    "value": OutputInput(shared_result_id),
-                },
-                result=ComputeOutput(
-                    id=consumer_result_id,
-                    value_type=Scalar(Float()),
-                ),
-            ),
-        )
-        for index in range(2)
-    )
-
-    result = RunEffectInterpreter(
-        run_id="shared-point-compute-run",
-        coordinate_ids=(),
-        resource_order=(),
-        drivers={},
-        journal=FakeExecutionJournal(),
-    ).run((), (shared, *consumers), points=points)
-
-    assert not result.problems and not result.indeterminate
-    assert shared_calls == 1
-    assert consumed == [(0, 3.0), (1, 3.0)]
 
 
 def test_distinct_compute_operations_are_each_evaluated() -> None:

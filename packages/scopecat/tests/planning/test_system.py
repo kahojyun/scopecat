@@ -781,10 +781,10 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
         if isinstance(operation, RunDomainJob)
     ] == [(0, 1)]
     assert [
-        operation.point_indices
+        operation.point_index
         for operation in plan.coverage
         if isinstance(operation, RunCoverageEffect)
-    ] == [(0,), (1,)]
+    ] == [0, 1]
     assert [
         operation.point_index
         for operation in plan.coverage

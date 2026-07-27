@@ -195,7 +195,7 @@ def materialize_local_execution(
             signatures_by_ordinal[ordinal] = dict(signatures)
             payload_ids_by_ordinal[ordinal].update(point_payload_ids)
             compute_effects.extend(
-                RunCoverageEffect.at_point(ordinal, operation)
+                RunCoverageEffect(ordinal, operation)
                 for operation in compute_operations
             )
 
@@ -222,7 +222,7 @@ def materialize_local_execution(
                 )
                 if collect is not None:
                     effect_operations[effect_index].append(
-                        RunCoverageEffect.at_point(ordinal, collect)
+                        RunCoverageEffect(ordinal, collect)
                     )
             continue
         if effect_index and not isinstance(
@@ -270,7 +270,7 @@ def materialize_local_execution(
                 instrument_order=selected_instrument_order,
             )
             effect_operations[state_end - 1].extend(
-                RunCoverageEffect.at_point(ordinal, operation) for operation in ordered
+                RunCoverageEffect(ordinal, operation) for operation in ordered
             )
     if bool(problems):
         raise CheckFailed(problems)

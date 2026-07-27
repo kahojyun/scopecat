@@ -21,10 +21,7 @@ from scopecat.execution.effects.journaled import JournaledEffectBoundary
 from scopecat.execution.effects.lifecycle import DriverLifecycle
 from scopecat.execution.effects.measurement import MeasurementEffectExecutor
 from scopecat.execution.effects.state import StateEffectExecutor
-from scopecat.execution.local.program import (
-    ApplyStateOperation,
-    ComputeOperation,
-)
+from scopecat.execution.local.program import ComputeOperation
 from scopecat.execution.points import AdmittedPointLedger
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
@@ -225,31 +222,10 @@ class RunEffectInterpreter:
                 self._execute_coverage_effect(operation)
 
     def _execute_coverage_effect(self, covered: RunCoverageEffect) -> None:
-        representative = self._point_state(covered.point_indices[0])
-        self._dispatch.execute(representative, covered.operation)
-        if bool(self._journal.problems):
-            return
-        if not isinstance(covered.operation, ComputeOperation):
-            if len(covered.point_indices) > 1 and not isinstance(
-                covered.operation,
-                ApplyStateOperation,
-            ):
-                raise AssertionError(
-                    "only pure compute and stable state may cover multiple points"
-                )
-            return
-        result_id = covered.operation.result.id
-        result = representative.compute_results[result_id]
-        payload = (
-            None
-            if covered.operation.payload_slot is None
-            else representative.payloads[covered.operation.payload_slot.id]
+        self._dispatch.execute(
+            self._point_state(covered.point_index),
+            covered.operation,
         )
-        for point_index in covered.point_indices[1:]:
-            state = self._point_state(point_index)
-            state.compute_results[result_id] = result
-            if payload is not None:
-                state.payloads[payload.id] = payload
 
     def _execute_domain_job(self, job: RunDomainJob) -> None:
         for point_index in job.point_ordinals:

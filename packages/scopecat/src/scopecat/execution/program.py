@@ -36,20 +36,10 @@ class RunDomainJob:
 
 @dataclass(frozen=True, slots=True)
 class RunCoverageEffect:
-    """Execute one bound local operation over its exact logical coverage."""
+    """Execute one bound local operation for one logical point."""
 
-    point_indices: tuple[int, ...]
+    point_index: int
     operation: LocalOperation
-
-    def __post_init__(self) -> None:
-        if not self.point_indices or len(self.point_indices) != len(
-            set(self.point_indices)
-        ):
-            raise ValueError("local effect coverage must be non-empty and unique")
-
-    @classmethod
-    def at_point(cls, point_index: int, operation: LocalOperation) -> RunCoverageEffect:
-        return cls((point_index,), operation)
 
 
 @dataclass(frozen=True, slots=True)

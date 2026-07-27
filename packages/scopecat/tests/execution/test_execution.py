@@ -728,11 +728,7 @@ def _first_point_plan(
     return replace(
         plan,
         points=plan.points[:1],
-        effects=tuple(
-            replace(effect, point_indices=(0,))
-            for effect in plan.effects
-            if 0 in effect.point_indices
-        ),
+        effects=tuple(effect for effect in plan.effects if effect.point_index == 0),
     )
 
 

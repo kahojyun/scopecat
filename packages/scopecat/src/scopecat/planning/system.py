@@ -442,16 +442,14 @@ def _coverage_operations(
     operations: list[RunCoveredOperation] = []
     for local_region in local_regions:
         operations.extend(
-            effect
-            for effect in selected_compute
-            if effect.point_indices[0] in local_region
+            effect for effect in selected_compute if effect.point_index in local_region
         )
         for effect_index, effect in enumerate(effects):
             if local_effects is not None:
                 operations.extend(
                     item
                     for item in selected_effects[effect_index]
-                    if item.point_indices[0] in local_region
+                    if item.point_index in local_region
                 )
             if isinstance(effect, TypedDomainExecution):
                 operations.extend(
@@ -470,7 +468,7 @@ def _local_schedule_regions(
     domain_jobs: Sequence[RunDomainJob],
 ) -> tuple[tuple[int, ...], ...]:
     boundaries = {
-        *(effect.point_indices[0] for effect in effects),
+        *(effect.point_index for effect in effects),
         *(job.point_ordinals[0] for job in domain_jobs),
     }
     selected: list[tuple[int, ...]] = []
