@@ -46,16 +46,21 @@ export async function approveParameterProposal(
 export async function activateProposalCandidate(
   command: ActivateProposalCandidateCommand,
 ): Promise<void> {
-  const payload: DaemonUiApi["candidateConfigActivationCommand"] = {
-    run_id: command.runId,
-    proposal_id: command.proposalId,
-    registered_by: command.registeredBy,
+  const payload: DaemonUiApi["configRevisionDefaultCommand"] = {
+    registration: {
+      source: {
+        kind: "candidate_config",
+        run_id: command.runId,
+        proposal_id: command.proposalId,
+      },
+      registered_by: command.registeredBy,
+      note: command.note ?? "",
+    },
     operator: command.operator,
     expected_generation: command.expectedGeneration,
-    note: command.note ?? "",
   };
-  await request<DaemonUiApi["candidateConfigActivationReceipt"]>(
-    "/api/v1/config-registry/candidates/activate",
+  await request<DaemonUiApi["configRevisionDefaultReceipt"]>(
+    "/api/v1/config-registry/default",
     undefined,
     jsonRequest(payload),
   );

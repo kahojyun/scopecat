@@ -32,14 +32,14 @@ from scopecat.daemon.views import (
 )
 from scopecat.daemon.wire import (
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
-    ConfigDraftDefaultCommand,
-    ConfigDraftDefaultReceipt,
-    ConfigDraftRegistrationCommand,
-    ConfigDraftRegistrationReceipt,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
+    DirectConfigRevisionSource,
     ExecutorLease,
+    ManualConfigDraftRevisionSource,
     RunAdmission,
     RunSubmission,
 )
@@ -273,7 +273,7 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
         activation=activation,
         candidate_id="notebook-tuning",
     )
-    defaults: list[ConfigDraftDefaultCommand] = []
+    defaults: list[ConfigRevisionDefaultCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -285,8 +285,8 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
             )
         if path == "/api/v1/config-registry/drafts/preview":
             return _model(preview)
-        if path == "/api/v1/config-registry/drafts/set-default":
-            command = ConfigDraftDefaultCommand.model_validate_json(request.content)
+        if path == "/api/v1/config-registry/default":
+            command = ConfigRevisionDefaultCommand.model_validate_json(request.content)
             defaults.append(command)
             return _model(
                 _config_draft_default_receipt(command, preview, activation),
@@ -306,17 +306,16 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
 
     assert receipt.entry.id == "notebook-tuning"
     assert defaults[0].registration.registered_by == "notebook-operator"
-    assert (
-        defaults[0].registration.expected_result_content_hash
-        == preview.result_content_hash
-    )
+    source = defaults[0].registration.source
+    assert isinstance(source, ManualConfigDraftRevisionSource)
+    assert source.expected_result_content_hash == preview.result_content_hash
     assert defaults[0].operator == "notebook-operator"
 
 
 def test_lab_config_intents_hide_registry_coordination() -> None:
     config = load_config()
     entry, activation = _config_registry_records(config)
-    seen: list[DirectConfigDefaultCommand | ConfigRollbackCommand] = []
+    seen: list[ConfigRevisionDefaultCommand | ConfigRollbackCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -327,10 +326,10 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
                 ActiveConfigView(entry=entry, activation=activation, config=config)
             )
         if path == "/api/v1/config-registry/default":
-            command = DirectConfigDefaultCommand.model_validate_json(request.content)
+            command = ConfigRevisionDefaultCommand.model_validate_json(request.content)
             seen.append(command)
             return _model(
-                ConfigDefaultReceipt(
+                ConfigRevisionDefaultReceipt(
                     entry=entry,
                     activation=activation,
                 )
@@ -353,12 +352,15 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
     assert set_receipt.entry == entry
     assert undo_receipt.activation == activation
     assert seen == [
-        DirectConfigDefaultCommand(
-            entry_id=config_revision_entry_id(config),
-            config=config,
-            registered_by="notebook-operator",
+        ConfigRevisionDefaultCommand(
+            registration=ConfigRevisionRegistrationCommand(
+                source=DirectConfigRevisionSource(config=config),
+                entry_id=config_revision_entry_id(config),
+                registered_by="notebook-operator",
+                note="use tuned values",
+            ),
             operator="notebook-operator",
-            note="use tuned values",
+            expected_generation=activation.generation,
         ),
         ConfigRollbackCommand(
             operator="notebook-operator",
@@ -595,33 +597,35 @@ def _config_draft_preview(
 
 
 def _config_draft_registration_receipt(
-    command: ConfigDraftRegistrationCommand,
+    command: ConfigRevisionRegistrationCommand,
     preview: ConfigDraftPreview,
-) -> ConfigDraftRegistrationReceipt:
+) -> ConfigRevisionRegistrationReceipt:
     assert preview.result_content_hash is not None
-    return ConfigDraftRegistrationReceipt(
+    assert command.entry_id is not None
+    source = command.source
+    assert isinstance(source, ManualConfigDraftRevisionSource)
+    return ConfigRevisionRegistrationReceipt(
         entry=ConfigRegistryEntry(
             id=command.entry_id,
             config_ref=f"config-registry/entries/{command.entry_id}/config.json",
             content_hash=preview.result_content_hash,
             source=ManualConfigDraftRegistrySource(
-                base_entry_id=command.draft.base_entry_id,
-                base_config_content_hash=command.draft.base_content_hash,
-                base_registry_generation=command.draft.base_generation,
+                base_entry_id=source.draft.base_entry_id,
+                base_config_content_hash=source.draft.base_content_hash,
+                base_registry_generation=source.draft.base_generation,
             ),
             registered_by=command.registered_by,
             note=command.note,
         ),
-        result_content_hash=preview.result_content_hash,
         deltas=preview.deltas,
     )
 
 
 def _config_draft_default_receipt(
-    command: ConfigDraftDefaultCommand,
+    command: ConfigRevisionDefaultCommand,
     preview: ConfigDraftPreview,
     previous_activation: ConfigRegistryActivationRecord,
-) -> ConfigDraftDefaultReceipt:
+) -> ConfigRevisionDefaultReceipt:
     registration = _config_draft_registration_receipt(
         command.registration,
         preview,
@@ -638,9 +642,8 @@ def _config_draft_default_receipt(
         note=command.activation_note or command.registration.note,
         recorded_at=_NOW + timedelta(seconds=1),
     )
-    return ConfigDraftDefaultReceipt(
+    return ConfigRevisionDefaultReceipt(
         entry=registration.entry,
-        result_content_hash=registration.result_content_hash,
         deltas=registration.deltas,
         activation=activation,
     )

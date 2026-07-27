@@ -17,13 +17,15 @@ from scopecat.daemon.wire import (
     AnalysisJsonOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
-    CandidateConfigActivationCommand,
+    CandidateConfigRevisionSource,
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
     ConfigEntryActivationCommand,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
+    DirectConfigRevisionSource,
     ExecutionTransitionAppend,
     ExecutorLease,
     MeasurementAppendCommand,
@@ -84,15 +86,16 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
     activated = ConfigActivationReceipt(
         activation=activation,
     )
-    defaulted = ConfigDefaultReceipt(
+    defaulted = ConfigRevisionDefaultReceipt(
         entry=entry,
         activation=activation,
     )
-    import_command = DirectConfigImportCommand(
+    registration_command = ConfigRevisionRegistrationCommand(
+        source=DirectConfigRevisionSource(config=config),
         entry_id=entry.id,
-        config=config,
         registered_by="notebook",
     )
+    registered = ConfigRevisionRegistrationReceipt(entry=entry)
     activation_command = ConfigEntryActivationCommand(
         entry_id=entry.id,
         operator="operator",
@@ -102,11 +105,10 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         operator="operator",
         expected_generation=1,
     )
-    default_command = DirectConfigDefaultCommand(
-        entry_id=entry.id,
-        config=config,
-        registered_by="notebook",
+    default_command = ConfigRevisionDefaultCommand(
+        registration=registration_command,
         operator="operator",
+        expected_generation=0,
     )
 
     assert (
@@ -114,12 +116,20 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         == activated
     )
     assert (
-        ConfigDefaultReceipt.model_validate_json(defaulted.model_dump_json())
+        ConfigRevisionDefaultReceipt.model_validate_json(defaulted.model_dump_json())
         == defaulted
     )
     assert (
-        DirectConfigImportCommand.model_validate_json(import_command.model_dump_json())
-        == import_command
+        ConfigRevisionRegistrationCommand.model_validate_json(
+            registration_command.model_dump_json()
+        )
+        == registration_command
+    )
+    assert (
+        ConfigRevisionRegistrationReceipt.model_validate_json(
+            registered.model_dump_json()
+        )
+        == registered
     )
     assert (
         ConfigEntryActivationCommand.model_validate_json(
@@ -132,7 +142,7 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         == rollback_command
     )
     assert (
-        DirectConfigDefaultCommand.model_validate_json(
+        ConfigRevisionDefaultCommand.model_validate_json(
             default_command.model_dump_json()
         )
         == default_command
@@ -171,11 +181,15 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             ),
         ),
     )
-    activation = CandidateConfigActivationCommand(
-        run_id="run-1",
-        proposal_id=proposal.id,
-        entry_id="candidate-fit",
-        registered_by="notebook",
+    activation = ConfigRevisionDefaultCommand(
+        registration=ConfigRevisionRegistrationCommand(
+            source=CandidateConfigRevisionSource(
+                run_id="run-1",
+                proposal_id=proposal.id,
+            ),
+            entry_id="candidate-fit",
+            registered_by="notebook",
+        ),
         operator="operator",
         expected_generation=1,
     )
@@ -186,9 +200,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
 
     assert AnalysisSaveCommand.model_validate_json(command.model_dump_json()) == command
     assert (
-        CandidateConfigActivationCommand.model_validate_json(
-            activation.model_dump_json()
-        )
+        ConfigRevisionDefaultCommand.model_validate_json(activation.model_dump_json())
         == activation
     )
     assert (

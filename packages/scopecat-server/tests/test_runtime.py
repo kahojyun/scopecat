@@ -14,7 +14,6 @@ from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
-from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.control.models import (
     ControlRun,
     DurableEvent,
@@ -38,22 +37,21 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    CandidateConfigActivationCommand,
-    CandidateConfigActivationReceipt,
+    CandidateConfigRevisionSource,
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
     ConfigDraftCommand,
-    ConfigDraftDefaultCommand,
-    ConfigDraftDefaultReceipt,
-    ConfigDraftRegistrationCommand,
     ConfigEntryActivationCommand,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
+    DirectConfigRevisionSource,
     ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    ManualConfigDraftRevisionSource,
     MeasurementAppendCommand,
     ParameterProposalApprovalCommand,
     RunAdmission,
@@ -92,6 +90,42 @@ _FIXTURE = (
 
 def _config() -> ConfigProfileSnapshot:
     return load_config_snapshot_document(_FIXTURE)
+
+
+def _direct_registration(
+    *,
+    entry_id: str,
+    config: ConfigProfileSnapshot,
+    registered_by: str,
+    note: str = "",
+) -> ConfigRevisionRegistrationCommand:
+    return ConfigRevisionRegistrationCommand(
+        source=DirectConfigRevisionSource(config=config),
+        entry_id=entry_id,
+        registered_by=registered_by,
+        note=note,
+    )
+
+
+def _direct_default_command(
+    *,
+    entry_id: str,
+    config: ConfigProfileSnapshot,
+    registered_by: str,
+    operator: str,
+    expected_generation: int = 0,
+    note: str = "",
+) -> ConfigRevisionDefaultCommand:
+    return ConfigRevisionDefaultCommand(
+        registration=_direct_registration(
+            entry_id=entry_id,
+            config=config,
+            registered_by=registered_by,
+            note=note,
+        ),
+        operator=operator,
+        expected_generation=expected_generation,
+    )
 
 
 def _run_detail(runtime: LocalDaemonRuntime, run_id: str) -> RunDetail:
@@ -286,7 +320,7 @@ def test_bootstrap_config_is_active_and_idempotent_across_restarts(
     assert first.entry_id.startswith("daemon-")
     assert second == first
     assert [event.kind for event in first_events] == [
-        "config_imported",
+        "config_registered",
         "config_activated",
     ]
     assert second_events == first_events
@@ -303,12 +337,13 @@ def test_bootstrap_config_does_not_replace_later_activation(
         return LabApplication(bootstrap_config=lambda: bootstrap)
 
     with LocalDaemonRuntime(tmp_path, application_factory=factory) as runtime:
-        activation = runtime.application.config.set_direct_config_default(
-            DirectConfigDefaultCommand(
+        activation = runtime.application.config.set_config_default(
+            _direct_default_command(
                 config=selected,
                 entry_id="operator-selected",
                 registered_by="operator",
                 operator="operator",
+                expected_generation=1,
             )
         )
 
@@ -353,7 +388,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         missing = client.get("/api/v1/config-registry/active")
         baseline_import = client.post(
             "/api/v1/config-registry/entries",
-            json=DirectConfigImportCommand(
+            json=_direct_registration(
                 entry_id="baseline",
                 config=baseline,
                 registered_by="notebook",
@@ -361,7 +396,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         )
         updated_import = client.post(
             "/api/v1/config-registry/entries",
-            json=DirectConfigImportCommand(
+            json=_direct_registration(
                 entry_id="updated",
                 config=updated,
                 registered_by="notebook",
@@ -423,7 +458,10 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert baseline_import.status_code == 201
         assert updated_import.status_code == 201
         assert (
-            ConfigRegistryEntry.model_validate(baseline_import.json()).id == "baseline"
+            ConfigRevisionRegistrationReceipt.model_validate(
+                baseline_import.json()
+            ).entry.id
+            == "baseline"
         )
         assert (
             ConfigActivationReceipt.model_validate(
@@ -454,8 +492,8 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert active.entry.id == "baseline"
         assert active.config == baseline
         assert [(event.kind, event.payload, event.run_id) for event in events] == [
-            ("config_imported", {"entry_id": "baseline"}, None),
-            ("config_imported", {"entry_id": "updated"}, None),
+            ("config_registered", {"entry_id": "baseline"}, None),
+            ("config_registered", {"entry_id": "updated"}, None),
             (
                 "config_activated",
                 {"entry_id": "baseline", "generation": 1},
@@ -482,7 +520,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert events[-1].kind == "config_rolled_back"
 
 
-def test_direct_config_set_default_is_atomic_idempotent_and_durable(
+def test_direct_config_set_default_is_atomic_and_durable(
     tmp_path: Path,
 ) -> None:
     baseline = _config()
@@ -491,7 +529,7 @@ def test_direct_config_set_default_is_atomic_idempotent_and_durable(
         client = TestClient(runtime.app())
         initialized = client.post(
             "/api/v1/config-registry/default",
-            json=DirectConfigDefaultCommand(
+            json=_direct_default_command(
                 entry_id="baseline",
                 config=baseline,
                 registered_by="notebook",
@@ -501,18 +539,19 @@ def test_direct_config_set_default_is_atomic_idempotent_and_durable(
         )
         imported = client.post(
             "/api/v1/config-registry/entries",
-            json=DirectConfigImportCommand(
+            json=_direct_registration(
                 entry_id="tuned-existing",
                 config=tuned,
                 registered_by="earlier-notebook",
                 note="saved before it became the default",
             ).model_dump(mode="json"),
         )
-        command = DirectConfigDefaultCommand(
+        command = _direct_default_command(
             entry_id="tuned-generated",
             config=tuned,
             registered_by="notebook",
             operator="notebook",
+            expected_generation=1,
             note="use tuned values",
         )
 
@@ -524,14 +563,12 @@ def test_direct_config_set_default_is_atomic_idempotent_and_durable(
             "/api/v1/config-registry/default",
             json=command.model_dump(mode="json"),
         )
-        first = ConfigDefaultReceipt.model_validate(first_response.json())
-        retry = ConfigDefaultReceipt.model_validate(retry_response.json())
+        first = ConfigRevisionDefaultReceipt.model_validate(first_response.json())
 
         assert first_response.status_code == 200
-        assert retry_response.status_code == 200
+        assert retry_response.status_code == 409
         assert initialized.status_code == 200
         assert imported.status_code == 201
-        assert retry == first
         assert first.entry.id == "tuned-generated"
         assert first.activation.generation == 2
         assert [
@@ -542,8 +579,8 @@ def test_direct_config_set_default_is_atomic_idempotent_and_durable(
         assert [
             event.kind
             for event in _events(runtime).items
-            if event.kind in {"config_imported", "config_activated"}
-        ][-2:] == ["config_imported", "config_activated"]
+            if event.kind in {"config_registered", "config_activated"}
+        ][-2:] == ["config_registered", "config_activated"]
 
     with LocalDaemonRuntime(tmp_path) as reopened:
         active = reopened.application.config.get_active_config()
@@ -555,7 +592,7 @@ def test_config_default_rolls_back_registry_and_event_when_event_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    command = DirectConfigDefaultCommand(
+    command = _direct_default_command(
         entry_id="baseline",
         config=_config(),
         registered_by="notebook",
@@ -580,12 +617,12 @@ def test_config_default_rolls_back_registry_and_event_when_event_fails(
                 fail_activation_event,
             )
             with pytest.raises(RuntimeError, match="event publication failed"):
-                runtime.application.config.set_direct_config_default(command)
+                runtime.application.config.set_config_default(command)
 
         assert runtime.application.config.get_config_registry() == ConfigRegistryView()
         assert _events(runtime).items == ()
 
-        receipt = runtime.application.config.set_direct_config_default(command)
+        receipt = runtime.application.config.set_config_default(command)
 
         assert receipt.activation.generation == 1
         assert [
@@ -593,7 +630,7 @@ def test_config_default_rolls_back_registry_and_event_when_event_fails(
             for entry in runtime.application.config.get_config_registry().entries
         ] == ["baseline"]
         assert [event.kind for event in _events(runtime).items] == [
-            "config_imported",
+            "config_registered",
             "config_activated",
         ]
 
@@ -628,23 +665,26 @@ def test_config_draft_http_workflow_previews_and_atomically_sets_default(
         preview = ConfigDraftPreview.model_validate(preview_response.json())
         assert preview.result_content_hash is not None
         default_response = client.post(
-            "/api/v1/config-registry/drafts/set-default",
-            json=ConfigDraftDefaultCommand(
-                registration=ConfigDraftRegistrationCommand(
-                    draft=draft,
-                    expected_result_content_hash=preview.result_content_hash,
+            "/api/v1/config-registry/default",
+            json=ConfigRevisionDefaultCommand(
+                registration=ConfigRevisionRegistrationCommand(
+                    source=ManualConfigDraftRevisionSource(
+                        draft=draft,
+                        expected_result_content_hash=preview.result_content_hash,
+                    ),
                     entry_id="manual-tuning",
                     registered_by="operator",
                 ),
                 operator="operator",
+                expected_generation=active.activation.generation,
             ).model_dump(mode="json"),
         )
-        default = ConfigDraftDefaultReceipt.model_validate(default_response.json())
+        default = ConfigRevisionDefaultReceipt.model_validate(default_response.json())
 
         assert preview_response.status_code == 200
         assert preview.valid
         assert default_response.status_code == 200
-        assert default.result_content_hash == preview.result_content_hash
+        assert default.entry.content_hash == preview.result_content_hash
         assert default.activation.entry_id == "manual-tuning"
         assert default.activation.generation == active.activation.generation + 1
 
@@ -700,7 +740,7 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
         ]
         assert published_run_ids == [run_id]
         assert _manifest(runtime, run_id).outcome is None
-        listed = client.get("/api/v1/runs", params={"latest": "true"}).json()
+        listed = client.get("/api/v1/runs").json()
         assert len(listed["items"]) == 1
         assert listed["items"][0]["control"]["state"] == "queued"
         assert "lifecycle" not in listed["items"][0]["manifest"]
@@ -774,12 +814,16 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
         activated = client.post(
-            "/api/v1/config-registry/candidates/activate",
-            json=CandidateConfigActivationCommand(
-                run_id=admission.run_id,
-                proposal_id=proposal.id,
-                entry_id="candidate-fit",
-                registered_by="notebook",
+            "/api/v1/config-registry/default",
+            json=ConfigRevisionDefaultCommand(
+                registration=ConfigRevisionRegistrationCommand(
+                    source=CandidateConfigRevisionSource(
+                        run_id=admission.run_id,
+                        proposal_id=proposal.id,
+                    ),
+                    entry_id="candidate-fit",
+                    registered_by="notebook",
+                ),
                 operator="operator",
                 expected_generation=1,
             ).model_dump(mode="json"),
@@ -788,7 +832,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         saved = AnalysisSaveReceipt.model_validate(first_save.json())
         retry = AnalysisSaveReceipt.model_validate(retry_save.json())
         approval = ParameterChangeApprovalRecord.model_validate(approved.json())
-        activation = CandidateConfigActivationReceipt.model_validate(activated.json())
+        activation = ConfigRevisionDefaultReceipt.model_validate(activated.json())
         events = _events(runtime, run_id=admission.run_id).items
 
         assert first_save.status_code == 201

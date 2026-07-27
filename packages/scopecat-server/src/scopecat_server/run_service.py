@@ -106,19 +106,15 @@ class RunService:
         self,
         *,
         limit: int,
-        after: int | None,
         before: int | None,
         state: ControlRunState | None,
-        latest: bool = False,
     ) -> RunSummaryPage:
         with self._control.transaction() as connection:
             page = self._control.list_runs_in_transaction(
                 connection,
                 limit=limit,
-                after=after,
                 before=before,
                 state=state,
-                latest=latest,
             )
             return RunSummaryPage(
                 items=tuple(
@@ -132,7 +128,6 @@ class RunService:
                     for control in page.items
                 ),
                 next_cursor=page.next_cursor,
-                previous_cursor=page.previous_cursor,
             )
 
     def get_run(self, run_id: str) -> RunDetail:

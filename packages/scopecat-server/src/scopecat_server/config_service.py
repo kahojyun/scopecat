@@ -12,8 +12,6 @@ from scopecat.adapters.sqlite import (
     SQLiteControlPlane,
 )
 from scopecat.config.registry import service as config_registry_service
-from scopecat.config.registry.records import ConfigRegistryEntry
-from scopecat.config.resolution import validate_config_profile
 from scopecat.control.models import (
     DurableEventInput,
 )
@@ -25,19 +23,17 @@ from scopecat.daemon.views import (
     ConfigRegistryView,
 )
 from scopecat.daemon.wire import (
-    CandidateConfigActivationCommand,
-    CandidateConfigActivationReceipt,
+    CandidateConfigRevisionSource,
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
     ConfigDraftCommand,
-    ConfigDraftDefaultCommand,
-    ConfigDraftDefaultReceipt,
-    ConfigDraftRegistrationCommand,
-    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
+    DirectConfigRevisionSource,
+    ManualConfigDraftRevisionSource,
 )
 from scopecat.kernel.errors import (
     CheckFailed,
@@ -102,79 +98,47 @@ class ConfigService:
             )
             return ConfigEntryView(entry=snapshot.entry, config=snapshot.config)
 
-    def import_direct_config(
+    def register_config_revision(
         self,
-        command: DirectConfigImportCommand,
-    ) -> ConfigRegistryEntry:
+        command: ConfigRevisionRegistrationCommand,
+    ) -> ConfigRevisionRegistrationReceipt:
         with (
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            config = validate_config_profile(command.config)
-            result = config_registry_service.register_config_profile(
-                config=config,
+            result = config_registry_service.register_config_revision(
+                registration=_revision_registration(command),
                 unit_of_work=services.config_registry,
-                entry_id=command.entry_id,
-                registered_by=command.registered_by,
-                note=command.note,
             )
-            entry = result.entry
-            if result.registered:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_imported",
-                        payload={"entry_id": entry.id},
-                        occurred_at=entry.registered_at,
-                    ),
-                )
-            return entry
+            self._append_revision_events(connection, command, result)
+            return ConfigRevisionRegistrationReceipt(
+                entry=result.entry,
+                deltas=result.deltas,
+            )
 
-    def set_direct_config_default(
+    def set_config_default(
         self,
-        command: DirectConfigDefaultCommand,
-    ) -> ConfigDefaultReceipt:
+        command: ConfigRevisionDefaultCommand,
+    ) -> ConfigRevisionDefaultReceipt:
         with (
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            config = validate_config_profile(command.config)
-            result = config_registry_service.register_and_activate_config_profile(
-                config=config,
+            result = config_registry_service.register_and_activate_config_revision(
+                registration=_revision_registration(command.registration),
                 unit_of_work=services.config_registry,
-                entry_id=command.entry_id,
-                registered_by=command.registered_by,
                 operator=command.operator,
-                note=command.note,
+                expected_generation=command.expected_generation,
+                activation_note=command.activation_note,
             )
-            entry = result.entry
+            self._append_revision_events(connection, command.registration, result)
             activation = result.activation
             assert activation is not None
-            if result.registered:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_imported",
-                        payload={"entry_id": entry.id},
-                        occurred_at=entry.registered_at,
-                    ),
-                )
-            if result.activated:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_activated",
-                        payload={
-                            "entry_id": entry.id,
-                            "generation": activation.generation,
-                        },
-                        occurred_at=activation.recorded_at,
-                    ),
-                )
-            return ConfigDefaultReceipt(
-                entry=entry,
+            return ConfigRevisionDefaultReceipt(
+                entry=result.entry,
+                deltas=result.deltas,
                 activation=activation,
             )
 
@@ -203,110 +167,6 @@ class ConfigService:
                 ),
                 deltas=result.check.deltas,
                 problems=result.check.problems,
-            )
-
-    def register_config_draft(
-        self,
-        command: ConfigDraftRegistrationCommand,
-    ) -> ConfigDraftRegistrationReceipt:
-        with (
-            self._config_errors(),
-            self._config_transaction() as transaction,
-        ):
-            connection, services = transaction
-            draft = command.draft
-            mutation, result = config_registry_service.register_manual_config_draft(
-                unit_of_work=services.config_registry,
-                base_entry_id=draft.base_entry_id,
-                base_config_content_hash=draft.base_content_hash,
-                base_generation=draft.base_generation,
-                candidate_id=draft.candidate_id,
-                updates=draft.updates,
-                expected_result_content_hash=command.expected_result_content_hash,
-                entry_id=command.entry_id,
-                registered_by=command.registered_by,
-                note=command.note,
-            )
-            entry = mutation.entry
-            if mutation.registered:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_draft_registered",
-                        payload={
-                            "entry_id": entry.id,
-                            "base_entry_id": draft.base_entry_id,
-                        },
-                        occurred_at=entry.registered_at,
-                    ),
-                )
-            return ConfigDraftRegistrationReceipt(
-                entry=entry,
-                result_content_hash=entry.content_hash,
-                deltas=result.check.deltas,
-            )
-
-    def set_config_draft_default(
-        self,
-        command: ConfigDraftDefaultCommand,
-    ) -> ConfigDraftDefaultReceipt:
-        with (
-            self._config_errors(),
-            self._config_transaction() as transaction,
-        ):
-            connection, services = transaction
-            registration = command.registration
-            draft = registration.draft
-            mutation, result = (
-                config_registry_service.register_and_activate_manual_config_draft(
-                    unit_of_work=services.config_registry,
-                    base_entry_id=draft.base_entry_id,
-                    base_config_content_hash=draft.base_content_hash,
-                    base_generation=draft.base_generation,
-                    candidate_id=draft.candidate_id,
-                    updates=draft.updates,
-                    expected_result_content_hash=(
-                        registration.expected_result_content_hash
-                    ),
-                    entry_id=registration.entry_id,
-                    registered_by=registration.registered_by,
-                    operator=command.operator,
-                    note=registration.note,
-                    activation_note=command.activation_note,
-                )
-            )
-            entry = mutation.entry
-            activation = mutation.activation
-            assert activation is not None
-            if mutation.registered:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_draft_registered",
-                        payload={
-                            "entry_id": entry.id,
-                            "base_entry_id": draft.base_entry_id,
-                        },
-                        occurred_at=entry.registered_at,
-                    ),
-                )
-            if mutation.activated:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_activated",
-                        payload={
-                            "entry_id": entry.id,
-                            "generation": activation.generation,
-                        },
-                        occurred_at=activation.recorded_at,
-                    ),
-                )
-            return ConfigDraftDefaultReceipt(
-                entry=entry,
-                result_content_hash=entry.content_hash,
-                deltas=result.check.deltas,
-                activation=activation,
             )
 
     def activate_config_entry(
@@ -376,47 +236,39 @@ class ConfigService:
                 activation=activation,
             )
 
-    def activate_candidate_config(
+    def _append_revision_events(
         self,
-        command: CandidateConfigActivationCommand,
-    ) -> CandidateConfigActivationReceipt:
-        with (
-            self._config_errors(),
-            self._config_transaction() as transaction,
-        ):
-            connection, services = transaction
-            result = config_registry_service.register_and_activate_candidate_config(
-                unit_of_work=services.config_registry,
-                entry_id=command.entry_id,
-                registered_by=command.registered_by,
-                run_id=command.run_id,
-                proposal_id=command.proposal_id,
-                operator=command.operator,
-                expected_generation=command.expected_generation,
-                note=command.note,
-                activation_note=command.activation_note,
+        connection: sqlite3.Connection,
+        command: ConfigRevisionRegistrationCommand,
+        result: config_registry_service.ConfigRegistryMutationResult,
+    ) -> None:
+        source = command.source
+        run_id = (
+            source.run_id if isinstance(source, CandidateConfigRevisionSource) else None
+        )
+        if result.registered:
+            self._control.append_event_in_transaction(
+                connection,
+                DurableEventInput(
+                    run_id=run_id,
+                    kind="config_registered",
+                    payload={"entry_id": result.entry.id},
+                    occurred_at=result.entry.registered_at,
+                ),
             )
-            entry = result.entry
-            activation = result.activation
-            assert activation is not None
-            if result.activated:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        run_id=command.run_id,
-                        kind="config_activated",
-                        payload={
-                            "entry_id": entry.id,
-                            "generation": activation.generation,
-                            "source_run_id": command.run_id,
-                            "proposal_id": command.proposal_id,
-                        },
-                        occurred_at=activation.recorded_at,
-                    ),
-                )
-            return CandidateConfigActivationReceipt(
-                entry=entry,
-                activation=activation,
+        activation = result.activation
+        if result.activated and activation is not None:
+            self._control.append_event_in_transaction(
+                connection,
+                DurableEventInput(
+                    run_id=run_id,
+                    kind="config_activated",
+                    payload={
+                        "entry_id": result.entry.id,
+                        "generation": activation.generation,
+                    },
+                    occurred_at=activation.recorded_at,
+                ),
             )
 
     @contextmanager
@@ -442,3 +294,34 @@ class ConfigService:
             raise BackendNotFound(str(error)) from error
         except (CheckFailed, Conflict, DataIntegrityError) as error:
             raise BackendConflict(str(error)) from error
+
+
+def _revision_registration(
+    command: ConfigRevisionRegistrationCommand,
+) -> config_registry_service.ConfigRevisionRegistration:
+    source = command.source
+    if isinstance(source, DirectConfigRevisionSource):
+        revision_source = config_registry_service.DirectConfigRevisionSource(
+            source.config
+        )
+    elif isinstance(source, ManualConfigDraftRevisionSource):
+        draft = source.draft
+        revision_source = config_registry_service.ManualConfigDraftRevisionSource(
+            base_entry_id=draft.base_entry_id,
+            base_config_content_hash=draft.base_content_hash,
+            base_generation=draft.base_generation,
+            candidate_id=draft.candidate_id,
+            updates=draft.updates,
+            expected_result_content_hash=source.expected_result_content_hash,
+        )
+    else:
+        revision_source = config_registry_service.CandidateConfigRevisionSource(
+            run_id=source.run_id,
+            proposal_id=source.proposal_id,
+        )
+    return config_registry_service.ConfigRevisionRegistration(
+        source=revision_source,
+        entry_id=command.entry_id,
+        registered_by=command.registered_by,
+        note=command.note,
+    )

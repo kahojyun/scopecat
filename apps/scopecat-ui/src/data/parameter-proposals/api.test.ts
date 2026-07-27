@@ -110,13 +110,18 @@ describe("parameter proposal commands", () => {
       note: "Promote calibrated frequency",
     });
 
-    expectRequest(fetchMock, "/api/v1/config-registry/candidates/activate", {
-      run_id: "run-a",
-      proposal_id: "drive-frequency",
-      registered_by: "Ada",
+    expectRequest(fetchMock, "/api/v1/config-registry/default", {
+      registration: {
+        source: {
+          kind: "candidate_config",
+          run_id: "run-a",
+          proposal_id: "drive-frequency",
+        },
+        registered_by: "Ada",
+        note: "Promote calibrated frequency",
+      },
       operator: "Ada",
       expected_generation: 4,
-      note: "Promote calibrated frequency",
     });
   });
 

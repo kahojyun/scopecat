@@ -112,7 +112,6 @@ class RunSummaryPage(_ViewModel):
 
     items: tuple[RunSummary, ...] = ()
     next_cursor: int | None = Field(default=None, ge=1)
-    previous_cursor: int | None = Field(default=None, ge=1)
 
 
 class RunDetail(RunSummary):

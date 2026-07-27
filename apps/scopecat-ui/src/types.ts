@@ -48,7 +48,7 @@ export interface ProjectRun {
 
 export interface ProjectRunPage {
   items: ProjectRun[];
-  previousCursor?: number;
+  nextCursor?: number;
 }
 
 export interface ProjectEvent {

@@ -65,7 +65,7 @@ export function RunsWorkspace({
     queryKey: ["runs"],
     queryFn: ({ signal }) => getRuns(signal),
   });
-  const runHeadCursor = runsQuery.data?.previousCursor;
+  const runHeadCursor = runsQuery.data?.nextCursor;
   latestRunHeadCursor.current = runHeadCursor;
   const olderRunsMutation = useMutation({
     mutationFn: ({ before }: OlderRunPageRequest) => getOlderRuns(before),
@@ -127,8 +127,7 @@ export function RunsWorkspace({
         )
       : indexedRuns;
   }, [olderRunPages, runDetailQuery.data, runsQuery.data]);
-  const previousRunCursor =
-    olderRunPages.length > 0 ? olderRunPages.at(-1)?.previousCursor : runHeadCursor;
+  const nextRunCursor = olderRunPages.length > 0 ? olderRunPages.at(-1)?.nextCursor : runHeadCursor;
   const measurements = useMemo(
     () => mergeMeasurementPages(measurementsQuery.data?.pages ?? []),
     [measurementsQuery.data?.pages],
@@ -171,13 +170,11 @@ export function RunsWorkspace({
         <StatusItem
           label="Runs"
           value={
-            runsQuery.isSuccess
-              ? `${runs.length}${previousRunCursor !== undefined ? "+" : ""}`
-              : "—"
+            runsQuery.isSuccess ? `${runs.length}${nextRunCursor !== undefined ? "+" : ""}` : "—"
           }
           detail={
             runsQuery.isSuccess
-              ? previousRunCursor !== undefined
+              ? nextRunCursor !== undefined
                 ? `${activeCount} active in loaded runs`
                 : `${activeCount} active`
               : "No run data received"
@@ -190,11 +187,11 @@ export function RunsWorkspace({
           detail={
             attentionCount > 0
               ? "Operator review needed"
-              : previousRunCursor !== undefined
+              : nextRunCursor !== undefined
                 ? "No flags in loaded runs"
                 : "No flagged runs"
           }
-          tone={attentionCount > 0 ? "warning" : previousRunCursor !== undefined ? "muted" : "good"}
+          tone={attentionCount > 0 ? "warning" : nextRunCursor !== undefined ? "muted" : "good"}
         />
       </section>
 
@@ -278,30 +275,28 @@ export function RunsWorkspace({
                 {errorMessage(olderRunsMutation.error)}
               </p>
             )}
-            {runsQuery.isSuccess &&
-              runHeadCursor !== undefined &&
-              previousRunCursor !== undefined && (
-                <div className="run-pagination">
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={olderRunsMutation.isPending}
-                    onClick={() =>
-                      olderRunsMutation.mutate({
-                        headCursor: runHeadCursor,
-                        before: previousRunCursor,
-                      })
-                    }
-                  >
-                    {olderRunsMutation.isPending ? (
-                      <LoaderCircle className="spin" size={14} aria-hidden="true" />
-                    ) : (
-                      <ChevronRight size={14} aria-hidden="true" />
-                    )}
-                    {olderRunsMutation.isPending ? "Loading older runs…" : "Load older runs"}
-                  </button>
-                </div>
-              )}
+            {runsQuery.isSuccess && runHeadCursor !== undefined && nextRunCursor !== undefined && (
+              <div className="run-pagination">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={olderRunsMutation.isPending}
+                  onClick={() =>
+                    olderRunsMutation.mutate({
+                      headCursor: runHeadCursor,
+                      before: nextRunCursor,
+                    })
+                  }
+                >
+                  {olderRunsMutation.isPending ? (
+                    <LoaderCircle className="spin" size={14} aria-hidden="true" />
+                  ) : (
+                    <ChevronRight size={14} aria-hidden="true" />
+                  )}
+                  {olderRunsMutation.isPending ? "Loading older runs…" : "Load older runs"}
+                </button>
+              </div>
+            )}
           </div>
         </aside>
 

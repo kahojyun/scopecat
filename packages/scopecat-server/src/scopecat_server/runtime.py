@@ -17,7 +17,11 @@ from scopecat.adapters.sqlite import (
 )
 from scopecat.application.lab import BootstrapConfigFactory
 from scopecat.config.resolution import validate_config_profile
-from scopecat.daemon.wire import DirectConfigDefaultCommand
+from scopecat.daemon.wire import (
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionRegistrationCommand,
+    DirectConfigRevisionSource,
+)
 from scopecat.project import LabApplicationFactory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -166,13 +170,16 @@ def _bootstrap_config_registry(
     selected = config() if callable(config) else config
     validated = validate_config_profile(selected)
     digest = config_content_hash(validated).removeprefix("sha256:")
-    config_service.set_direct_config_default(
-        DirectConfigDefaultCommand(
-            entry_id=f"daemon-{digest}",
-            config=validated,
-            registered_by="scopecat",
+    config_service.set_config_default(
+        ConfigRevisionDefaultCommand(
+            registration=ConfigRevisionRegistrationCommand(
+                source=DirectConfigRevisionSource(config=validated),
+                entry_id=f"daemon-{digest}",
+                registered_by="scopecat",
+                note="imported while bootstrapping a new lab instance",
+            ),
             operator="scopecat",
-            note="imported while bootstrapping a new lab instance",
+            expected_generation=0,
         )
     )
 

@@ -8,12 +8,11 @@ import {
   activateConfigEntry,
   getConfigRegistry,
   getConfigRegistryEntry,
-  importConfigProfile,
   parseConfigProfileJson,
   previewConfigDraft,
-  registerConfigDraft,
+  registerConfigRevision,
   rollbackConfig,
-  setConfigDraftDefault,
+  setConfigDefault,
 } from "./config-api";
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
@@ -114,15 +113,18 @@ describe("config registry commands", () => {
     };
     const config = configProfile("profile-import");
     const imported = {
+      source: {
+        kind: "direct_config_profile" as const,
+        config,
+      },
       entry_id: "profile-import",
       registered_by: "Grace",
       note: "bench setup",
-      config,
     };
 
     await activateConfigEntry(activationCommand);
     await rollbackConfig(rollback);
-    await importConfigProfile(imported);
+    await registerConfigRevision(imported);
 
     expectRequest(fetchMock, 0, "/api/v1/config-registry/active", activationCommand);
     expectRequest(fetchMock, 1, "/api/v1/config-registry/rollback", rollback);
@@ -174,15 +176,17 @@ describe("typed config drafts", () => {
 
   it("sends register and set-default commands unchanged", async () => {
     const registration = {
-      draft,
-      expected_result_content_hash: HASH_B,
+      source: {
+        kind: "manual_parameter_updates" as const,
+        draft,
+        expected_result_content_hash: HASH_B,
+      },
       entry_id: "config-a-edit",
       registered_by: "Ada",
       note: "calibrated",
     };
     const registrationReceipt = {
       entry: registryEntry("config-a-edit", HASH_B),
-      result_content_hash: HASH_B,
       deltas: [
         {
           parameter_id: "drive.frequency",
@@ -195,6 +199,7 @@ describe("typed config drafts", () => {
     const defaultCommand = {
       registration,
       operator: "Ada",
+      expected_generation: 3,
       activation_note: "accepted edit",
     };
     const defaultReceipt = {
@@ -207,10 +212,10 @@ describe("typed config drafts", () => {
       .mockResolvedValueOnce(jsonResponse(defaultReceipt));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(registerConfigDraft(registration)).resolves.toEqual(registrationReceipt);
-    await expect(setConfigDraftDefault(defaultCommand)).resolves.toEqual(defaultReceipt);
-    expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/register", registration);
-    expectRequest(fetchMock, 1, "/api/v1/config-registry/drafts/set-default", defaultCommand);
+    await expect(registerConfigRevision(registration)).resolves.toEqual(registrationReceipt);
+    await expect(setConfigDefault(defaultCommand)).resolves.toEqual(defaultReceipt);
+    expectRequest(fetchMock, 0, "/api/v1/config-registry/entries", registration);
+    expectRequest(fetchMock, 1, "/api/v1/config-registry/default", defaultCommand);
   });
 });
 
@@ -292,7 +297,7 @@ function configProfile(id: string): ConfigProfileSnapshot {
             id: "drive.frequency",
             value_type: {
               shape: "scalar",
-              atom: { type: "quantity", unit: "GHz" },
+              atom: { type: "quantity", finite: true, unit: "GHz" },
             },
             description: "Drive frequency",
           },

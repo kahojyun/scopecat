@@ -21,7 +21,7 @@ import type {
 
 const API = {
   health: "/api/v1/health",
-  runs: "/api/v1/runs?limit=100&latest=true",
+  runs: "/api/v1/runs?limit=100",
   events: "/api/v1/events?limit=500&latest=true",
 } as const;
 
@@ -109,7 +109,7 @@ export async function getOlderRuns(before: number, signal?: AbortSignal): Promis
 function normalizeRunPage(response: DaemonUiApi["runPage"]): ProjectRunPage {
   return {
     items: response.items.map((run) => normalizeRun(run.control, run.manifest)).sort(compareRuns),
-    previousCursor: response.previous_cursor ?? undefined,
+    nextCursor: response.next_cursor ?? undefined,
   };
 }
 

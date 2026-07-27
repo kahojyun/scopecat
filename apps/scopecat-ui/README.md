@@ -76,15 +76,12 @@ The configuration view uses the daemon-owned registry directly:
   and immutable `config`; `404` means no entry is active.
 - `GET /api/v1/config-registry/entries/{entry_id}` returns one `entry` and
   `config`.
-- `POST /api/v1/config-registry/entries` registers an imported snapshot.
-- `POST /api/v1/config-registry/default` atomically saves and selects a complete
-  snapshot.
+- `POST /api/v1/config-registry/entries` registers a direct snapshot, reviewed
+  draft, or approved candidate.
+- `POST /api/v1/config-registry/default` atomically registers and selects the
+  same revision sources.
 - `POST /api/v1/config-registry/drafts/preview` validates typed parameter
   operations against the active immutable entry without writing.
-- `POST /api/v1/config-registry/drafts/set-default` rechecks typed operations,
-  saves one immutable version, and selects it in one transaction.
-- `POST /api/v1/config-registry/drafts/register` registers the exact previewed
-  candidate without selecting it; this is an Advanced action.
 - `POST /api/v1/config-registry/active` and
   `POST /api/v1/config-registry/rollback` require `expected_generation`.
 
@@ -101,7 +98,7 @@ user code inside the daemon.
 
 Saved-entry provenance stays descriptive rather than prescribing a calibration
 workflow: manual edits link to their base entry, while analysis candidates join
-the existing run, proposal, analysis, and latest-decision records.
+the existing run, proposal, analysis, and immutable approval record.
 
 The file picker is deliberately named **Import snapshot**: it accepts the
 self-contained `scopecat.config_snapshot.v1` document registered by the daemon.
@@ -109,14 +106,12 @@ self-contained `scopecat.config_snapshot.v1` document registered by the daemon.
 Parameter proposal lifecycle belongs to the run detail:
 
 - `GET /api/v1/runs/{run_id}/parameter-proposals` returns proposal deltas and
-  durable decisions.
-- `POST /api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/decision`
-  appends an `approved` or `rejected` decision with authority and note.
-- `POST /api/v1/config-registry/candidates/activate` resolves and activates the
-  selected proposal when its latest decision is approved, with a generation
-  check, then refreshes the run, event, proposal, and registry projections.
+  durable approval.
+- `POST /api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval`
+  records one immutable approval with actor and note.
+- `POST /api/v1/config-registry/default` resolves and activates the selected
+  approved proposal with a generation check, then refreshes the run, event,
+  proposal, and registry projections.
 
 The ordinary GUI action is **Accept as default**. It records human acceptance
 when needed and then publishes the candidate; approval-only remains Advanced.
-Decision history also identifies named, versioned automatic policies recorded
-by notebook calibration code.

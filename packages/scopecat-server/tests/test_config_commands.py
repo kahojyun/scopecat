@@ -17,7 +17,7 @@ from scopecat.config.documents import (
     parse_config_snapshot_document,
 )
 from scopecat.daemon.endpoint import DAEMON_URL_ENV, DaemonEndpointRecord
-from scopecat.daemon.wire import ConfigDefaultReceipt
+from scopecat.daemon.wire import ConfigRevisionDefaultReceipt
 from scopecat.kernel.errors import CheckFailed
 from scopecat.project import Project
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -289,7 +289,7 @@ class _SetDefaultCall:
 class _FakeLab:
     def __init__(self, active: ConfigProfileSnapshot) -> None:
         self.active = active
-        self.receipt = cast("ConfigDefaultReceipt", object())
+        self.receipt = cast("ConfigRevisionDefaultReceipt", object())
         self.set_default_calls: list[_SetDefaultCall] = []
         self.closed = False
 
@@ -320,7 +320,7 @@ class _FakeLab:
         registered_by: str,
         operator: str,
         note: str,
-    ) -> ConfigDefaultReceipt:
+    ) -> ConfigRevisionDefaultReceipt:
         self.set_default_calls.append(
             _SetDefaultCall(
                 config=config,

@@ -247,8 +247,8 @@ function ConcreteAtomInput({
         label={label}
         value={typeof value === "number" ? value : 0}
         integer={type.type === "int"}
-        minimum={type.minimum}
-        maximum={type.maximum}
+        minimum={type.minimum ?? undefined}
+        maximum={type.maximum ?? undefined}
         disabled={disabled}
         onChange={onChange}
         onValidityChange={onValidityChange}
@@ -290,8 +290,8 @@ function ConcreteAtomInput({
         <NumericInput
           label={`${label} value`}
           value={quantity.value}
-          minimum={type.minimum}
-          maximum={type.maximum}
+          minimum={type.minimum ?? undefined}
+          maximum={type.maximum ?? undefined}
           disabled={disabled}
           onChange={(next) => onChange({ value: next, unit: quantity.unit })}
           onValidityChange={onValidityChange}
@@ -300,7 +300,7 @@ function ConcreteAtomInput({
           aria-label={`${label} unit`}
           type="text"
           value={quantity.unit}
-          readOnly={type.unit !== undefined}
+          readOnly={type.unit !== undefined && type.unit !== null}
           disabled={disabled}
           onChange={(event) => onChange({ value: quantity.value, unit: event.target.value })}
         />

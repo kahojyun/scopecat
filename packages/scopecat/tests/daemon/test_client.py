@@ -36,7 +36,7 @@ def test_get_query_and_post_body_use_typed_wire_models() -> None:
     requests: list[httpx2.Request] = []
     client = _client(requests)
 
-    runs = client.list_runs(limit=5, after=2, state="queued")
+    runs = client.list_runs(limit=5, before=2, state="queued")
     admission = client.submit_run(_submission())
 
     assert isinstance(runs, RunSummaryPage)
@@ -48,26 +48,13 @@ def test_get_query_and_post_body_use_typed_wire_models() -> None:
     assert list_request.url.path == "/api/v1/runs"
     assert dict(list_request.url.params) == {
         "limit": "5",
-        "after": "2",
+        "before": "2",
         "state": "queued",
     }
     submit_request = requests[1]
     assert submit_request.method == "POST"
     assert submit_request.url.path == "/api/v1/runs"
     assert RunSubmission.model_validate_json(submit_request.content) == _submission()
-
-
-def test_run_queries_serialize_the_older_page_cursor() -> None:
-    requests: list[httpx2.Request] = []
-    client = _client(requests)
-
-    page = client.list_runs(limit=5, before=10)
-
-    assert isinstance(page, RunSummaryPage)
-    assert dict(requests[0].url.params) == {
-        "limit": "5",
-        "before": "10",
-    }
 
 
 def test_executor_start_rejects_receipt_for_another_run() -> None:

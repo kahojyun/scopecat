@@ -10,7 +10,6 @@ from typing import Annotated, override
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -36,19 +35,14 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AttentionResolutionReceipt,
-    CandidateConfigActivationCommand,
-    CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
     ConfigDraftCommand,
-    ConfigDraftDefaultCommand,
-    ConfigDraftDefaultReceipt,
-    ConfigDraftRegistrationCommand,
-    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
     ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
@@ -119,34 +113,22 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.config.get_config_entry(entry_id)
 
     @app.post(f"{_API_PREFIX}/config-registry/entries", status_code=201)
-    def import_direct_config(
-        command: DirectConfigImportCommand,
-    ) -> ConfigRegistryEntry:
-        return application.config.import_direct_config(command)
+    def register_config_revision(
+        command: ConfigRevisionRegistrationCommand,
+    ) -> ConfigRevisionRegistrationReceipt:
+        return application.config.register_config_revision(command)
 
     @app.post(f"{_API_PREFIX}/config-registry/default")
-    def set_direct_config_default(
-        command: DirectConfigDefaultCommand,
-    ) -> ConfigDefaultReceipt:
-        return application.config.set_direct_config_default(command)
+    def set_config_default(
+        command: ConfigRevisionDefaultCommand,
+    ) -> ConfigRevisionDefaultReceipt:
+        return application.config.set_config_default(command)
 
     @app.post(f"{_API_PREFIX}/config-registry/drafts/preview")
     def preview_config_draft(
         command: ConfigDraftCommand,
     ) -> ConfigDraftPreview:
         return application.config.preview_config_draft(command)
-
-    @app.post(f"{_API_PREFIX}/config-registry/drafts/register", status_code=201)
-    def register_config_draft(
-        command: ConfigDraftRegistrationCommand,
-    ) -> ConfigDraftRegistrationReceipt:
-        return application.config.register_config_draft(command)
-
-    @app.post(f"{_API_PREFIX}/config-registry/drafts/set-default")
-    def set_config_draft_default(
-        command: ConfigDraftDefaultCommand,
-    ) -> ConfigDraftDefaultReceipt:
-        return application.config.set_config_draft_default(command)
 
     @app.post(f"{_API_PREFIX}/config-registry/active")
     def activate_config_entry(
@@ -160,36 +142,16 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ConfigActivationReceipt:
         return application.config.rollback_config(command)
 
-    @app.post(f"{_API_PREFIX}/config-registry/candidates/activate")
-    def activate_candidate_config(
-        command: CandidateConfigActivationCommand,
-    ) -> CandidateConfigActivationReceipt:
-        return application.config.activate_candidate_config(command)
-
     @app.get(f"{_API_PREFIX}/runs")
     def list_runs(
         limit: Annotated[int, Query(ge=1, le=500)] = 50,
-        after: Annotated[int | None, Query(ge=0)] = None,
         before: Annotated[int | None, Query(ge=1)] = None,
         state: ControlRunState | None = None,
-        latest: bool = False,
     ) -> RunSummaryPage:
-        if after is not None and before is not None:
-            raise HTTPException(
-                status_code=422,
-                detail="run pages accept either an after or before cursor",
-            )
-        if latest and (after is not None or before is not None):
-            raise HTTPException(
-                status_code=422,
-                detail="latest run snapshots do not accept a cursor",
-            )
         return application.runs.list_runs(
             limit=limit,
-            after=after,
             before=before,
             state=state,
-            latest=latest,
         )
 
     @app.post(f"{_API_PREFIX}/runs", status_code=201)

@@ -1,14 +1,14 @@
 import { request } from "../../api";
 import type {
   ConfigDraftCommand,
-  ConfigDraftDefaultCommand,
-  ConfigDraftDefaultReceipt,
   ConfigDraftPreview,
-  ConfigDraftRegistrationCommand,
-  ConfigDraftRegistrationReceipt,
   ConfigProfileSnapshot,
   ConfigRegistryEntry,
   ConfigRegistryOverview,
+  ConfigRevisionDefaultCommand,
+  ConfigRevisionDefaultReceipt,
+  ConfigRevisionRegistrationCommand,
+  ConfigRevisionRegistrationReceipt,
   DaemonUiApi,
 } from "../../api-contract";
 
@@ -77,16 +77,6 @@ export async function rollbackConfig(command: DaemonUiApi["configRollbackCommand
   );
 }
 
-export async function importConfigProfile(
-  command: DaemonUiApi["configImportCommand"],
-): Promise<void> {
-  await request<DaemonUiApi["configImportedEntry"]>(
-    `${CONFIG_API}/entries`,
-    undefined,
-    jsonRequest(command),
-  );
-}
-
 export async function previewConfigDraft(command: ConfigDraftCommand): Promise<ConfigDraftPreview> {
   const response = await request<DaemonUiApi["configDraftPreview"]>(
     `${CONFIG_API}/drafts/preview`,
@@ -96,26 +86,26 @@ export async function previewConfigDraft(command: ConfigDraftCommand): Promise<C
   return response as ConfigDraftPreview;
 }
 
-export async function registerConfigDraft(
-  command: ConfigDraftRegistrationCommand,
-): Promise<ConfigDraftRegistrationReceipt> {
-  const response = await request<DaemonUiApi["configDraftRegistrationReceipt"]>(
-    `${CONFIG_API}/drafts/register`,
+export async function registerConfigRevision(
+  command: ConfigRevisionRegistrationCommand,
+): Promise<ConfigRevisionRegistrationReceipt> {
+  const response = await request<DaemonUiApi["configRevisionRegistrationReceipt"]>(
+    `${CONFIG_API}/entries`,
     undefined,
     jsonRequest(command),
   );
-  return response as ConfigDraftRegistrationReceipt;
+  return response as ConfigRevisionRegistrationReceipt;
 }
 
-export async function setConfigDraftDefault(
-  command: ConfigDraftDefaultCommand,
-): Promise<ConfigDraftDefaultReceipt> {
-  const response = await request<DaemonUiApi["configDraftDefaultReceipt"]>(
-    `${CONFIG_API}/drafts/set-default`,
+export async function setConfigDefault(
+  command: ConfigRevisionDefaultCommand,
+): Promise<ConfigRevisionDefaultReceipt> {
+  const response = await request<DaemonUiApi["configRevisionDefaultReceipt"]>(
+    `${CONFIG_API}/default`,
     undefined,
     jsonRequest(command),
   );
-  return response as ConfigDraftDefaultReceipt;
+  return response as ConfigRevisionDefaultReceipt;
 }
 
 export function summarizeConfigSnapshot(config: ConfigProfileSnapshot): ConfigSnapshotSummary {

@@ -19,9 +19,14 @@ from scopecat.config.registry import (
     CandidateConfigRegistrySource,
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
+    ConfigRegistryMutationResult,
+    ConfigRegistryUnitOfWorkFactory,
+    ConfigRevisionRegistration,
     DirectConfigRegistrySource,
+    DirectConfigRevisionSource,
     ManualConfigDraftRegistrySource,
     ManualConfigDraftResult,
+    ManualConfigDraftRevisionSource,
     activate_config_registry_entry,
     current_config_registry_generation,
     list_config_registry_entries,
@@ -30,10 +35,8 @@ from scopecat.config.registry import (
     load_active_config_registry_entry,
     load_config_registry_activation_history,
     preview_manual_config_draft,
-    register_and_activate_config_profile,
-    register_and_activate_manual_config_draft,
-    register_config_profile,
-    register_manual_config_draft,
+    register_and_activate_config_revision,
+    register_config_revision,
     resolve_config_registry_config_source,
     rollback_config_registry,
 )
@@ -43,7 +46,11 @@ from scopecat.kernel.errors import (
     DataIntegrityError,
 )
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.config import (
+    ConfigContentHash,
+    ConfigProfileSnapshot,
+    config_content_hash,
+)
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import ConfigRegistryRunConfigSource
@@ -70,11 +77,11 @@ class _ResolvedCandidate:
     config: ConfigProfileSnapshot
 
 
-def test_register_config_profile_writes_and_activates_direct_entry(
+def test_register_revision_writes_and_activates_direct_entry(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    entry = register_config_profile(
+    entry = _register_direct_revision(
         config=config,
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed",
@@ -93,7 +100,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
     )
     assert persisted_config == config
 
-    activated = register_and_activate_config_profile(
+    activated = _register_and_activate_direct_revision(
         config=load_config(),
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="active-seed",
@@ -127,7 +134,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
 
 def test_registry_rejects_invalid_registration_before_storage(tmp_path: Path) -> None:
     with pytest.raises(CheckFailed) as captured:
-        register_config_profile(
+        _register_direct_revision(
             config=load_config(),
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             entry_id="seed",
@@ -175,7 +182,7 @@ def test_manual_config_draft_preview_is_read_only_and_registration_records_sourc
         load_active_config_registry_activation(unit_of_work=unit_of_work) == activation
     )
 
-    mutation, registered = register_manual_config_draft(
+    mutation = _register_draft_revision(
         unit_of_work=unit_of_work,
         base_entry_id=base.id,
         base_config_content_hash=base.content_hash,
@@ -191,7 +198,7 @@ def test_manual_config_draft_preview_is_read_only_and_registration_records_sourc
     )
 
     entry = mutation.entry
-    assert registered.check.candidate == preview.check.candidate
+    assert mutation.deltas == preview.check.deltas
     assert isinstance(entry.source, ManualConfigDraftRegistrySource)
     assert entry.source.base_entry_id == base.id
     assert entry.source.base_config_content_hash == base.content_hash
@@ -207,7 +214,7 @@ def test_manual_config_draft_preview_is_read_only_and_registration_records_sourc
             entry_id=entry.id,
             unit_of_work=unit_of_work,
         )
-        == registered.check.candidate
+        == preview.check.candidate
     )
     assert (
         load_active_config_registry_activation(unit_of_work=unit_of_work) == activation
@@ -240,7 +247,7 @@ def test_manual_config_draft_registration_rejects_stale_base_identity(
     base_generation = activation.generation
     base_content_hash = base.content_hash
     if stale_field == "generation":
-        newer = register_and_activate_config_profile(
+        newer = _register_and_activate_direct_revision(
             config=load_config().model_copy(update={"id": "newer-config"}),
             unit_of_work=unit_of_work,
             entry_id="newer-entry",
@@ -254,7 +261,7 @@ def test_manual_config_draft_registration_rejects_stale_base_identity(
         base_content_hash = "sha256:" + ("0" * 64)
 
     with pytest.raises(Conflict) as error:
-        register_manual_config_draft(
+        _register_draft_revision(
             unit_of_work=unit_of_work,
             base_entry_id=base.id,
             base_config_content_hash=base_content_hash,
@@ -281,7 +288,7 @@ def test_manual_config_draft_registration_rejects_changed_preview_result(
     base, activation = _seed_active_config_registry(tmp_path)
 
     with pytest.raises(Conflict) as error:
-        register_manual_config_draft(
+        _register_draft_revision(
             unit_of_work=unit_of_work,
             base_entry_id=base.id,
             base_config_content_hash=base.content_hash,
@@ -318,7 +325,7 @@ def test_manual_config_draft_set_default_stale_conflict_leaves_no_entry(
         updates=_manual_config_updates(),
     )
     assert preview.check.candidate is not None
-    newer = register_and_activate_config_profile(
+    newer = _register_and_activate_direct_revision(
         config=load_config().model_copy(update={"id": "newer-config"}),
         unit_of_work=unit_of_work,
         entry_id="newer-entry",
@@ -330,7 +337,7 @@ def test_manual_config_draft_set_default_stale_conflict_leaves_no_entry(
     assert newer_activation is not None
 
     with pytest.raises(Conflict) as error:
-        register_and_activate_manual_config_draft(
+        _register_and_activate_draft_revision(
             unit_of_work=unit_of_work,
             base_entry_id=base.id,
             base_config_content_hash=base.content_hash,
@@ -370,7 +377,7 @@ def test_manual_config_draft_activation_rejects_a_stale_base(
         updates=_manual_config_updates(),
     )
     assert preview.check.candidate is not None
-    manual, _registered = register_manual_config_draft(
+    manual = _register_draft_revision(
         unit_of_work=unit_of_work,
         base_entry_id=base.id,
         base_config_content_hash=base.content_hash,
@@ -381,7 +388,7 @@ def test_manual_config_draft_activation_rejects_a_stale_base(
         entry_id="manual-candidate",
         registered_by="operator",
     )
-    newer = register_and_activate_config_profile(
+    newer = _register_and_activate_direct_revision(
         config=load_config().model_copy(update={"id": "newer-config"}),
         unit_of_work=unit_of_work,
         entry_id="newer-entry",
@@ -491,7 +498,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
         reviewer="operator",
     )
     newer_config = load_config().model_copy(update={"id": "newer-base"})
-    active = register_and_activate_config_profile(
+    active = _register_and_activate_direct_revision(
         config=newer_config,
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="newer-base",
@@ -546,7 +553,7 @@ def test_candidate_registration_requires_approval(tmp_path: Path) -> None:
 def test_activation_generation_is_append_only_and_rejects_stale_writes(
     tmp_path: Path,
 ) -> None:
-    first = register_and_activate_config_profile(
+    first = _register_and_activate_direct_revision(
         config=load_config(),
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed-a",
@@ -555,7 +562,7 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
     )
     first_record = first.activation
     assert first_record is not None
-    second = register_config_profile(
+    second = _register_direct_revision(
         config=load_config(),
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed-b",
@@ -642,7 +649,7 @@ def test_registration_runs_full_config_semantic_validation(tmp_path: Path) -> No
         }
     )
     with pytest.raises(CheckFailed) as error:
-        register_config_profile(
+        _register_direct_revision(
             config=invalid_config,
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             entry_id="invalid",
@@ -666,7 +673,7 @@ def test_concurrent_registrations_preserve_every_index_entry(tmp_path: Path) -> 
 
     def register(entry_id: str) -> str:
         barrier.wait()
-        return register_config_profile(
+        return _register_direct_revision(
             config=load_config(),
             unit_of_work=unit_of_work,
             entry_id=entry_id,
@@ -686,7 +693,7 @@ def test_concurrent_composite_activations_apply_one_generation(
     tmp_path: Path,
 ) -> None:
     unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
-    initial = register_and_activate_config_profile(
+    initial = _register_and_activate_direct_revision(
         config=load_config(),
         unit_of_work=unit_of_work,
         entry_id="seed",
@@ -700,7 +707,7 @@ def test_concurrent_composite_activations_apply_one_generation(
     def activate(entry_id: str) -> tuple[str, str]:
         barrier.wait()
         try:
-            result = register_and_activate_config_profile(
+            result = _register_and_activate_direct_revision(
                 config=load_config().model_copy(update={"id": entry_id}),
                 unit_of_work=unit_of_work,
                 entry_id=entry_id,
@@ -786,6 +793,122 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
     assert error.value.problems[0].code == "config_registry.duplicate_entry"
 
 
+def _register_direct_revision(
+    *,
+    config: ConfigProfileSnapshot,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+    entry_id: str,
+    registered_by: str,
+    note: str = "",
+) -> ConfigRegistryMutationResult:
+    return register_config_revision(
+        registration=ConfigRevisionRegistration(
+            source=DirectConfigRevisionSource(config),
+            entry_id=entry_id,
+            registered_by=registered_by,
+            note=note,
+        ),
+        unit_of_work=unit_of_work,
+    )
+
+
+def _register_and_activate_direct_revision(
+    *,
+    config: ConfigProfileSnapshot,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+    entry_id: str,
+    registered_by: str,
+    operator: str,
+    note: str = "",
+    activation_note: str | None = None,
+    expected_generation: int | None = None,
+) -> ConfigRegistryMutationResult:
+    generation = (
+        current_config_registry_generation(unit_of_work=unit_of_work)
+        if expected_generation is None
+        else expected_generation
+    )
+    return register_and_activate_config_revision(
+        registration=ConfigRevisionRegistration(
+            source=DirectConfigRevisionSource(config),
+            entry_id=entry_id,
+            registered_by=registered_by,
+            note=note,
+        ),
+        unit_of_work=unit_of_work,
+        operator=operator,
+        expected_generation=generation,
+        activation_note=activation_note,
+    )
+
+
+def _register_draft_revision(
+    *,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+    base_entry_id: str,
+    base_config_content_hash: ConfigContentHash,
+    base_generation: int,
+    candidate_id: str,
+    updates: tuple[ParameterUpdate, ...],
+    expected_result_content_hash: ConfigContentHash,
+    entry_id: str,
+    registered_by: str,
+    note: str = "",
+) -> ConfigRegistryMutationResult:
+    return register_config_revision(
+        registration=ConfigRevisionRegistration(
+            source=ManualConfigDraftRevisionSource(
+                base_entry_id=base_entry_id,
+                base_config_content_hash=base_config_content_hash,
+                base_generation=base_generation,
+                candidate_id=candidate_id,
+                updates=updates,
+                expected_result_content_hash=expected_result_content_hash,
+            ),
+            entry_id=entry_id,
+            registered_by=registered_by,
+            note=note,
+        ),
+        unit_of_work=unit_of_work,
+    )
+
+
+def _register_and_activate_draft_revision(
+    *,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+    base_entry_id: str,
+    base_config_content_hash: ConfigContentHash,
+    base_generation: int,
+    candidate_id: str,
+    updates: tuple[ParameterUpdate, ...],
+    expected_result_content_hash: ConfigContentHash,
+    entry_id: str,
+    registered_by: str,
+    operator: str,
+    note: str = "",
+    activation_note: str | None = None,
+) -> ConfigRegistryMutationResult:
+    return register_and_activate_config_revision(
+        registration=ConfigRevisionRegistration(
+            source=ManualConfigDraftRevisionSource(
+                base_entry_id=base_entry_id,
+                base_config_content_hash=base_config_content_hash,
+                base_generation=base_generation,
+                candidate_id=candidate_id,
+                updates=updates,
+                expected_result_content_hash=expected_result_content_hash,
+            ),
+            entry_id=entry_id,
+            registered_by=registered_by,
+            note=note,
+        ),
+        unit_of_work=unit_of_work,
+        operator=operator,
+        expected_generation=base_generation,
+        activation_note=activation_note,
+    )
+
+
 def _resolved_candidate(
     project_root: Path,
 ) -> tuple[str, ParameterChangeProposal, _ResolvedCandidate]:
@@ -820,7 +943,7 @@ def _resolved_candidate(
 def _seed_active_config_registry(
     project_root: Path,
 ) -> tuple[ConfigRegistryEntry, ConfigRegistryActivationRecord]:
-    result = register_and_activate_config_profile(
+    result = _register_and_activate_direct_revision(
         config=load_config(),
         unit_of_work=sqlite_config_registry_unit_of_work(project_root),
         entry_id="manual-base",

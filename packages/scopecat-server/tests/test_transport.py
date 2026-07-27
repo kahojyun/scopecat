@@ -137,22 +137,6 @@ def _create_test_app(
     )
 
 
-def test_run_queries_reject_conflicting_page_modes() -> None:
-    client = TestClient(_create_test_app(FakeApplication()))
-
-    both_cursors = client.get(
-        "/api/v1/runs",
-        params={"after": 1, "before": 2},
-    )
-    latest_cursor = client.get(
-        "/api/v1/runs",
-        params={"latest": "true", "before": 2},
-    )
-
-    assert both_cursors.status_code == 422
-    assert latest_cursor.status_code == 422
-
-
 def test_run_submission_and_backend_error_mapping() -> None:
     backend = FakeApplication()
     client = TestClient(_create_test_app(backend))

@@ -173,15 +173,19 @@ class InProcessQuantumLab:
             if expected_generation is None
             else expected_generation
         )
-        return config_registry_service.register_and_activate_candidate_config(
+        return config_registry_service.register_and_activate_config_revision(
+            registration=config_registry_service.ConfigRevisionRegistration(
+                source=config_registry_service.CandidateConfigRevisionSource(
+                    run_id=candidate.source_run_id,
+                    proposal_id=candidate.proposal_id,
+                ),
+                entry_id=entry_id,
+                registered_by=registered_by or self.operator,
+                note=note,
+            ),
             unit_of_work=self.services.config_registry,
-            entry_id=entry_id,
-            registered_by=registered_by or self.operator,
-            run_id=candidate.source_run_id,
-            proposal_id=candidate.proposal_id,
             operator=operator or self.operator,
             expected_generation=selected_generation,
-            note=note,
             activation_note=activation_note,
         )
 
@@ -203,13 +207,15 @@ class InProcessQuantumLab:
             if expected_generation is None
             else expected_generation
         )
-        return config_registry_service.register_and_activate_config_profile(
-            config=config,
+        return config_registry_service.register_and_activate_config_revision(
+            registration=config_registry_service.ConfigRevisionRegistration(
+                source=config_registry_service.DirectConfigRevisionSource(config),
+                entry_id=entry_id,
+                registered_by=registered_by or self.operator,
+                note=note,
+            ),
             unit_of_work=self.services.config_registry,
-            entry_id=entry_id,
-            registered_by=registered_by or self.operator,
             operator=operator or self.operator,
-            note=note,
             activation_note=activation_note,
             expected_generation=selected_generation,
         )

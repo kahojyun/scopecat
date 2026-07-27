@@ -176,7 +176,7 @@ describe("config provenance navigation", () => {
     window.history.replaceState(null, "", "/");
     vi.mocked(getRuns).mockResolvedValue({
       items: RUNS.map((run, index) => ({ ...run, sequence: index + 20 })),
-      previousCursor: 20,
+      nextCursor: 20,
     });
     vi.mocked(getOlderRuns).mockResolvedValue({
       items: [
@@ -204,11 +204,11 @@ describe("config provenance navigation", () => {
     vi.mocked(getRuns)
       .mockResolvedValueOnce({
         items: RUNS.map((run, index) => ({ ...run, sequence: index + 20 })),
-        previousCursor: 20,
+        nextCursor: 20,
       })
       .mockResolvedValue({
         items: RUNS.map((run, index) => ({ ...run, sequence: index + 30 })),
-        previousCursor: 30,
+        nextCursor: 30,
       });
     vi.mocked(getOlderRuns).mockResolvedValue({
       items: [{ ...projectRun("run-old"), sequence: 2 }],

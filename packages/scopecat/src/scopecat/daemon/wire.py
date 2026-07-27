@@ -60,30 +60,6 @@ class _WireModel(BaseModel):
     )
 
 
-class DirectConfigImportCommand(_WireModel):
-    """Import one direct configuration snapshot into the daemon registry."""
-
-    entry_id: NonEmptyText
-    config: ConfigProfileSnapshot
-    registered_by: NonEmptyText
-    note: str = ""
-
-
-class DirectConfigDefaultCommand(_WireModel):
-    """Atomically save one direct snapshot and select it as the default."""
-
-    entry_id: NonEmptyText
-    config: ConfigProfileSnapshot
-    registered_by: NonEmptyText
-    operator: NonEmptyText
-    note: str = ""
-
-
-class ConfigDefaultReceipt(_WireModel):
-    entry: ConfigRegistryEntry
-    activation: ConfigRegistryActivationRecord
-
-
 class ConfigDraftCommand(_WireModel):
     """Typed parameter edits against one observed active registry generation."""
 
@@ -94,34 +70,65 @@ class ConfigDraftCommand(_WireModel):
     updates: tuple[ParameterUpdate, ...] = Field(min_length=1)
 
 
-class ConfigDraftRegistrationCommand(_WireModel):
-    """Register a revalidated draft without changing the active entry."""
+class DirectConfigRevisionSource(_WireModel):
+    kind: Literal["direct_config_profile"] = "direct_config_profile"
+    config: ConfigProfileSnapshot
 
+
+class ManualConfigDraftRevisionSource(_WireModel):
+    kind: Literal["manual_parameter_updates"] = "manual_parameter_updates"
     draft: ConfigDraftCommand
     expected_result_content_hash: ConfigContentHash
-    entry_id: NonEmptyText
+
+
+class CandidateConfigRevisionSource(_WireModel):
+    kind: Literal["candidate_config"] = "candidate_config"
+    run_id: NonEmptyText
+    proposal_id: NonEmptyText
+
+
+type ConfigRevisionSource = Annotated[
+    DirectConfigRevisionSource
+    | ManualConfigDraftRevisionSource
+    | CandidateConfigRevisionSource,
+    Field(discriminator="kind"),
+]
+
+
+class ConfigRevisionRegistrationCommand(_WireModel):
+    """Register one direct, reviewed-draft, or approved-candidate revision."""
+
+    source: ConfigRevisionSource
+    entry_id: NonEmptyText | None = None
     registered_by: NonEmptyText
     note: str = ""
 
+    @model_validator(mode="after")
+    def validate_entry_id(self) -> ConfigRevisionRegistrationCommand:
+        if self.entry_id is None and not isinstance(
+            self.source, CandidateConfigRevisionSource
+        ):
+            raise ValueError("direct and draft revisions require an entry id")
+        return self
 
-class ConfigDraftRegistrationReceipt(_WireModel):
+
+class ConfigRevisionRegistrationReceipt(_WireModel):
     entry: ConfigRegistryEntry
-    result_content_hash: ConfigContentHash
-    deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
+    deltas: tuple[ParameterValueDelta, ...] = ()
 
 
-class ConfigDraftDefaultCommand(_WireModel):
-    """Register a reviewed draft and select it as the default in one transaction."""
+class ConfigRevisionDefaultCommand(_WireModel):
+    """Register and select one revision in a single transaction."""
 
-    registration: ConfigDraftRegistrationCommand
+    registration: ConfigRevisionRegistrationCommand
     operator: NonEmptyText
+    expected_generation: int = Field(ge=0)
     activation_note: str | None = None
 
 
-class ConfigDraftDefaultReceipt(_WireModel):
+class ConfigRevisionDefaultReceipt(_WireModel):
     entry: ConfigRegistryEntry
-    result_content_hash: ConfigContentHash
-    deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
+    deltas: tuple[ParameterValueDelta, ...] = ()
     activation: ConfigRegistryActivationRecord
 
 
@@ -238,24 +245,6 @@ class RunAttachmentCommand(_WireModel):
 class ParameterProposalApprovalCommand(_WireModel):
     actor: NonEmptyText
     note: str = ""
-
-
-class CandidateConfigActivationCommand(_WireModel):
-    """Build, register, and activate config from one durable approved proposal."""
-
-    run_id: NonEmptyText
-    proposal_id: NonEmptyText
-    entry_id: NonEmptyText | None = None
-    registered_by: NonEmptyText
-    operator: NonEmptyText
-    expected_generation: int = Field(ge=0)
-    note: str = ""
-    activation_note: str | None = None
-
-
-class CandidateConfigActivationReceipt(_WireModel):
-    entry: ConfigRegistryEntry
-    activation: ConfigRegistryActivationRecord
 
 
 class RunSubmission(_WireModel):
@@ -383,23 +372,22 @@ __all__ = [
     "AnalysisSaveCommand",
     "AnalysisSaveReceipt",
     "AttentionResolutionReceipt",
-    "CandidateConfigActivationCommand",
-    "CandidateConfigActivationReceipt",
+    "CandidateConfigRevisionSource",
     "ConfigActivationReceipt",
-    "ConfigDefaultReceipt",
     "ConfigDraftCommand",
-    "ConfigDraftDefaultCommand",
-    "ConfigDraftDefaultReceipt",
-    "ConfigDraftRegistrationCommand",
-    "ConfigDraftRegistrationReceipt",
     "ConfigEntryActivationCommand",
+    "ConfigRevisionDefaultCommand",
+    "ConfigRevisionDefaultReceipt",
+    "ConfigRevisionRegistrationCommand",
+    "ConfigRevisionRegistrationReceipt",
+    "ConfigRevisionSource",
     "ConfigRollbackCommand",
-    "DirectConfigDefaultCommand",
-    "DirectConfigImportCommand",
+    "DirectConfigRevisionSource",
     "ExecutionTransitionAppend",
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",
+    "ManualConfigDraftRevisionSource",
     "MeasurementAppendCommand",
     "MeasurementSealCommand",
     "ParameterProposalApprovalCommand",

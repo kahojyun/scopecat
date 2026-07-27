@@ -5,8 +5,8 @@ import { errorMessage } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 import {
   activateConfigEntry,
-  importConfigProfile,
   parseConfigProfileJson,
+  registerConfigRevision,
   rollbackConfig,
 } from "./config-api";
 import { safeConfigEntryId } from "./config-utils";
@@ -50,11 +50,14 @@ export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
           await rollbackConfig(command);
           return;
         case "import":
-          await importConfigProfile({
+          await registerConfigRevision({
+            source: {
+              kind: "direct_config_profile",
+              config: action.draft.config,
+            },
             entry_id: action.draft.entryId,
             registered_by: command.operator,
             note: command.note,
-            config: action.draft.config,
           });
       }
     },

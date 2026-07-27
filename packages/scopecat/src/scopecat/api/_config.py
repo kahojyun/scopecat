@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast, overload
+from typing import cast
 
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api.analysis import Analysis
@@ -26,19 +26,17 @@ from scopecat.daemon.views import (
     ParameterProposalListView,
 )
 from scopecat.daemon.wire import (
-    CandidateConfigActivationCommand,
-    CandidateConfigActivationReceipt,
+    CandidateConfigRevisionSource,
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
     ConfigDraftCommand,
-    ConfigDraftDefaultCommand,
-    ConfigDraftDefaultReceipt,
-    ConfigDraftRegistrationCommand,
-    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
+    DirectConfigRevisionSource,
+    ManualConfigDraftRevisionSource,
     ParameterProposalApprovalCommand,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -175,7 +173,7 @@ class LabConfigOperations:
         entry_id: str,
         registered_by: str | None = None,
         note: str = "",
-    ) -> ConfigDraftRegistrationReceipt:
+    ) -> ConfigRevisionRegistrationReceipt:
         if (
             not preview.valid
             or preview.config is None
@@ -184,10 +182,12 @@ class LabConfigOperations:
             raise ValueError("only a valid config draft preview can be registered")
         if draft.base_content_hash != preview.base_content_hash:
             raise ValueError("config draft does not match its reviewed preview base")
-        return self.client.register_config_draft(
-            ConfigDraftRegistrationCommand(
-                draft=_reviewed_draft_command(draft, preview),
-                expected_result_content_hash=preview.result_content_hash,
+        return self.client.register_config_revision(
+            ConfigRevisionRegistrationCommand(
+                source=ManualConfigDraftRevisionSource(
+                    draft=_reviewed_draft_command(draft, preview),
+                    expected_result_content_hash=preview.result_content_hash,
+                ),
                 entry_id=entry_id,
                 registered_by=registered_by or self.operator,
                 note=note,
@@ -202,36 +202,14 @@ class LabConfigOperations:
         registered_by: str | None = None,
         note: str = "",
     ) -> ConfigRegistryEntry:
-        return self.client.import_direct_config(
-            DirectConfigImportCommand(
+        return self.client.register_config_revision(
+            ConfigRevisionRegistrationCommand(
+                source=DirectConfigRevisionSource(config=config),
                 entry_id=entry_id,
-                config=config,
                 registered_by=registered_by or self.operator,
                 note=note,
             )
-        )
-
-    @overload
-    def set_default(
-        self,
-        config: ConfigProfileSnapshot,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDefaultReceipt: ...
-
-    @overload
-    def set_default(
-        self,
-        config: ConfigDraft,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDraftDefaultReceipt: ...
+        ).entry
 
     def set_default(
         self,
@@ -241,7 +219,7 @@ class LabConfigOperations:
         registered_by: str | None = None,
         operator: str | None = None,
         note: str = "",
-    ) -> ConfigDefaultReceipt | ConfigDraftDefaultReceipt:
+    ) -> ConfigRevisionDefaultReceipt:
         """Save one immutable revision and atomically make it the default."""
 
         selected_registered_by = registered_by or self.operator
@@ -254,25 +232,31 @@ class LabConfigOperations:
                 or preview.result_content_hash is None
             ):
                 raise ValueError("only a valid config draft can become the default")
-            return self.client.set_config_draft_default(
-                ConfigDraftDefaultCommand(
-                    registration=ConfigDraftRegistrationCommand(
-                        draft=_reviewed_draft_command(config, preview),
-                        expected_result_content_hash=preview.result_content_hash,
+            return self.client.set_config_default(
+                ConfigRevisionDefaultCommand(
+                    registration=ConfigRevisionRegistrationCommand(
+                        source=ManualConfigDraftRevisionSource(
+                            draft=_reviewed_draft_command(config, preview),
+                            expected_result_content_hash=preview.result_content_hash,
+                        ),
                         entry_id=entry_id or config_revision_entry_id(preview.config),
                         registered_by=selected_registered_by,
                         note=note,
                     ),
                     operator=selected_operator,
+                    expected_generation=preview.base_generation,
                 )
             )
-        return self.client.set_direct_config_default(
-            DirectConfigDefaultCommand(
-                entry_id=entry_id or config_revision_entry_id(config),
-                config=config,
-                registered_by=selected_registered_by,
+        return self.client.set_config_default(
+            ConfigRevisionDefaultCommand(
+                registration=ConfigRevisionRegistrationCommand(
+                    source=DirectConfigRevisionSource(config=config),
+                    entry_id=entry_id or config_revision_entry_id(config),
+                    registered_by=selected_registered_by,
+                    note=note,
+                ),
                 operator=selected_operator,
-                note=note,
+                expected_generation=self._generation(),
             )
         )
 
@@ -307,20 +291,24 @@ class LabConfigOperations:
         note: str = "",
         activation_note: str | None = None,
         expected_generation: int | None = None,
-    ) -> CandidateConfigActivationReceipt:
-        return self.client.activate_candidate_config(
-            CandidateConfigActivationCommand(
-                run_id=candidate.source_run_id,
-                proposal_id=candidate.proposal_id,
-                entry_id=entry_id,
-                registered_by=registered_by or self.operator,
+    ) -> ConfigRevisionDefaultReceipt:
+        return self.client.set_config_default(
+            ConfigRevisionDefaultCommand(
+                registration=ConfigRevisionRegistrationCommand(
+                    source=CandidateConfigRevisionSource(
+                        run_id=candidate.source_run_id,
+                        proposal_id=candidate.proposal_id,
+                    ),
+                    entry_id=entry_id,
+                    registered_by=registered_by or self.operator,
+                    note=note,
+                ),
                 operator=operator or self.operator,
                 expected_generation=(
                     self._generation()
                     if expected_generation is None
                     else expected_generation
                 ),
-                note=note,
                 activation_note=activation_note,
             )
         )
@@ -359,7 +347,7 @@ class LabConfigOperations:
         registered_by: str | None = None,
         operator: str | None = None,
         note: str = "",
-    ) -> CandidateConfigActivationReceipt:
+    ) -> ConfigRevisionDefaultReceipt:
         """Persist an analysis if supplied, accept its proposal, and publish."""
 
         if isinstance(candidate, Analysis):

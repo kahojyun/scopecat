@@ -14,13 +14,13 @@ from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
 from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.config.registry.service import (
+    CandidateConfigRevisionSource,
     ConfigRegistryMutationResult,
-    _register_candidate_config_locked,
-    _validate_entry_id,
-    _validate_required_text,
+    ConfigRevisionRegistration,
     current_config_registry_generation,
     load_config_registry_entry_snapshot,
-    register_and_activate_candidate_config,
+    register_and_activate_config_revision,
+    register_config_revision,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.project_state import ProjectStateServices
@@ -72,19 +72,18 @@ def register_candidate_config(
 ) -> ConfigRegistryEntry:
     """Register without activation for persistence tests."""
 
-    _validate_entry_id(entry_id)
-    _validate_required_text(registered_by, field="registered_by")
-    _validate_required_text(run_id, field="run_id")
-    _validate_required_text(proposal_id, field="proposal_id")
-    with unit_of_work() as work:
-        return _register_candidate_config_locked(
-            work=work,
+    return register_config_revision(
+        registration=ConfigRevisionRegistration(
+            source=CandidateConfigRevisionSource(
+                run_id=run_id,
+                proposal_id=proposal_id,
+            ),
             entry_id=entry_id,
             registered_by=registered_by,
-            run_id=run_id,
-            proposal_id=proposal_id,
             note=note,
-        ).entry
+        ),
+        unit_of_work=unit_of_work,
+    ).entry
 
 
 def activate_candidate_config(
@@ -103,15 +102,19 @@ def activate_candidate_config(
         if expected_generation is None
         else expected_generation
     )
-    return register_and_activate_candidate_config(
+    return register_and_activate_config_revision(
+        registration=ConfigRevisionRegistration(
+            source=CandidateConfigRevisionSource(
+                run_id=candidate.source_run_id,
+                proposal_id=candidate.proposal_id,
+            ),
+            entry_id=entry_id,
+            registered_by=registered_by,
+            note=note,
+        ),
         unit_of_work=services.config_registry,
-        entry_id=entry_id,
-        registered_by=registered_by,
-        run_id=candidate.source_run_id,
-        proposal_id=candidate.proposal_id,
         operator=operator,
         expected_generation=generation,
-        note=note,
         activation_note=activation_note,
     )
 
