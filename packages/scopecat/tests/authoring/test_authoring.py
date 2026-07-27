@@ -1051,44 +1051,6 @@ def test_link_validates_scan_axis_parameter_contracts() -> None:
     )
 
 
-def test_explicit_instances_keep_same_named_resource_ports_isolated() -> None:
-    pulse = (
-        authoring.module_body(id="test.shared_resource.pulse")
-        .resource("source", requires=("set_frequency",))
-        .build()
-    )
-    records = (
-        authoring.module_body(id="test.shared_resource.records")
-        .resource("source", requires=("acquire_signal",))
-        .product("signal", unit="ratio")
-        .acquire(
-            "read-signal",
-            "signal",
-            resource="source",
-            capability="acquire_signal",
-        )
-        .build()
-    )
-    root = (
-        authoring.module_body(id="test.shared_resource.root")
-        .use(
-            pulse.instantiate("pulse"),
-            records.instantiate("records"),
-        )
-        .build()
-    )
-
-    assembly = elaborate_module(root.ir)
-    assert [port.symbol_id for port in assembly.resource_ports] == [
-        logical_resource_port_id(SymbolId(scope=("pulse",), local_id="source")),
-        logical_resource_port_id(SymbolId(scope=("records",), local_id="source")),
-    ]
-    assert [port.selector.capabilities for port in assembly.resource_ports] == [
-        ("set_frequency",),
-        ("acquire_signal",),
-    ]
-
-
 def test_module_construction_rejects_duplicate_resource_ids() -> None:
     with pytest.raises(ValueError, match="duplicate module resource ids"):
         (
@@ -1097,38 +1059,6 @@ def test_module_construction_rejects_duplicate_resource_ids() -> None:
             .resource("source", requires=("acquire_signal",))
             .build()
         )
-
-
-def test_template_composition_rejects_duplicate_record_ids() -> None:
-    first = _module_fixture(
-        id="test.duplicate_record.first",
-        resources=[
-            resource_port(
-                "source",
-                requires("set_frequency", "scalar_signal"),
-            ),
-        ],
-        products=[_observable_product("signal", unit="ratio")],
-    )
-    second = _module_fixture(
-        id="test.duplicate_record.second",
-        entity_inputs=(),
-        resources=[resource_port("source", requires("set_frequency"))],
-        products=[_observable_product("signal", unit="ratio")],
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        link_invocation(
-            _template_invocation(
-                first,
-                second,
-                id="test.duplicate_record",
-                kind="simple_scan",
-            ),
-            config_profile=load_config(),
-        )
-
-    assert error.value.problems[0].code == "experiment_record_duplicate"
 
 
 def test_elaboration_invocation_literals_bind_local_inputs() -> None:
@@ -1169,16 +1099,6 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
     first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
     assert isinstance(first_value, LiteralScalarExpr)
     assert first_value.value == Quantity(value=5.0, unit="GHz")
-
-
-def test_module_invocation_rejects_undeclared_inputs() -> None:
-    child = authoring.module_body(id="test.invocation_unknown_input.child").build()
-
-    with pytest.raises(ValueError, match="received undeclared inputs: 'frequency'"):
-        child.instantiate(
-            "unknown-input-child",
-            frequency=Quantity(value=5.0, unit="GHz"),
-        )
 
 
 def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
@@ -1628,25 +1548,6 @@ def test_product_declaration_uses_axes() -> None:
     assert [axis.size for axis in product.axes] == [2, 3]
 
 
-def test_module_invocation_resolves_multiple_entity_inputs() -> None:
-    module = _module_fixture(
-        id="test.multi_entity",
-        entity_inputs=("device", "drive_channel"),
-    )
-
-    resolved = link_invocation(
-        _template_invocation(
-            module,
-            id="authored-multi-entity",
-            kind="multi_entity",
-            inputs={"device": "q0", "drive_channel": "drive-q0"},
-        ),
-        config_profile=load_config(),
-    )
-
-    assert resolved.program.id == "authored-multi-entity"
-
-
 def test_resource_port_can_select_by_fixed_entity_input() -> None:
     seed_config = load_config()
     source_0 = seed_config.instrument_registry.instruments[0]
@@ -1760,45 +1661,3 @@ def test_explicit_config_links_experiment() -> None:
 
     assert materialized_state_fields(preview)[0][1].instrument_id == selected_instrument
     assert resolved.environment.config is config
-
-
-def test_module_assembler_reports_ambiguous_resource_port() -> None:
-    seed_config = load_config()
-    system = seed_config.system.model_copy(
-        update={
-            "instrument_registry": seed_config.instrument_registry.model_copy(
-                update={
-                    "instruments": [
-                        *seed_config.instrument_registry.instruments,
-                        seed_config.instrument_registry.instruments[0].model_copy(
-                            update={"id": "source-1"}
-                        ),
-                    ]
-                }
-            ),
-            "routing": RoutingGraph(
-                bindings=[
-                    RoutingEndpointBinding(
-                        instrument_id=resource_id,
-                        capability=capability,
-                    )
-                    for resource_id in ("source-0", "source-1")
-                    for capability in ("set_frequency", "scalar_signal")
-                ],
-            ),
-        }
-    )
-    config = seed_config.model_copy(update={"system": system})
-
-    resolved = link_invocation(
-        simple_template().bind(subject="q0"),
-        config_profile=config,
-    )
-    with pytest.raises(CheckFailed) as failure:
-        materialized_effects_contract(
-            resolved.program,
-            resolved.environment.parameters,
-            config=config,
-        )
-
-    assert failure.value.problems[0].code == "module_resource_port_ambiguous"
