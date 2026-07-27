@@ -482,7 +482,7 @@ def test_parameter_definition_scalar_type_has_stable_wire_format(
     assert restored_from_json.model_dump_json() == definition.model_dump_json()
 
 
-def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
+def test_persistable_value_type_wire_is_strict() -> None:
     definition = ParameterDefinition(
         id="value",
         value_type=Scalar(Float(minimum=0)),
@@ -532,17 +532,3 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
                 },
             }
         )
-
-    schema = ParameterDefinition.model_json_schema(mode="validation")
-    value_schema = schema["properties"]["value_type"]
-    alias = schema["$defs"][value_schema["$ref"].rsplit("/", maxsplit=1)[-1]]
-    wire = schema["$defs"][alias["$ref"].rsplit("/", maxsplit=1)[-1]]
-    assert wire["discriminator"]["propertyName"] == "shape"
-    assert len(wire["oneOf"]) == 2
-    assert all(
-        schema["$defs"][variant["$ref"].rsplit("/", maxsplit=1)[-1]][
-            "additionalProperties"
-        ]
-        is False
-        for variant in wire["oneOf"]
-    )

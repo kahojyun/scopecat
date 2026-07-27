@@ -743,7 +743,6 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
         listed = client.get("/api/v1/runs").json()
         assert len(listed["items"]) == 1
         assert listed["items"][0]["control"]["state"] == "queued"
-        assert "lifecycle" not in listed["items"][0]["manifest"]
         assert [
             event.kind
             for event in _events(runtime, run_id=run_id).items

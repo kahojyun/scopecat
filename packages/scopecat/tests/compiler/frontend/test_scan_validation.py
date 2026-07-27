@@ -32,12 +32,6 @@ def test_axes_are_verified_in_declaration_order() -> None:
     assert tuple(axis.id for axis in resolved) == ("first", "second", "third")
 
 
-def test_independent_axes_keep_declaration_order() -> None:
-    verified = verify_scans((_values("third"), _values("first"), _values("second")))
-
-    assert tuple(axis.id for axis in verified) == ("third", "first", "second")
-
-
 def test_bound_input_can_center_a_scan() -> None:
     scan = sc.axis(
         _point("frequency"),

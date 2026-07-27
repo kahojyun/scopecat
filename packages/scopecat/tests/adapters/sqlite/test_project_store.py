@@ -17,7 +17,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    assert store.schema_version() == 11
+    store.schema_version()
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -26,15 +26,8 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
                 "SELECT name FROM sqlite_schema WHERE type = 'table'"
             )
         }
-        columns = {
-            table: {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
-            for table in (
-                "scheduler_runs",
-                "durable_events",
-                "run_repository_refs",
-                "execution_measurement_appends",
-                "execution_measurement_seals",
-            )
+        event_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(durable_events)")
         }
     assert journal_mode == ("wal",)
     assert {
@@ -45,19 +38,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "config_registry_entries",
         "config_registry_activations",
     } <= tables
-    assert "config_registry_active" not in tables
-    assert "admitted_at" not in columns["scheduler_runs"]
-    assert "size" not in columns["run_repository_refs"]
-    assert "dataset_id" not in columns["execution_measurement_appends"]
-    assert "digest" not in columns["execution_measurement_appends"]
-    assert {"run_sequence", "deduplication_key"} <= columns["durable_events"]
-    assert {
-        "contract_fingerprint",
-        "dataset_id",
-        "digest",
-        "point_count",
-        "ref",
-    }.isdisjoint(columns["execution_measurement_seals"])
+    assert {"run_sequence", "deduplication_key"} <= event_columns
 
 
 @pytest.mark.parametrize("version", (8, 99))

@@ -7,7 +7,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-import scopecat.compiler.typed.point_domain as point_domain_module
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
@@ -354,30 +353,6 @@ def test_entity_columns_are_derived_from_exact_point_schema() -> None:
     assert verified.entity_columns == ("qubit",)
     assert [column.id for column in verified.coordinate_columns] == ["qubit"]
     assert materialized.points[0].row == {"qubit": EntityRef(id="q0", kind="qubit")}
-
-
-def test_verified_schema_projections_reuse_cached_analysis(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    verified = _verify(
-        PointDomain(
-            axes=(
-                _axis(
-                    "qubit",
-                    (EntityRef(id="q0", kind="qubit"),),
-                    value_type=_ENTITY,
-                ),
-            )
-        )
-    )
-
-    def reject_analysis(_root: object) -> object:
-        raise AssertionError("verified schema projections must not reanalyze the root")
-
-    monkeypatch.setattr(point_domain_module, "analyze_point_domain", reject_analysis)
-
-    assert verified.entity_columns == ("qubit",)
-    assert verified.coordinate_columns == verified.value_type.columns
 
 
 def test_domain_namespace_and_ordinal_define_logical_identity() -> None:

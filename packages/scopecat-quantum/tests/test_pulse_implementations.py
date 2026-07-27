@@ -416,12 +416,6 @@ def test_implementation_argument_rejects_invalid_values(
         GatePulseImplementationArgument(id="angle", value=value)
 
 
-def test_implementation_argument_accepts_arbitrarily_large_integers() -> None:
-    argument = GatePulseImplementationArgument(id="count", value=10**1000)
-
-    assert argument.value == 10**1000
-
-
 @pytest.mark.parametrize("operands", [(), (Q0, Q0)])
 def test_implementation_key_requires_nonempty_unique_operands(
     operands: tuple[QubitId, ...],

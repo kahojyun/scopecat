@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import cast
-
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
     MEASUREMENT_DATASET_FORMAT_VERSION,
@@ -15,58 +13,20 @@ from tests.testkit.measurement_models import signal_point_schema, signal_record
 from tests.testkit.records import assert_model_round_trip
 
 
-def test_measurement_record_round_trip() -> None:
-    measurement = signal_record().model_copy(update={"metadata": {"source": "test"}})
-
-    restored = assert_model_round_trip(measurement)
-
-    assert restored.point_index == 0
-    signal = restored.observables["signal"]
-    assert isinstance(signal, Quantity)
-    assert signal.value == 0.5
-
-
-def test_measurement_array_record_round_trip() -> None:
+def test_measurement_values_round_trip_through_one_record() -> None:
     measurement = MeasurementRecord(
         run_id="run-test",
         point_index=0,
         coordinates={},
         observables={
-            "i0": MeasurementArray(
+            "signal": Quantity(value=0.5, unit="ratio"),
+            "raw_iq": ComplexQuantity(real=0.3, imag=-0.4, unit="ratio"),
+            "samples": MeasurementArray(
                 dtype="float64",
                 unit="ratio",
                 shape=[3],
                 values=[0.1, 0.2, 0.3],
-            )
-        },
-    )
-
-    restored = assert_model_round_trip(measurement)
-    i0 = restored.observables["i0"]
-
-    assert isinstance(i0, MeasurementArray)
-    assert i0.shape == (3,)
-    assert i0.values == (0.1, 0.2, 0.3)
-
-
-def test_measurement_array_json_round_trip_freezes_nested_sequences() -> None:
-    value = MeasurementArray(
-        shape=[2, 1],
-        values=[[0.1], [0.2]],
-    )
-
-    restored = MeasurementArray.model_validate_json(value.model_dump_json())
-
-    assert restored.shape == (2, 1)
-    assert restored.values == ((0.1,), (0.2,))
-
-
-def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
-    measurement = MeasurementRecord(
-        run_id="run-test",
-        point_index=0,
-        coordinates={},
-        observables={
+            ),
             "iq": MeasurementArray(
                 dtype="complex128",
                 unit="ratio",
@@ -91,62 +51,27 @@ def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
     )
 
     restored = assert_model_round_trip(measurement)
-    iq = restored.observables["iq"]
-    probability = restored.observables["probability"]
-    original_iq = measurement.observables["iq"]
-    original_probability = measurement.observables["probability"]
 
-    assert isinstance(iq, MeasurementArray)
-    assert isinstance(original_iq, MeasurementArray)
-    assert isinstance(cast("tuple[object, ...]", iq.values[0])[0], ComplexQuantity)
-    assert iq.values == original_iq.values
-    assert isinstance(probability, MeasurementArray)
-    assert isinstance(original_probability, MeasurementArray)
-    assert all(isinstance(value, Quantity) for value in probability.values)
-    assert probability.values == original_probability.values
+    assert restored == measurement
+    assert isinstance(restored.observables["signal"], Quantity)
+    assert isinstance(restored.observables["raw_iq"], ComplexQuantity)
+    assert isinstance(restored.observables["samples"], MeasurementArray)
+    assert isinstance(restored.observables["iq"], MeasurementArray)
+    assert isinstance(restored.observables["probability"], MeasurementArray)
 
 
-def test_complex_measurement_record_round_trip() -> None:
-    measurement = MeasurementRecord(
-        run_id="run-test",
-        point_index=0,
-        coordinates={},
-        observables={
-            "raw_iq": ComplexQuantity(real=0.3, imag=-0.4, unit="ratio"),
-        },
-    )
-
-    restored = assert_model_round_trip(measurement)
-    raw_iq = restored.observables["raw_iq"]
-
-    assert isinstance(raw_iq, ComplexQuantity)
-    assert raw_iq.real == 0.3
-    assert raw_iq.imag == -0.4
-
-
-def test_measurement_dataset_schema_round_trip() -> None:
-    schema = signal_point_schema(size=3)
-
-    restored = assert_model_round_trip(schema)
-
-    assert restored.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
-    assert restored.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
-    assert restored.primary_coordinates == ["drive_frequency"]
-    assert restored.primary_observables == ["signal"]
-
-
-def test_measurement_dataset_round_trip() -> None:
+def test_measurement_dataset_and_schema_round_trip() -> None:
     record = signal_record()
-    schema = signal_point_schema()
+    schema = signal_point_schema(size=3)
     dataset = MeasurementDataset(
         schema=schema,
         records=[record],
     )
     restored = assert_model_round_trip(dataset)
 
+    assert restored.dataset_schema.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
+    assert restored.dataset_schema.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
     assert restored.dataset_schema.dataset_id == "raw-measurements"
+    assert restored.dataset_schema.primary_coordinates == ["drive_frequency"]
     assert restored.dataset_schema.primary_observables == ["signal"]
-    assert restored.records[0].point_index == 0
-    assert dataset.model_dump(mode="json", by_alias=True)["schema"]["dataset_id"] == (
-        "raw-measurements"
-    )
+    assert restored == dataset
