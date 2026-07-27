@@ -136,7 +136,12 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
     schema = CapabilityField.model_json_schema(mode="validation")
     value_schema = schema["properties"]["value_type"]
     definition_name = value_schema["$ref"].rsplit("/", maxsplit=1)[-1]
-    variants = schema["$defs"][definition_name]["oneOf"]
+    alias = schema["$defs"][definition_name]
+    wire = schema["$defs"][alias["$ref"].rsplit("/", maxsplit=1)[-1]]
+    variants = [
+        schema["$defs"][variant["$ref"].rsplit("/", maxsplit=1)[-1]]
+        for variant in wire["oneOf"]
+    ]
 
     assert [variant["properties"]["type"]["const"] for variant in variants] == [
         "bool",
@@ -149,10 +154,6 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
     assert all(variant["additionalProperties"] is False for variant in variants)
     assert variants[2]["properties"]["finite"]["const"] is True
     assert variants[4]["properties"]["finite"]["const"] is True
-    assert variants[4]["dependentRequired"] == {
-        "minimum": ["unit"],
-        "maximum": ["unit"],
-    }
     assert variants[-1]["required"] == ["type", "schema_id"]
 
 
@@ -162,6 +163,7 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
         Scalar(Entity()),
         Scalar(Float(finite=False)),
         {"type": "float", "finite": "false"},
+        {"type": "quantity", "minimum": 1.0},
     ],
 )
 def test_capability_field_rejects_unsupported_or_transient_types(

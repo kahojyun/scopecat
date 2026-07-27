@@ -12,7 +12,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
-    WithJsonSchema,
+    TypeAdapter,
     field_serializer,
     field_validator,
 )
@@ -20,11 +20,7 @@ from pydantic import (
 from scopecat.kernel.entity import EntityRef, normalize_entity_metadata
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_type_wire import (
-    scalar_type_from_wire,
-    scalar_type_to_wire,
-    scalar_type_wire_schema,
-)
+from scopecat.kernel.value_type_wire import PersistableScalarWire
 from scopecat.kernel.value_types import (
     Bool as BoolType,
 )
@@ -66,53 +62,7 @@ def _ensure_unique_ids[T: _Identified](items: list[T], label: str) -> list[T]:
     return items
 
 
-_PERSISTABLE_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
-    ("bool", "int", "float", "string", "quantity", "entity"),
-    finite_only=True,
-)
-
-
-def _persistable_value_type_schema() -> dict[str, object]:
-    scalar = _PERSISTABLE_SCALAR_WIRE_SCHEMA
-    scalar_shape = {
-        "type": "object",
-        "properties": {
-            "shape": {"const": "scalar"},
-            "atom": scalar,
-        },
-        "required": ["shape", "atom"],
-        "additionalProperties": False,
-    }
-    table_column = {
-        "type": "object",
-        "properties": {
-            "id": {"type": "string", "minLength": 1},
-            "value_type": scalar,
-        },
-        "required": ["id", "value_type"],
-        "additionalProperties": False,
-    }
-    table_shape = {
-        "type": "object",
-        "properties": {
-            "shape": {"const": "table"},
-            "columns": {"type": "array", "items": table_column},
-            "primary_key": {"type": "array", "items": {"type": "string"}},
-        },
-        "required": ["shape", "columns"],
-        "additionalProperties": False,
-    }
-    return {"oneOf": [scalar_shape, table_shape]}
-
-
-_PERSISTABLE_VALUE_TYPE_SCHEMA = _persistable_value_type_schema()
-
-
 def _require_persistable_scalar_type(value: Scalar, *, path: str) -> Scalar:
-    try:
-        scalar_type_to_wire(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(str(error)) from error
     if not isinstance(
         value.atom,
         BoolType | IntType | FloatType | StringType | QuantityType | EntityType,
@@ -138,121 +88,81 @@ def _validate_persistable_value_type(value: Scalar | Table) -> Scalar | Table:
     return value
 
 
+class _PersistableScalarTypeWire(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shape: Literal["scalar"]
+    atom: PersistableScalarWire
+
+
+class _PersistableTableColumnWire(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: Annotated[str, Field(strict=True, min_length=1)]
+    value_type: PersistableScalarWire
+
+
+class _PersistableTableTypeWire(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shape: Literal["table"]
+    columns: tuple[_PersistableTableColumnWire, ...]
+    primary_key: tuple[Annotated[str, Field(strict=True)], ...] = ()
+
+
+type _PersistableValueTypeWire = Annotated[
+    _PersistableScalarTypeWire | _PersistableTableTypeWire,
+    Field(discriminator="shape"),
+]
+
+_PERSISTABLE_VALUE_TYPE_ADAPTER = TypeAdapter[_PersistableValueTypeWire](
+    _PersistableValueTypeWire
+)
+
+
 def _persistable_value_type_from_wire(value: object) -> Scalar | Table:
     if isinstance(value, Scalar | Table):
-        return _validate_persistable_value_type(value)
-    if not isinstance(value, Mapping):
-        msg = "persisted parameter value_type must be an object"
-        raise ValueError(msg)
-    raw_data = dict(cast("Mapping[object, object]", value))
-    if not all(isinstance(name, str) for name in raw_data):
-        msg = "persisted parameter value_type field names must be strings"
-        raise ValueError(msg)
-    data = cast("dict[str, object]", raw_data)
-    shape = data.pop("shape", None)
-    try:
-        if shape == "scalar":
-            _require_exact_fields(data, required={"atom"}, optional=set())
-            selected: Scalar | Table = scalar_type_from_wire(data["atom"])
-        elif shape == "table":
-            _require_exact_fields(
-                data,
-                required={"columns"},
-                optional={"primary_key"},
-            )
-            raw_columns = data["columns"]
-            if not isinstance(raw_columns, list):
-                msg = "persisted parameter table columns must be a list"
-                raise ValueError(msg)
-            selected_columns = cast("list[object]", raw_columns)
-            columns = tuple(
-                _table_column_from_wire(column, index=index)
-                for index, column in enumerate(selected_columns)
-            )
-            raw_primary_key = data.get("primary_key", [])
-            if not isinstance(raw_primary_key, list) or not all(
-                isinstance(column_id, str)
-                for column_id in cast("list[object]", raw_primary_key)
-            ):
-                msg = "persisted parameter table primary_key must be a string list"
-                raise ValueError(msg)
-            selected = Table(
-                columns=columns,
-                primary_key=tuple(cast("list[str]", raw_primary_key)),
-            )
-        else:
-            msg = f"unsupported persisted parameter shape: {shape!r}"
-            raise ValueError(msg)
-    except (TypeError, ValueError) as error:
-        msg = f"invalid persisted parameter value_type: {error}"
-        raise ValueError(msg) from error
-    return _validate_persistable_value_type(selected)
-
-
-def _table_column_from_wire(value: object, *, index: int) -> TableColumn:
-    if not isinstance(value, Mapping):
-        msg = f"persisted parameter table column {index} must be an object"
-        raise ValueError(msg)
-    data = dict(cast("Mapping[object, object]", value))
-    if not all(isinstance(name, str) for name in data):
-        msg = f"persisted parameter table column {index} fields must be strings"
-        raise ValueError(msg)
-    _require_exact_fields(
-        cast("dict[str, object]", data),
-        required={"id", "value_type"},
-        optional=set(),
-    )
-    column_id = data["id"]
-    if not isinstance(column_id, str) or not column_id:
-        msg = f"persisted parameter table column {index} id must be non-empty"
-        raise ValueError(msg)
-    return TableColumn(
-        id=column_id,
-        value_type=scalar_type_from_wire(data["value_type"]),
+        return value
+    wire = _PERSISTABLE_VALUE_TYPE_ADAPTER.validate_python(value)
+    if isinstance(wire, _PersistableScalarTypeWire):
+        return wire.atom
+    return Table(
+        columns=tuple(
+            TableColumn(id=column.id, value_type=column.value_type)
+            for column in wire.columns
+        ),
+        primary_key=wire.primary_key,
     )
 
 
-def _require_exact_fields(
-    data: Mapping[str, object],
-    *,
-    required: set[str],
-    optional: set[str],
-) -> None:
-    missing = sorted(required - data.keys())
-    if missing:
-        msg = "missing fields: " + ", ".join(missing)
-        raise ValueError(msg)
-    extra = sorted(data.keys() - required - optional)
-    if extra:
-        msg = "unknown fields: " + ", ".join(extra)
-        raise ValueError(msg)
-
-
-def _persistable_value_type_to_wire(value: Scalar | Table) -> dict[str, object]:
-    selected = _validate_persistable_value_type(value)
-    if isinstance(selected, Scalar):
-        return {"shape": "scalar", "atom": scalar_type_to_wire(selected)}
-    data: dict[str, object] = {
-        "shape": "table",
-        "columns": [
-            {
-                "id": column.id,
-                "value_type": scalar_type_to_wire(column.value_type),
-            }
-            for column in selected.columns
-        ],
-    }
-    if selected.primary_key:
-        data["primary_key"] = list(selected.primary_key)
-    return data
+def _persistable_value_type_to_wire(
+    value: Scalar | Table,
+) -> _PersistableValueTypeWire:
+    if isinstance(value, Scalar):
+        return _PersistableScalarTypeWire(shape="scalar", atom=value)
+    return _PersistableTableTypeWire(
+        shape="table",
+        columns=tuple(
+            _PersistableTableColumnWire(
+                id=column.id,
+                value_type=column.value_type,
+            )
+            for column in value.columns
+        ),
+        primary_key=value.primary_key,
+    )
 
 
 type PersistableValueType = Annotated[
     Scalar | Table,
-    BeforeValidator(_persistable_value_type_from_wire),
-    PlainSerializer(_persistable_value_type_to_wire, return_type=dict[str, object]),
-    WithJsonSchema(_PERSISTABLE_VALUE_TYPE_SCHEMA, mode="validation"),
-    WithJsonSchema(_PERSISTABLE_VALUE_TYPE_SCHEMA, mode="serialization"),
+    BeforeValidator(
+        _persistable_value_type_from_wire,
+        json_schema_input_type=_PersistableValueTypeWire,
+    ),
+    PlainSerializer(
+        _persistable_value_type_to_wire,
+        return_type=_PersistableValueTypeWire,
+    ),
 ]
 
 

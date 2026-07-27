@@ -11,14 +11,13 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
-    WithJsonSchema,
     field_validator,
     model_validator,
 )
 
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.kernel.value_type_wire import ScalarWire, scalar_type_wire_schema
+from scopecat.kernel.value_type_wire import CapabilityScalarWire
 from scopecat.kernel.value_types import Bool as BoolType
 from scopecat.kernel.value_types import Float as FloatType
 from scopecat.kernel.value_types import Int as IntType
@@ -66,23 +65,12 @@ from scopecat.sdk.problems import (
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 
-_CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
-    ("bool", "int", "float", "string", "quantity", "payload"),
-    finite_only=True,
-)
-
-type CapabilityFieldScalar = Annotated[
-    ScalarWire,
-    WithJsonSchema(_CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA, mode="validation"),
-    WithJsonSchema(_CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA, mode="serialization"),
-]
-
 
 class CapabilityField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    value_type: CapabilityFieldScalar
+    value_type: CapabilityScalarWire
 
     @field_validator("value_type")
     @classmethod

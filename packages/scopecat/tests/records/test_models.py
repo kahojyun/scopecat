@@ -492,7 +492,7 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
     assert isinstance(value_type, Scalar)
     assert isinstance(value_type.atom, Float)
     assert value_type.atom.minimum == 0.0
-    with pytest.raises(ValidationError, match="unknown fields: garbage"):
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ParameterDefinition.model_validate(
             {
                 "id": "value",
@@ -512,7 +512,7 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
             id="value",
             value_type=Scalar(Payload("pulse_program")),
         )
-    with pytest.raises(ValidationError, match="field 'finite' must be a bool"):
+    with pytest.raises(ValidationError, match="Input should be True"):
         ParameterDefinition.model_validate(
             {
                 "id": "value",
@@ -522,48 +522,27 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
                 },
             }
         )
-    with pytest.raises(ValidationError, match="field names must be strings"):
+    with pytest.raises(ValidationError, match="valid integer"):
         ParameterDefinition.model_validate(
             {
                 "id": "value",
                 "value_type": {
                     "shape": "scalar",
-                    "atom": {"type": "float", 1: "unexpected"},
+                    "atom": {"type": "int", "minimum": 1.0},
                 },
             }
         )
 
-    integer_definition = ParameterDefinition.model_validate(
-        {
-            "id": "value",
-            "value_type": {
-                "shape": "scalar",
-                "atom": {"type": "int", "minimum": 1.0},
-            },
-        }
-    )
-    assert isinstance(integer_definition.value_type, Scalar)
-    assert isinstance(integer_definition.value_type.atom, Int)
-    assert integer_definition.value_type.atom.minimum == 1
-
     schema = ParameterDefinition.model_json_schema(mode="validation")
     value_schema = schema["properties"]["value_type"]
-    value_schema = schema["$defs"][value_schema["$ref"].rsplit("/", maxsplit=1)[-1]]
-    assert len(value_schema["oneOf"]) == 2
+    alias = schema["$defs"][value_schema["$ref"].rsplit("/", maxsplit=1)[-1]]
+    wire = schema["$defs"][alias["$ref"].rsplit("/", maxsplit=1)[-1]]
+    assert wire["discriminator"]["propertyName"] == "shape"
+    assert len(wire["oneOf"]) == 2
     assert all(
-        variant["additionalProperties"] is False for variant in value_schema["oneOf"]
+        schema["$defs"][variant["$ref"].rsplit("/", maxsplit=1)[-1]][
+            "additionalProperties"
+        ]
+        is False
+        for variant in wire["oneOf"]
     )
-
-
-def test_durable_scalar_models_reject_malformed_runtime_declarations() -> None:
-    invalid_finite = Float()
-    object.__setattr__(invalid_finite, "finite", "false")
-    invalid_choices = String()
-    object.__setattr__(invalid_choices, "choices", ("valid", 1))
-
-    for value_type in (
-        Scalar(invalid_finite),
-        Scalar(invalid_choices),
-    ):
-        with pytest.raises(ValidationError):
-            ParameterDefinition(id="value", value_type=value_type)

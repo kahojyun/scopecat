@@ -1,11 +1,19 @@
-"""Stable wire encoding for durable scalar value type declarations."""
+"""Pydantic wire models for durable scalar value type declarations."""
 
 from __future__ import annotations
 
-import math
-from typing import Annotated, Literal, TypeGuard, cast
+from typing import Annotated, Literal
 
-from pydantic import BeforeValidator, PlainSerializer, TypeAdapter
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    StrictInt,
+    StrictStr,
+    TypeAdapter,
+)
 
 from scopecat.kernel.value_types import (
     Bool,
@@ -18,402 +26,183 @@ from scopecat.kernel.value_types import (
     String,
 )
 
-type ScalarWireAtomName = Literal[
-    "bool",
-    "int",
-    "float",
-    "string",
-    "quantity",
-    "entity",
-    "payload",
+type _FiniteNumber = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+type _NonEmptyString = Annotated[StrictStr, Field(min_length=1)]
+type _Choices = Annotated[tuple[StrictStr, ...], Field(min_length=1)]
+
+
+class _WireModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class _BoolWire(_WireModel):
+    type: Literal["bool"]
+
+
+class _IntWire(_WireModel):
+    type: Literal["int"]
+    minimum: StrictInt | None = None
+    maximum: StrictInt | None = None
+
+
+class _FiniteFloatWire(_WireModel):
+    type: Literal["float"]
+    minimum: _FiniteNumber | None = None
+    maximum: _FiniteNumber | None = None
+    finite: Literal[True] = True
+
+
+class _StringWire(_WireModel):
+    type: Literal["string"]
+    choices: _Choices | None = None
+
+
+class _FiniteQuantityWire(_WireModel):
+    type: Literal["quantity"]
+    dimension: StrictStr | None = None
+    unit: StrictStr | None = None
+    minimum: _FiniteNumber | None = None
+    maximum: _FiniteNumber | None = None
+    finite: Literal[True] = True
+
+
+class _EntityWire(_WireModel):
+    type: Literal["entity"]
+    entity_kind: _NonEmptyString | None = None
+
+
+class _PayloadWire(_WireModel):
+    type: Literal["payload"]
+    schema_id: _NonEmptyString
+
+
+type _PersistableScalarModel = Annotated[
+    _BoolWire
+    | _IntWire
+    | _FiniteFloatWire
+    | _StringWire
+    | _FiniteQuantityWire
+    | _EntityWire,
+    Field(discriminator="type"),
+]
+type _CapabilityScalarModel = Annotated[
+    _BoolWire
+    | _IntWire
+    | _FiniteFloatWire
+    | _StringWire
+    | _FiniteQuantityWire
+    | _PayloadWire,
+    Field(discriminator="type"),
 ]
 
-_SCALAR_WIRE_FIELDS: dict[ScalarWireAtomName, frozenset[str]] = {
-    "bool": frozenset(),
-    "int": frozenset({"minimum", "maximum"}),
-    "float": frozenset({"minimum", "maximum", "finite"}),
-    "string": frozenset({"choices"}),
-    "quantity": frozenset({"dimension", "unit", "minimum", "maximum", "finite"}),
-    "entity": frozenset({"entity_kind"}),
-    "payload": frozenset({"schema_id"}),
-}
+_PERSISTABLE_SCALAR_ADAPTER = TypeAdapter[_PersistableScalarModel](
+    _PersistableScalarModel
+)
+_CAPABILITY_SCALAR_ADAPTER = TypeAdapter[_CapabilityScalarModel](_CapabilityScalarModel)
 
 
-def scalar_type_wire_schema(
-    atom_names: tuple[ScalarWireAtomName, ...],
-    *,
-    finite_only: bool = False,
-) -> dict[str, object]:
-    """Build the exact JSON schema for an allowed set of scalar atoms."""
-
-    finite_schema: dict[str, object] = {"type": "boolean"}
-    if finite_only:
-        finite_schema["const"] = True
-    variants: dict[ScalarWireAtomName, dict[str, object]] = {
-        "bool": _scalar_wire_variant("bool", {}),
-        "int": _scalar_wire_variant(
-            "int",
-            {
-                "minimum": {"type": "integer"},
-                "maximum": {"type": "integer"},
-            },
-        ),
-        "float": _scalar_wire_variant(
-            "float",
-            {
-                "minimum": {"type": "number"},
-                "maximum": {"type": "number"},
-                "finite": finite_schema,
-            },
-        ),
-        "string": _scalar_wire_variant(
-            "string",
-            {
-                "choices": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "minItems": 1,
-                    "uniqueItems": True,
-                },
-            },
-        ),
-        "quantity": _scalar_wire_variant(
-            "quantity",
-            {
-                "dimension": {"type": "string"},
-                "unit": {"type": "string"},
-                "minimum": {"type": "number"},
-                "maximum": {"type": "number"},
-                "finite": finite_schema,
-            },
-            dependent_required={
-                "minimum": ("unit",),
-                "maximum": ("unit",),
-            },
-        ),
-        "entity": _scalar_wire_variant(
-            "entity",
-            {"entity_kind": {"type": "string", "minLength": 1}},
-        ),
-        "payload": _scalar_wire_variant(
-            "payload",
-            {"schema_id": {"type": "string", "minLength": 1}},
-            required=("schema_id",),
-        ),
-    }
-    return {"oneOf": [variants[atom_name] for atom_name in atom_names]}
-
-
-def scalar_type_from_wire(value: object) -> Scalar:
-    """Decode and canonicalize a durable scalar type declaration."""
-
-    if isinstance(value, Scalar):
-        try:
-            value = scalar_type_to_wire(value)
-        except (TypeError, ValueError) as error:
-            raise ValueError(str(error)) from error
-    if not isinstance(value, dict):
-        msg = "scalar value_type must be an object"
-        raise ValueError(msg)
-    raw_data = cast("dict[object, object]", value)
-    data: dict[str, object] = {}
-    for field_name, field_value in raw_data.items():
-        if not isinstance(field_name, str):
-            msg = f"scalar value_type field names must be strings, got {field_name!r}"
-            raise ValueError(msg)
-        data[field_name] = field_value
-    atom_name = data.pop("type", None)
-    if not _is_scalar_wire_atom_name(atom_name):
-        msg = f"unsupported scalar type: {atom_name!r}"
-        raise ValueError(msg)
-    selected_atom_name = atom_name
-    allowed_fields = _SCALAR_WIRE_FIELDS[selected_atom_name]
-    extra_fields = sorted(set(data) - allowed_fields)
-    if extra_fields:
-        msg = f"scalar type {atom_name!r} contains unknown fields: " + ", ".join(
-            extra_fields
-        )
-        raise ValueError(msg)
-    _validate_wire_field_types(selected_atom_name, data)
-    try:
-        if atom_name == "bool":
-            atom = TypeAdapter(Bool).validate_python(data)
-        elif atom_name == "int":
-            atom = TypeAdapter(Int).validate_python(data)
-        elif atom_name == "float":
-            atom = TypeAdapter(Float).validate_python(data)
-        elif atom_name == "string":
-            atom = TypeAdapter(String).validate_python(data)
-        elif atom_name == "quantity":
-            atom = TypeAdapter(Quantity).validate_python(data)
-        elif atom_name == "entity":
-            atom = TypeAdapter(Entity).validate_python(data)
-        elif atom_name == "payload":
-            atom = TypeAdapter(Payload).validate_python(data)
-        else:  # Covered by the allowed-fields lookup above.
-            raise AssertionError(atom_name)
-    except (TypeError, ValueError) as error:
-        msg = f"invalid {atom_name!r} scalar type: {error}"
-        raise ValueError(msg) from error
-    return Scalar(atom=atom)
-
-
-def _is_scalar_wire_atom_name(value: object) -> TypeGuard[ScalarWireAtomName]:
-    return isinstance(value, str) and value in _SCALAR_WIRE_FIELDS
-
-
-def scalar_type_to_wire(value: Scalar) -> dict[str, object]:
-    """Encode a scalar type using the stable, flat wire representation."""
-
-    _validate_scalar_type_declaration(value)
-    atom = value.atom
-    data: dict[str, object]
-    match atom:
-        case Bool():
-            data = {"type": "bool"}
-        case Int():
-            data = _int_type_to_wire(atom)
-        case Float():
-            data = _float_type_to_wire(atom)
-        case String():
-            data = _string_type_to_wire(atom)
-        case Quantity():
-            data = _quantity_type_to_wire(atom)
-        case Entity():
-            data = _entity_type_to_wire(atom)
-        case Payload():
-            data = _payload_type_to_wire(atom)
-    return data
-
-
-def _int_type_to_wire(value: Int) -> dict[str, object]:
-    data: dict[str, object] = {"type": "int"}
-    if value.minimum is not None:
-        data["minimum"] = value.minimum
-    if value.maximum is not None:
-        data["maximum"] = value.maximum
-    return data
-
-
-def _float_type_to_wire(value: Float) -> dict[str, object]:
-    data: dict[str, object] = {"type": "float"}
-    if value.minimum is not None:
-        data["minimum"] = value.minimum
-    if value.maximum is not None:
-        data["maximum"] = value.maximum
-    if not value.finite:
-        data["finite"] = False
-    return data
-
-
-def _string_type_to_wire(value: String) -> dict[str, object]:
-    data: dict[str, object] = {"type": "string"}
-    if value.choices is not None:
-        data["choices"] = list(value.choices)
-    return data
-
-
-def _quantity_type_to_wire(value: Quantity) -> dict[str, object]:
-    data: dict[str, object] = {"type": "quantity"}
-    if value.dimension is not None:
-        data["dimension"] = value.dimension
-    if value.unit is not None:
-        data["unit"] = value.unit
-    if value.minimum is not None:
-        data["minimum"] = value.minimum
-    if value.maximum is not None:
-        data["maximum"] = value.maximum
-    if not value.finite:
-        data["finite"] = False
-    return data
-
-
-def _entity_type_to_wire(value: Entity) -> dict[str, object]:
-    data: dict[str, object] = {"type": "entity"}
-    if value.entity_kind is not None:
-        data["entity_kind"] = value.entity_kind
-    return data
-
-
-def _payload_type_to_wire(value: Payload) -> dict[str, object]:
-    return {"type": "payload", "schema_id": value.schema_id}
-
-
-type ScalarWire = Annotated[
-    Scalar,
-    BeforeValidator(scalar_type_from_wire),
-    PlainSerializer(scalar_type_to_wire, return_type=dict[str, object]),
-]
-
-
-def _validate_wire_field_types(
-    atom_name: ScalarWireAtomName,
-    data: dict[str, object],
-) -> None:
-    integer_fields: tuple[str, ...] = ()
-    number_fields: tuple[str, ...] = ()
-    string_fields: tuple[str, ...] = ()
-    if atom_name == "int":
-        integer_fields = ("minimum", "maximum")
-    elif atom_name == "float":
-        number_fields = ("minimum", "maximum")
-    elif atom_name == "quantity":
-        number_fields = ("minimum", "maximum")
-        string_fields = ("dimension", "unit")
-    elif atom_name == "entity":
-        string_fields = ("entity_kind",)
-    elif atom_name == "payload":
-        string_fields = ("schema_id",)
-
-    for field_name in integer_fields:
-        field_value = data.get(field_name)
-        if field_name in data and not _is_json_integer(field_value):
-            _raise_wire_field_type(atom_name, field_name, "an integer")
-    for field_name in number_fields:
-        field_value = data.get(field_name)
-        if field_name in data and (
-            not isinstance(field_value, int | float) or isinstance(field_value, bool)
+def _scalar_from_model(
+    wire: _PersistableScalarModel | _CapabilityScalarModel,
+) -> Scalar:
+    match wire:
+        case _BoolWire():
+            atom = Bool()
+        case _IntWire(minimum=minimum, maximum=maximum):
+            atom = Int(minimum=minimum, maximum=maximum)
+        case _FiniteFloatWire(
+            minimum=minimum,
+            maximum=maximum,
+            finite=finite,
         ):
-            _raise_wire_field_type(atom_name, field_name, "a number")
-    for field_name in string_fields:
-        if field_name in data and not isinstance(data[field_name], str):
-            _raise_wire_field_type(atom_name, field_name, "a string")
-    if "finite" in data and not isinstance(data["finite"], bool):
-        _raise_wire_field_type(atom_name, "finite", "a bool")
-    if "choices" in data:
-        choices = data["choices"]
-        if not isinstance(choices, list):
-            _raise_wire_field_type(atom_name, "choices", "a list of strings")
-        selected_choices = cast("list[object]", choices)
-        if not all(isinstance(choice, str) for choice in selected_choices):
-            _raise_wire_field_type(atom_name, "choices", "a list of strings")
-
-
-def _validate_scalar_type_declaration(value: Scalar) -> None:
-    atom = value.atom
-    match atom:
-        case Bool():
-            return
-        case Int(minimum=minimum, maximum=maximum):
-            _require_optional_int(minimum, label="Int minimum")
-            _require_optional_int(maximum, label="Int maximum")
-        case Float(minimum=minimum, maximum=maximum, finite=finite):
-            _require_optional_number(minimum, label="Float minimum")
-            _require_optional_number(maximum, label="Float maximum")
-            _require_bool(finite, label="Float finite")
-        case String(choices=choices):
-            _require_optional_string_tuple(choices, label="String choices")
-        case Quantity(
+            atom = Float(minimum=minimum, maximum=maximum, finite=finite)
+        case _StringWire(choices=choices):
+            atom = String(choices=choices)
+        case _FiniteQuantityWire(
             dimension=dimension,
             unit=unit,
             minimum=minimum,
             maximum=maximum,
             finite=finite,
         ):
-            _require_optional_string(dimension, label="Quantity dimension")
-            _require_optional_string(unit, label="Quantity unit")
-            _require_optional_number(minimum, label="Quantity minimum")
-            _require_optional_number(maximum, label="Quantity maximum")
-            _require_bool(finite, label="Quantity finite")
+            atom = Quantity(
+                dimension=dimension,
+                unit=unit,
+                minimum=minimum,
+                maximum=maximum,
+                finite=finite,
+            )
+        case _EntityWire(entity_kind=entity_kind):
+            atom = Entity(entity_kind=entity_kind)
+        case _PayloadWire(schema_id=schema_id):
+            atom = Payload(schema_id=schema_id)
+    return Scalar(atom=atom)
+
+
+def _persistable_scalar_from_wire(value: object) -> Scalar:
+    if isinstance(value, Scalar):
+        return value
+    return _scalar_from_model(_PERSISTABLE_SCALAR_ADAPTER.validate_python(value))
+
+
+def _capability_scalar_from_wire(value: object) -> Scalar:
+    if isinstance(value, Scalar):
+        return value
+    return _scalar_from_model(_CAPABILITY_SCALAR_ADAPTER.validate_python(value))
+
+
+def _scalar_to_wire(
+    value: Scalar,
+) -> _PersistableScalarModel | _CapabilityScalarModel:
+    match value.atom:
+        case Bool():
+            return _BoolWire(type="bool")
+        case Int(minimum=minimum, maximum=maximum):
+            return _IntWire(type="int", minimum=minimum, maximum=maximum)
+        case Float(minimum=minimum, maximum=maximum, finite=True):
+            return _FiniteFloatWire(
+                type="float",
+                minimum=minimum,
+                maximum=maximum,
+            )
+        case String(choices=choices):
+            return _StringWire(type="string", choices=choices)
+        case Quantity(
+            dimension=dimension,
+            unit=unit,
+            minimum=minimum,
+            maximum=maximum,
+            finite=True,
+        ):
+            return _FiniteQuantityWire(
+                type="quantity",
+                dimension=dimension,
+                unit=unit,
+                minimum=minimum,
+                maximum=maximum,
+            )
         case Entity(entity_kind=entity_kind):
-            _require_optional_string(entity_kind, label="Entity entity_kind")
+            return _EntityWire(type="entity", entity_kind=entity_kind)
         case Payload(schema_id=schema_id):
-            _require_string(schema_id, label="Payload schema_id")
+            return _PayloadWire(type="payload", schema_id=schema_id)
+        case Float() | Quantity():
+            msg = "durable scalar types must require finite numeric values"
+            raise ValueError(msg)
 
 
-def _require_bool(value: object, *, label: str) -> None:
-    if not isinstance(value, bool):
-        msg = f"{label} must be a bool"
-        raise TypeError(msg)
+type PersistableScalarWire = Annotated[
+    Scalar,
+    BeforeValidator(
+        _persistable_scalar_from_wire,
+        json_schema_input_type=_PersistableScalarModel,
+    ),
+    PlainSerializer(_scalar_to_wire, return_type=_PersistableScalarModel),
+]
 
-
-def _require_int(value: object, *, label: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool):
-        msg = f"{label} must be an int"
-        raise TypeError(msg)
-
-
-def _require_optional_int(value: object, *, label: str) -> None:
-    if value is not None:
-        _require_int(value, label=label)
-
-
-def _require_optional_number(value: object, *, label: str) -> None:
-    if value is not None and (
-        not isinstance(value, int | float) or isinstance(value, bool)
-    ):
-        msg = f"{label} must be an int or float"
-        raise TypeError(msg)
-    if value is None:
-        return
-    try:
-        finite = math.isfinite(value)
-    except OverflowError:
-        finite = False
-    if not finite:
-        msg = f"{label} must be a finite, representable number"
-        raise TypeError(msg)
-
-
-def _require_string(value: object, *, label: str) -> None:
-    if not isinstance(value, str):
-        msg = f"{label} must be a string"
-        raise TypeError(msg)
-
-
-def _require_optional_string(value: object, *, label: str) -> None:
-    if value is not None:
-        _require_string(value, label=label)
-
-
-def _require_optional_string_tuple(value: object, *, label: str) -> None:
-    if value is None:
-        return
-    if not isinstance(value, tuple):
-        msg = f"{label} must be a tuple of strings"
-        raise TypeError(msg)
-    selected = cast("tuple[object, ...]", value)
-    if not all(isinstance(item, str) for item in selected):
-        msg = f"{label} must be a tuple of strings"
-        raise TypeError(msg)
-
-
-def _is_json_integer(value: object) -> bool:
-    if isinstance(value, bool):
-        return False
-    if isinstance(value, int):
-        return True
-    return isinstance(value, float) and math.isfinite(value) and value.is_integer()
-
-
-def _raise_wire_field_type(
-    atom_name: ScalarWireAtomName,
-    field_name: str,
-    expected: str,
-) -> None:
-    msg = f"scalar type {atom_name!r} field {field_name!r} must be {expected}"
-    raise ValueError(msg)
-
-
-def _scalar_wire_variant(
-    atom_name: ScalarWireAtomName,
-    properties: dict[str, object],
-    *,
-    required: tuple[str, ...] = (),
-    dependent_required: dict[str, tuple[str, ...]] | None = None,
-) -> dict[str, object]:
-    variant: dict[str, object] = {
-        "type": "object",
-        "required": ["type", *required],
-        "additionalProperties": False,
-        "properties": {
-            "type": {"type": "string", "const": atom_name},
-            **properties,
-        },
-    }
-    if dependent_required:
-        variant["dependentRequired"] = {
-            field_name: list(dependencies)
-            for field_name, dependencies in dependent_required.items()
-        }
-    return variant
+type CapabilityScalarWire = Annotated[
+    Scalar,
+    BeforeValidator(
+        _capability_scalar_from_wire,
+        json_schema_input_type=_CapabilityScalarModel,
+    ),
+    PlainSerializer(_scalar_to_wire, return_type=_CapabilityScalarModel),
+]
