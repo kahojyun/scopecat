@@ -1,4 +1,4 @@
-"""Partial evaluation for pure scalar and relation expressions."""
+"""Partial evaluation for pure scalar expressions."""
 
 from __future__ import annotations
 
@@ -8,26 +8,15 @@ from dataclasses import dataclass
 from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.evaluator import (
-    evaluate_relation_expression,
-)
 from scopecat.compiler.relations.scalar_eval import cell_matches, eval_binary, read_path
-from scopecat.graph.relations.analysis import (
-    PlanReferenceKind,
-    plan_references,
-    rewrite_plan,
-)
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     CellValue,
     InputScalarExpr,
-    LiteralRowsRelationExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     PointColumnScalarExpr,
-    RelationExpr,
-    RelationExpression,
     ScalarExpr,
     ScalarExpression,
     lit,
@@ -112,61 +101,6 @@ def specialize_scalar(
                 known=known,
                 parameter_cells=parameter_cells,
             )
-
-
-def specialize_relation(
-    expression: RelationExpr,
-    *,
-    known: EvalContext,
-    parameter_cells: Sequence[ParameterCellBinding] = (),
-) -> RelationExpression:
-    """Replace a closed relation leaf with literal rows."""
-    return cast(
-        "RelationExpression",
-        rewrite_plan(
-            expression,
-            lambda node: _specialize_plan_node(
-                node,
-                known=known,
-                parameter_cells=parameter_cells,
-            ),
-        ),
-    )
-
-
-def _specialize_plan_node(
-    node: ScalarExpr | RelationExpr,
-    *,
-    known: EvalContext,
-    parameter_cells: Sequence[ParameterCellBinding],
-) -> ScalarExpr | RelationExpr:
-    if isinstance(node, ScalarExpr):
-        return _expression(
-            specialize_scalar(
-                node,
-                known=known,
-                parameter_cells=parameter_cells,
-            )
-        )
-    if _uses_overlaid_table(node, parameter_cells):
-        return node
-    try:
-        return LiteralRowsRelationExpr(
-            rows=deepcopy(evaluate_relation_expression(node, known))
-        )
-    except _KNOWN_EVALUATION_ERRORS:
-        return node
-
-
-def _uses_overlaid_table(
-    expression: RelationExpr,
-    parameter_cells: Sequence[ParameterCellBinding],
-) -> bool:
-    overlaid = {binding.table_id for binding in parameter_cells}
-    return bool(
-        overlaid
-        & set(plan_references(expression).ids(PlanReferenceKind.PARAMETER_TABLE))
-    )
 
 
 def _known_leaf(
@@ -301,6 +235,5 @@ __all__ = [
     "ResidualScalar",
     "ScalarSpecialization",
     "residual_scalar_expression",
-    "specialize_relation",
     "specialize_scalar",
 ]

@@ -32,9 +32,6 @@ from scopecat.compiler.frontend.parameter_contract_validation import (
 from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.compiler.frontend.product_lowering import lower_products
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
-from scopecat.compiler.frontend.value_binding import (
-    bind_relation_input_refs,
-)
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -42,7 +39,7 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.kernel.value_types import ValueType
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.parameter import ParameterCatalog
 
 
@@ -111,7 +108,6 @@ def _bind_verified_assembly(
         verified_graph.product_declarations,
         inputs,
         type_bindings=type_bindings,
-        bind_relation_input_refs=bind_relation_input_refs,
         input_row=input_row,
     )
     compute_nodes = lower_semantic_compute_graph(
@@ -179,25 +175,21 @@ def _relation_type_bindings(
 ) -> RelationTypeBindings:
     """Project assembly contracts into the final plan-verification environment."""
 
-    contracts = assembly.parameter_contracts
+    parameter_types: dict[str, Scalar] = {}
+    for contract in assembly.parameter_contracts:
+        if not isinstance(contract, ParameterValueContract):
+            continue
+        definition = parameter_catalog.get(contract.parameter_id)
+        value_type = (
+            definition.value_type if definition is not None else contract.value_type
+        )
+        if isinstance(value_type, Scalar):
+            parameter_types[contract.parameter_id] = value_type
     return RelationTypeBindings(
-        inputs={port.id: port.value_type for port in assembly.input_ports},
-        parameters={
-            contract.parameter_id: _catalog_parameter_type(
-                parameter_catalog,
-                contract.parameter_id,
-                contract.value_type,
-            )
-            for contract in contracts
-            if isinstance(contract, ParameterValueContract)
+        inputs={
+            port.id: port.value_type
+            for port in assembly.input_ports
+            if isinstance(port.value_type, Scalar)
         },
+        parameters=parameter_types,
     )
-
-
-def _catalog_parameter_type(
-    parameter_catalog: ParameterCatalog,
-    parameter_id: str,
-    fallback: ValueType,
-) -> ValueType:
-    definition = parameter_catalog.get(parameter_id)
-    return definition.value_type if definition is not None else fallback

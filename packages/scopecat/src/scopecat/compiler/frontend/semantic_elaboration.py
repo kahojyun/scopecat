@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import cast
 
 from scopecat.authoring._binding_intents import ExperimentBindingIntent
 from scopecat.authoring._identities import ComputeDeclarationKey
@@ -25,7 +26,7 @@ from scopecat.authoring._value_refs import (
 from scopecat.authoring.domain import LoweredDomainExecution
 from scopecat.authoring.measurements import MeasurementPostprocessor
 from scopecat.authoring.values import ComputeFunction
-from scopecat.compiler.frontend.value_binding import literal_data_expr
+from scopecat.compiler.frontend.value_binding import input_cell
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -44,10 +45,10 @@ from scopecat.compiler.semantic.model import (
     SemanticMeasurementPostprocessor,
     SemanticOperation,
     ValueDef,
+    ValueSource,
     ValueUse,
 )
 from scopecat.graph.relations.model import (
-    RelationExpr,
     ScalarExpr,
 )
 from scopecat.graph.values import (
@@ -64,9 +65,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
-from scopecat.kernel.value_types import TableColumn, ValueType
-
-type _PlanExpression = ScalarExpr | RelationExpr
+from scopecat.kernel.value_types import Scalar, TableColumn, ValueType
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,11 +161,16 @@ class _SemanticGraphBuilder:
         self._operations: dict[OperationId, SemanticOperation] = {}
         self._measurement_postprocessors: list[SemanticMeasurementPostprocessor] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
-        self._input_types = dict(input_types)
+        self._input_types = {
+            input_id: value_type
+            for input_id, value_type in input_types.items()
+            if isinstance(value_type, Scalar)
+        }
         self._parameter_types = {
             contract.parameter_id: contract.value_type
             for contract in parameter_contracts
             if isinstance(contract, ParameterValueContract)
+            and isinstance(contract.value_type, Scalar)
         }
         point_columns = tuple(
             TableColumn(dependency.id, dependency.value_type)
@@ -320,14 +324,19 @@ class _SemanticGraphBuilder:
         if isinstance(lowered, ComputeResultRef):
             msg = "non-compute semantic values must lower to a plan expression"
             raise TypeError(msg)
+        source: ValueSource
+        if isinstance(lowered, ScalarExpr):
+            source = self._plan_source(
+                lowered,
+                expected_type=cast("Scalar", value.value_type),
+            )
+        else:
+            source = lowered
         self._add_definition(
             ValueDef(
                 id=value_id,
                 value_type=value.value_type,
-                source=self._plan_source(
-                    lowered,
-                    expected_type=value.value_type,
-                ),
+                source=source,
             )
         )
         return value_id
@@ -337,9 +346,7 @@ class _SemanticGraphBuilder:
         value_id: ValueId,
         value: object,
     ) -> None:
-        # Constructing the relation literal here also validates that the value
-        # belongs to the same closed scalar domain used by local plan lowering.
-        literal_data_expr(value)
+        input_cell(value)
         self._add_definition(
             ValueDef(
                 id=value_id,
@@ -357,9 +364,9 @@ class _SemanticGraphBuilder:
 
     def _plan_source(
         self,
-        expression: _PlanExpression,
+        expression: ScalarExpr,
         *,
-        expected_type: ValueType,
+        expected_type: Scalar,
     ) -> PlanExpressionSource:
         bindings = RelationTypeBindings(
             inputs=self._input_types,

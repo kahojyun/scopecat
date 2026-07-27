@@ -23,7 +23,6 @@ from scopecat.compiler.frontend.problems import (
 )
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
-    bind_value_input_refs,
 )
 from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
@@ -123,11 +122,7 @@ def _resource_entity_expr(
         and isinstance(lowered, ScalarExpr)
     ):
         raise AssertionError("verified resource entity source must be a scalar entity")
-    bound = bind_value_input_refs(lowered, inputs)
-    if not isinstance(bound, ScalarExpr):
-        raise AssertionError(
-            "binding a verified resource entity source must preserve its shape"
-        )
+    bound = bind_scalar_input_refs(lowered, inputs)
     if isinstance(bound, LiteralScalarExpr):
         bound = replace(
             bound,

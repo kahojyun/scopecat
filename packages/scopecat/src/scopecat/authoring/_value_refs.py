@@ -1,11 +1,4 @@
-"""Typed value edges used while composing authoring modules.
-
-The relation expression classes still provide the executable expression tree.  A
-``ValueRef`` adds the part that those trees deliberately do not carry: the
-complete semantic ``ValueType`` and the identity of the input or compute node
-that produced the value.  Module composition keeps these references intact and
-only lowers them back to relation/compute references at the compiler boundary.
-"""
+"""Typed value edges used while composing authoring modules."""
 
 from __future__ import annotations
 
@@ -21,19 +14,15 @@ from scopecat.authoring._parameter_contracts import (
     ParameterContract,
     merge_parameter_contracts,
 )
-from scopecat.graph.relations.analysis import (
-    PlanReferenceKind,
-    plan_references,
-)
+from scopecat.graph.relations.analysis import plan_input_refs
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     ParameterLookupUse,
-    RelationExpr,
+    Row,
     ScalarExpr,
     ScalarExpression,
     as_scalar_expr,
     input_ref,
-    input_table,
     lit,
     parameter_lookup,
     point_col,
@@ -41,6 +30,13 @@ from scopecat.graph.relations.model import (
 from scopecat.graph.relations.operators import (
     ScalarOperator,
     scalar_operator_result_type,
+)
+from scopecat.graph.table_values import (
+    InputTableSource,
+    LiteralTableSource,
+    ParameterTableSource,
+    TableSource,
+    literal_table_source,
 )
 from scopecat.graph.values import (
     ComputeResultRef,
@@ -52,19 +48,14 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import (
-    describe_value_type,
-)
-from scopecat.kernel.value_type_compatibility import (
     literal_scalar_type as _literal_scalar_type,
 )
 from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import (
     ValuePath,
     coerce_literal,
-    format_value_path,
 )
 
-type _ValueExpression = ScalarExpr | RelationExpr
 type _InputBindingLayers = tuple[tuple[tuple[str, ValueRef], ...], ...]
 
 type FrozenScalarLiteral = (
@@ -108,7 +99,7 @@ class _PointValueSource:
 
 @dataclass(frozen=True, slots=True)
 class _ExpressionValueSource:
-    expression: _ValueExpression
+    expression: ScalarExpr
     input_binding_layers: _InputBindingLayers = ()
 
 
@@ -148,6 +139,7 @@ type _ValueSource = (
     | _PointValueSource
     | _ExpressionValueSource
     | _ModuleExportSource
+    | TableSource
 )
 
 
@@ -614,9 +606,9 @@ def internal_value_ref_scalar_input_ids(value: ValueRef) -> frozenset[str]:
     """Return scalar imports remaining after authored input bindings."""
 
     lowered = internal_lower_value_ref(value)
-    if isinstance(lowered, ComputeResultRef):
+    if not isinstance(lowered, ScalarExpr):
         return frozenset()
-    return frozenset(plan_references(lowered).ids(PlanReferenceKind.INPUT_SCALAR))
+    return frozenset(plan_input_refs(lowered))
 
 
 def internal_value_ref_requires_execution(value: ValueRef) -> bool:
@@ -645,6 +637,8 @@ def _value_ref_requires_execution(
             f"{source.export_id!r}"
         )
         raise ValueError(msg)
+    if not isinstance(source, _ExpressionValueSource):
+        return False
     return any(
         _value_ref_requires_execution(bound, seen=nested_seen)
         for layer in source.input_binding_layers
@@ -652,7 +646,9 @@ def _value_ref_requires_execution(
     )
 
 
-def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResultRef:
+def internal_lower_value_ref(
+    value: ValueRef,
+) -> ScalarExpr | TableSource | ComputeResultRef:
     """Lower a typed edge at the private compiler boundary."""
 
     source = value.source
@@ -671,21 +667,28 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
         if not layers:
             return expression
         from scopecat.graph.relations.input_binding import (
-            substitute_value_input_refs,
+            substitute_scalar_input_refs,
         )
 
         for layer in layers:
-            expression = substitute_value_input_refs(
+            expression = substitute_scalar_input_refs(
                 expression,
                 _LoweredValueRefInputs(dict(layer)),
             )
         return expression
+    if isinstance(
+        source,
+        LiteralTableSource | ParameterTableSource | InputTableSource,
+    ):
+        return source
     if isinstance(source, _PointValueSource):
         return point_col(source.id)
     source_id = source.id
-    if isinstance(value.value_type, Scalar):
-        return input_ref(source_id)
-    return input_table(source_id)
+    return (
+        input_ref(source_id)
+        if isinstance(value.value_type, Scalar)
+        else InputTableSource(source_id)
+    )
 
 
 def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpression:
@@ -702,8 +705,8 @@ def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpression:
 
 
 def internal_value_ref_from_expression(
-    expression: _ValueExpression,
-    value_type: ValueType,
+    expression: ScalarExpr,
+    value_type: Scalar,
     *,
     declaration_key: ValueDeclarationKey | None = None,
     parameter_contracts: tuple[ParameterContract, ...] = (),
@@ -711,13 +714,27 @@ def internal_value_ref_from_expression(
 ) -> ValueRef:
     """Construct a typed expression edge inside the authoring implementation."""
 
-    _require_expression_shape(expression, value_type)
     return ValueRef(
         source=_ExpressionValueSource(expression=expression),
         value_type=value_type,
         declaration_key=declaration_key or ValueDeclarationKey.fresh(),
         parameter_contracts=parameter_contracts,
         point_dependencies=point_dependencies,
+    )
+
+
+def internal_table_value_ref(
+    source: TableSource,
+    value_type: Table,
+    *,
+    parameter_contracts: tuple[ParameterContract, ...] = (),
+) -> ValueRef:
+    """Construct a direct whole-table edge for a domain compiler input."""
+
+    return ValueRef(
+        source=source,
+        value_type=value_type,
+        parameter_contracts=parameter_contracts,
     )
 
 
@@ -729,19 +746,18 @@ def internal_literal_value_ref(
 ) -> ValueRef:
     """Capture one closed literal as a typed edge without exposing raw IR."""
 
-    from scopecat.graph.relations.input_binding import (
-        input_cell,
-        table_input_value,
-    )
+    from scopecat.graph.relations.input_binding import input_cell
 
     coerced = coerce_literal(value_type, value, path=path)
-    input_name = format_value_path(path)
-    expression = (
-        lit(input_cell(coerced))
-        if isinstance(value_type, Scalar)
-        else table_input_value(input_name, coerced)
+    if isinstance(value_type, Table):
+        return internal_table_value_ref(
+            literal_table_source(cast("tuple[Row, ...]", coerced)),
+            value_type,
+        )
+    return internal_value_ref_from_expression(
+        lit(input_cell(coerced)),
+        value_type,
     )
-    return internal_value_ref_from_expression(expression, value_type)
 
 
 def internal_bind_value_ref_inputs(
@@ -797,9 +813,9 @@ def _value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
     if not isinstance(source, _ExpressionValueSource):
         return frozenset()
 
-    from scopecat.graph.relations.input_binding import value_input_refs
+    from scopecat.graph.relations.input_binding import scalar_input_refs
 
-    input_ids = frozenset(value_input_refs(source.expression))
+    input_ids = frozenset(scalar_input_refs(source.expression))
     layers = source.input_binding_layers
     for layer in layers:
         _reachable, input_ids = _reachable_input_bindings(input_ids, dict(layer))
@@ -912,7 +928,7 @@ def _require_relation_bindings(values: tuple[ValueRef, ...]) -> None:
         for value in values
     ):
         msg = (
-            "compute outputs cannot be bound inside relation expressions; "
+            "compute outputs cannot be bound inside scalar expressions; "
             "express this calculation with sc.compute"
         )
         raise TypeError(msg)
@@ -943,17 +959,6 @@ def _scalar_operand_type(value: object) -> Scalar:
         msg = "scalar operations require typed values or closed scalar literals"
         raise TypeError(msg)
     return _literal_scalar_type(value)
-
-
-def _require_expression_shape(
-    expression: _ValueExpression, value_type: ValueType
-) -> None:
-    if (isinstance(expression, ScalarExpr) and isinstance(value_type, Scalar)) or (
-        isinstance(expression, RelationExpr) and isinstance(value_type, Table)
-    ):
-        return
-    msg = f"expression shape is incompatible with {describe_value_type(value_type)}"
-    raise TypeError(msg)
 
 
 def empty_frozen_mapping() -> Mapping[str, Never]:

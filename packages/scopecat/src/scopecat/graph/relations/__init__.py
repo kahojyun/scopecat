@@ -1,3 +1,3 @@
-"""Backend-neutral table, scalar, and point-domain graphs."""
+"""Backend-neutral scalar and point-domain graphs."""
 
 __all__: list[str] = []

@@ -14,7 +14,7 @@ from typing import cast
 from scopecat.authoring._intents import ComputeNodeInputValue
 from scopecat.authoring._products import ProductRef
 from scopecat.authoring._value_refs import ValueRef, capture_runtime_input
-from scopecat.authoring.value_types import ValueType
+from scopecat.authoring.value_types import Scalar, ValueType
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,
@@ -67,12 +67,17 @@ def domain_program(
     dialect_id: str,
     dialect_version: str,
     body: object,
-    inputs: Mapping[str, ValueType] | None = None,
+    inputs: Mapping[str, Scalar] | None = None,
     compiler_inputs: Mapping[str, ValueType] | None = None,
     results: Mapping[str, object | None] | None = None,
 ) -> DomainProgramDef:
     """Declare an opaque program with ordered typed input and result ports."""
 
+    selected_inputs = cast("Mapping[str, ValueType]", inputs or {})
+    if any(
+        not isinstance(value_type, Scalar) for value_type in selected_inputs.values()
+    ):
+        raise TypeError("domain program inputs must be scalar; use compiler_inputs")
     return DomainProgramDef(
         id=id,
         dialect_id=dialect_id,
@@ -80,7 +85,7 @@ def domain_program(
         body=body,
         input_ports=tuple(
             DomainInputPort(port_id, value_type)
-            for port_id, value_type in (inputs or {}).items()
+            for port_id, value_type in selected_inputs.items()
         ),
         compiler_input_ports=tuple(
             DomainInputPort(port_id, value_type)

@@ -14,13 +14,15 @@ from scopecat.compiler.relations.verification import (
     TypedPlanImport,
     VerifiedRelationPlan,
 )
-from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.model import (
     CellValue,
-    RelationExpr,
     Row,
-    ScalarExpr,
     is_cell_value,
+)
+from scopecat.graph.table_values import (
+    LiteralTableSource,
+    ParameterTableSource,
+    TableSource,
 )
 from scopecat.kernel.value_types import (
     Scalar,
@@ -35,7 +37,7 @@ from scopecat.kernel.value_validation import (
 
 
 def evaluate_scalar(
-    verified_plan: VerifiedRelationPlan[ScalarExpr],
+    verified_plan: VerifiedRelationPlan,
     ctx: EvalContext,
 ) -> CellValue:
     from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
@@ -48,22 +50,36 @@ def evaluate_scalar(
     )
 
 
-def evaluate_relation(
-    verified_plan: VerifiedRelationPlan[RelationExpr],
+def evaluate_table_value(
+    source: TableSource,
+    value_type: Table,
     ctx: EvalContext,
 ) -> list[Row]:
-    from scopecat.compiler.relations.evaluator import evaluate_relation_expression
+    """Materialize a whole-table compiler input against one point context."""
 
-    normalized = _prepare_context(verified_plan, ctx)
-    result = evaluate_relation_expression(verified_plan.root, normalized)
+    if isinstance(source, LiteralTableSource):
+        result: object = source.rows
+    elif isinstance(source, ParameterTableSource):
+        result = _parameter_table_rows(
+            source.parameter_id,
+            ctx.params,
+            table_rows=None,
+            path=("parameters", source.parameter_id),
+        )
+    else:
+        try:
+            result = ctx.inputs[source.input_id]
+        except KeyError as error:
+            msg = f"unknown table input {source.input_id!r}"
+            raise KeyError(msg) from error
     return cast(
         "list[Row]",
-        _normalize_materialized_result(verified_plan.certified_type, result),
+        _normalize_materialized_result(value_type, result),
     )
 
 
-def normalize_relation_parameter_import[NodeT: PlanNode](
-    verified_plan: VerifiedRelationPlan[NodeT],
+def normalize_relation_parameter_import(
+    verified_plan: VerifiedRelationPlan,
     imported: TypedPlanImport,
     params: ParameterRelationData,
 ) -> object:
@@ -79,22 +95,20 @@ def normalize_relation_parameter_import[NodeT: PlanNode](
         raise ValueError(msg)
     return _normalize_parameter_import(
         imported,
-        verified_plan,
         params,
         table_rows=None,
     )
 
 
-def _prepare_context[NodeT: PlanNode](
-    verified_plan: VerifiedRelationPlan[NodeT],
+def _prepare_context(
+    verified_plan: VerifiedRelationPlan,
     ctx: EvalContext,
 ) -> EvalContext:
     return _normalize_evaluation_context(verified_plan, ctx)
 
 
-def _normalize_parameter_import[NodeT: PlanNode](
+def _normalize_parameter_import(
     imported: TypedPlanImport,
-    verified_plan: VerifiedRelationPlan[NodeT],
     params: ParameterRelationData,
     *,
     table_rows: list[Row] | None,
@@ -106,17 +120,12 @@ def _normalize_parameter_import[NodeT: PlanNode](
     if imported.lookup is not None:
         return _normalize_parameter_table_import(
             imported,
-            verified_plan,
             params,
             table_rows=table_rows,
             path=path,
         )
     try:
-        value = (
-            table_rows
-            if isinstance(imported.value_type, Table) and table_rows is not None
-            else params.value(imported.id)
-        )
+        value = params.scalar(imported.id)
     except (KeyError, TypeError) as error:
         raise ValueValidationError(
             path,
@@ -126,22 +135,8 @@ def _normalize_parameter_import[NodeT: PlanNode](
     return _normalize_typed_value(imported.value_type, value, path=path)
 
 
-def _input_import_value(
-    inputs: Mapping[str, object],
+def _normalize_parameter_table_import(
     imported: TypedPlanImport,
-) -> object:
-    if isinstance(imported.value_type, Scalar):
-        return read_path(inputs, imported.id)
-    try:
-        return inputs[imported.id]
-    except KeyError as error:
-        msg = f"unknown table input {imported.id!r}"
-        raise KeyError(msg) from error
-
-
-def _normalize_parameter_table_import[NodeT: PlanNode](
-    imported: TypedPlanImport,
-    verified_plan: VerifiedRelationPlan[NodeT],
     params: ParameterRelationData,
     *,
     table_rows: list[Row] | None,
@@ -156,13 +151,6 @@ def _normalize_parameter_table_import[NodeT: PlanNode](
         table_rows=table_rows,
         path=path,
     )
-
-    declared = verified_plan.bindings.parameters.get(imported.id)
-    if isinstance(declared, Table):
-        return cast(
-            "list[Row]",
-            _normalize_typed_value(declared, rows, path=path),
-        )
 
     normalized_rows = rows
     for index, row in enumerate(rows):
@@ -208,8 +196,8 @@ def _parameter_table_rows(
         ) from error
 
 
-def _normalize_evaluation_context[NodeT: PlanNode](
-    verified_plan: VerifiedRelationPlan[NodeT],
+def _normalize_evaluation_context(
+    verified_plan: VerifiedRelationPlan,
     ctx: EvalContext,
 ) -> EvalContext:
     """Snapshot and normalize every dynamic value the proof actually consumes."""
@@ -222,7 +210,7 @@ def _normalize_evaluation_context[NodeT: PlanNode](
         path = (imported.namespace.value + "s", imported.id)
         if imported.namespace is PlanImportNamespace.INPUT:
             try:
-                value = _input_import_value(inputs, imported)
+                value = read_path(inputs, imported.id)
             except (KeyError, TypeError) as error:
                 raise ValueValidationError(path, str(error)) from error
             normalized = _normalize_typed_value(
@@ -234,11 +222,10 @@ def _normalize_evaluation_context[NodeT: PlanNode](
             continue
         normalized = _normalize_parameter_import(
             imported,
-            verified_plan,
             ctx.params,
             table_rows=tables_by_parameter.get(imported.id),
         )
-        if imported.lookup is not None or isinstance(imported.value_type, Table):
+        if imported.lookup is not None:
             tables_by_parameter[imported.id] = cast("list[Row]", normalized)
         else:
             parameter_scalars[imported.id] = cast("CellValue", normalized)

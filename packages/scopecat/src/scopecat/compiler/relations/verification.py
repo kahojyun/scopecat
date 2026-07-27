@@ -1,6 +1,6 @@
-"""Static type and schema verification for relation plans.
+"""Static type verification for scalar plans.
 
-The relation AST deliberately remains an easy-to-author data model.  This
+The scalar AST deliberately remains an easy-to-author data model. This
 module turns that model into a proof-carrying plan before compiler or runtime
 code may rely on its shape.
 """
@@ -13,24 +13,16 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.graph.relations.analysis import (
-    PlanNode,
-)
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
-    InputRelationExpr,
     InputScalarExpr,
-    LiteralRowsRelationExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
     ParameterLookupUse,
     ParameterScalarExpr,
     PointColumnScalarExpr,
-    RelationExpr,
-    RelationExpression,
     ScalarExpr,
     ScalarExpression,
-    TableRelationExpr,
 )
 from scopecat.graph.relations.operators import scalar_operator_result_type
 from scopecat.kernel.quantity import Quantity as QuantityValue
@@ -39,7 +31,6 @@ from scopecat.kernel.value_types import (
     Scalar,
     Table,
     TableColumn,
-    ValueType,
 )
 from scopecat.kernel.value_validation import ValueValidationError, validate_literal
 
@@ -47,7 +38,7 @@ type PlanPathItem = str | int
 type PlanPath = tuple[PlanPathItem, ...]
 
 
-def _empty_value_bindings() -> dict[str, ValueType]:
+def _empty_value_bindings() -> dict[str, Scalar]:
     return {}
 
 
@@ -94,8 +85,8 @@ class PointRequirement:
 class RelationTypeBindings:
     """Typed imports and the optional experiment-point row."""
 
-    inputs: Mapping[str, ValueType] = field(default_factory=_empty_value_bindings)
-    parameters: Mapping[str, ValueType] = field(default_factory=_empty_value_bindings)
+    inputs: Mapping[str, Scalar] = field(default_factory=_empty_value_bindings)
+    parameters: Mapping[str, Scalar] = field(default_factory=_empty_value_bindings)
     point_row: RowType | None = None
 
     def __post_init__(self) -> None:
@@ -116,7 +107,7 @@ class PlanImportNamespace(StrEnum):
 class TypedPlanImport:
     namespace: PlanImportNamespace
     id: str
-    value_type: ValueType
+    value_type: Scalar
     lookup: ParameterLookupUse | None = None
 
 
@@ -131,8 +122,8 @@ class RelationPlanVerificationError(ValueError):
         super().__init__(f"{rendered}: {message}" if rendered else message)
 
 
-class VerifiedRelationPlan[NodeT: PlanNode]:
-    """Proof that a relation plan matches its declared consumer type."""
+class VerifiedRelationPlan:
+    """Proof that a scalar plan matches its declared consumer type."""
 
     __slots__ = (
         "_bindings",
@@ -144,8 +135,8 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
 
     def __init__(
         self,
-        root: NodeT,
-        certified_type: ValueType,
+        root: ScalarExpr,
+        certified_type: Scalar,
         imports: tuple[TypedPlanImport, ...],
         bindings: RelationTypeBindings,
         external_point_requirement: PointRequirement | None,
@@ -157,11 +148,11 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         self._external_point_requirement = external_point_requirement
 
     @property
-    def root(self) -> NodeT:
+    def root(self) -> ScalarExpr:
         return self._root
 
     @property
-    def certified_type(self) -> ValueType:
+    def certified_type(self) -> Scalar:
         return self._certified_type
 
     @property
@@ -188,12 +179,12 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         return self._external_point_requirement
 
 
-def verify_relation_plan[NodeT: PlanNode](
-    root: NodeT,
+def verify_relation_plan(
+    root: ScalarExpr,
     *,
     bindings: RelationTypeBindings | None = None,
-    expected_type: ValueType | None = None,
-) -> VerifiedRelationPlan[NodeT]:
+    expected_type: Scalar | None = None,
+) -> VerifiedRelationPlan:
     """Verify imports and types, then certify the root for its consumer."""
 
     selected = bindings or RelationTypeBindings()
@@ -226,30 +217,11 @@ class _Verifier:
 
     def infer(
         self,
-        node: PlanNode,
+        node: ScalarExpr,
         path: PlanPath,
-        expected: ValueType | None = None,
-    ) -> ValueType:
-        match node:
-            case ScalarExpr():
-                scalar_expected = expected if isinstance(expected, Scalar) else None
-                if expected is not None and scalar_expected is None:
-                    raise self.error(
-                        "wrong_shape",
-                        path,
-                        "expected a non-scalar value",
-                    )
-                result = self.scalar(node, path, scalar_expected)
-            case RelationExpr():
-                table_expected = expected if isinstance(expected, Table) else None
-                if expected is not None and table_expected is None:
-                    raise self.error(
-                        "wrong_shape",
-                        path,
-                        "expected a non-table value",
-                    )
-                result = self.relation(node, path, table_expected)
-        return result
+        expected: Scalar | None = None,
+    ) -> Scalar:
+        return self.scalar(node, path, expected)
 
     def scalar(
         self,
@@ -266,30 +238,22 @@ class _Verifier:
                 result = self.row_column(self.bindings.point_row, name, path)
                 self.external_point_references.add(name)
             case InputScalarExpr():
-                result = self.import_type(
+                result = self.import_scalar(
                     PlanImportNamespace.INPUT,
                     scalar.name,
-                    Scalar,
                     path,
                 )
             case ParameterScalarExpr():
-                result = self.import_type(
+                result = self.import_scalar(
                     PlanImportNamespace.PARAMETER,
                     scalar.name,
-                    Scalar,
                     path,
                 )
             case ParameterLookupScalarExpr():
                 result = self.parameter_lookup(scalar, path)
             case BinaryScalarExpr():
-                left = cast(
-                    "Scalar",
-                    self.infer(scalar.left, (*path, "left")),
-                )
-                right = cast(
-                    "Scalar",
-                    self.infer(scalar.right, (*path, "right")),
-                )
+                left = self.infer(scalar.left, (*path, "left"))
+                right = self.infer(scalar.right, (*path, "right"))
                 try:
                     result = scalar_operator_result_type(
                         left,
@@ -306,41 +270,6 @@ class _Verifier:
                         (*path, "right"),
                         "division denominator is statically zero",
                     )
-        self.require_expected(result, expected, path)
-        return result
-
-    def relation(
-        self,
-        node: RelationExpr,
-        path: PlanPath,
-        expected: Table | None,
-    ) -> Table:
-        relation = cast("RelationExpression", node)
-        match relation:
-            case LiteralRowsRelationExpr():
-                literal_rows = relation.rows
-                if expected is None:
-                    raise self.error(
-                        "missing_declared_type",
-                        path,
-                        "literal table requires its consumer's declared Table type",
-                    )
-                self.validate_literal(expected, literal_rows, path)
-                result = Table(expected.columns, expected.primary_key)
-            case TableRelationExpr():
-                result = self.import_type(
-                    PlanImportNamespace.PARAMETER,
-                    relation.table_id,
-                    Table,
-                    path,
-                )
-            case InputRelationExpr():
-                result = self.import_type(
-                    PlanImportNamespace.INPUT,
-                    relation.name,
-                    Table,
-                    path,
-                )
         self.require_expected(result, expected, path)
         return result
 
@@ -369,13 +298,12 @@ class _Verifier:
         )
         return use.result_type
 
-    def import_type[ExpectedT: ValueType](
+    def import_scalar(
         self,
         namespace: PlanImportNamespace,
         import_id: str,
-        expected_class: type[ExpectedT],
         path: PlanPath,
-    ) -> ExpectedT:
+    ) -> Scalar:
         available = (
             self.bindings.inputs
             if namespace is PlanImportNamespace.INPUT
@@ -389,12 +317,6 @@ class _Verifier:
                 path,
                 f"unknown {namespace.value} {import_id!r}",
             ) from error
-        if not isinstance(value_type, expected_class):
-            raise self.error(
-                "import_shape_mismatch",
-                path,
-                f"{namespace.value} {import_id!r} has type {value_type!r}",
-            )
         key = (namespace, import_id, None)
         self.imports.setdefault(key, TypedPlanImport(namespace, import_id, value_type))
         return value_type
@@ -440,7 +362,7 @@ class _Verifier:
 
     def validate_literal(
         self,
-        expected: ValueType,
+        expected: Scalar,
         value: object,
         path: PlanPath,
     ) -> None:
@@ -451,8 +373,8 @@ class _Verifier:
 
     def require_expected(
         self,
-        actual: ValueType,
-        expected: ValueType | None,
+        actual: Scalar,
+        expected: Scalar | None,
         path: PlanPath,
     ) -> None:
         if expected is not None and not is_assignable(actual, expected):
@@ -472,9 +394,9 @@ class _Verifier:
 
 
 def _frozen_mapping(
-    values: Mapping[str, ValueType],
+    values: Mapping[str, Scalar],
     label: str,
-) -> Mapping[str, ValueType]:
+) -> Mapping[str, Scalar]:
     copied = dict(values)
     empty = [value_id for value_id in copied if not value_id]
     if empty:

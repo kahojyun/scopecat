@@ -96,10 +96,7 @@ from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.records import (
     assert_model_round_trip,
 )
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
-    value_expr,
-)
+from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
@@ -821,7 +818,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                 ),
                 inputs={
                     "value": ValueInput(
-                        value=value_expr(
+                        value=scalar_value_expr(
                             point_col("frequency"),
                             expected_type=Scalar(QuantityType()),
                             bindings=RelationTypeBindings(

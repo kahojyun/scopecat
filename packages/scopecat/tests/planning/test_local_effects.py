@@ -45,7 +45,6 @@ from tests.testkit.materialized_effects import (
     measurement_projection_contract,
 )
 from tests.testkit.parameter_fixtures import (
-    PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,
 )
 from tests.testkit.parameter_fixtures import (
@@ -83,7 +82,6 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         ),
     )
     bindings = RelationTypeBindings(
-        parameters=PARAMETER_TYPES,
         point_row=RowType.from_table(points.value_type),
     )
     product = observable_product(

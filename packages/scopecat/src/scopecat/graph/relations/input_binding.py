@@ -1,12 +1,12 @@
-"""Rewrite relation input references against already-lowered graph values.
+"""Rewrite scalar input references against already-lowered graph values.
 
 This module is independent of authoring value handles. Frontends adapt their
-source values into relation expressions before crossing this boundary.
+source values into scalar expressions before crossing this boundary.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
 from typing import cast, override
 
@@ -14,22 +14,17 @@ from scopecat.graph.relations.analysis import plan_input_refs
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     CellValue,
-    InputRelationExpr,
     InputScalarExpr,
     ParameterLookupScalarExpr,
-    RelationExpr,
-    RelationExpression,
     ScalarExpr,
     ScalarExpression,
     lit,
-    literal_rows,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 
 _EMPTY_INPUT_RESOLUTION: frozenset[str] = frozenset()
-type _DataExpr = ScalarExpr | RelationExpr
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,93 +115,16 @@ def bind_scalar_input_refs(
     return scalar
 
 
-def bind_value_input_refs(
-    expression: _DataExpr,
+def substitute_scalar_input_refs(
+    expression: ScalarExpr,
     inputs: Mapping[str, object],
-    *,
-    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
-) -> _DataExpr:
-    if isinstance(expression, ScalarExpr):
-        return bind_scalar_input_refs(
-            expression,
-            inputs,
-            resolving=resolving,
-        )
-    return bind_relation_input_refs(
-        expression,
-        inputs,
-        resolving=resolving,
-    )
-
-
-def substitute_value_input_refs(
-    expression: _DataExpr,
-    inputs: Mapping[str, object],
-) -> _DataExpr:
+) -> ScalarExpr:
     """Substitute one composition layer while preserving unbound input nodes."""
 
-    return bind_value_input_refs(
+    return bind_scalar_input_refs(
         expression,
         _LexicalReplacements(inputs),
     )
-
-
-def bind_relation_input_refs(
-    expression: RelationExpr,
-    inputs: Mapping[str, object],
-    *,
-    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
-) -> RelationExpr:
-    relation = cast("RelationExpression", expression)
-    if isinstance(relation, InputRelationExpr):
-        input_name = relation.name
-        if input_name not in inputs:
-            return relation
-        value = inputs[input_name]
-        substitute_once = isinstance(value, _LexicalReplacement)
-        selected = table_input_value(
-            input_name,
-            value.value if substitute_once else value,
-        )
-        if substitute_once:
-            return selected
-        if isinstance(selected, InputRelationExpr) and selected.name == input_name:
-            return selected
-        return bind_relation_input_refs(
-            selected,
-            inputs,
-            resolving=_descend_input_resolution(input_name, resolving),
-        )
-    return relation
-
-
-def table_input_value(input_name: str, value: object) -> RelationExpression:
-    if isinstance(value, RelationExpr):
-        return cast("RelationExpression", value)
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        msg = f"table input {input_name!r} must bind to a sequence of rows"
-        raise TypeError(msg)
-    rows: list[dict[str, CellValue]] = []
-    sequence = value
-    for index, item in enumerate(sequence):
-        if not isinstance(item, Mapping):
-            msg = f"table input {input_name!r} row {index} must be a mapping"
-            raise TypeError(msg)
-        row = cast("Mapping[object, object]", item)
-        rows.append({str(name): input_cell(cell) for name, cell in row.items()})
-    return literal_rows(rows)
-
-
-def literal_data_expr(value: object) -> _DataExpr:
-    if isinstance(value, ScalarExpr | RelationExpr):
-        return value
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        sequence = value
-        if sequence and all(isinstance(item, Mapping) for item in sequence):
-            return table_input_value("literal", sequence)
-        msg = "literal sequences must contain table rows"
-        raise TypeError(msg)
-    return lit(input_cell(value))
 
 
 def input_cell(value: object) -> CellValue:
@@ -228,7 +146,7 @@ def input_cell(value: object) -> CellValue:
     raise TypeError(msg)
 
 
-def value_input_refs(expression: _DataExpr) -> tuple[str, ...]:
+def scalar_input_refs(expression: ScalarExpr) -> tuple[str, ...]:
     return plan_input_refs(expression)
 
 

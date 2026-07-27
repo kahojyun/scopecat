@@ -18,14 +18,15 @@ from scopecat.authoring._value_refs import (
     internal_operation_result_value_ref,
     internal_parameter_lookup_value_ref,
     internal_point_value_ref,
+    internal_table_value_ref,
     internal_value_ref_from_expression,
     internal_value_ref_point_dependencies,
 )
 from scopecat.graph.relations.model import (
     ParameterLookupUse,
     param,
-    table,
 )
+from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
@@ -133,15 +134,20 @@ def coordinate(id: str, value_type: Scalar) -> ValueRef:
 def parameter(id: str, value_type: Scalar | Table) -> ValueRef:
     """Declare a typed scalar or table parameter dependency."""
 
+    contract = ParameterValueContract(
+        parameter_id=id,
+        value_type=value_type,
+    )
+    if isinstance(value_type, Table):
+        return internal_table_value_ref(
+            ParameterTableSource(id),
+            value_type,
+            parameter_contracts=(contract,),
+        )
     return internal_value_ref_from_expression(
-        param(id) if isinstance(value_type, Scalar) else table(id),
+        param(id),
         value_type,
-        parameter_contracts=(
-            ParameterValueContract(
-                parameter_id=id,
-                value_type=value_type,
-            ),
-        ),
+        parameter_contracts=(contract,),
     )
 
 
@@ -224,9 +230,13 @@ def _capture_compute_input(value: ComputeInput) -> ComputeInput:
 
 
 def _is_compute_input(value: object) -> bool:
-    return value is None or isinstance(
-        value,
-        ValueRef | Quantity | EntityRef | PayloadValue | str | int | float | bool,
+    return (
+        (isinstance(value, ValueRef) and isinstance(value.value_type, Scalar))
+        or value is None
+        or isinstance(
+            value,
+            Quantity | EntityRef | PayloadValue | str | int | float | bool,
+        )
     )
 
 

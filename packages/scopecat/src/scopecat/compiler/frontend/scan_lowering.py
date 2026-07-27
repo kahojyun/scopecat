@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from scopecat.authoring._scan_intents import (
     AroundScanSource,
@@ -28,6 +29,7 @@ from scopecat.graph.relations.point_domain import (
     point_axis_linear,
     point_axis_values,
 )
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.run_request import (
     AroundScanRecord,
     ParameterAroundScanRecord,
@@ -159,7 +161,7 @@ def _lower_scan_center_value_ref(
     source = axis.source
     assert isinstance(source, AroundScanSource)
     center_type = (
-        source.center.value_type
+        cast("Scalar", source.center.value_type)
         if isinstance(source.center, ValueRef)
         else axis.value_type
     )

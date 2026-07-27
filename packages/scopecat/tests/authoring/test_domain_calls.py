@@ -5,13 +5,21 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.linking.linked import materialize_linked_points
+from scopecat.compiler.semantic.value_expressions import TableValue
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import (
     ValueInput,
     core_acquisitions,
     core_domain_executions,
 )
+from scopecat.graph.table_values import LiteralTableSource
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.sdk.domain._bridge import (
+    make_domain_batch_request,
+    make_domain_call_view,
+)
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 
 
@@ -89,6 +97,94 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
     assert tuple(name for name, _use in semantic.compiler_inputs) == (
         "calibration_revision",
     )
+
+
+def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> None:
+    table_type = sc.TableType(
+        columns=(
+            sc.TableColumn("id", sc.ScalarType(sc.IntType())),
+            sc.TableColumn("gain", sc.ScalarType(sc.FloatType())),
+        ),
+        primary_key=("id",),
+    )
+    program = sc.domain_program(
+        "table-program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        compiler_inputs={"rows": table_type},
+    )
+    leaf_rows = sc.input("rows", table_type)
+    leaf = (
+        sc.module_body(id="test.domain.table-leaf")
+        .inputs(leaf_rows)
+        .domain(
+            sc.domain_execution(
+                program,
+                id="compile",
+                compiler_inputs={"rows": leaf_rows},
+            )
+        )
+        .build()
+    )
+    middle_rows = sc.input("rows", table_type)
+    middle = (
+        sc.module_body(id="test.domain.table-middle")
+        .inputs(middle_rows)
+        .use(leaf.instantiate("leaf", rows=middle_rows))
+        .build()
+    )
+    root_rows = sc.input("rows", table_type)
+    root = (
+        sc.module_body(id="test.domain.table-root")
+        .inputs(root_rows)
+        .use(middle.instantiate("middle", rows=root_rows))
+        .build()
+    )
+    linked = link_invocation(
+        template_fixture(
+            root,
+            id="test.domain.table-forwarding",
+            kind="domain",
+        ).bind(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
+        config_profile=load_config(),
+    )
+
+    [execution] = core_domain_executions(linked.program)
+    table_value = execution.compiler_inputs["rows"].value
+    assert isinstance(table_value, TableValue)
+    assert isinstance(table_value.source, LiteralTableSource)
+
+    points = materialize_linked_points(linked)
+    call = make_domain_call_view(
+        linked,
+        execution.id,
+        domain_result_closure(linked.program, execution.id),
+    )
+    request = make_domain_batch_request(
+        call,
+        points,
+        (0,),
+        batch_ordinal=0,
+    )
+    assert request.inputs.compiler_input("rows") == (
+        ({"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}),
+    )
+
+
+def test_domain_program_tables_are_compiler_inputs_only() -> None:
+    table_type = sc.TableType(
+        columns=(sc.TableColumn("id", sc.ScalarType(sc.IntType())),)
+    )
+
+    with pytest.raises(TypeError, match="use compiler_inputs"):
+        sc.domain_program(
+            "program",
+            dialect_id="test",
+            dialect_version="1",
+            body=object(),
+            inputs={"rows": table_type},  # pyright: ignore[reportArgumentType]
+        )
 
 
 def test_domain_program_rejects_overlapping_input_namespaces() -> None:

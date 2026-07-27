@@ -6,6 +6,7 @@ from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
+from scopecat.compiler.relations.evaluation import evaluate_table_value
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.graph.relations.model import (
     CellValue,
@@ -15,8 +16,8 @@ from scopecat.graph.relations.model import (
     param,
     parameter_lookup,
     point_col,
-    table,
 )
+from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.value_types import (
@@ -29,7 +30,7 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_validation import ValueValidationError
-from tests.testkit.relation_plans import evaluate_relation, evaluate_scalar
+from tests.testkit.relation_plans import evaluate_scalar
 
 _INT = Scalar(Int())
 _FREQUENCY = Scalar(Quantity(unit="GHz"))
@@ -177,10 +178,10 @@ def test_evaluation_normalizes_a_used_parameter_table() -> None:
         }
     )
 
-    assert evaluate_relation(
-        table("devices"),
+    assert evaluate_table_value(
+        ParameterTableSource("devices"),
+        table_type,
         EvalContext(params=parameters),
-        bindings=RelationTypeBindings(parameters={"devices": table_type}),
     ) == [{"frequency": QuantityValue(value=5.0, unit="GHz")}]
 
 

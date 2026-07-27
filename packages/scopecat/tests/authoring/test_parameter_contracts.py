@@ -44,6 +44,30 @@ def _resolve_dependency(
     _resolve_module(module, config, inputs=bound_inputs)
 
 
+def _resolve_table_dependency(
+    value: sc.ValueRef,
+    config: ConfigProfileSnapshot,
+) -> None:
+    program = sc.domain_program(
+        "consume-parameter-table",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        compiler_inputs={"value": value.value_type},
+    )
+    module = (
+        sc.module_body(id="test.parameter-table-contract")
+        .domain(
+            sc.domain_execution(
+                program,
+                compiler_inputs={"value": value},
+            )
+        )
+        .build()
+    )
+    _resolve_module(module, config)
+
+
 def _resolve_module(
     module: sc.ExperimentModule[...],
     config: ConfigProfileSnapshot,
@@ -584,7 +608,7 @@ def test_parameter_table_declaration_is_checked_against_catalog_schema() -> None
             ),
         ),
     )
-    _resolve_dependency(
+    _resolve_table_dependency(
         sc.parameter("device_parameters", valid_table),
         config,
     )
@@ -598,7 +622,7 @@ def test_parameter_table_declaration_is_checked_against_catalog_schema() -> None
         ),
     )
     with pytest.raises(CheckFailed) as error:
-        _resolve_dependency(
+        _resolve_table_dependency(
             sc.parameter("device_parameters", incompatible_table),
             config,
         )
@@ -617,7 +641,7 @@ def test_unknown_parameter_table_has_authoring_problem() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve_dependency(
+        _resolve_table_dependency(
             sc.parameter("missing_table", value_type),
             load_config(),
         )

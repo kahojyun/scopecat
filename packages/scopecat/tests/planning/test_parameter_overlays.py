@@ -1,7 +1,12 @@
 from dataclasses import replace
 from typing import Never, cast
 
-from scopecat.compiler.linking.linked import link_program as link_core_program
+from scopecat.compiler.linking.linked import (
+    link_program as link_core_program,
+)
+from scopecat.compiler.linking.linked import (
+    materialize_linked_points,
+)
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.specialization import (
     ResidualScalar,
@@ -11,43 +16,34 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
+from scopecat.compiler.semantic.value_expressions import TableValue
 from scopecat.compiler.typed.parameter_overlays import (
     parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
-    TypedComputeNode,
+    TypedDomainExecution,
     ValueInput,
 )
-from scopecat.compiler.typed.program import set_state_field as set_typed_state_field
 from scopecat.config.environment import build_config_environment
-from scopecat.execution.local.program import BoundInput, ComputeOperation
+from scopecat.domain.program import DomainInputPort, DomainProgramDef
 from scopecat.graph.relations.model import (
     CellValue,
     Row,
     parameter_lookup,
     point_col,
-    table,
 )
 from scopecat.graph.relations.point_domain import (
     PointAxis,
     point_axis_values,
 )
-from scopecat.graph.values import ComputeOutput, OperationId, operation_result_id
+from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
-from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
-from tests.testkit.local_materialization import (
-    materialize_local_execution,
-    operations_of_type,
-)
+from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_state_fields,
@@ -57,9 +53,8 @@ from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
     parameters,
 )
-from tests.testkit.relation_plans import state_field, table_value_expr
+from tests.testkit.relation_plans import state_field
 from tests.testkit.typed_program import (
-    compute_result,
     link_program,
     overlay_parameter_cell,
     typed_program,
@@ -86,7 +81,11 @@ def _point_domain(
 
 def _point_bindings(points: PointDomain) -> RelationTypeBindings:
     return RelationTypeBindings(
-        parameters=_PARAMETER_TYPES,
+        parameters={
+            parameter_id: value_type
+            for parameter_id, value_type in _PARAMETER_TYPES.items()
+            if isinstance(value_type, Scalar)
+        },
         point_row=RowType.from_table(points.value_type),
     )
 
@@ -164,10 +163,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     ] == base_frequencies
 
 
-def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
-    def summarize_rows(*, rows: tuple[Row, ...]) -> dict[str, int]:
-        return {"row_count": len(rows)}
-
+def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
     points = _point_domain(
         (TableColumn("frequency", _FREQUENCY),),
         (
@@ -175,79 +171,48 @@ def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
             (Quantity(value=6.2, unit="GHz"),),
         ),
     )
-    bindings = _point_bindings(points)
-    operation_id = OperationId(SymbolId(local_id="consume-readout-table"))
-    sink = logical_resource_port_id("sink")
+    table_type = _PARAMETER_TYPES["readout_devices"]
+    assert isinstance(table_type, Table)
+    execution = TypedDomainExecution(
+        id="compile",
+        program=DomainProgramDef(
+            id="consume-readout-table",
+            dialect_id="test",
+            dialect_version="1",
+            body=object(),
+            compiler_input_ports=(DomainInputPort("rows", table_type),),
+        ),
+        compiler_inputs={
+            "rows": ValueInput(
+                TableValue(
+                    source=ParameterTableSource("readout_devices"),
+                    value_type=table_type,
+                )
+            )
+        },
+    )
     spec = typed_program(
         id="whole-table-parameter-overlay",
         kind="readout.frequency_scan",
         point_domain=points,
-        resource_requirements=(
-            LogicalResourceRequirement(
-                port_id=sink,
-                capabilities=("consume_rows",),
-            ),
-        ),
         parameter_overlays=[_frequency_overlay(axis_id="frequency")],
-        compute_nodes=[
-            TypedComputeNode(
-                id=operation_id,
-                implementation=LocalPythonImplementation(
-                    id=ImplementationId("python.consume-readout-table.v1"),
-                    kernel=summarize_rows,
-                ),
-                inputs={
-                    "rows": ValueInput(
-                        value=table_value_expr(
-                            table("readout_devices"),
-                            expected_type=_PARAMETER_TYPES["readout_devices"],
-                            bindings=bindings,
-                        )
-                    )
-                },
-                result=ComputeOutput(
-                    id=operation_result_id(operation_id),
-                    value_type=Scalar(Payload("row_summary")),
-                ),
-            )
-        ],
-        state=[
-            set_typed_state_field(
-                resource_port_id=sink,
-                capability_id="consume_rows",
-                field_path="count",
-                value=compute_result(operation_id),
-            )
-        ],
+        domain_execution=execution,
     )
 
     environment = replace(
-        build_config_environment(
-            config_with_physical_resources({"sink-a": ("consume_rows",)})
-        ),
+        build_config_environment(config_with_physical_resources({})),
         parameters=parameters(),
     )
-    plan = materialize_local_execution(link_core_program(spec, environment))
+    linked_points = materialize_linked_points(link_core_program(spec, environment))
+    [(input_id, bound_values)] = linked_points.bind_domain_inputs(
+        execution.id,
+        "compiler",
+        ("rows",),
+        (0, 1),
+    )
+    bound_tables = cast("tuple[tuple[Row, ...], ...]", bound_values)
 
-    compute_effects = [
-        effect
-        for effect in plan.effects
-        if isinstance(effect.operation, ComputeOperation)
-    ]
-    assert [effect.point_index for effect in compute_effects] == [0, 1]
-
-    bound_tables: list[tuple[Row, ...]] = []
-    for point in plan.points:
-        [operation] = operations_of_type(
-            plan,
-            ComputeOperation,
-            point_index=point.ordinal,
-        )
-        rows_input = operation.inputs["rows"]
-        assert isinstance(rows_input, BoundInput)
-        assert isinstance(rows_input.value, tuple)
-        bound_tables.append(cast("tuple[Row, ...]", rows_input.value))
-
+    assert input_id == "rows"
     assert [len(rows) for rows in bound_tables] == [2, 2]
     assert [
         next(row["frequency"] for row in rows if row["device_id"] == "r0")

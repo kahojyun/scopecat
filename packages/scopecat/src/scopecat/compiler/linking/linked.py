@@ -14,13 +14,12 @@ from scopecat.compiler.entity_resolution import (
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
-    evaluate_relation,
     evaluate_scalar,
+    evaluate_table_value,
     normalize_relation_parameter_import,
 )
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
-    VerifiedRelationPlan,
 )
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
@@ -46,11 +45,7 @@ from scopecat.compiler.typed.verification import (
     program_relation_consumers,
     seal_typed_program,
 )
-from scopecat.graph.relations.model import (
-    RelationExpr,
-    Row,
-    ScalarExpr,
-)
+from scopecat.graph.relations.model import Row
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -311,16 +306,9 @@ def _evaluate_domain_input(
     context: EvalContext,
 ) -> object:
     value = input_spec.value
-    verified_plan = input_spec.value.plan
     if isinstance(value, ScalarValueExpr):
-        return evaluate_scalar(
-            cast("VerifiedRelationPlan[ScalarExpr]", verified_plan),
-            context,
-        )
-    return evaluate_relation(
-        cast("VerifiedRelationPlan[RelationExpr]", verified_plan),
-        context,
-    )
+        return evaluate_scalar(value.plan, context)
+    return evaluate_table_value(value.source, value.value_type, context)
 
 
 def _unwrap_domain_input(value: object) -> object:

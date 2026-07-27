@@ -3,24 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import overload
 
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import (
     KnownScalar,
     ParameterCellBinding,
     residual_scalar_expression,
-    specialize_relation,
     specialize_scalar,
 )
 from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
-    TableValueExpr,
-    ValueExpr,
     verify_scalar_value_expr,
-    verify_table_value_expr,
 )
 from scopecat.compiler.typed.parameter_overlays import (
     parameter_cell_bindings,
@@ -32,6 +27,7 @@ from scopecat.compiler.typed.program import (
     CoreEffect,
     CoreProgram,
     LogicalResourceRequirement,
+    ScalarValueInput,
     TypedComputeNode,
     TypedDomainExecution,
     ValueInput,
@@ -53,11 +49,7 @@ def specialize_core_program(
 
     base_known = EvalContext(params=parameters)
     parameter_cells = parameter_cell_bindings(program.parameter_overlays)
-    known = EvalContext(
-        params=parameters.without_tables(
-            {overlay.table_id for overlay in program.parameter_overlays}
-        )
-    )
+    known = base_known
     return replace(
         program,
         point_domain=_specialize_point_domain(
@@ -100,7 +92,7 @@ def _specialize_point_domain(
         center: RelationUse[ScalarValueExpr],
         _path: tuple[str | int, ...],
     ) -> RelationUse[ScalarValueExpr]:
-        value = specialize_value_expression(
+        value = _specialize_scalar_value(
             center.value,
             known=known,
             parameter_cells=(),
@@ -140,82 +132,42 @@ def _live_compute_nodes(program: CoreProgram) -> tuple[TypedComputeNode, ...]:
     return tuple(node for node in program.compute_nodes if node.id in live_ids)
 
 
-def specialize_value_input(
-    value: ValueInput,
+def _specialize_scalar_input(
+    value: ScalarValueInput,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ValueInput:
-    expression = specialize_value_expression(
-        value.value,
-        known=known,
-        parameter_cells=parameter_cells,
+) -> ScalarValueInput:
+    return replace(
+        value,
+        value=_specialize_scalar_value(
+            value.value,
+            known=known,
+            parameter_cells=parameter_cells,
+        ),
     )
-    return replace(value, value=expression)
 
 
-@overload
-def specialize_value_expression(
+def _specialize_scalar_value(
     value: ScalarValueExpr,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ScalarValueExpr: ...
-
-
-@overload
-def specialize_value_expression(
-    value: TableValueExpr,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> TableValueExpr: ...
-
-
-@overload
-def specialize_value_expression(
-    value: ValueExpr,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ValueExpr: ...
-
-
-def specialize_value_expression(
-    value: ValueExpr,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ValueExpr:
-    """Specialize one typed value."""
-
-    if isinstance(value, ScalarValueExpr):
-        result = specialize_scalar(
-            value.plan.root,
-            known=known,
-            parameter_cells=parameter_cells,
-        )
-        expression = verify_scalar_value_expr(
-            (
-                lit(result.value)
-                if isinstance(result, KnownScalar)
-                else residual_scalar_expression(result)
-            ),
-            bindings=value.plan.bindings,
-            expected_type=value.value_type,
-        )
-        return expression
-    residual = specialize_relation(
+) -> ScalarValueExpr:
+    result = specialize_scalar(
         value.plan.root,
         known=known,
         parameter_cells=parameter_cells,
     )
-    expression = verify_table_value_expr(
-        residual,
+    return verify_scalar_value_expr(
+        (
+            lit(result.value)
+            if isinstance(result, KnownScalar)
+            else residual_scalar_expression(result)
+        ),
         bindings=value.plan.bindings,
         expected_type=value.value_type,
     )
-    return expression
 
 
 def _specialize_compute(
@@ -227,7 +179,7 @@ def _specialize_compute(
     inputs: dict[str, ComputeInput] = {}
     for name, value in node.inputs.items():
         inputs[name] = (
-            specialize_value_input(
+            _specialize_scalar_input(
                 value,
                 known=known,
                 parameter_cells=parameter_cells,
@@ -250,7 +202,7 @@ def _specialize_effect(
         return replace(
             effect,
             inputs={
-                name: specialize_value_input(
+                name: _specialize_scalar_input(
                     value,
                     known=known,
                     parameter_cells=parameter_cells,
@@ -258,10 +210,16 @@ def _specialize_effect(
                 for name, value in effect.inputs.items()
             },
             compiler_inputs={
-                name: specialize_value_input(
-                    value,
-                    known=known,
-                    parameter_cells=parameter_cells,
+                name: (
+                    ValueInput(
+                        _specialize_scalar_value(
+                            value.value,
+                            known=known,
+                            parameter_cells=parameter_cells,
+                        )
+                    )
+                    if isinstance(value.value, ScalarValueExpr)
+                    else value
                 )
                 for name, value in effect.compiler_inputs.items()
             },
@@ -298,7 +256,7 @@ def _specialize_resource_requirement(
     return replace(
         requirement,
         entity_uses=tuple(
-            _specialize_relation_use(
+            _specialize_scalar_use(
                 use,
                 known=known,
                 parameter_cells=parameter_cells,
@@ -316,20 +274,20 @@ def _specialize_value_use(
 ) -> RelationUse[ScalarValueExpr] | ComputeResultRef:
     if isinstance(use, ComputeResultRef):
         return use
-    return _specialize_relation_use(
+    return _specialize_scalar_use(
         use,
         known=known,
         parameter_cells=parameter_cells,
     )
 
 
-def _specialize_relation_use[ValueT: ValueExpr](
-    use: RelationUse[ValueT],
+def _specialize_scalar_use(
+    use: RelationUse[ScalarValueExpr],
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> RelationUse[ValueT]:
-    value = specialize_value_expression(
+) -> RelationUse[ScalarValueExpr]:
+    value = _specialize_scalar_value(
         use.value,
         known=known,
         parameter_cells=parameter_cells,

@@ -31,9 +31,7 @@ from scopecat.execution.local.program import (
 )
 from scopecat.graph.relations.model import (
     CellValue,
-    RelationExpr,
     lit,
-    literal_rows,
     point_col,
 )
 from scopecat.graph.relations.point_domain import point_axis_values
@@ -69,11 +67,7 @@ from tests.testkit.local_materialization import (
     operations_of_type,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
-    table_value_expr,
-    value_expr,
-)
+from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import compute_result, link_program, typed_program
 
 
@@ -246,7 +240,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 implementation=_implementation(producer_id, _identity_value),
                 inputs={
                     "value": ValueInput(
-                        value=value_expr(
+                        value=scalar_value_expr(
                             point_col("value"),
                             expected_type=Scalar(Float()),
                             bindings=_point_bindings(point_type),
@@ -352,36 +346,6 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
     assert payload_ids == repeated_payload_ids
 
 
-@pytest.mark.parametrize(
-    ("expression", "value_type"),
-    (
-        (
-            literal_rows([{}]),
-            Table(columns=(TableColumn("required", Scalar(String())),)),
-        ),
-        (
-            literal_rows([{"declared": "ok", "extra": "no"}]),
-            Table(columns=(TableColumn("declared", Scalar(String())),)),
-        ),
-        (
-            literal_rows([{"id": "same"}, {"id": "same"}]),
-            Table(
-                columns=(TableColumn("id", Scalar(String())),),
-                primary_key=("id",),
-            ),
-        ),
-    ),
-)
-def test_point_domain_rejects_invalid_table_contract_before_binding(
-    expression: RelationExpr,
-    value_type: Table,
-) -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        table_value_expr(expression, expected_type=value_type)
-
-    assert caught.value.code == "invalid_literal"
-
-
 def test_compute_inputs_are_normalized_before_binding() -> None:
     node_id = _operation_id("normalize-frequency")
     point_type = Table(
@@ -408,7 +372,7 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
                 implementation=_implementation(node_id, _quantity_value),
                 inputs={
                     "frequency": ValueInput(
-                        value=value_expr(
+                        value=scalar_value_expr(
                             point_col("frequency"),
                             expected_type=Scalar(QuantityType(unit="GHz")),
                             bindings=_point_bindings(point_type),
@@ -440,7 +404,7 @@ def test_compute_payload_input_rejects_mismatched_schema_before_binding() -> Non
     )
 
     with pytest.raises(RelationPlanVerificationError) as caught:
-        value_expr(
+        scalar_value_expr(
             point_col("payload"),
             expected_type=Scalar(Payload("expected-payload")),
             bindings=_point_bindings(point_type),
@@ -480,7 +444,7 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
                 implementation=_implementation(node_id, _mapping_size),
                 inputs={
                     "payload": ValueInput(
-                        value=value_expr(
+                        value=scalar_value_expr(
                             point_col("payload"),
                             expected_type=Scalar(Payload("mapping")),
                             bindings=_point_bindings(point_type),

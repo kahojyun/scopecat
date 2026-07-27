@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from scopecat.compiler.relations.scalar_eval import cell_matches
@@ -58,35 +58,12 @@ class ParameterRelationData:
             msg = f"unknown scalar parameter {parameter_id!r}"
             raise KeyError(msg) from error
 
-    def value(self, parameter_id: str) -> object:
-        if parameter_id in self._scalars:
-            return self._scalars[parameter_id]
-        if parameter_id in self._tables:
-            return [dict(row) for row in self._tables[parameter_id]]
-        msg = f"unknown parameter {parameter_id!r}"
-        raise KeyError(msg)
-
     def table_rows(self, table_id: str) -> list[Row]:
         try:
             return [dict(row) for row in self._tables[table_id]]
         except KeyError as error:
             msg = f"unknown parameter table {table_id!r}"
             raise KeyError(msg) from error
-
-    def without_tables(self, table_ids: Collection[str]) -> ParameterRelationData:
-        """Return bindings without the selected table parameters."""
-
-        removed = frozenset(table_ids)
-        if not removed:
-            return self
-        return ParameterRelationData(
-            scalars=self._scalars,
-            tables={
-                table_id: rows
-                for table_id, rows in self._tables.items()
-                if table_id not in removed
-            },
-        )
 
     def with_table_cell(
         self,

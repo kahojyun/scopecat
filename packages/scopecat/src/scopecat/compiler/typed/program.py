@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Generic, TypeVar
 
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.semantic.model import (
@@ -18,8 +19,8 @@ from scopecat.compiler.semantic.model import (
     MeasurementPostprocessorId,
 )
 from scopecat.compiler.semantic.value_expressions import (
+    CompilerValue,
     ScalarValueExpr,
-    ValueExpr,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -54,12 +55,19 @@ from scopecat.measurements.products import (
 )
 from scopecat.measurements.records import RecordUse
 
+ValueT_co = TypeVar(
+    "ValueT_co",
+    bound=CompilerValue,
+    covariant=True,
+    default=CompilerValue,
+)
+
 
 @dataclass(frozen=True, slots=True)
-class ValueInput:
-    """Proof-carrying value evaluated for one compute invocation."""
+class ValueInput(Generic[ValueT_co]):
+    """One typed value materialized for a point-local consumer."""
 
-    value: ValueExpr
+    value: ValueT_co
 
     @property
     def value_type(self) -> ValueType:
@@ -78,7 +86,12 @@ class ComputeEdge:
         return self.expected_type
 
 
-type ComputeInput = ValueInput | ComputeEdge
+type ScalarValueInput = ValueInput[ScalarValueExpr]
+type ComputeInput = ScalarValueInput | ComputeEdge
+
+
+def _empty_scalar_value_inputs() -> dict[str, ScalarValueInput]:
+    return {}
 
 
 def _empty_value_inputs() -> dict[str, ValueInput]:
@@ -109,7 +122,9 @@ class TypedDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: Mapping[str, ValueInput] = field(default_factory=_empty_value_inputs)
+    inputs: Mapping[str, ScalarValueInput] = field(
+        default_factory=_empty_scalar_value_inputs
+    )
     compiler_inputs: Mapping[str, ValueInput] = field(
         default_factory=_empty_value_inputs
     )
@@ -118,7 +133,7 @@ class TypedDomainExecution:
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("typed domain execution id must be non-empty")
-        selected_inputs: dict[str, ValueInput] = dict(self.inputs)
+        selected_inputs: dict[str, ScalarValueInput] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
 

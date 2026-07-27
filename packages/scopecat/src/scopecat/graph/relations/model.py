@@ -1,4 +1,4 @@
-"""Backend-neutral table and scalar plan nodes.
+"""Backend-neutral scalar plan nodes and runtime relation values.
 
 Nodes contain declared semantics and construction helpers only. Traversal and
 reference analysis live in :mod:`scopecat.graph.relations.analysis`;
@@ -7,7 +7,7 @@ materialization belongs to an explicitly selected compiler backend.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TypeGuard, cast
 
@@ -152,30 +152,6 @@ type ScalarExpression = (
 )
 
 
-class RelationExpr:
-    """Opaque table value passed through to Python or a domain compiler."""
-
-
-@dataclass(frozen=True, slots=True)
-class LiteralRowsRelationExpr(RelationExpr):
-    rows: list[Row]
-
-
-@dataclass(frozen=True, slots=True)
-class TableRelationExpr(RelationExpr):
-    table_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class InputRelationExpr(RelationExpr):
-    name: str
-
-
-type RelationExpression = (
-    LiteralRowsRelationExpr | TableRelationExpr | InputRelationExpr
-)
-
-
 def lit(value: CellValue) -> LiteralScalarExpr:
     return LiteralScalarExpr(value=value)
 
@@ -188,12 +164,6 @@ def point_col(name: str) -> PointColumnScalarExpr:
 
 def input_ref(name: str) -> InputScalarExpr:
     return InputScalarExpr(name=name)
-
-
-def input_table(name: str) -> InputRelationExpr:
-    """Reference a table-shaped input."""
-
-    return InputRelationExpr(name=name)
 
 
 def param(parameter_id: str) -> ParameterScalarExpr:
@@ -223,11 +193,3 @@ def as_scalar_expr(value: object) -> ScalarExpression:
         return lit(value)
     msg = f"cannot convert {value!r} to scalar expression"
     raise TypeError(msg)
-
-
-def literal_rows(rows: Sequence[Mapping[str, CellValue]]) -> LiteralRowsRelationExpr:
-    return LiteralRowsRelationExpr(rows=[dict(row) for row in rows])
-
-
-def table(table_id: str) -> TableRelationExpr:
-    return TableRelationExpr(table_id=table_id)

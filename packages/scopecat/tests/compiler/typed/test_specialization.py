@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
+from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.compiler.semantic.model import (
@@ -8,7 +8,7 @@ from scopecat.compiler.semantic.model import (
     LocalPythonImplementation,
 )
 from scopecat.compiler.semantic.value_expressions import (
-    TableValueExpr,
+    TableValue,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -22,17 +22,14 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.compiler.typed.specialization import (
     specialize_core_program,
-    specialize_value_expression,
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
 from scopecat.graph.relations.model import (
-    LiteralRowsRelationExpr,
     LiteralScalarExpr,
     PointColumnScalarExpr,
     param,
     parameter_lookup,
-    table,
 )
 from scopecat.graph.relations.point_domain import (
     PointAxis,
@@ -40,6 +37,7 @@ from scopecat.graph.relations.point_domain import (
     point_axis_linear,
     point_axis_values,
 )
+from scopecat.graph.table_values import ParameterTableSource
 from scopecat.graph.values import (
     ComputeOutput,
     ComputeResultRef,
@@ -58,13 +56,11 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from tests.testkit.parameter_fixtures import (
-    PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,
     parameters,
 )
 from tests.testkit.relation_plans import (
     scalar_value_expr,
-    table_value_expr,
 )
 
 
@@ -113,27 +109,38 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     assert isinstance(domain_input.value.plan.root, LiteralScalarExpr)
 
 
-def test_value_specialization_folds_table_parameters() -> None:
+def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
     integer = Scalar(Int())
     table_type = Table((TableColumn("x", integer),))
-    bindings = RelationTypeBindings(parameters={"rows": table_type})
-    parameters = ParameterRelationData(
-        tables={"rows": [{"x": 3}, {"x": 4}]},
-    )
-    specialized_table = specialize_value_expression(
-        table_value_expr(
-            table("rows"),
-            bindings=bindings,
-            expected_type=table_type,
+    source = ParameterTableSource("rows")
+    value = TableValue(source, table_type)
+    domain = TypedDomainExecution(
+        id="domain",
+        program=DomainProgramDef(
+            id="program",
+            dialect_id="tests.specialization",
+            dialect_version="1",
+            body=(),
+            compiler_input_ports=(DomainInputPort("rows", table_type),),
         ),
-        known=EvalContext(params=parameters),
-        parameter_cells=(),
+        compiler_inputs={"rows": ValueInput(value)},
+    )
+    specialized = specialize_core_program(
+        CoreProgram(
+            id="table-source",
+            kind="test",
+            point_domain=PointDomain(axes=()),
+            effects=(domain,),
+        ),
+        parameters=ParameterRelationData(tables={"rows": [{"x": 3}, {"x": 4}]}),
     )
 
-    assert isinstance(specialized_table, TableValueExpr)
-    assert isinstance(specialized_table.plan.root, LiteralRowsRelationExpr)
-    assert specialized_table.plan.root.rows == [{"x": 3}, {"x": 4}]
-    assert specialized_table.value_type == table_type
+    [specialized_domain] = specialized.effects
+    assert isinstance(specialized_domain, TypedDomainExecution)
+    specialized_value = specialized_domain.compiler_inputs["rows"].value
+    assert isinstance(specialized_value, TableValue)
+    assert specialized_value.source is source
+    assert specialized_value.value_type == table_type
 
 
 def test_core_specialization_prunes_dead_compute_nodes() -> None:
@@ -219,7 +226,6 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     frequency = Scalar(Quantity(unit="GHz"))
     point_row = RowType((TableColumn("frequency", frequency),))
     point_bindings = RelationTypeBindings(
-        parameters=PARAMETER_TYPES,
         point_row=point_row,
     )
     center = scalar_value_expr(
@@ -227,7 +233,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
             READOUT_FREQUENCY_LOOKUP,
             key={"device_id": "r0"},
         ),
-        bindings=RelationTypeBindings(parameters=PARAMETER_TYPES),
+        bindings=RelationTypeBindings(),
         expected_type=frequency,
     )
     overlaid_lookup = scalar_value_expr(

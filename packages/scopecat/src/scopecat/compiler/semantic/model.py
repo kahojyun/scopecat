@@ -15,9 +15,9 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.relations.model import (
-    RelationExpr,
     ScalarExpr,
 )
+from scopecat.graph.table_values import TableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
@@ -31,12 +31,9 @@ from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
 
-type PlanExpression = ScalarExpr | RelationExpr
-type VerifiedPlanExpression = VerifiedRelationPlan[PlanExpression]
-type SemanticValueType = ValueType
 type _PlanExpressionSemanticKey = tuple[
-    PlanExpression,
-    ValueType,
+    ScalarExpr,
+    Scalar,
     tuple[TypedPlanImport, ...],
     PointRequirement | None,
 ]
@@ -84,10 +81,10 @@ class MeasurementPostprocessorId:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class PlanExpressionSource:
-    _verified_plan: VerifiedPlanExpression = field(repr=False)
+    _verified_plan: VerifiedRelationPlan = field(repr=False)
 
     @property
-    def expression(self) -> PlanExpression:
+    def expression(self) -> ScalarExpr:
         return self._verified_plan.root
 
     @property
@@ -97,7 +94,7 @@ class PlanExpressionSource:
         return self._verified_plan.import_ids(PlanImportNamespace.INPUT)
 
     @property
-    def certified_type(self) -> ValueType:
+    def certified_type(self) -> Scalar:
         return self._verified_plan.certified_type
 
     @property
@@ -105,7 +102,7 @@ class PlanExpressionSource:
         return self._verified_plan.imports
 
     @property
-    def verified_plan(self) -> VerifiedPlanExpression:
+    def verified_plan(self) -> VerifiedRelationPlan:
         return self._verified_plan
 
     def _semantic_key(self) -> _PlanExpressionSemanticKey:
@@ -125,7 +122,7 @@ class PlanExpressionSource:
 
     @override
     def __hash__(self) -> int:
-        # Relation roots may contain unhashable literal rows or cells.
+        # Scalar literals may contain unhashable record cells.
         return hash(self.certified_type)
 
 
@@ -145,7 +142,7 @@ class LiteralValueSource:
         return _snapshot_literal(self._value)
 
 
-type ValueSource = PlanExpressionSource | LiteralValueSource
+type ValueSource = PlanExpressionSource | LiteralValueSource | TableSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +150,7 @@ class ValueDef:
     """One plan-available value; operation results live on their operation."""
 
     id: graph_values.ValueId
-    value_type: SemanticValueType
+    value_type: ValueType
     source: ValueSource
 
 

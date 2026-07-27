@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 import scopecat as sc
@@ -11,7 +13,7 @@ from tests.testkit.relation_plans import evaluate_scalar
 
 
 def _input_bindings(**inputs: sc.ValueType) -> RelationTypeBindings:
-    return RelationTypeBindings(inputs=inputs)
+    return RelationTypeBindings(inputs=cast("dict[str, sc.ScalarType]", inputs))
 
 
 def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:

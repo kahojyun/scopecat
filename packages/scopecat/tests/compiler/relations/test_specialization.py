@@ -9,18 +9,14 @@ from scopecat.compiler.relations.specialization import (
     KnownScalar,
     ParameterCellBinding,
     ResidualScalar,
-    specialize_relation,
     specialize_scalar,
 )
 from scopecat.graph.relations.model import (
-    LiteralRowsRelationExpr,
     ParameterLookupUse,
-    TableRelationExpr,
     input_ref,
     param,
     parameter_lookup,
     point_col,
-    table,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.value_types import Entity, Float, Scalar, String
@@ -51,36 +47,6 @@ def _parameters() -> ParameterRelationData:
             ]
         },
     )
-
-
-def test_specialization_materializes_static_parameter_table() -> None:
-    expression = table("devices")
-
-    result = specialize_relation(expression, known=EvalContext(params=_parameters()))
-
-    assert result == LiteralRowsRelationExpr(
-        rows=[
-            {"id": "q0", "frequency": 5.0},
-            {"id": "q1", "frequency": 6.0},
-        ]
-    )
-
-
-def test_specialization_does_not_freeze_scanned_parameter_table() -> None:
-    binding = ParameterCellBinding(
-        table_id="devices",
-        key=(("id", "q0"),),
-        column_id="frequency",
-        replacement=point_col("frequency"),
-    )
-
-    result = specialize_relation(
-        table("devices"),
-        known=EvalContext(params=_parameters()),
-        parameter_cells=(binding,),
-    )
-
-    assert isinstance(result, TableRelationExpr)
 
 
 def test_specialization_folds_request_and_configuration_values() -> None:

@@ -146,6 +146,18 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
         )
 
 
+def test_product_axes_reject_table_values_at_authoring_boundary() -> None:
+    rows = sc.input(
+        "rows",
+        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
+    )
+
+    with pytest.raises(TypeError, match="axis values must be scalar"):
+        sc.product_axis("sample", size=rows)
+    with pytest.raises(TypeError, match="axis values must be scalar"):
+        sc.entity_axis("entity", rows)
+
+
 def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     missing_parameter = sc.parameter(

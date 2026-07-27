@@ -8,7 +8,7 @@ from dataclasses import field as dc_field
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.semantic.value_expressions import ValueExpr
+from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
@@ -22,7 +22,6 @@ from scopecat.compiler.typed.program import (
     core_state,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
-from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.point_domain import iter_point_axis_linear
 from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.errors import CheckFailed
@@ -111,10 +110,10 @@ def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
 
 @dataclass(frozen=True, slots=True)
 class ProgramRelationConsumer:
-    """One relation plan paired with its semantic role and diagnostic path."""
+    """One scalar plan paired with its semantic role and diagnostic path."""
 
     kind: ProgramRelationConsumerKind
-    plan: VerifiedRelationPlan[PlanNode]
+    plan: VerifiedRelationPlan
     location: ModelLocation
 
 
@@ -152,7 +151,7 @@ def seal_typed_program(
 
 def _consumer(
     kind: ProgramRelationConsumerKind,
-    value: ValueExpr,
+    value: ScalarValueExpr,
     location: ModelLocation,
 ) -> ProgramRelationConsumer:
     return ProgramRelationConsumer(
@@ -205,9 +204,10 @@ def _program_relation_consumers(
         for input_name, input_value in node.inputs.items():
             if not isinstance(input_value, ValueInput):
                 continue
+            value = input_value.value
             yield _consumer(
                 ProgramRelationConsumerKind.COMPUTE_INPUT,
-                input_value.value,
+                value,
                 model_location(
                     "compute_nodes",
                     *node.id.scope,
@@ -219,9 +219,10 @@ def _program_relation_consumers(
 
     for execution_index, execution in enumerate(core_domain_executions(program)):
         for input_name, input_value in execution.inputs.items():
+            value = input_value.value
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
-                input_value.value,
+                value,
                 model_location(
                     "domain_executions",
                     execution_index,
@@ -230,9 +231,12 @@ def _program_relation_consumers(
                 ),
             )
         for input_name, input_value in execution.compiler_inputs.items():
+            value = input_value.value
+            if not isinstance(value, ScalarValueExpr):
+                continue
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_COMPILER_INPUT,
-                input_value.value,
+                value,
                 model_location(
                     "domain_executions",
                     execution_index,

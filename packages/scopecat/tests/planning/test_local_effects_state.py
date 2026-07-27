@@ -22,9 +22,6 @@ from tests.testkit.materialized_effects import (
     materialized_state_fields,
 )
 from tests.testkit.parameter_fixtures import (
-    PARAMETER_TYPES,
-)
-from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
 )
 from tests.testkit.relation_plans import state_field
@@ -49,7 +46,6 @@ def _point_bindings(
     points: PointDomain,
 ) -> RelationTypeBindings:
     return RelationTypeBindings(
-        parameters=PARAMETER_TYPES,
         point_row=RowType.from_table(points.value_type),
     )
 

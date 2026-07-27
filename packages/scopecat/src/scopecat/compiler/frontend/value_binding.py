@@ -1,19 +1,24 @@
-"""Adapt authored value handles to the generic relation input rewriter."""
+"""Bind authored scalar expressions and direct table sources."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
-from typing import override
+from collections.abc import Iterator, Mapping, Sequence
+from typing import cast, override
 
 from scopecat.authoring._value_refs import ValueRef, internal_lower_value_ref
 from scopecat.graph.relations import input_binding as relation_input_binding
 from scopecat.graph.relations.model import (
     CellValue,
-    RelationExpr,
     ScalarExpr,
+    lit,
 )
-
-type _DataExpr = ScalarExpr | RelationExpr
+from scopecat.graph.table_values import (
+    InputTableSource,
+    LiteralTableSource,
+    ParameterTableSource,
+    TableSource,
+    literal_table_source,
+)
 
 
 class _ResolvedInputs(Mapping[str, object]):
@@ -45,53 +50,37 @@ def bind_scalar_input_refs(
     )
 
 
-def bind_relation_input_refs(
-    expression: RelationExpr,
+def bind_table_source(
+    source: TableSource,
     inputs: Mapping[str, object],
-) -> RelationExpr:
-    return relation_input_binding.bind_relation_input_refs(
-        expression,
-        _ResolvedInputs(inputs),
+) -> TableSource:
+    """Resolve the only indirection supported by a whole-table value."""
+
+    if not isinstance(source, InputTableSource):
+        return source
+    if source.input_id not in inputs:
+        return source
+    value = _lower_authoring_value(inputs[source.input_id])
+    if isinstance(
+        value,
+        LiteralTableSource | ParameterTableSource | InputTableSource,
+    ):
+        return value
+    return literal_table_source(
+        cast("Sequence[Mapping[str, CellValue]]", value),
     )
 
 
-def bind_value_input_refs(
-    expression: _DataExpr,
-    inputs: Mapping[str, object],
-) -> _DataExpr:
-    return relation_input_binding.bind_value_input_refs(
-        expression,
-        _ResolvedInputs(inputs),
-    )
-
-
-def substitute_value_input_refs(
-    expression: _DataExpr,
-    inputs: Mapping[str, object],
-) -> _DataExpr:
-    return relation_input_binding.substitute_value_input_refs(
-        expression,
-        _ResolvedInputs(inputs),
-    )
-
-
-def table_input_value(input_name: str, value: object) -> RelationExpr:
-    return relation_input_binding.table_input_value(
-        input_name,
-        _lower_authoring_value(value),
-    )
-
-
-def literal_data_expr(value: object) -> _DataExpr:
-    return relation_input_binding.literal_data_expr(_lower_authoring_value(value))
+def literal_scalar_expr(value: object) -> ScalarExpr:
+    return lit(input_cell(_lower_authoring_value(value)))
 
 
 def input_cell(value: object) -> CellValue:
     return relation_input_binding.input_cell(value)
 
 
-def value_input_refs(expression: _DataExpr) -> tuple[str, ...]:
-    return relation_input_binding.value_input_refs(expression)
+def scalar_input_refs(expression: ScalarExpr) -> tuple[str, ...]:
+    return relation_input_binding.scalar_input_refs(expression)
 
 
 def _lower_authoring_value(value: object) -> object:

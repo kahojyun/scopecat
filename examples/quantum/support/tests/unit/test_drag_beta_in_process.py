@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.config.registry import CandidateConfigRegistrySource
 from scopecat.records.parameter import TableParameterValue
+from scopecat.sdk.domain import DomainBatchRequest
 
+from quantum_lab_demo.compiler import QuantumLabCompiler
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
     QUBIT_PARAMETER_TABLE,
@@ -36,12 +39,42 @@ def _quantity_in_unit(value: object, unit: str) -> float:
 
 def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    compile_requests: list[DomainBatchRequest] = []
+    compile_batch = QuantumLabCompiler.compile_batch
+
+    def capture_compile_batch(
+        compiler: QuantumLabCompiler,
+        request: DomainBatchRequest,
+    ):
+        compile_requests.append(request)
+        return compile_batch(compiler, request)
+
+    monkeypatch.setattr(QuantumLabCompiler, "compile_batch", capture_compile_batch)
     lab = in_process_quantum_lab(project_root=tmp_path)
     source_run = lab.prepare(drag_beta_template).run()
     analysis = source_run.analyze(drag_beta_analysis())
 
     assert source_run.manifest.status == "completed"
+    beta_and_compiler_tables = [
+        (beta, rows)
+        for request in compile_requests
+        for beta, rows in zip(
+            request.inputs.program_input("beta"),
+            request.inputs.compiler_input(QUBIT_PARAMETER_TABLE),
+            strict=True,
+        )
+    ]
+    assert len(beta_and_compiler_tables) == 15
+    for beta, table in beta_and_compiler_tables:
+        rows = cast("tuple[dict[str, object], ...]", table)
+        q0_row = next(row for row in rows if _entity_id(row["qubit"]) == "q0")
+        assert q0_row[DRAG_BETA_PARAMETER_COLUMN] == beta
+    assert {
+        _quantity_in_unit(beta, "ns") for beta, _rows in beta_and_compiler_tables
+    } == {0.0, 0.25, 0.5, 0.75, 1.0}
+
     records = source_run.data().measurements().dataset.records
     assert len(records) == 15
     assert all(

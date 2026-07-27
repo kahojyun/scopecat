@@ -30,7 +30,6 @@ from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.typed.program import product_axis as compiler_product_axis
 from scopecat.graph.relations.model import (
-    RelationExpr,
     ScalarExpr,
     as_scalar_expr,
 )
@@ -40,15 +39,12 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Scalar, Table, ValueType
+from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.records import RecordUse
 from scopecat.records._run_request_values import normalize_json_value
 from scopecat.records.config import Topology
 
-type BindRelationInputRefs = Callable[
-    [RelationExpr, Mapping[str, object]], RelationExpr
-]
 type InputRow = Callable[[Mapping[str, object]], Mapping[str, object]]
 
 
@@ -69,7 +65,6 @@ def lower_products(
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
-    bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
 ) -> LoweredProductModel:
     products = tuple(
@@ -79,7 +74,6 @@ def lower_products(
             product,
             inputs,
             type_bindings=type_bindings,
-            bind_relation_input_refs=bind_relation_input_refs,
             input_row=input_row,
         )
         for product in product_declarations_by_id.values()
@@ -125,7 +119,6 @@ def _lower_product_axis(
     *,
     product_id: str,
     type_bindings: RelationTypeBindings,
-    bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
 ) -> ProductAxisDef:
     size, metadata = _static_axis_size(
@@ -140,7 +133,6 @@ def _lower_product_axis(
         inputs=inputs,
         type_bindings=type_bindings,
         entity_axis=axis.entity_values,
-        bind_relation_input_refs=bind_relation_input_refs,
         input_row=input_row,
     )
     return compiler_product_axis(
@@ -159,7 +151,6 @@ def _lower_product_declaration(
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
-    bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
 ) -> ProductDef:
     return ProductDef(
@@ -174,7 +165,6 @@ def _lower_product_declaration(
                 inputs,
                 product_id=product.qualified_id,
                 type_bindings=type_bindings,
-                bind_relation_input_refs=bind_relation_input_refs,
                 input_row=input_row,
             )
             for axis in product.axes
@@ -242,7 +232,6 @@ def _static_axis_size(
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
     entity_axis: bool = False,
-    bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
 ) -> tuple[int, dict[str, JsonValue]]:
     selected_value: object = value
@@ -255,32 +244,6 @@ def _static_axis_size(
                 "verified product axis unexpectedly depends on a compute result"
             )
         selected_value = lowered
-    if isinstance(selected_value, RelationExpr):
-        if entity_axis:
-            raise_frontend_problem(
-                "product_entity_axis_invalid",
-                "entity product axis must be a scalar entity or literal sequence",
-                location.root,
-                path=location.path,
-            )
-        try:
-            evaluated_rows = static_evaluator.relation(
-                bind_relation_input_refs(selected_value, inputs),
-                bindings=type_bindings,
-                expected_type=(
-                    selected_type if isinstance(selected_type, Table) else None
-                ),
-                inputs=inputs,
-            )
-        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-            raise_frontend_problem(
-                "product_axis_size_invalid",
-                "product axis could not be evaluated during configuration "
-                f"binding: {error}",
-                location.root,
-                path=location.path,
-            )
-        return len(evaluated_rows), {}
     if isinstance(selected_value, Sequence) and not isinstance(
         selected_value, str | bytes
     ):

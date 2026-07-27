@@ -19,7 +19,7 @@ from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.problems import Problem, model_location
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.planning.local_values import evaluate_value_expr
+from scopecat.planning.local_values import evaluate_scalar_value
 
 
 def bind_compute_operations(
@@ -45,11 +45,7 @@ def bind_compute_operations(
                     value = unwrap_payload_values(
                         coerce_literal(
                             input_spec.value_type,
-                            evaluate_value_expr(
-                                input_spec.value,
-                                input_spec.value.plan,
-                                ctx,
-                            ),
+                            evaluate_scalar_value(input_spec.value, ctx),
                             path=("compute", *node.id.scope, node.id.local_id, name),
                         )
                     )

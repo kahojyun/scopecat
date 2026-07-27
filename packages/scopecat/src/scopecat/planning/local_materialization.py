@@ -58,7 +58,7 @@ from scopecat.planning.local_effects import (
     LocalTargetPlan,
     MaterializedLocalEffects,
 )
-from scopecat.planning.local_values import evaluate_value_expr
+from scopecat.planning.local_values import evaluate_scalar_value
 from scopecat.planning.routing import (
     ResourceBinding,
     ResourceBindingError,
@@ -407,13 +407,7 @@ def _select_point_resources(
         failed = False
         for use in requirement.entity_uses:
             try:
-                entity_values.append(
-                    evaluate_value_expr(
-                        use.value,
-                        use.value.plan,
-                        ctx,
-                    )
-                )
+                entity_values.append(evaluate_scalar_value(use.value, ctx))
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(

@@ -9,69 +9,33 @@ from scopecat.compiler.relations.verification import (
     RowType,
     verify_relation_plan,
 )
-from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.model import (
     ParameterLookupUse,
     input_ref,
-    input_table,
     lit,
-    literal_rows,
     param,
     parameter_lookup,
     point_col,
-    table,
 )
 from scopecat.kernel.value_types import (
     Float,
     Int,
-    Quantity,
     Scalar,
     String,
-    Table,
     TableColumn,
 )
 
 INT = Scalar(Int())
 FLOAT = Scalar(Float())
 STRING = Scalar(String())
-FREQUENCY = Scalar(Quantity(dimension="frequency", unit="GHz"))
-
-TABLE_PARAMETER = Table(
-    columns=(
-        TableColumn("id", STRING),
-        TableColumn("gain", FLOAT),
-    ),
-    primary_key=("id",),
-)
 
 
-@pytest.mark.parametrize(
-    ("root", "code"),
-    [
-        (lit(None), "unsupported_null"),
-        (literal_rows([]), "missing_declared_type"),
-    ],
-)
-def test_context_dependent_literals_require_an_expected_type(
-    root: PlanNode,
-    code: str,
-) -> None:
+def test_null_literal_requires_an_expected_type() -> None:
     with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(root)
+        verify_relation_plan(lit(None))
 
-    assert caught.value.code == code
+    assert caught.value.code == "unsupported_null"
     assert caught.value.path == ()
-
-
-def test_empty_relation_uses_context_for_schema() -> None:
-    expected = Table(
-        columns=(TableColumn("frequency", FREQUENCY),),
-    )
-
-    assert (
-        verify_relation_plan(literal_rows([]), expected_type=expected).certified_type
-        == expected
-    )
 
 
 def test_only_referenced_typed_imports_enter_the_proof() -> None:
@@ -100,38 +64,6 @@ def test_input_and_parameter_namespaces_are_typed_independently() -> None:
         ("input", "shared"),
         ("parameter", "shared"),
     }
-
-
-@pytest.mark.parametrize(
-    ("root", "bindings"),
-    [
-        (
-            input_ref("wrong"),
-            RelationTypeBindings(inputs={"wrong": TABLE_PARAMETER}),
-        ),
-        (
-            input_table("wrong"),
-            RelationTypeBindings(inputs={"wrong": INT}),
-        ),
-        (
-            param("wrong"),
-            RelationTypeBindings(parameters={"wrong": TABLE_PARAMETER}),
-        ),
-        (
-            table("wrong"),
-            RelationTypeBindings(parameters={"wrong": FLOAT}),
-        ),
-    ],
-)
-def test_typed_imports_reject_reference_shape_mismatches(
-    root: PlanNode,
-    bindings: RelationTypeBindings,
-) -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(root, bindings=bindings)
-
-    assert caught.value.code == "import_shape_mismatch"
-    assert caught.value.path == ()
 
 
 def test_unknown_import_reports_a_stable_code() -> None:
@@ -237,9 +169,8 @@ def test_lookup_expression_requires_exactly_its_declared_key_inputs() -> None:
         )
 
 
-def test_verified_plan_retains_the_internal_relation_ast() -> None:
-    source = literal_rows([{"value": 1}])
-    expected = Table(columns=(TableColumn("value", INT),))
-    verified = verify_relation_plan(source, expected_type=expected)
+def test_verified_plan_retains_the_scalar_ast() -> None:
+    source = lit(1)
+    verified = verify_relation_plan(source, expected_type=INT)
 
     assert verified.root is source

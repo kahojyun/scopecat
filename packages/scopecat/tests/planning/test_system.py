@@ -26,6 +26,7 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
+    ScalarValueInput,
     TypedDomainExecution,
     TypedDomainResultBinding,
     TypedMeasurementPostprocessor,
@@ -97,7 +98,6 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.parameter_fixtures import (
-    PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,
 )
 from tests.testkit.parameter_fixtures import (
@@ -277,7 +277,7 @@ def _linked_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: Literal[0, 2] = 2,
-    domain_input: ValueInput | None = None,
+    domain_input: ScalarValueInput | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
     config: ConfigProfileSnapshot | None = None,
@@ -471,7 +471,7 @@ def _linked_program(
     return link_program(program, environment)
 
 
-def _point_frequency_domain_input() -> ValueInput:
+def _point_frequency_domain_input() -> ScalarValueInput:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),
@@ -720,7 +720,6 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
         columns=(TableColumn("frequency", frequency_type),),
     )
     bindings = RelationTypeBindings(
-        parameters=PARAMETER_TYPES,
         point_row=RowType.from_table(point_type),
     )
     domain_input = ValueInput(
