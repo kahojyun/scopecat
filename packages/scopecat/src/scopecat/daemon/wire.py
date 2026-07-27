@@ -55,7 +55,6 @@ class _WireModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
         allow_inf_nan=False,
     )
 

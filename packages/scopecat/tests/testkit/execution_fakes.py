@@ -58,9 +58,7 @@ class FakeMeasurementDatasetRepository:
         )
 
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
-        durable = MeasurementDatasetAppend.model_validate(
-            append.model_dump(mode="python")
-        )
+        durable = append.model_copy(deep=True)
         existing = self._appends.get(durable.operation_id)
         if existing is not None and existing.content_hash != durable.content_hash:
             raise ExecutionJournalError(
@@ -75,7 +73,7 @@ class FakeMeasurementDatasetRepository:
         return self._receipts[durable.operation_id]
 
     def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
-        durable = MeasurementDatasetSeal.model_validate(seal.model_dump(mode="python"))
+        durable = seal
         existing = self._seals.get(durable.operation_id)
         if existing is not None and existing.content_hash != durable.content_hash:
             raise ExecutionJournalError(

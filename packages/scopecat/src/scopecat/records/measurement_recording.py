@@ -21,9 +21,7 @@ CANONICAL_MEASUREMENT_DATASET_REF: _MeasurementDatasetRef = (
 class MeasurementDatasetAppend(BaseModel):
     """One idempotent append to a canonical run dataset."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     recording_contract_fingerprint: str
@@ -75,9 +73,7 @@ class MeasurementDatasetAppend(BaseModel):
 class MeasurementDatasetReceipt(BaseModel):
     """Durable evidence for one dataset append or seal operation."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation_id: str
     dataset_content_hash: str
@@ -94,9 +90,7 @@ class MeasurementDatasetReceipt(BaseModel):
 class MeasurementDatasetSeal(BaseModel):
     """Seal one append-only dataset after its admitted point range is complete."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     recording_contract_fingerprint: str

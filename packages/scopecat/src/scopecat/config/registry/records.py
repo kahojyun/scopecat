@@ -15,7 +15,6 @@ class _FrozenRegistryModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
 

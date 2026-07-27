@@ -164,9 +164,7 @@ class SQLiteMeasurementDatasetRepository:
     ) -> PreparedExecutionRecord[MeasurementDatasetAppend]:
         """Publish immutable append content before entering the write transaction."""
 
-        durable = MeasurementDatasetAppend.model_validate(
-            append.model_dump(mode="python")
-        )
+        durable = append.model_copy(deep=True)
         if durable.run_id != self._run_id:
             raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"
@@ -270,7 +268,7 @@ class SQLiteMeasurementDatasetRepository:
     ) -> MeasurementDatasetSeal:
         """Validate seal content before entering the write transaction."""
 
-        durable = MeasurementDatasetSeal.model_validate(seal.model_dump(mode="python"))
+        durable = seal
         if durable.run_id != self._run_id:
             raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"

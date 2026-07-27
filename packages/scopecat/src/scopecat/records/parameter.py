@@ -219,7 +219,6 @@ class ParameterDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     id: str
@@ -238,7 +237,6 @@ class ParameterCatalog(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     id: str
@@ -265,7 +263,6 @@ class _StoredParameterValue(BaseModel):
         extra="forbid",
         allow_inf_nan=False,
         frozen=True,
-        revalidate_instances="always",
     )
 
     id: str
@@ -329,7 +326,6 @@ class ParameterSnapshot(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     id: str

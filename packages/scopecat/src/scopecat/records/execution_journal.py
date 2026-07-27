@@ -58,7 +58,6 @@ class ExecutionTransition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     sequence: int | None = Field(default=None, ge=0)

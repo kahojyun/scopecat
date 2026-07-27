@@ -62,7 +62,6 @@ class DomainInvocationIntent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     invocation_id: str

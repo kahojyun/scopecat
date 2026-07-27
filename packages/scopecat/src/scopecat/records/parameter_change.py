@@ -41,7 +41,6 @@ class ParameterValueDelta(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     parameter_id: str
@@ -68,7 +67,6 @@ class ParameterChangeProposal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     id: str

@@ -44,7 +44,6 @@ class _LocationModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
 
@@ -200,7 +199,6 @@ class Problem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     code: str
