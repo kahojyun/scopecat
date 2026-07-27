@@ -41,7 +41,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     assert {"run_sequence", "deduplication_key"} <= event_columns
 
 
-@pytest.mark.parametrize("version", (8, 99))
+@pytest.mark.parametrize("version", (0, 99))
 def test_bootstrap_refuses_a_noncurrent_project_schema(
     tmp_path: Path,
     version: int,
