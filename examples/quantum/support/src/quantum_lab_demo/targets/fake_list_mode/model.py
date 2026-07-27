@@ -114,10 +114,7 @@ class FakeListTarget:
     sample_rate_hz: int
     max_list_entries: int
     max_samples_per_entry: int
-    max_waveform_memory_samples: int
-    max_capture_memory_samples: int
     max_repetitions: int
-    max_frames: int
     max_abs_amplitude: float
     output_bindings: tuple[FakeOutputBinding, ...]
     acquisition_bindings: tuple[FakeAcquisitionBinding, ...]
@@ -170,15 +167,12 @@ class FakeListTarget:
 
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "quantum_lab_demo.fake_list_target.capabilities.v1",
+            "schema": "quantum_lab_demo.fake_list_target.capabilities.v2",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
             "max_list_entries": self.max_list_entries,
             "max_samples_per_entry": self.max_samples_per_entry,
-            "max_waveform_memory_samples": self.max_waveform_memory_samples,
-            "max_capture_memory_samples": self.max_capture_memory_samples,
             "max_repetitions": self.max_repetitions,
-            "max_frames": self.max_frames,
             "max_abs_amplitude": float(self.max_abs_amplitude).hex(),
             "supported_envelopes": list(self.supported_envelopes),
             "output_bindings": [
