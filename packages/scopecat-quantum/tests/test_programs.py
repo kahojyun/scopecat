@@ -16,13 +16,14 @@ from scopecat_quantum._ids import (
     QubitId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.circuits import Measure
+from scopecat_quantum.circuits import CircuitVerificationError, Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
     ImplementedGate,
     ImplementedGatePulseEventProvenance,
+    Parallel,
     PulseBlock,
     QuantumProgramIR,
     QuantumProgramVerificationError,
@@ -63,6 +64,23 @@ def _gate_call(operation_id: str) -> GateCall:
         gate_id=X90.id,
         qubits=(Q0,),
     )
+
+
+def test_parallel_branches_must_have_disjoint_qubits() -> None:
+    source = QuantumProgramIR(
+        id=QuantumProgramId("parallel"),
+        body=Parallel(
+            (
+                _gate_call("left"),
+                Sequence((_gate_call("right"),)),
+            )
+        ),
+    )
+
+    with pytest.raises(CircuitVerificationError) as error:
+        verify_quantum_program(source, (X90,))
+
+    assert [issue.code for issue in error.value.issues] == ["parallel_qubit_conflict"]
 
 
 def _gate_template(program_id: str = "x90-reference") -> PulseProgram:
@@ -181,7 +199,7 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
         output_id=PulseProgramId("drag-sweep-point-pulses"),
     )
 
-    assert tuple(operation.id for operation in verified.logical_circuit.operations) == (
+    assert tuple(operation.id for operation in verified.logical_operations) == (
         reference.id,
         candidate_call.id,
         measurement.id,

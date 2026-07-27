@@ -8,14 +8,12 @@ from scopecat import Quantity
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CircuitId,
     CircuitOperationId,
     CouplerId,
     QubitId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.circuits import CircuitProgram, Measure, verify_circuit_program
-from scopecat_quantum.circuits import Sequence as CircuitSequence
+from scopecat_quantum.circuits import Measure, verify_circuit_operations
 from scopecat_quantum.gates import GateArgument, GateCall, GateParameterKind
 from scopecat_quantum.pulse_implementations import (
     GatePulseImplementationArgument,
@@ -149,8 +147,8 @@ def _measurement(operation_id: str, qubit_id: str) -> Measure:
 
 
 def _circuit(*operations: GateCall | Measure):
-    return verify_circuit_program(
-        CircuitProgram(CircuitId("recipe-test"), CircuitSequence(operations)),
+    return verify_circuit_operations(
+        operations,
         (X.definition, RX.definition, CZ.definition),
     )
 

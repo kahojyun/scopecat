@@ -21,7 +21,7 @@ from scopecat_quantum.authoring import (
     materialize_pulse_recipe_body,
     qubit,
 )
-from scopecat_quantum.circuits import Measure, VerifiedCircuitProgram
+from scopecat_quantum.circuits import Measure, VerifiedCircuitOperations
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.measurement_implementations import (
     MeasurementPulseImplementation,
@@ -325,7 +325,7 @@ class PulseRecipeMap[ParametersT, RowT]:
     def materialize(
         self,
         parameters: ParametersT,
-        circuit: VerifiedCircuitProgram,
+        circuit: VerifiedCircuitOperations,
     ) -> ResolvedPulseImplementations:
         """Map only operations present in the bound circuit onto matching rows."""
 
@@ -415,7 +415,7 @@ class _PulseRecipeMapping[ParametersT](Protocol):
     def materialize(
         self,
         parameters: ParametersT,
-        circuit: VerifiedCircuitProgram,
+        circuit: VerifiedCircuitOperations,
     ) -> ResolvedPulseImplementations: ...
 
 
@@ -436,7 +436,7 @@ class PulseRecipeProfile[ParametersT]:
     def materialize(
         self,
         parameters: ParametersT,
-        circuit: VerifiedCircuitProgram,
+        circuit: VerifiedCircuitOperations,
     ) -> ResolvedPulseImplementations:
         """Join every configured row map to one point-bound circuit."""
 

@@ -112,7 +112,7 @@ def test_sequence_composes_baseline_gate_candidate_pulse_and_measurement() -> No
         Measure,
     ]
     unresolved_types = [
-        type(operation) for operation in bound.verified.unresolved_circuit.operations
+        type(operation) for operation in bound.verified.unresolved.operations
     ]
     assert unresolved_types == [
         GateCall,
@@ -281,7 +281,7 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     )
 
     bound = authoring.bind(declaration, {"amplitude": Quantity(0.24, "arb")})
-    [logical_call] = bound.verified.logical_circuit.operations
+    [logical_call] = bound.verified.logical_operations
     [implementation] = bound.verified.operations
     assert isinstance(logical_call, GateCall)
     assert logical_call.qubits == (QubitId("q0"), QubitId("q1"))
@@ -327,7 +327,7 @@ def test_gate_implementation_maps_named_semantic_parameters() -> None:
     )
 
     bound = authoring.bind(declaration, {"theta": Quantity(90, "deg")})
-    [logical_call] = bound.verified.logical_circuit.operations
+    [logical_call] = bound.verified.logical_operations
     [implemented] = bound.verified.operations
 
     assert isinstance(logical_call, GateCall)

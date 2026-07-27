@@ -287,7 +287,7 @@ def _compile_points(
                 bound=bound,
                 implementations=QUANTUM_PULSE_PROFILE.materialize(
                     parameters,
-                    bound.verified.unresolved_circuit,
+                    bound.verified.unresolved,
                 ),
             )
         )

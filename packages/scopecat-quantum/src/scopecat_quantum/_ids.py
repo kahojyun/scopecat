@@ -29,11 +29,6 @@ class _NominalId:
 
 
 @dataclass(frozen=True, slots=True)
-class CircuitId(_NominalId):
-    """Identity of one circuit program."""
-
-
-@dataclass(frozen=True, slots=True)
 class QuantumProgramId(_NominalId):
     """Identity of one mixed gate-and-pulse quantum program."""
 

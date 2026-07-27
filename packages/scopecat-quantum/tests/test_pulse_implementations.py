@@ -7,7 +7,6 @@ from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CircuitId,
     CircuitOperationId,
     CouplerId,
     GateId,
@@ -18,11 +17,9 @@ from scopecat_quantum._ids import (
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import (
-    CircuitProgram,
     Measure,
-    Sequence,
-    VerifiedCircuitProgram,
-    verify_circuit_program,
+    VerifiedCircuitOperations,
+    verify_circuit_operations,
 )
 from scopecat_quantum.gates import (
     GateArgument,
@@ -139,12 +136,9 @@ def _call(
     )
 
 
-def _verified(*calls: GateCall) -> VerifiedCircuitProgram:
-    return verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId("circuit"),
-            body=Sequence(operations=calls),
-        ),
+def _verified(*calls: GateCall) -> VerifiedCircuitOperations:
+    return verify_circuit_operations(
+        calls,
         gate_definitions=(X, Y, ROTATE),
     )
 
@@ -317,11 +311,8 @@ def test_measurement_without_implementation_prevents_aggregate_binding() -> None
         acquisition_slot_id=AcquisitionSlotId("readout"),
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
     )
-    program = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId("measured-circuit"),
-            body=Sequence(operations=(call, measurement)),
-        ),
+    program = verify_circuit_operations(
+        (call, measurement),
         gate_definitions=(X,),
     )
 

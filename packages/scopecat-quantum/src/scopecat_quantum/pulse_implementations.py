@@ -15,7 +15,7 @@ from scopecat_quantum._ids import (
     PulseImplementationId,
     QubitId,
 )
-from scopecat_quantum.circuits import Measure, VerifiedCircuitProgram
+from scopecat_quantum.circuits import Measure, VerifiedCircuitOperations
 from scopecat_quantum.gates import (
     GateArgumentValue,
     GateCall,
@@ -296,7 +296,7 @@ class PulseImplementationBindings:
 
 
 def bind_pulse_implementations(
-    program: VerifiedCircuitProgram,
+    operations: VerifiedCircuitOperations,
     implementations: ResolvedPulseImplementations,
 ) -> PulseImplementationBindings:
     """Bind every logical operation to its exact resolved pulse implementation."""
@@ -306,7 +306,7 @@ def bind_pulse_implementations(
 
     bindings: list[PulseImplementationBinding] = []
     issues: list[PulseImplementationBindingIssue] = []
-    for operation in program.operations:
+    for operation in operations.operations:
         if isinstance(operation, GateCall):
             key: PulseImplementationKey = GatePulseImplementationKey.from_call(
                 operation

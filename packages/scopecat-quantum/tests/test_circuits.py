@@ -10,7 +10,6 @@ from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CircuitId,
     CircuitOperationId,
     CouplerId,
     GateId,
@@ -26,13 +25,9 @@ from scopecat_quantum._ids import (
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import (
-    CircuitProgram,
     CircuitVerificationError,
     Measure,
-    Parallel,
-    Sequence,
-    iter_circuit_operations,
-    verify_circuit_program,
+    verify_circuit_operations,
 )
 from scopecat_quantum.gates import (
     GateArgument,
@@ -58,7 +53,6 @@ _STRUCTURAL_ID_PARTS = st.tuples(
 def test_quantum_identities_are_nominal_and_nonempty(value: str) -> None:
     identity_types = (
         PulseImplementationId,
-        CircuitId,
         CircuitOperationId,
         CouplerId,
         GateId,
@@ -181,12 +175,12 @@ def test_acquisition_slot_qualified_names_are_injective_after_prefixing(
 @pytest.mark.parametrize("value", ["", " ", "\t\n"])
 def test_quantum_identities_reject_blank_values(value: str) -> None:
     with pytest.raises(ValueError, match="non-empty"):
-        CircuitId(value)
+        CircuitOperationId(value)
 
 
 def test_nominal_quantum_identities_reject_unicode_surrogates() -> None:
     with pytest.raises(ValueError, match="Unicode surrogates"):
-        CircuitId("\ud800")
+        CircuitOperationId("\ud800")
 
 
 @pytest.mark.parametrize("arity", [0, -1, True])
@@ -204,8 +198,7 @@ def test_gate_catalog_verification_is_permutation_invariant(
         "x": GateDefinition(GateId("x"), qubit_arity=1),
         "y": GateDefinition(GateId("y"), qubit_arity=1),
     }
-    program = CircuitProgram(
-        CircuitId("program"),
+    operations = (
         GateCall(
             CircuitOperationId("x-q0"),
             GateId("x"),
@@ -213,8 +206,8 @@ def test_gate_catalog_verification_is_permutation_invariant(
         ),
     )
 
-    verified = verify_circuit_program(
-        program,
+    verified = verify_circuit_operations(
+        operations,
         tuple(definitions[item] for item in gate_order),
     )
 
@@ -226,7 +219,9 @@ def test_gate_catalog_verification_is_permutation_invariant(
 
 
 @given(st.lists(st.integers(min_value=0, max_value=10_000), unique=True))
-def test_sequence_preserves_generated_operation_order(operation_ids: list[int]) -> None:
+def test_verification_preserves_generated_operation_order(
+    operation_ids: list[int],
+) -> None:
     operations = tuple(
         GateCall(
             CircuitOperationId(f"op-{operation_id}"),
@@ -235,72 +230,13 @@ def test_sequence_preserves_generated_operation_order(operation_ids: list[int]) 
         )
         for operation_id in operation_ids
     )
-    program = CircuitProgram(CircuitId("sequence"), Sequence(operations))
-
-    verified = verify_circuit_program(
-        program,
+    verified = verify_circuit_operations(
+        operations,
         (GateDefinition(GateId("x"), qubit_arity=1),),
     )
 
     expected = tuple(operation.id for operation in operations)
     assert tuple(operation.id for operation in verified.operations) == expected
-    assert tuple(
-        operation.id for operation in iter_circuit_operations(program.body)
-    ) == (expected)
-
-
-def test_parallel_branches_must_have_disjoint_qubits() -> None:
-    program = CircuitProgram(
-        CircuitId("parallel"),
-        Parallel(
-            (
-                GateCall(
-                    CircuitOperationId("left"),
-                    GateId("x"),
-                    (QubitId("q0"),),
-                ),
-                Sequence(
-                    (
-                        GateCall(
-                            CircuitOperationId("right"),
-                            GateId("x"),
-                            (QubitId("q0"),),
-                        ),
-                    )
-                ),
-            )
-        ),
-    )
-
-    with pytest.raises(CircuitVerificationError) as error:
-        verify_circuit_program(
-            program,
-            (GateDefinition(GateId("x"), qubit_arity=1),),
-        )
-
-    assert [issue.code for issue in error.value.issues] == ["parallel_qubit_conflict"]
-
-
-@given(_NONEMPTY_IDS)
-def test_generated_parallel_overlap_is_always_rejected(qubit_value: str) -> None:
-    qubit = QubitId(qubit_value)
-    program = CircuitProgram(
-        CircuitId("parallel-generated-conflict"),
-        Parallel(
-            (
-                GateCall(CircuitOperationId("left"), GateId("x"), (qubit,)),
-                GateCall(CircuitOperationId("right"), GateId("x"), (qubit,)),
-            )
-        ),
-    )
-
-    with pytest.raises(CircuitVerificationError) as error:
-        verify_circuit_program(
-            program,
-            (GateDefinition(GateId("x"), qubit_arity=1),),
-        )
-
-    assert any(issue.code == "parallel_qubit_conflict" for issue in error.value.issues)
 
 
 def test_gate_arguments_require_exact_coverage_and_matching_types() -> None:
@@ -313,8 +249,7 @@ def test_gate_arguments_require_exact_coverage_and_matching_types() -> None:
             GateParameterDefinition("phase", GateParameterKind.ANGLE),
         ),
     )
-    program = CircuitProgram(
-        CircuitId("invalid-arguments"),
+    operations = (
         GateCall(
             CircuitOperationId("rotation-q0"),
             GateId("rotation"),
@@ -328,7 +263,7 @@ def test_gate_arguments_require_exact_coverage_and_matching_types() -> None:
     )
 
     with pytest.raises(CircuitVerificationError) as error:
-        verify_circuit_program(program, (definition,))
+        verify_circuit_operations(operations, (definition,))
 
     assert {issue.code for issue in error.value.issues} == {
         "circuit_gate_argument_missing",
@@ -355,8 +290,7 @@ def test_verified_gate_arguments_are_canonicalized_to_definition_order() -> None
             GateParameterDefinition("phase", GateParameterKind.ANGLE),
         ),
     )
-    program = CircuitProgram(
-        CircuitId("canonical-arguments"),
+    operations = (
         GateCall(
             CircuitOperationId("rotation-q0"),
             GateId("rotation"),
@@ -369,7 +303,7 @@ def test_verified_gate_arguments_are_canonicalized_to_definition_order() -> None
         ),
     )
 
-    verified = verify_circuit_program(program, (definition,))
+    verified = verify_circuit_operations(operations, (definition,))
     call = verified.operations[0]
 
     assert isinstance(call, GateCall)
@@ -393,8 +327,7 @@ def test_non_finite_or_unrepresentable_numbers_are_rejected() -> None:
     )
 
     for value in (math.inf, math.nan, 10**10_000):
-        program = CircuitProgram(
-            CircuitId("invalid-number"),
+        operations = (
             GateCall(
                 CircuitOperationId("scaled-q0"),
                 definition.id,
@@ -404,7 +337,7 @@ def test_non_finite_or_unrepresentable_numbers_are_rejected() -> None:
         )
 
         with pytest.raises(CircuitVerificationError) as error:
-            verify_circuit_program(program, (definition,))
+            verify_circuit_operations(operations, (definition,))
 
         assert "circuit_gate_argument_type_mismatch" in {
             issue.code for issue in error.value.issues
@@ -428,8 +361,7 @@ def test_generated_gate_argument_coverage_is_exact(supplied_ids: set[str]) -> No
         "phase": Quantity(0, "rad"),
         "extra": 7,
     }
-    program = CircuitProgram(
-        CircuitId("generated-coverage"),
+    operations = (
         GateCall(
             CircuitOperationId("rotation-q0"),
             GateId("rotation"),
@@ -443,11 +375,20 @@ def test_generated_gate_argument_coverage_is_exact(supplied_ids: set[str]) -> No
     expected_ids = {"turns", "scale", "phase"}
 
     if supplied_ids == expected_ids:
-        assert verify_circuit_program(program, (definition,)).program == program
+        [verified] = verify_circuit_operations(
+            operations,
+            (definition,),
+        ).operations
+        assert isinstance(verified, GateCall)
+        assert tuple(argument.id for argument in verified.arguments) == (
+            "turns",
+            "scale",
+            "phase",
+        )
         return
 
     with pytest.raises(CircuitVerificationError) as error:
-        verify_circuit_program(program, (definition,))
+        verify_circuit_operations(operations, (definition,))
 
     missing_paths = {
         issue.path[-1]
@@ -466,33 +407,28 @@ def test_generated_gate_argument_coverage_is_exact(supplied_ids: set[str]) -> No
 def test_verification_aggregates_unknown_gate_and_duplicate_identities() -> None:
     duplicate_operation_id = CircuitOperationId("duplicate")
     duplicate_slot_id = AcquisitionSlotId("slot")
-    program = CircuitProgram(
-        CircuitId("aggregate"),
-        Sequence(
-            (
-                GateCall(
-                    duplicate_operation_id,
-                    GateId("unknown"),
-                    (QubitId("q0"),),
-                ),
-                Measure(
-                    duplicate_operation_id,
-                    QubitId("q1"),
-                    duplicate_slot_id,
-                    AcquisitionKind.INTEGRATED_IQ,
-                ),
-                Measure(
-                    CircuitOperationId("measure-2"),
-                    QubitId("q2"),
-                    duplicate_slot_id,
-                    AcquisitionKind.INTEGRATED_IQ,
-                ),
-            )
+    operations = (
+        GateCall(
+            duplicate_operation_id,
+            GateId("unknown"),
+            (QubitId("q0"),),
+        ),
+        Measure(
+            duplicate_operation_id,
+            QubitId("q1"),
+            duplicate_slot_id,
+            AcquisitionKind.INTEGRATED_IQ,
+        ),
+        Measure(
+            CircuitOperationId("measure-2"),
+            QubitId("q2"),
+            duplicate_slot_id,
+            AcquisitionKind.INTEGRATED_IQ,
         ),
     )
 
     with pytest.raises(CircuitVerificationError) as error:
-        verify_circuit_program(program, ())
+        verify_circuit_operations(operations, ())
 
     assert {issue.code for issue in error.value.issues} == {
         "circuit_acquisition_slot_duplicate",
@@ -509,31 +445,6 @@ def test_measure_preserves_acquisition_contract_when_verified() -> None:
         AcquisitionKind.INTEGRATED_IQ,
     )
 
-    verified = verify_circuit_program(
-        CircuitProgram(CircuitId("measurement"), measurement),
-        (),
-    )
+    verified = verify_circuit_operations((measurement,), ())
 
     assert verified.operations == (measurement,)
-
-
-@given(st.lists(st.integers(min_value=0, max_value=20), min_size=1, unique=True))
-def test_generated_parallel_branches_with_distinct_qubits_verify(
-    qubit_ordinals: list[int],
-) -> None:
-    branches = tuple(
-        GateCall(
-            CircuitOperationId(f"x-{ordinal}"),
-            GateId("x"),
-            (QubitId(f"q-{ordinal}"),),
-        )
-        for ordinal in qubit_ordinals
-    )
-    program = CircuitProgram(CircuitId("parallel-generated"), Parallel(branches))
-
-    verified = verify_circuit_program(
-        program,
-        (GateDefinition(GateId("x"), qubit_arity=1),),
-    )
-
-    assert tuple(verified.operations) == branches

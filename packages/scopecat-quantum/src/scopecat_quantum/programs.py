@@ -15,26 +15,25 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CircuitId,
     CircuitOperationId,
     GateId,
     PulseEventId,
     PulseImplementationId,
     PulseProgramId,
     QuantumProgramId,
+    QubitId,
 )
 from scopecat_quantum.circuits import (
-    CircuitProgram,
+    CircuitIssue,
+    CircuitVerificationError,
     Measure,
-    VerifiedCircuitProgram,
-    verify_circuit_program,
+    VerifiedCircuitOperations,
+    verify_circuit_operations,
 )
-from scopecat_quantum.circuits import Parallel as CircuitParallel
-from scopecat_quantum.circuits import Sequence as CircuitSequence
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.measurement_implementations import (
     MeasurementPulseImplementationBinding,
@@ -160,21 +159,11 @@ class QuantumProgramVerificationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class VerifiedQuantumProgram:
-    """Mixed source plus verified logical and unresolved-circuit projections."""
+    """Mixed source plus flat logical operations and its unresolved proof."""
 
     program: QuantumProgramIR
-    gate_definitions: tuple[GateDefinition, ...]
-    logical_circuit: VerifiedCircuitProgram = field(init=False)
-    unresolved_circuit: VerifiedCircuitProgram = field(init=False)
-
-    def __post_init__(self) -> None:
-        definitions, logical, unresolved = _verified_quantum_program_components(
-            self.program,
-            self.gate_definitions,
-        )
-        object.__setattr__(self, "gate_definitions", definitions)
-        object.__setattr__(self, "logical_circuit", logical)
-        object.__setattr__(self, "unresolved_circuit", unresolved)
+    logical_operations: tuple[GateCall | Measure, ...]
+    unresolved: VerifiedCircuitOperations
 
     @property
     def operations(self) -> tuple[QuantumOperation, ...]:
@@ -203,18 +192,21 @@ def verify_quantum_program(
     program: QuantumProgramIR,
     gate_definitions: SequenceCollection[GateDefinition],
 ) -> VerifiedQuantumProgram:
-    """Verify the mixed source and both logical circuit projections."""
+    """Verify the mixed source and its logical operations."""
 
-    return VerifiedQuantumProgram(program, tuple(gate_definitions))
+    logical, unresolved = _verified_quantum_program_components(
+        program,
+        gate_definitions,
+    )
+    return VerifiedQuantumProgram(program, logical.operations, unresolved)
 
 
 def _verified_quantum_program_components(
     program: QuantumProgramIR,
     gate_definitions: SequenceCollection[GateDefinition],
 ) -> tuple[
-    tuple[GateDefinition, ...],
-    VerifiedCircuitProgram,
-    VerifiedCircuitProgram,
+    VerifiedCircuitOperations,
+    VerifiedCircuitOperations,
 ]:
     """Validate and canonicalize the fields stored by a verified program."""
 
@@ -300,26 +292,34 @@ def _verified_quantum_program_components(
     if issues:
         raise QuantumProgramVerificationError(issues)
 
+    parallel_issues: list[CircuitIssue] = []
+    _verify_parallel_qubits(program.body, ("body",), parallel_issues)
+
     definitions = tuple(gate_definitions)
-    logical_circuit = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId(program.id.value),
-            body=_circuit_projection(program.body, include_implemented=True),
+    try:
+        logical = verify_circuit_operations(
+            tuple(
+                operation.call if isinstance(operation, ImplementedGate) else operation
+                for operation, _path in operation_entries
+                if not isinstance(operation, PulseBlock)
+            ),
+            definitions,
+        )
+    except CircuitVerificationError as error:
+        if parallel_issues:
+            raise CircuitVerificationError((*parallel_issues, *error.issues)) from None
+        raise
+    if parallel_issues:
+        raise CircuitVerificationError(parallel_issues)
+    unresolved = verify_circuit_operations(
+        tuple(
+            operation
+            for operation, _path in operation_entries
+            if isinstance(operation, GateCall | Measure)
         ),
         definitions,
     )
-    unresolved_circuit = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId(program.id.value),
-            body=_circuit_projection(program.body, include_implemented=False),
-        ),
-        definitions,
-    )
-    return (
-        logical_circuit.gate_definitions,
-        logical_circuit,
-        unresolved_circuit,
-    )
+    return logical, unresolved
 
 
 def _verify_pulse_template(
@@ -465,36 +465,65 @@ def _iter_operations_with_paths(
         )
 
 
-def _circuit_projection(
+def _verify_parallel_qubits(
     node: QuantumNode,
-    *,
-    include_implemented: bool,
-) -> GateCall | Measure | CircuitSequence | CircuitParallel:
-    if isinstance(node, GateCall | Measure):
-        return node
+    path: tuple[QuantumIssuePathItem, ...],
+    issues: list[CircuitIssue],
+) -> set[QubitId]:
+    if isinstance(node, GateCall):
+        return set(node.qubits)
+    if isinstance(node, Measure):
+        return {node.qubit}
     if isinstance(node, PulseBlock):
-        return CircuitSequence(())
+        return set()
     if isinstance(node, ImplementedGate):
-        return node.call if include_implemented else CircuitSequence(())
+        return set(node.call.qubits)
     if isinstance(node, Sequence):
-        return CircuitSequence(
-            tuple(
-                _circuit_projection(child, include_implemented=include_implemented)
-                for child in node.operations
+        touched: set[QubitId] = set()
+        for index, child in enumerate(node.operations):
+            touched.update(
+                _verify_parallel_qubits(
+                    child,
+                    (*path, "operations", index),
+                    issues,
+                )
             )
-        )
+        return touched
     if isinstance(node, Parallel):
-        return CircuitParallel(
-            tuple(
-                _circuit_projection(child, include_implemented=include_implemented)
-                for child in node.branches
+        branch_qubits = tuple(
+            _verify_parallel_qubits(
+                branch,
+                (*path, "branches", index),
+                issues,
             )
+            for index, branch in enumerate(node.branches)
         )
-    if not node.count:
-        return CircuitSequence(())
-    return _circuit_projection(
+        for right_index, right_qubits in enumerate(branch_qubits):
+            for left_index in range(right_index):
+                for qubit in sorted(
+                    branch_qubits[left_index] & right_qubits,
+                    key=lambda item: item.value,
+                ):
+                    issues.append(
+                        CircuitIssue(
+                            code="parallel_qubit_conflict",
+                            message=(
+                                f"parallel branches {left_index} and {right_index} "
+                                f"both use qubit {qubit.value!r}"
+                            ),
+                            path=(*path, "branches", right_index),
+                        )
+                    )
+        parallel_touched: set[QubitId] = set()
+        for branch in branch_qubits:
+            parallel_touched.update(branch)
+        return parallel_touched
+    if node.count == 0:
+        return set()
+    return _verify_parallel_qubits(
         node.operation,
-        include_implemented=include_implemented,
+        (*path, "operation"),
+        issues,
     )
 
 
@@ -644,7 +673,7 @@ def lower_quantum_program_to_pulses(
     """Resolve abstract leaves and lower one mixed program to pulse IR."""
 
     bindings = bind_pulse_implementations(
-        program.unresolved_circuit,
+        program.unresolved,
         implementations,
     )
     event_provenance: list[QuantumPulseEventProvenance] = []

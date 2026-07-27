@@ -22,9 +22,7 @@ from scopecat_quantum._ids import (
     QubitId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.circuits import CircuitNode, Measure
-from scopecat_quantum.circuits import Parallel as IrParallel
-from scopecat_quantum.circuits import Sequence as IrSequence
+from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import (
     GateArgument,
     GateArgumentValue,
@@ -79,7 +77,6 @@ from ._expansion import (
 )
 from ._ir import (
     Acquisition,
-    CircuitFragment,
     ElementBindings,
     Measurement,
     ProgramBindingError,
@@ -127,7 +124,7 @@ class BoundProgram:
     def gate_definitions(self) -> tuple[GateDefinition, ...]:
         """Return the verified logical gate catalog."""
 
-        return self.verified.gate_definitions
+        return self.verified.unresolved.gate_definitions
 
     @property
     def results(self) -> ProgramResults:
@@ -267,13 +264,13 @@ def bind(
     )
 
 
-def _bind_fragment(
-    fragment: CircuitFragment,
+def _bind_circuit_operation(
+    fragment: _GateFragment | Measurement,
     bindings: Mapping[str, GateArgumentValue],
     *,
     element_bindings: ElementBindings,
     path: tuple[str, ...],
-) -> CircuitNode:
+) -> GateCall | Measure:
     if isinstance(fragment, _GateFragment):
         return GateCall(
             id=CircuitOperationId(_operation_id(path, "gate")),
@@ -289,63 +286,12 @@ def _bind_fragment(
                 for argument_id, value in fragment.arguments
             ),
         )
-    if isinstance(fragment, Measurement):
-        result = fragment.result
-        return Measure(
-            id=CircuitOperationId(_operation_id(path, "measure")),
-            qubit=_bound_qubit_id(result.qubit, element_bindings),
-            acquisition_slot_id=result.acquisition_slot_id,
-            acquisition_kind=result.acquisition_kind,
-        )
-    if isinstance(fragment, _SequenceFragment):
-        return IrSequence(
-            tuple(
-                _bind_fragment(
-                    operation,
-                    bindings,
-                    element_bindings=element_bindings,
-                    path=(*path, f"sequence[{index}]"),
-                )
-                for index, operation in enumerate(fragment.operations)
-            )
-        )
-    if isinstance(fragment, _ParallelFragment):
-        return IrParallel(
-            tuple(
-                _bind_fragment(
-                    branch,
-                    bindings,
-                    element_bindings=element_bindings,
-                    path=(*path, f"parallel[{index}]"),
-                )
-                for index, branch in enumerate(fragment.branches)
-            )
-        )
-    if not isinstance(fragment, _RepeatFragment):
-        msg = f"unsupported circuit fragment {type(fragment).__name__}"
-        raise TypeError(msg)
-    count = (
-        bindings[fragment.count.id]
-        if isinstance(fragment.count, ProgramInput)
-        else fragment.count
-    )
-    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        input_id = (
-            fragment.count.id if isinstance(fragment.count, ProgramInput) else None
-        )
-        qualifier = f" input {input_id!r}" if input_id is not None else ""
-        msg = f"repeat count{qualifier} must bind to a non-negative integer"
-        raise ProgramBindingError(msg)
-    return IrSequence(
-        tuple(
-            _bind_fragment(
-                fragment.operation,
-                bindings,
-                element_bindings=element_bindings,
-                path=(*path, f"repeat[{index}]"),
-            )
-            for index in range(count)
-        )
+    result = fragment.result
+    return Measure(
+        id=CircuitOperationId(_operation_id(path, "measure")),
+        qubit=_bound_qubit_id(result.qubit, element_bindings),
+        acquisition_slot_id=result.acquisition_slot_id,
+        acquisition_kind=result.acquisition_kind,
     )
 
 
@@ -366,24 +312,22 @@ def _bind_quantum_fragment(
     if isinstance(fragment, _FragmentCall):
         raise AssertionError("quantum fragment calls must expand before binding")
     if isinstance(fragment, _GateFragment | Measurement):
-        return cast(
-            "GateCall | Measure",
-            _bind_fragment(
-                fragment,
-                cast("Mapping[str, GateArgumentValue]", bindings),
-                element_bindings=element_bindings,
-                path=path,
-            ),
-        )
-    if isinstance(fragment, _ImplementedGateFragment):
-        call = _bind_fragment(
-            fragment.gate,
+        return _bind_circuit_operation(
+            fragment,
             cast("Mapping[str, GateArgumentValue]", bindings),
             element_bindings=element_bindings,
-            path=(*path, "logical"),
+            path=path,
         )
-        if not isinstance(call, GateCall):
-            raise AssertionError("implemented gate binding must produce a GateCall")
+    if isinstance(fragment, _ImplementedGateFragment):
+        call = cast(
+            "GateCall",
+            _bind_circuit_operation(
+                fragment.gate,
+                cast("Mapping[str, GateArgumentValue]", bindings),
+                element_bindings=element_bindings,
+                path=(*path, "logical"),
+            ),
+        )
         pulse_template_id = (
             fragment.pulse.template.ir_id
             if isinstance(fragment.pulse, _PulseTemplateCallFragment)
