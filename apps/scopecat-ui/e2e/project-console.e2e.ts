@@ -52,7 +52,7 @@ interface CandidateAnalysis {
 const UI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPOSITORY_ROOT = resolve(UI_ROOT, "../..");
 const UI_DIST = resolve(UI_ROOT, "dist");
-const LIVE_EXPERIMENT_ID = "quantum_lab_demo.workflows.readout_frequency";
+const LIVE_EXPERIMENT_ID = "quantum_lab_demo.workflows.drag_beta";
 const CONTROLLED_EXPERIMENT_SOURCE = `\
 """Exercise durable run states while a browser observes the daemon."""
 
@@ -63,8 +63,8 @@ from pathlib import Path
 
 import scopecat as sc
 from quantum_lab_demo import quantum_lab_bootstrap_config, quantum_lab_system
-from quantum_lab_demo.workflows.readout_frequency import (
-    readout_frequency_template,
+from quantum_lab_demo.workflows.drag_beta_experiment import (
+    drag_beta_template,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -99,7 +99,7 @@ with project.connect(build_system=build_system) as lab:
     original_start = client.start_executor
     original_append = client.append_measurements
     prepared = lab.prepare(
-        readout_frequency_template(qubit="q0"),
+        drag_beta_template(),
         config=config,
     )
 
@@ -302,7 +302,7 @@ test("accepts a notebook candidate in the GUI and preserves its provenance", asy
   await expect(page.getByText("Runtime-derived default")).toBeVisible();
   await expect(page.getByText("Analysis candidate", { exact: true })).toBeVisible();
   await expect(page.getByText(candidate.analysisId, { exact: true })).toBeVisible();
-  await expect(page.getByText("Approved · Human · local-operator", { exact: true })).toBeVisible();
+  await expect(page.getByText("Approved · local-operator", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Open producing run" }).click();
 
   await expect(page.getByRole("button", { name: "Runs" })).toHaveAttribute("aria-current", "page");
@@ -380,7 +380,7 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     // The point closes only after the held append call returns its durable receipt.
     await expect(
       detail.getByRole("progressbar", {
-        name: "0 of 5 points complete",
+        name: "0 of 15 points complete",
       }),
     ).toBeVisible();
 
@@ -388,7 +388,7 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     const completion = await experiment.completion;
     expectProcessOk(completion);
     await expect(state).toHaveText("Succeeded");
-    await expect(dataCard.getByText("5 records", { exact: true })).toBeVisible();
+    await expect(dataCard.getByText("15 records", { exact: true })).toBeVisible();
     await expect(timeline.getByText(/From: leased.*To: closed/)).toBeVisible();
   } finally {
     await finishControlledExperiment(experiment);
