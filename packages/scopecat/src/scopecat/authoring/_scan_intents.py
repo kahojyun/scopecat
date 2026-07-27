@@ -9,7 +9,7 @@ from scopecat.authoring._parameter_contracts import (
     merge_parameter_contracts,
 )
 from scopecat.authoring._value_refs import (
-    ScalarOperationOperand,
+    ScalarOperand,
     ValueRef,
     internal_value_ref_parameter_contracts,
     internal_value_ref_parameter_lookup,
@@ -62,7 +62,7 @@ def parameter_cell_lookup(
     axis: AxisSpec,
 ) -> tuple[
     ParameterLookupUse,
-    tuple[tuple[str, ScalarOperationOperand], ...],
+    tuple[tuple[str, ScalarOperand], ...],
 ]:
     if axis.parameter_lookup is None:
         raise TypeError("scan axis does not overlay a parameter cell")

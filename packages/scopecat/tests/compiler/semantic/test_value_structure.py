@@ -11,7 +11,6 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
     internal_value_ref_scalar_input_ids,
-    internal_value_ref_scalar_operation,
 )
 from scopecat.graph.relations.model import BinaryScalarExpr
 
@@ -70,19 +69,16 @@ def test_compute_output_arithmetic_requires_explicit_compute() -> None:
         _ = compute.output + 1.0
 
 
-def test_relation_arithmetic_lowers_directly_without_a_semantic_operation() -> None:
+def test_relation_arithmetic_lowers_to_a_binary_expression() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     expression = sc.input("value", scalar) + 1.0
 
-    assert internal_value_ref_scalar_operation(expression) is None
     lowered = internal_lower_scalar_value_ref(expression)
     assert isinstance(lowered, BinaryScalarExpr)
     assert lowered.op == "+"
 
 
-def test_scalar_operation_derives_parameter_and_point_provenance_from_operands() -> (
-    None
-):
+def test_arithmetic_stores_parameter_and_point_dependencies() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     parameter = sc.parameter("frequency", scalar)
     point = sc.coordinate("detuning", scalar)

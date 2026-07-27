@@ -7,9 +7,6 @@ import pytest
 import scopecat as sc
 from scopecat.authoring import ValueValidationError
 from scopecat.authoring._parameter_contracts import ParameterValueContract
-from scopecat.authoring._value_refs import (
-    internal_value_ref_scalar_operation,
-)
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.elaboration import elaborate_module
@@ -366,7 +363,7 @@ def test_module_products_remain_reusable_across_instances() -> None:
     assert child.products["signal"].id == "child/signal"
 
 
-def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
+def test_module_export_arithmetic_resolves_during_elaboration() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     value = sc.input("value", value_type)
     source = (
@@ -378,10 +375,6 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     source_instance = source.instantiate("source", value=1.0)
     exported = source_instance.outputs.value
     shifted = exported + 1.0
-
-    operation = internal_value_ref_scalar_operation(shifted)
-    assert operation is not None
-    assert operation.left is exported
 
     consumed = sc.input("consumed", value_type)
     capture = sc.compute(

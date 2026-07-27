@@ -70,13 +70,13 @@ type _InputBindingLayers = tuple[tuple[tuple[str, ValueRef], ...], ...]
 type FrozenScalarLiteral = (
     Quantity | EntityRef | PayloadValue | str | int | float | bool | None
 )
-type ScalarOperationOperand = ValueRef | FrozenScalarLiteral
+type ScalarOperand = ValueRef | FrozenScalarLiteral
 
 
 @dataclass(frozen=True, slots=True)
 class _ParameterLookupDescriptor:
     use: ParameterLookupUse
-    key: tuple[tuple[str, ScalarOperationOperand], ...]
+    key: tuple[tuple[str, ScalarOperand], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,15 +88,6 @@ class ValueDeclarationKey:
     @classmethod
     def fresh(cls) -> ValueDeclarationKey:
         return cls(uuid4())
-
-
-@dataclass(frozen=True, slots=True)
-class ScalarValueOperation:
-    """Scalar expression waiting only for module-export resolution."""
-
-    operator: ScalarOperator
-    left: ScalarOperationOperand
-    right: ScalarOperationOperand
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,11 +110,6 @@ class _PointValueSource:
 class _ExpressionValueSource:
     expression: _ValueExpression
     input_binding_layers: _InputBindingLayers = ()
-
-
-@dataclass(frozen=True, slots=True)
-class _ScalarOperationValueSource:
-    operation: ScalarValueOperation
 
 
 type _ValueDeclarationIdentity = tuple[ValueDeclarationKey, tuple[str, ...]]
@@ -162,7 +148,6 @@ type _ValueSource = (
     | _PointValueSource
     | _ExpressionValueSource
     | _ModuleExportSource
-    | _ScalarOperationValueSource
 )
 
 
@@ -297,7 +282,7 @@ def internal_point_value_ref(point_id: str, value_type: Scalar) -> ValueRef:
 def internal_parameter_lookup_value_ref(
     use: ParameterLookupUse,
     *,
-    key: Mapping[str, ScalarOperationOperand],
+    key: Mapping[str, ScalarOperand],
 ) -> ValueRef:
     """Create a direct parameter-cell reference retained by parameter scans."""
 
@@ -318,14 +303,14 @@ def internal_parameter_lookup_value_ref(
         parameter_contracts=merge_parameter_contracts(
             (use,),
             *(
-                internal_value_ref_parameter_contracts(value)
+                value.parameter_contracts
                 for _name, value in captured_key
                 if isinstance(value, ValueRef)
             ),
         ),
         point_dependencies=_merge_point_dependencies(
             *(
-                internal_value_ref_point_dependencies(value)
+                value.point_dependencies
                 for _name, value in captured_key
                 if isinstance(value, ValueRef)
             ),
@@ -336,7 +321,7 @@ def internal_parameter_lookup_value_ref(
 
 def internal_value_ref_parameter_lookup(
     value: ValueRef,
-) -> tuple[ParameterLookupUse, tuple[tuple[str, ScalarOperationOperand], ...]] | None:
+) -> tuple[ParameterLookupUse, tuple[tuple[str, ScalarOperand], ...]] | None:
     """Return the cell locator only for a direct parameter lookup."""
 
     descriptor = value.parameter_lookup_descriptor
@@ -375,17 +360,6 @@ def internal_value_ref_declaration_identity(
         value.declaration_key,
         value.declaration_scope,
     )
-
-
-def internal_value_ref_scalar_operation(
-    value: ValueRef,
-) -> ScalarValueOperation | None:
-    """Return the semantic scalar operation defined by this value, if any."""
-
-    source = value.source
-    if not isinstance(source, _ScalarOperationValueSource):
-        return None
-    return source.operation
 
 
 def internal_value_ref_input_id(value: ValueRef) -> str | None:
@@ -451,13 +425,6 @@ def _first_module_export(
     if marker in seen:
         return None
     nested_seen = seen | {marker}
-    operation = internal_value_ref_scalar_operation(value)
-    if operation is not None:
-        for operand in _scalar_operation_value_operands(operation):
-            selected = _first_module_export(operand, seen=nested_seen)
-            if selected is not None:
-                return selected
-        return None
     source = value.source
     if not isinstance(source, _ExpressionValueSource):
         return None
@@ -497,7 +464,7 @@ def _transform_value_ref(
     active: frozenset[_ValueDeclarationIdentity],
 ) -> ValueRef:
     source = value.source
-    if not isinstance(source, _ExpressionValueSource | _ScalarOperationValueSource):
+    if not isinstance(source, _ExpressionValueSource):
         transformed = transform_leaf(value)
         if transformed.value_type != value.value_type:
             msg = "value reference transform must preserve the exact value type"
@@ -509,28 +476,6 @@ def _transform_value_ref(
         msg = "cyclic value reference graph"
         raise ValueError(msg)
     nested_active = active | {marker}
-    if isinstance(source, _ScalarOperationValueSource):
-        operation = source.operation
-        left = _transform_scalar_operation_operand(
-            operation.left,
-            transform_leaf=transform_leaf,
-            active=nested_active,
-        )
-        right = _transform_scalar_operation_operand(
-            operation.right,
-            transform_leaf=transform_leaf,
-            active=nested_active,
-        )
-        if left is operation.left and right is operation.right:
-            return value
-        return _rebuild_scalar_operation(
-            value,
-            ScalarValueOperation(
-                operator=operation.operator,
-                left=left,
-                right=right,
-            ),
-        )
 
     layers = source.input_binding_layers
     transformed_layers = tuple(
@@ -565,16 +510,7 @@ def _transform_value_ref(
     transformed_values = tuple(
         bound for layer in transformed_layers for _input_id, bound in layer
     )
-    if any(
-        _first_module_export(bound, seen=frozenset()) is None
-        and internal_value_ref_requires_execution(bound)
-        for bound in transformed_values
-    ):
-        msg = (
-            "compute outputs cannot be bound inside relation expressions; "
-            "express this calculation with sc.compute"
-        )
-        raise TypeError(msg)
+    _require_relation_bindings(transformed_values)
     return ValueRef(
         source=_ExpressionValueSource(
             expression=source.expression,
@@ -584,34 +520,13 @@ def _transform_value_ref(
         declaration_key=value.declaration_key,
         declaration_scope=value.declaration_scope,
         parameter_contracts=merge_parameter_contracts(
-            internal_value_ref_parameter_contracts(value),
-            *(
-                internal_value_ref_parameter_contracts(bound)
-                for bound in transformed_values
-            ),
+            value.parameter_contracts,
+            *(bound.parameter_contracts for bound in transformed_values),
         ),
         point_dependencies=_merge_point_dependencies(
-            internal_value_ref_point_dependencies(value),
-            *(
-                internal_value_ref_point_dependencies(bound)
-                for bound in transformed_values
-            ),
+            value.point_dependencies,
+            *(bound.point_dependencies for bound in transformed_values),
         ),
-    )
-
-
-def _transform_scalar_operation_operand(
-    operand: ScalarOperationOperand,
-    *,
-    transform_leaf: Callable[[ValueRef], ValueRef],
-    active: frozenset[_ValueDeclarationIdentity],
-) -> ScalarOperationOperand:
-    if not isinstance(operand, ValueRef):
-        return operand
-    return _transform_value_ref(
-        operand,
-        transform_leaf=transform_leaf,
-        active=active,
     )
 
 
@@ -642,30 +557,8 @@ def internal_scope_value_ref(
             value_type=value.value_type,
             declaration_key=value.declaration_key,
             declaration_scope=declaration_scope,
-            parameter_contracts=internal_value_ref_parameter_contracts(value),
-            point_dependencies=internal_value_ref_point_dependencies(value),
-        )
-    if isinstance(source, _ScalarOperationValueSource):
-        operation = source.operation
-        return ValueRef(
-            source=_ScalarOperationValueSource(
-                operation=ScalarValueOperation(
-                    operator=operation.operator,
-                    left=_scope_scalar_operation_operand(
-                        operation.left,
-                        *scope,
-                        origin=origin,
-                    ),
-                    right=_scope_scalar_operation_operand(
-                        operation.right,
-                        *scope,
-                        origin=origin,
-                    ),
-                ),
-            ),
-            value_type=value.value_type,
-            declaration_key=value.declaration_key,
-            declaration_scope=declaration_scope,
+            parameter_contracts=value.parameter_contracts,
+            point_dependencies=value.point_dependencies,
         )
     if isinstance(source, _ExpressionValueSource):
         layers = source.input_binding_layers
@@ -690,40 +583,22 @@ def internal_scope_value_ref(
             value_type=value.value_type,
             declaration_key=value.declaration_key,
             declaration_scope=declaration_scope,
-            parameter_contracts=internal_value_ref_parameter_contracts(value),
-            point_dependencies=internal_value_ref_point_dependencies(value),
+            parameter_contracts=value.parameter_contracts,
+            point_dependencies=value.point_dependencies,
         )
     return ValueRef(
         source=source,
         value_type=value.value_type,
         declaration_key=value.declaration_key,
         declaration_scope=declaration_scope,
-        parameter_contracts=internal_value_ref_parameter_contracts(value),
-        point_dependencies=internal_value_ref_point_dependencies(value),
+        parameter_contracts=value.parameter_contracts,
+        point_dependencies=value.point_dependencies,
     )
-
-
-def _scope_scalar_operation_operand(
-    operand: ScalarOperationOperand,
-    *scope: str,
-    origin: tuple[object, ...],
-) -> ScalarOperationOperand:
-    if not isinstance(operand, ValueRef):
-        return operand
-    return internal_scope_value_ref(operand, *scope, origin=origin)
 
 
 def internal_value_ref_parameter_contracts(
     value: ValueRef,
 ) -> tuple[ParameterContract, ...]:
-    operation = internal_value_ref_scalar_operation(value)
-    if operation is not None:
-        return merge_parameter_contracts(
-            *(
-                internal_value_ref_parameter_contracts(operand)
-                for operand in _scalar_operation_value_operands(operation)
-            )
-        )
     return value.parameter_contracts
 
 
@@ -732,14 +607,6 @@ def internal_value_ref_point_dependencies(
 ) -> tuple[PointValueDependency, ...]:
     """Return point ids and types consumed anywhere in a typed value graph."""
 
-    operation = internal_value_ref_scalar_operation(value)
-    if operation is not None:
-        return _merge_point_dependencies(
-            *(
-                internal_value_ref_point_dependencies(operand)
-                for operand in _scalar_operation_value_operands(operation)
-            )
-        )
     return value.point_dependencies
 
 
@@ -778,11 +645,6 @@ def _value_ref_requires_execution(
             f"{source.export_id!r}"
         )
         raise ValueError(msg)
-    if isinstance(source, _ScalarOperationValueSource):
-        return any(
-            _value_ref_requires_execution(operand, seen=nested_seen)
-            for operand in _scalar_operation_value_operands(source.operation)
-        )
     return any(
         _value_ref_requires_execution(bound, seen=nested_seen)
         for layer in source.input_binding_layers
@@ -803,13 +665,6 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
             "module elaboration must resolve exports first"
         )
         raise ValueError(msg)
-    if isinstance(source, _ScalarOperationValueSource):
-        operation = source.operation
-        return BinaryScalarExpr(
-            op=operation.operator,
-            left=_lower_scalar_operation_operand(operation.left),
-            right=_lower_scalar_operation_operand(operation.right),
-        )
     if isinstance(source, _ExpressionValueSource):
         expression = source.expression
         layers = source.input_binding_layers
@@ -831,24 +686,6 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
     if isinstance(value.value_type, Scalar):
         return input_ref(source_id)
     return input_table(source_id)
-
-
-def _lower_scalar_operation_operand(
-    operand: ScalarOperationOperand,
-) -> ScalarExpression:
-    if not isinstance(operand, ValueRef):
-        return as_scalar_expr(operand)
-    lowered = internal_lower_value_ref(operand)
-    if isinstance(lowered, ComputeResultRef):
-        msg = (
-            "compute outputs cannot be used in relation arithmetic; "
-            "express this calculation with sc.compute"
-        )
-        raise TypeError(msg)
-    if not isinstance(lowered, ScalarExpr):
-        msg = "scalar operation operands must be scalar-shaped"
-        raise TypeError(msg)
-    return cast("ScalarExpression", lowered)
 
 
 def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpression:
@@ -917,22 +754,6 @@ def internal_bind_value_ref_inputs(
     if isinstance(source, _InputValueSource):
         selected = inputs.get(source.id)
         return value if selected is None else selected
-    if isinstance(source, _ScalarOperationValueSource):
-        if not inputs:
-            return value
-        operation = source.operation
-        left = _bind_scalar_operation_operand(operation.left, inputs)
-        right = _bind_scalar_operation_operand(operation.right, inputs)
-        if left is operation.left and right is operation.right:
-            return value
-        return _rebuild_scalar_operation(
-            value,
-            ScalarValueOperation(
-                operator=operation.operator,
-                left=left,
-                right=right,
-            ),
-        )
     if not isinstance(source, _ExpressionValueSource) or not inputs:
         return value
     layer, _unbound_input_ids = _reachable_input_bindings(
@@ -942,16 +763,7 @@ def internal_bind_value_ref_inputs(
     if not layer:
         return value
     bound_values = tuple(selected for _input_id, selected in layer)
-    if any(
-        _first_module_export(selected, seen=frozenset()) is None
-        and internal_value_ref_requires_execution(selected)
-        for selected in bound_values
-    ):
-        msg = (
-            "compute outputs cannot be bound inside relation expressions; "
-            "express this calculation with sc.compute"
-        )
-        raise TypeError(msg)
+    _require_relation_bindings(bound_values)
     existing_layers = source.input_binding_layers
     return ValueRef(
         source=_ExpressionValueSource(
@@ -962,29 +774,14 @@ def internal_bind_value_ref_inputs(
         declaration_key=value.declaration_key,
         declaration_scope=value.declaration_scope,
         parameter_contracts=merge_parameter_contracts(
-            internal_value_ref_parameter_contracts(value),
-            *(
-                internal_value_ref_parameter_contracts(selected)
-                for selected in bound_values
-            ),
+            value.parameter_contracts,
+            *(selected.parameter_contracts for selected in bound_values),
         ),
         point_dependencies=_merge_point_dependencies(
-            internal_value_ref_point_dependencies(value),
-            *(
-                internal_value_ref_point_dependencies(selected)
-                for selected in bound_values
-            ),
+            value.point_dependencies,
+            *(selected.point_dependencies for selected in bound_values),
         ),
     )
-
-
-def _bind_scalar_operation_operand(
-    operand: ScalarOperationOperand,
-    inputs: Mapping[str, ValueRef],
-) -> ScalarOperationOperand:
-    if not isinstance(operand, ValueRef):
-        return operand
-    return internal_bind_value_ref_inputs(operand, inputs)
 
 
 def internal_value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
@@ -997,12 +794,6 @@ def _value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
     source = value.source
     if isinstance(source, _InputValueSource):
         return frozenset((source.id,))
-    if isinstance(source, _ScalarOperationValueSource):
-        return frozenset(
-            input_id
-            for operand in _scalar_operation_value_operands(source.operation)
-            for input_id in _value_ref_unbound_input_ids(operand)
-        )
     if not isinstance(source, _ExpressionValueSource):
         return frozenset()
 
@@ -1041,57 +832,66 @@ def _binary_value(left: object, right: object, operator: str) -> ValueRef:
     left_type = _scalar_operand_type(left)
     right_type = _scalar_operand_type(right)
     selected_operator = cast("ScalarOperator", operator)
-    operation = ScalarValueOperation(
-        operator=selected_operator,
-        left=_capture_scalar_operation_operand(left),
-        right=_capture_scalar_operation_operand(right),
+    left_operand = _capture_scalar_operand(left)
+    right_operand = _capture_scalar_operand(right)
+    operands = tuple(
+        operand
+        for operand in (left_operand, right_operand)
+        if isinstance(operand, ValueRef)
     )
-    return _resolved_scalar_operation_value(
-        operation,
+    _require_relation_bindings(operands)
+
+    declaration_key = ValueDeclarationKey.fresh()
+    left_expression, left_binding = _deferred_scalar_operand(
+        left_operand,
+        declaration_key=declaration_key,
+        side="left",
+    )
+    right_expression, right_binding = _deferred_scalar_operand(
+        right_operand,
+        declaration_key=declaration_key,
+        side="right",
+    )
+    bindings = tuple(
+        binding for binding in (left_binding, right_binding) if binding is not None
+    )
+    return ValueRef(
+        source=_ExpressionValueSource(
+            expression=BinaryScalarExpr(
+                op=selected_operator,
+                left=left_expression,
+                right=right_expression,
+            ),
+            input_binding_layers=(bindings,),
+        ),
         value_type=scalar_operator_result_type(
             left_type,
             right_type,
             selected_operator,
         ),
-    )
-
-
-def _resolved_scalar_operation_value(
-    operation: ScalarValueOperation,
-    *,
-    value_type: Scalar,
-    declaration_key: ValueDeclarationKey | None = None,
-    declaration_scope: tuple[str, ...] = (),
-) -> ValueRef:
-    operands = _scalar_operation_value_operands(operation)
-    if any(_first_module_export(operand, seen=frozenset()) for operand in operands):
-        return ValueRef(
-            source=_ScalarOperationValueSource(operation=operation),
-            value_type=value_type,
-            declaration_key=declaration_key or ValueDeclarationKey.fresh(),
-            declaration_scope=declaration_scope,
-        )
-    return ValueRef(
-        source=_ExpressionValueSource(
-            expression=BinaryScalarExpr(
-                op=operation.operator,
-                left=_lower_scalar_operation_operand(operation.left),
-                right=_lower_scalar_operation_operand(operation.right),
-            )
-        ),
-        value_type=value_type,
-        declaration_key=declaration_key or ValueDeclarationKey.fresh(),
-        declaration_scope=declaration_scope,
+        declaration_key=declaration_key,
         parameter_contracts=merge_parameter_contracts(
-            *(internal_value_ref_parameter_contracts(operand) for operand in operands)
+            *(operand.parameter_contracts for operand in operands)
         ),
         point_dependencies=_merge_point_dependencies(
-            *(internal_value_ref_point_dependencies(operand) for operand in operands)
+            *(operand.point_dependencies for operand in operands)
         ),
     )
 
 
-def _capture_scalar_operation_operand(value: object) -> ScalarOperationOperand:
+def _deferred_scalar_operand(
+    operand: ScalarOperand,
+    *,
+    declaration_key: ValueDeclarationKey,
+    side: str,
+) -> tuple[ScalarExpression, tuple[str, ValueRef] | None]:
+    if not isinstance(operand, ValueRef):
+        return as_scalar_expr(operand), None
+    input_id = f"__value_operand_{declaration_key.value.hex}_{side}"
+    return input_ref(input_id), (input_id, operand)
+
+
+def _capture_scalar_operand(value: object) -> ScalarOperand:
     if isinstance(value, ValueRef):
         return value
     if isinstance(value, PayloadValue):
@@ -1103,6 +903,19 @@ def _capture_scalar_operation_operand(value: object) -> ScalarOperationOperand:
         msg = "scalar operations require typed values or closed scalar literals"
         raise TypeError(msg) from error
     return cast("FrozenScalarLiteral", captured)
+
+
+def _require_relation_bindings(values: tuple[ValueRef, ...]) -> None:
+    if any(
+        _first_module_export(value, seen=frozenset()) is None
+        and internal_value_ref_requires_execution(value)
+        for value in values
+    ):
+        msg = (
+            "compute outputs cannot be bound inside relation expressions; "
+            "express this calculation with sc.compute"
+        )
+        raise TypeError(msg)
 
 
 def _merge_point_dependencies(
@@ -1141,28 +954,6 @@ def _require_expression_shape(
         return
     msg = f"expression shape is incompatible with {describe_value_type(value_type)}"
     raise TypeError(msg)
-
-
-def _rebuild_scalar_operation(
-    value: ValueRef,
-    operation: ScalarValueOperation,
-) -> ValueRef:
-    return _resolved_scalar_operation_value(
-        operation,
-        value_type=cast("Scalar", value.value_type),
-        declaration_key=value.declaration_key,
-        declaration_scope=value.declaration_scope,
-    )
-
-
-def _scalar_operation_value_operands(
-    operation: ScalarValueOperation,
-) -> tuple[ValueRef, ...]:
-    return tuple(
-        operand
-        for operand in (operation.left, operation.right)
-        if isinstance(operand, ValueRef)
-    )
 
 
 def empty_frozen_mapping() -> Mapping[str, Never]:
