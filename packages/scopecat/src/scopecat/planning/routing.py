@@ -16,7 +16,7 @@ from scopecat.records.instrument import CommandChannelBinding
 
 @dataclass(frozen=True)
 class ResourceBinding:
-    """One instrument shard selected for a logical resource port."""
+    """The one instrument selected for a logical resource port."""
 
     instrument_id: str
     entity_ids: tuple[str, ...] = ()
@@ -44,38 +44,11 @@ class ResourcePortManifest:
         self,
         entity_ids: Sequence[str] = (),
     ) -> ResourceBinding:
-        """Select the single driver invocation for a point-local operation.
-
-        Different points may select different instruments, but one point-local
-        operation is atomic at one driver and is never implicitly
-        broadcast across instrument shards.
-        """
-
-        shards = self.select_shards(entity_ids)
-        if len(shards) > 1:
-            raise ResourceBindingError(
-                "module_resource_port_ambiguous",
-                f"resource port {self.port_id} spans multiple instruments: "
-                + ", ".join(shard.instrument_id for shard in shards),
-            )
-        if not shards:
-            raise AssertionError("successful resource selection lost its shard")
-        return next(iter(shards))
-
-    def select_shards(
-        self,
-        entity_ids: Sequence[str] = (),
-    ) -> tuple[ResourceBinding, ...]:
-        """Project selected entities onto their static instrument owners.
-
-        This split is intended for desired state, where different devices may
-        maintain their explicit values through different drivers. It does not
-        turn a multi-instrument operation into a broadcast.
-        """
+        """Select one driver for the complete point-local entity scope."""
 
         selected_entity_ids = tuple(dict.fromkeys(entity_ids))
         if selected_entity_ids:
-            entities_by_instrument: dict[str, list[str]] = {}
+            selected_instrument_ids: list[str] = []
             for entity_id in selected_entity_ids:
                 candidates = self.instrument_ids_by_entity.get(entity_id, ())
                 if not candidates:
@@ -90,14 +63,17 @@ class ResourcePortManifest:
                         f"resource port {self.port_id} entity {entity_id!r} matches "
                         "multiple instruments: " + ", ".join(candidates),
                     )
-                instrument_id = next(iter(candidates))
-                entities_by_instrument.setdefault(instrument_id, []).append(entity_id)
-            return tuple(
-                self._resource_binding(
-                    instrument_id,
-                    entity_ids=tuple(shard_entity_ids),
+                selected_instrument_ids.append(next(iter(candidates)))
+            instrument_ids = tuple(dict.fromkeys(selected_instrument_ids))
+            if len(instrument_ids) > 1:
+                raise ResourceBindingError(
+                    "module_resource_port_ambiguous",
+                    f"resource port {self.port_id} entities span multiple "
+                    "instruments: " + ", ".join(instrument_ids),
                 )
-                for instrument_id, shard_entity_ids in entities_by_instrument.items()
+            return self._resource_binding(
+                next(iter(instrument_ids)),
+                entity_ids=selected_entity_ids,
             )
 
         if not self.default_instrument_ids:
@@ -111,11 +87,9 @@ class ResourcePortManifest:
                 f"resource port {self.port_id} matches multiple instruments: "
                 f"{', '.join(self.default_instrument_ids)}",
             )
-        return (
-            self._resource_binding(
-                next(iter(self.default_instrument_ids)),
-                entity_ids=(),
-            ),
+        return self._resource_binding(
+            next(iter(self.default_instrument_ids)),
+            entity_ids=(),
         )
 
     def _resource_binding(
@@ -268,10 +242,7 @@ class RoutingView:
                 CommandChannelBinding(
                     entity_id=endpoint.entity_id,
                     channel_id=endpoint.channel_id,
-                    line_id=endpoint.line_id,
                     capability=endpoint.capability,
-                    group_ids=endpoint.group_ids,
-                    metadata=endpoint.metadata,
                 )
             )
         return tuple(selected)

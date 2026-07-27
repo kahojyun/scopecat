@@ -9,10 +9,7 @@ export function filterConfigEntries(
   return entries.filter((entry) => {
     const candidateTerms =
       entry.source.kind === "candidate_config"
-        ? [
-            entry.source.run_id,
-            ...entry.source.proposal_evidence.map((evidence) => evidence.proposal_id),
-          ]
+        ? [entry.source.run_id, entry.source.proposal_id]
         : [];
     return [entry.id, entry.registered_by, entry.note, entry.source.kind, ...candidateTerms]
       .filter((value): value is string => value !== undefined)

@@ -116,7 +116,7 @@ class SQLiteControlPlane:
                 (cast("int", cursor.lastrowid),),
             )
         )
-        assert row is not None  # noqa: S101
+        assert row is not None
         return _run(row)
 
     def get_run(self, run_id: str) -> ControlRun:
@@ -136,21 +136,17 @@ class SQLiteControlPlane:
         self,
         *,
         limit: int = 50,
-        after: int | None = None,
         before: int | None = None,
         state: ControlRunState | None = None,
-        latest: bool = False,
     ) -> RunPage:
-        """Return a keyset page in immutable admission order."""
+        """Return newest runs first, continuing toward older admissions."""
 
         with closing(self._connect()) as connection:
             return self.list_runs_in_transaction(
                 connection,
                 limit=limit,
-                after=after,
                 before=before,
                 state=state,
-                latest=latest,
             )
 
     def list_runs_in_transaction(
@@ -158,20 +154,13 @@ class SQLiteControlPlane:
         connection: sqlite3.Connection,
         *,
         limit: int = 50,
-        after: int | None = None,
         before: int | None = None,
         state: ControlRunState | None = None,
-        latest: bool = False,
     ) -> RunPage:
-        """Read one scheduler page through an existing SQLite snapshot."""
+        """Read one newest-first page through an existing SQLite snapshot."""
 
         _page_size(limit)
-        if after is not None and before is not None:
-            raise ValueError("run pages accept either an after or before cursor")
-        if latest and (after is not None or before is not None):
-            raise ValueError("latest run snapshots do not accept a cursor")
-        cursor = after or 0
-        if latest and state is None:
+        if before is None and state is None:
             rows = _all(
                 connection.execute(
                     """
@@ -182,7 +171,7 @@ class SQLiteControlPlane:
                     (limit + 1,),
                 )
             )
-        elif latest:
+        elif before is None:
             rows = _all(
                 connection.execute(
                     """
@@ -194,7 +183,7 @@ class SQLiteControlPlane:
                     (state, limit + 1),
                 )
             )
-        elif before is not None and state is None:
+        elif state is None:
             rows = _all(
                 connection.execute(
                     """
@@ -206,7 +195,7 @@ class SQLiteControlPlane:
                     (before, limit + 1),
                 )
             )
-        elif before is not None:
+        else:
             rows = _all(
                 connection.execute(
                     """
@@ -218,36 +207,6 @@ class SQLiteControlPlane:
                     (before, state, limit + 1),
                 )
             )
-        elif state is None:
-            rows = _all(
-                connection.execute(
-                    """
-                    SELECT * FROM scheduler_runs
-                    WHERE sequence > ?
-                    ORDER BY sequence
-                    LIMIT ?
-                    """,
-                    (cursor, limit + 1),
-                )
-            )
-        else:
-            rows = _all(
-                connection.execute(
-                    """
-                    SELECT * FROM scheduler_runs
-                    WHERE sequence > ? AND state = ?
-                    ORDER BY sequence
-                    LIMIT ?
-                    """,
-                    (cursor, state, limit + 1),
-                )
-            )
-        if latest or before is not None:
-            page_rows = rows[:limit]
-            page_rows.reverse()
-            items = tuple(_run(row) for row in page_rows)
-            previous_cursor = items[0].sequence if len(rows) > limit and items else None
-            return RunPage(items=items, previous_cursor=previous_cursor)
         items = tuple(_run(row) for row in rows[:limit])
         next_cursor = None if len(rows) <= limit else items[-1].sequence
         return RunPage(items=items, next_cursor=next_cursor)
@@ -576,7 +535,7 @@ class SQLiteControlPlane:
                     "SELECT * FROM executor_leases WHERE token = ?", (lease.token,)
                 )
             )
-            assert row is not None  # noqa: S101
+            assert row is not None
             return _executor(row)
 
     def validate_executor_lease(

@@ -4,17 +4,13 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import cast
 
 from scopecat.authoring._scan_intents import (
-    CartesianScanIntent,
-    CenteredParameterScanIntent,
-    CenteredPointScanIntent,
-    ExplicitParameterScanIntent,
+    AroundScanSource,
+    AxisSpec,
     Scan,
-    ScanLeafIntent,
-    iter_scan_leaves,
-    scan_point_id,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -22,21 +18,8 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_requires_execution,
     internal_value_ref_scalar_input_ids,
 )
-from scopecat.kernel.value_type_compatibility import require_assignable
-from scopecat.kernel.value_types import Scalar, ValueType
-from scopecat.kernel.value_validation import ValueValidationError
 
 type ScanPath = tuple[str | int, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ScanAxis:
-    """One uniquely provided axis in declaration order."""
-
-    id: str
-    value_type: Scalar
-    path: ScanPath
-    leaf: ScanLeafIntent = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,22 +35,15 @@ class ScanValidationError(ValueError):
         super().__init__("; ".join(issue.message for issue in self.issues))
 
 
-@dataclass(frozen=True, slots=True)
-class VerifiedScans:
-    """Flat Cartesian scan axes accepted by the compiler."""
-
-    axes: tuple[ScanAxis, ...]
-
-
 def verify_scans(
     scans: Sequence[Scan],
     *,
     inputs: Mapping[str, object] | None = None,
-    input_types: Mapping[str, ValueType] | None = None,
-) -> VerifiedScans:
+) -> tuple[AxisSpec, ...]:
     """Validate targets and require every dynamic scan source to be closed."""
 
-    axes = _index_scan_axes(scans)
+    indexed_axes = _index_scan_axes(scans)
+    axes = tuple(axis for axis, _path in indexed_axes)
     duplicate_ids = sorted(
         axis_id
         for axis_id, count in Counter(axis.id for axis in axes).items()
@@ -85,27 +61,9 @@ def verify_scans(
         )
 
     issues: list[ScanValidationIssue] = []
-    expected_types = input_types or {}
     bound_input_ids = frozenset((inputs or {}).keys())
-    for axis in axes:
-        expected = expected_types.get(axis.id)
-        if expected is not None:
-            try:
-                require_assignable(
-                    axis.value_type,
-                    expected,
-                    path=("scans", axis.id),
-                )
-            except ValueValidationError as error:
-                issues.append(
-                    ScanValidationIssue(
-                        "module_input_type_mismatch",
-                        str(error),
-                        axis.path,
-                    )
-                )
-
-        source, source_path, context = _scan_source(axis.leaf)
+    for axis, path in indexed_axes:
+        source, source_path, context = _scan_source(axis)
         if source is None:
             continue
         if internal_value_ref_requires_execution(source):
@@ -113,7 +71,7 @@ def verify_scans(
                 ScanValidationIssue(
                     "value_requires_execution",
                     f"{context} cannot depend on an external operation",
-                    (*axis.path, *source_path),
+                    (*path, *source_path),
                 )
             )
         dependencies = internal_value_ref_point_dependencies(source)
@@ -126,7 +84,7 @@ def verify_scans(
                     "scan_point_dependency_unsupported",
                     f"scan axis {axis.id!r} source depends on scanned point: "
                     f"{dependency_ids}",
-                    (*axis.path, *source_path),
+                    (*path, *source_path),
                 )
             )
         unbound_inputs = sorted(
@@ -138,46 +96,28 @@ def verify_scans(
                     "scan_source_input_unbound",
                     f"scan axis {axis.id!r} source uses unbound input: "
                     + ", ".join(unbound_inputs),
-                    (*axis.path, *source_path),
+                    (*path, *source_path),
                 )
             )
 
     if issues:
         raise ScanValidationError(issues)
 
-    return VerifiedScans(axes=axes)
+    return axes
 
 
-def _index_scan_axes(scans: Sequence[Scan]) -> tuple[ScanAxis, ...]:
-    axes: list[ScanAxis] = []
-    for root_index, scan in enumerate(scans):
-        leaves = iter_scan_leaves(scan)
-        for leaf_index, leaf in enumerate(leaves):
-            path = (
-                (root_index, "scans", leaf_index)
-                if isinstance(scan, CartesianScanIntent)
-                else (root_index,)
-            )
-            value_type = leaf.target.value_type
-            if not isinstance(value_type, Scalar):
-                msg = "scan target must carry a scalar value type"
-                raise TypeError(msg)
-            axes.append(
-                ScanAxis(
-                    id=scan_point_id(leaf),
-                    value_type=value_type,
-                    path=path,
-                    leaf=leaf,
-                )
-            )
-    return tuple(axes)
+def _index_scan_axes(
+    scans: Sequence[Scan],
+) -> tuple[tuple[AxisSpec, ScanPath], ...]:
+    return tuple((cast("AxisSpec", scan), (index,)) for index, scan in enumerate(scans))
 
 
 def _scan_source(
-    scan: ScanLeafIntent,
+    axis: AxisSpec,
 ) -> tuple[ValueRef | None, ScanPath, str]:
-    if isinstance(scan, CenteredPointScanIntent) and isinstance(scan.center, ValueRef):
-        return scan.center, ("center",), "scan center"
-    if isinstance(scan, ExplicitParameterScanIntent | CenteredParameterScanIntent):
-        return scan.lookup, (), "parameter scan key"
+    if axis.parameter_lookup is not None:
+        return axis.parameter_lookup, (), "parameter scan key"
+    source = axis.source
+    if isinstance(source, AroundScanSource) and isinstance(source.center, ValueRef):
+        return source.center, ("center",), "scan center"
     return None, (), "scan source"

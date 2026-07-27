@@ -67,8 +67,8 @@ class ProviderContractError(OperationFailure):
     """A provider violates or cannot satisfy its declared contract."""
 
 
-class MeasurementTransformExecutionError(OperationFailure):
-    """A selected host measurement transform could not execute its contract."""
+class MeasurementPostprocessorExecutionError(OperationFailure):
+    """A point-local measurement postprocessor could not execute its contract."""
 
 
 class RunFailure(ProblemFailure):

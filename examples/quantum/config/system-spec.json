@@ -1,75 +1,9 @@
 {
   "id": "templates-system",
   "primary_entity_id": "q0",
-  "topology": {
-    "entities": [
-      {
-        "id": "q0",
-        "kind": "logical_qubit"
-      },
-      {
-        "id": "q1",
-        "kind": "logical_qubit"
-      },
-      {
-        "id": "q2",
-        "kind": "logical_qubit"
-      },
-      {
-        "id": "q3",
-        "kind": "logical_qubit"
-      },
-      {
-        "id": "coupler-q0-q1",
-        "kind": "logical_coupler"
-      },
-      {
-        "id": "coupler-q2-q3",
-        "kind": "logical_coupler"
-      }
-    ]
-  },
-  "instrument_registry": {
-    "instruments": [
-      {
-        "id": "drive-stack",
-        "kind": "arbitrary_waveform_control"
-      },
-      {
-        "id": "readout-stack",
-        "kind": "iq_readout"
-      },
-      {
-        "id": "coupler-stack",
-        "kind": "coupler_control"
-      }
-    ]
-  },
-  "domain_target": {
-    "id": "quantum-lab-demo.fake-list-mode.v1",
-    "kind": "quantum_lab_demo.fake-list-mode",
-    "instrument_ids": [
-      "drive-stack",
-      "readout-stack",
-      "coupler-stack"
-    ]
-  },
   "parameter_catalog": {
     "id": "templates-parameter-definitions-catalog",
     "definitions": [
-      {
-        "id": "repetitions",
-        "value_type": {
-          "shape": "scalar",
-          "atom": {
-            "type": "quantity",
-            "unit": "count",
-            "minimum": 1.0,
-            "maximum": 10000.0
-          }
-        },
-        "description": "Default acquisition repetitions."
-      },
       {
         "id": "qubits",
         "value_type": {
@@ -83,59 +17,10 @@
               }
             },
             {
-              "id": "rabi_pulse_length",
-              "value_type": {
-                "type": "quantity",
-                "unit": "ns"
-              }
-            },
-            {
-              "id": "rabi_drive_amplitude",
-              "value_type": {
-                "type": "quantity",
-                "unit": "arb"
-              }
-            },
-            {
               "id": "drag_beta",
               "value_type": {
                 "type": "quantity",
                 "unit": "ns"
-              }
-            },
-            {
-              "id": "drive_frequency",
-              "value_type": {
-                "type": "quantity",
-                "unit": "GHz"
-              }
-            },
-            {
-              "id": "readout_frequency",
-              "value_type": {
-                "type": "quantity",
-                "unit": "GHz"
-              }
-            },
-            {
-              "id": "readout_power",
-              "value_type": {
-                "type": "quantity",
-                "unit": "dBm"
-              }
-            },
-            {
-              "id": "x_duration",
-              "value_type": {
-                "type": "quantity",
-                "unit": "ns"
-              }
-            },
-            {
-              "id": "x_amplitude",
-              "value_type": {
-                "type": "quantity",
-                "unit": "arb"
               }
             },
             {
@@ -158,109 +43,25 @@
                 "type": "quantity",
                 "unit": "ns"
               }
-            },
-            {
-              "id": "readout_duration",
-              "value_type": {
-                "type": "quantity",
-                "unit": "ns"
-              }
-            },
-            {
-              "id": "readout_amplitude",
-              "value_type": {
-                "type": "quantity",
-                "unit": "arb"
-              }
             }
           ],
           "primary_key": [
             "qubit"
           ]
         },
-        "description": "Qubit-keyed calibration values."
+        "description": "q0 DRAG calibration values."
+      }
+    ]
+  },
+  "instrument_registry": {
+    "instruments": [
+      {
+        "id": "drive-stack",
+        "kind": "arbitrary_waveform_control"
       },
       {
-        "id": "two_qubit_gates",
-        "value_type": {
-          "shape": "table",
-          "columns": [
-            {
-              "id": "control_qubit",
-              "value_type": {
-                "type": "entity",
-                "entity_kind": "logical_qubit"
-              }
-            },
-            {
-              "id": "partner_qubit",
-              "value_type": {
-                "type": "entity",
-                "entity_kind": "logical_qubit"
-              }
-            },
-            {
-              "id": "gate",
-              "value_type": {
-                "type": "string"
-              }
-            },
-            {
-              "id": "coupler",
-              "value_type": {
-                "type": "entity",
-                "entity_kind": "logical_coupler"
-              }
-            },
-            {
-              "id": "control_echo_amplitude",
-              "value_type": {
-                "type": "quantity",
-                "unit": "arb"
-              }
-            },
-            {
-              "id": "partner_echo_amplitude",
-              "value_type": {
-                "type": "quantity",
-                "unit": "arb"
-              }
-            },
-            {
-              "id": "coupler_parking_flux",
-              "value_type": {
-                "type": "quantity",
-                "unit": "arb"
-              }
-            },
-            {
-              "id": "coupler_amplitude",
-              "value_type": {
-                "type": "quantity",
-                "unit": "arb"
-              }
-            },
-            {
-              "id": "duration",
-              "value_type": {
-                "type": "quantity",
-                "unit": "ns"
-              }
-            },
-            {
-              "id": "sample_rate_hz",
-              "value_type": {
-                "type": "float"
-              }
-            }
-          ],
-          "primary_key": [
-            "control_qubit",
-            "partner_qubit",
-            "gate"
-          ]
-        },
-        "description": "Two-qubit gate calibration values used by unified gate and pulse programs."
+        "id": "readout-stack",
+        "kind": "iq_readout"
       }
     ]
   },
@@ -270,122 +71,36 @@
         "instrument_id": "drive-stack",
         "capability": "play_pulse_program",
         "entity_id": "q0",
-        "channel_id": "drive-q0"
-      },
-      {
-        "instrument_id": "drive-stack",
-        "capability": "play_gate_sequence",
-        "entity_id": "q0",
-        "channel_id": "drive-q0"
-      },
-      {
-        "instrument_id": "drive-stack",
-        "capability": "play_pulse_program",
-        "entity_id": "q1",
-        "channel_id": "drive-q1"
-      },
-      {
-        "instrument_id": "drive-stack",
-        "capability": "play_gate_sequence",
-        "entity_id": "q1",
-        "channel_id": "drive-q1"
-      },
-      {
-        "instrument_id": "drive-stack",
-        "capability": "play_pulse_program",
-        "entity_id": "q2",
-        "channel_id": "drive-q2"
-      },
-      {
-        "instrument_id": "drive-stack",
-        "capability": "play_gate_sequence",
-        "entity_id": "q2",
-        "channel_id": "drive-q2"
-      },
-      {
-        "instrument_id": "drive-stack",
-        "capability": "play_pulse_program",
-        "entity_id": "q3",
-        "channel_id": "drive-q3"
-      },
-      {
-        "instrument_id": "drive-stack",
-        "capability": "play_gate_sequence",
-        "entity_id": "q3",
-        "channel_id": "drive-q3"
+        "channel_id": "drive.awg0.ch1"
       },
       {
         "instrument_id": "readout-stack",
         "capability": "readout_pulse",
         "entity_id": "q0",
-        "channel_id": "readout-q0"
+        "channel_id": "readout.mux0"
       },
       {
         "instrument_id": "readout-stack",
         "capability": "acquire_iq",
         "entity_id": "q0",
-        "channel_id": "readout-q0"
-      },
-      {
-        "instrument_id": "readout-stack",
-        "capability": "readout_pulse",
-        "entity_id": "q1",
-        "channel_id": "readout-q1"
-      },
-      {
-        "instrument_id": "readout-stack",
-        "capability": "acquire_iq",
-        "entity_id": "q1",
-        "channel_id": "readout-q1"
-      },
-      {
-        "instrument_id": "readout-stack",
-        "capability": "readout_pulse",
-        "entity_id": "q2",
-        "channel_id": "readout-q2"
-      },
-      {
-        "instrument_id": "readout-stack",
-        "capability": "acquire_iq",
-        "entity_id": "q2",
-        "channel_id": "readout-q2"
-      },
-      {
-        "instrument_id": "readout-stack",
-        "capability": "readout_pulse",
-        "entity_id": "q3",
-        "channel_id": "readout-q3"
-      },
-      {
-        "instrument_id": "readout-stack",
-        "capability": "acquire_iq",
-        "entity_id": "q3",
-        "channel_id": "readout-q3"
-      },
-      {
-        "instrument_id": "coupler-stack",
-        "capability": "play_coupler_pulse",
-        "entity_id": "coupler-q0-q1",
-        "channel_id": "coupler-q0-q1"
-      },
-      {
-        "instrument_id": "coupler-stack",
-        "capability": "set_flux_bias",
-        "entity_id": "coupler-q0-q1",
-        "channel_id": "coupler-q0-q1"
-      },
-      {
-        "instrument_id": "coupler-stack",
-        "capability": "play_coupler_pulse",
-        "entity_id": "coupler-q2-q3",
-        "channel_id": "coupler-q2-q3"
-      },
-      {
-        "instrument_id": "coupler-stack",
-        "capability": "set_flux_bias",
-        "entity_id": "coupler-q2-q3",
-        "channel_id": "coupler-q2-q3"
+        "channel_id": "readout.mux0"
       }
+    ]
+  },
+  "topology": {
+    "entities": [
+      {
+        "id": "q0",
+        "kind": "logical_qubit"
+      }
+    ]
+  },
+  "domain_target": {
+    "id": "quantum-lab-demo.fake-list-mode.v1",
+    "kind": "quantum_lab_demo.fake-list-mode",
+    "instrument_ids": [
+      "drive-stack",
+      "readout-stack"
     ]
   }
 }

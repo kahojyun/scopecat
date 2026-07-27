@@ -151,14 +151,6 @@ class ShiftPhase:
 
 
 @dataclass(frozen=True, slots=True)
-class Barrier:
-    """A zero-duration synchronization marker over logical signals."""
-
-    id: PulseEventId
-    signals: tuple[LogicalSignal, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class Sequence:
     """Compose instructions consecutively on a shared program timeline."""
 
@@ -172,7 +164,7 @@ class Parallel:
     branches: tuple[PulseInstruction, ...]
 
 
-type PulseLeaf = Play | Acquire | Delay | ShiftPhase | Barrier
+type PulseLeaf = Play | Acquire | Delay | ShiftPhase
 type PulseInstruction = PulseLeaf | Sequence | Parallel
 
 
@@ -180,7 +172,7 @@ def iter_pulse_leaves(instruction: PulseInstruction) -> Iterator[PulseLeaf]:
     """Yield pulse leaves in deterministic structural order."""
 
     match instruction:
-        case Play() | Acquire() | Delay() | ShiftPhase() | Barrier():
+        case Play() | Acquire() | Delay() | ShiftPhase():
             yield instruction
         case Sequence(instructions=children) | Parallel(branches=children):
             for child in children:
@@ -194,12 +186,9 @@ def pulse_leaf_owners(
 
     owners: list[QubitId | CouplerId] = []
     for leaf in iter_pulse_leaves(instruction):
-        signals: tuple[LogicalSignal, ...] = (
-            leaf.signals if isinstance(leaf, Barrier) else (leaf.signal,)
-        )
         owners.extend(
             signal.owner if isinstance(signal, FluxSignal) else signal.qubit
-            for signal in signals
+            for signal in _leaf_signals(leaf)
         )
     return tuple(owners)
 
@@ -610,11 +599,12 @@ def _signal_key(signal: LogicalSignal) -> tuple[str, str, str]:
 
 def _leaf_signals(leaf: PulseLeaf) -> tuple[LogicalSignal, ...]:
     match leaf:
-        case Barrier(signals=signals):
-            return signals
-        case Play(signal=signal) | Acquire(signal=signal) | Delay(signal=signal):
-            return (signal,)
-        case ShiftPhase(signal=signal):
+        case (
+            Play(signal=signal)
+            | Acquire(signal=signal)
+            | Delay(signal=signal)
+            | ShiftPhase(signal=signal)
+        ):
             return (signal,)
 
 
@@ -751,19 +741,6 @@ def _place_instruction(
             )
             if normalized_phase is not None:
                 normalized = replace(instruction, phase=normalized_phase)
-        case Barrier():
-            if len(set(instruction.signals)) != len(instruction.signals):
-                _issue(
-                    issues,
-                    "pulse_barrier_signal_duplicate",
-                    "Barrier signals must be unique",
-                    instruction_id=event_id,
-                    path=path,
-                )
-            normalized = replace(
-                instruction,
-                signals=tuple(sorted(instruction.signals, key=_signal_key)),
-            )
     return [_PlacedLeaf(normalized, start, duration, path)], duration
 
 
@@ -839,7 +816,7 @@ def _validate_overlaps(placed: list[_PlacedLeaf], issues: list[PulseIssue]) -> N
         active_id: PulseEventId | None = None
         for event in ordered:
             if event.start < active_end:
-                assert active_id is not None  # noqa: S101
+                assert active_id is not None
                 _issue(
                     issues,
                     "pulse_signal_overlap",
@@ -856,7 +833,7 @@ def _validate_overlaps(placed: list[_PlacedLeaf], issues: list[PulseIssue]) -> N
                 active_id = event.leaf.id
 
     for shift in frame_shifts:
-        assert isinstance(shift.leaf, ShiftPhase)  # noqa: S101
+        assert isinstance(shift.leaf, ShiftPhase)
         for active in by_signal.get(shift.leaf.signal, ()):
             if (
                 isinstance(active.leaf, Play)
@@ -890,10 +867,9 @@ def _ordered_placed_leaves(placed: list[_PlacedLeaf]) -> tuple[_PlacedLeaf, ...]
     """Return a canonical linearization that retains Sequence causality.
 
     Positive durations normally make sequence order visible in timestamps.
-    Zero-duration frame and barrier operations do not advance the cursor, so
-    events at one instant are topologically ordered by their Sequence
-    predecessors.  Unrelated Parallel events retain the existing canonical
-    signal-and-identity ordering.
+    Zero-duration frame operations do not advance the cursor, so events at one
+    instant are topologically ordered by their Sequence predecessors. Unrelated
+    Parallel events retain the existing canonical signal-and-identity ordering.
     """
 
     by_start: dict[Decimal, list[_PlacedLeaf]] = {}

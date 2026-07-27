@@ -18,7 +18,6 @@ from scopecat.authoring._intents import (
     ComputeNodeInputValue,
     ModuleInputPort,
     ModuleOperationDecl,
-    ParameterScanOverlayIntent,
 )
 from scopecat.authoring._module_ir import (
     ModuleAcquireEffect,
@@ -31,15 +30,13 @@ from scopecat.authoring._parameter_contracts import (
     ParameterContract,
     merge_parameter_contracts,
 )
-from scopecat.authoring._point_domain_intents import (
-    PointDomainIntent,
-)
 from scopecat.authoring._products import (
     ModuleProductDecl,
     RecordSelection,
     localize_product_input_refs,
     prefix_product_decl,
 )
+from scopecat.authoring._scan_intents import AxisSpec
 from scopecat.authoring._value_refs import (
     PointValueDependency,
     ValueRef,
@@ -52,15 +49,12 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_point_dependencies,
 )
 from scopecat.authoring.domain import LoweredDomainExecution, lower_domain_execution
-from scopecat.authoring.measurements import MeasurementTransform
+from scopecat.authoring.measurements import MeasurementPostprocessor
 from scopecat.authoring.value_types import (
     Entity as EntityType,
 )
 from scopecat.authoring.value_types import (
     Scalar as ScalarType,
-)
-from scopecat.authoring.value_types import (
-    Series as SeriesType,
 )
 from scopecat.authoring.value_types import (
     Table as TableType,
@@ -78,7 +72,7 @@ from scopecat.compiler.semantic.model import (
     SemanticDomainExecution,
     SemanticGraphIR,
 )
-from scopecat.graph.relations.point_domain import POINT_UNIT
+from scopecat.graph.relations.point_domain import PointAxes
 from scopecat.graph.values import (
     OperationId,
 )
@@ -106,7 +100,7 @@ class _ExperimentEnvelope:
     entity_inputs: tuple[str, ...] = ()
     resource_ports: tuple[ResourcePort, ...] = ()
     point_dependencies: tuple[PointValueDependency, ...] = ()
-    parameter_overlays: tuple[ParameterScanOverlayIntent, ...] = ()
+    parameter_overlays: tuple[AxisSpec, ...] = ()
     product_declarations: tuple[ModuleProductDecl, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
@@ -118,7 +112,7 @@ class _ModuleFragment(_ExperimentEnvelope):
 
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ScopedPythonImplementation, ...] = ()
-    measurement_transforms: tuple[MeasurementTransform, ...] = ()
+    measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
     effects: tuple[_FragmentEffect, ...] = ()
 
     @property
@@ -146,7 +140,7 @@ class _ModuleFragmentValueRoots:
 class SemanticExperimentIR(_ExperimentEnvelope):
     """Closed config-free semantic graph plus plan and resource intents."""
 
-    point_domain: PointDomainIntent = POINT_UNIT
+    point_domain: PointAxes[ValueRef] = ()
     semantic_graph: SemanticGraphIR = field(default_factory=SemanticGraphIR)
     implementations: Mapping[OperationId, LocalPythonImplementation] = field(
         default_factory=dict[OperationId, LocalPythonImplementation],
@@ -209,9 +203,9 @@ def _merge_module_fragments(
     entity_inputs: list[str] = []
     resource_ports: list[ResourcePort] = []
     point_dependencies: list[tuple[PointValueDependency, ...]] = []
-    parameter_overlays: list[ParameterScanOverlayIntent] = []
+    parameter_overlays: list[AxisSpec] = []
     operations: list[ModuleOperationDecl] = []
-    measurement_transforms: list[MeasurementTransform] = []
+    measurement_postprocessors: list[MeasurementPostprocessor] = []
     python_implementations: list[ScopedPythonImplementation] = []
     product_declarations: list[ModuleProductDecl] = []
     record_selections: list[RecordSelection] = []
@@ -225,7 +219,7 @@ def _merge_module_fragments(
         point_dependencies.append(fragment.point_dependencies)
         parameter_overlays.extend(fragment.parameter_overlays)
         operations.extend(fragment.operations)
-        measurement_transforms.extend(fragment.measurement_transforms)
+        measurement_postprocessors.extend(fragment.measurement_postprocessors)
         python_implementations.extend(fragment.python_implementations)
         product_declarations.extend(fragment.product_declarations)
         record_selections.extend(fragment.record_selections)
@@ -247,7 +241,7 @@ def _merge_module_fragments(
         point_dependencies=merged_point_dependencies,
         parameter_overlays=tuple(parameter_overlays),
         operations=tuple(operations),
-        measurement_transforms=tuple(measurement_transforms),
+        measurement_postprocessors=tuple(measurement_postprocessors),
         python_implementations=tuple(python_implementations),
         product_declarations=tuple(product_declarations),
         record_selections=tuple(record_selections),
@@ -272,7 +266,7 @@ def elaborate_module(
     semantic = elaborate_semantic_graph(
         fragment.operations,
         fragment.python_implementations,
-        measurement_transforms=fragment.measurement_transforms,
+        measurement_postprocessors=fragment.measurement_postprocessors,
         effects=fragment.effects,
         value_roots=value_roots.semantic,
         input_types={port.id: port.value_type for port in fragment.input_ports},
@@ -329,7 +323,7 @@ def _elaborate_module_ir(
             _resolve_operation(operation, resolver=resolver)
             for operation in module.body.operations
         ),
-        measurement_transforms=module.body.measurement_transforms,
+        measurement_postprocessors=module.body.measurement_postprocessors,
         effects=tuple(own_effects),
         python_implementations=tuple(
             ScopedPythonImplementation(
@@ -599,14 +593,8 @@ def _entity_input_ids(ports: Sequence[ModuleInputPort]) -> tuple[str, ...]:
     return tuple(
         port.id
         for port in ports
-        if (
-            isinstance(port.value_type, ScalarType)
-            and isinstance(port.value_type.atom, EntityType)
-        )
-        or (
-            isinstance(port.value_type, SeriesType)
-            and isinstance(port.value_type.item_type.atom, EntityType)
-        )
+        if isinstance(port.value_type, ScalarType)
+        and isinstance(port.value_type.atom, EntityType)
     )
 
 
@@ -766,9 +754,9 @@ def _scope_instance_graph(
             for binding in instance.resource_bindings
         },
     )
-    measurement_transforms = tuple(
-        _scope_measurement_transform(transform, scope=scope)
-        for transform in fragment.measurement_transforms
+    measurement_postprocessors = tuple(
+        _scope_measurement_postprocessor(postprocessor, scope=scope)
+        for postprocessor in fragment.measurement_postprocessors
     )
     effects = tuple(
         _scope_fragment_effect(
@@ -806,7 +794,7 @@ def _scope_instance_graph(
             )
             for operation in fragment.operations
         ),
-        measurement_transforms=measurement_transforms,
+        measurement_postprocessors=measurement_postprocessors,
         python_implementations=tuple(
             replace(
                 implementation,
@@ -863,7 +851,6 @@ def _scope_fragment_effect(
             inputs,
             scope=scope,
             origin=origin,
-            resource_ids=resource_ids,
         )
     return replace(
         effect,
@@ -888,7 +875,6 @@ def _scope_domain_execution(
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
-    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
 ) -> LoweredDomainExecution:
     return replace(
         execution,
@@ -914,10 +900,6 @@ def _scope_domain_execution(
         result_bindings=tuple(
             (name, product_id.prefixed(*scope))
             for name, product_id in execution.result_bindings
-        ),
-        resource_bindings=tuple(
-            (role, _scoped_resource_id(resource_id, resource_ids))
-            for role, resource_id in execution.resource_bindings
         ),
     )
 
@@ -977,8 +959,8 @@ def _scope_resource_ports(
             )
             if isinstance(localized.value_type, TableType):
                 msg = (
-                    "resource entity source must be scalar or series-shaped; "
-                    "select table entity columns with table.entities(...)"
+                    "resource entity source must be scalar-shaped; "
+                    "declare the resource footprint explicitly"
                 )
                 raise TypeError(msg)
             entity_inputs.append(localized)
@@ -1067,21 +1049,18 @@ def _scope_operation(
     )
 
 
-def _scope_measurement_transform(
-    transform: MeasurementTransform,
+def _scope_measurement_postprocessor(
+    postprocessor: MeasurementPostprocessor,
     *,
     scope: tuple[str, ...],
-) -> MeasurementTransform:
+) -> MeasurementPostprocessor:
     return replace(
-        transform,
-        scope=(*scope, *transform.scope),
-        input_bindings=tuple(
-            (role, product_id.prefixed(*scope))
-            for role, product_id in transform.input_bindings
-        ),
+        postprocessor,
+        scope=(*scope, *postprocessor.scope),
+        input_binding=postprocessor.input_binding.prefixed(*scope),
         output_bindings=tuple(
             (role, product_id.prefixed(*scope))
-            for role, product_id in transform.output_bindings
+            for role, product_id in postprocessor.output_bindings
         ),
     )
 
@@ -1101,12 +1080,3 @@ def _scope_operation_input(
             origin=origin,
         )
     return value
-
-
-def _scoped_resource_id(
-    resource_id: LogicalResourcePortId | None,
-    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
-) -> LogicalResourcePortId | None:
-    if resource_id is None:
-        return None
-    return resource_ids.get(resource_id, resource_id)

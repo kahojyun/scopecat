@@ -10,7 +10,7 @@ from pydantic import ValidationError
 import scopecat.sdk.instruments as instrument_sdk
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.kernel.value_types import Entity, Float, Payload, Scalar
+from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import (
@@ -84,10 +84,10 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
         ),
         (float_field("gain"), {"id": "gain", "value_type": {"type": "float"}}),
         (
-            string_field("label", min_length=1),
+            string_field("label"),
             {
                 "id": "label",
-                "value_type": {"type": "string", "min_length": 1},
+                "value_type": {"type": "string"},
             },
         ),
         (
@@ -136,7 +136,12 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
     schema = CapabilityField.model_json_schema(mode="validation")
     value_schema = schema["properties"]["value_type"]
     definition_name = value_schema["$ref"].rsplit("/", maxsplit=1)[-1]
-    variants = schema["$defs"][definition_name]["oneOf"]
+    alias = schema["$defs"][definition_name]
+    wire = schema["$defs"][alias["$ref"].rsplit("/", maxsplit=1)[-1]]
+    variants = [
+        schema["$defs"][variant["$ref"].rsplit("/", maxsplit=1)[-1]]
+        for variant in wire["oneOf"]
+    ]
 
     assert [variant["properties"]["type"]["const"] for variant in variants] == [
         "bool",
@@ -147,15 +152,8 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
         "payload",
     ]
     assert all(variant["additionalProperties"] is False for variant in variants)
-    assert all(
-        variant["properties"]["nullable"]["const"] is False for variant in variants
-    )
     assert variants[2]["properties"]["finite"]["const"] is True
     assert variants[4]["properties"]["finite"]["const"] is True
-    assert variants[4]["dependentRequired"] == {
-        "minimum": ["unit"],
-        "maximum": ["unit"],
-    }
     assert variants[-1]["required"] == ["type", "schema_id"]
 
 
@@ -163,11 +161,9 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
     "value_type",
     [
         Scalar(Entity()),
-        Scalar(Float(), nullable=True),
         Scalar(Float(finite=False)),
-        Scalar(Payload("pulse_program", python_type=dict)),
         {"type": "float", "finite": "false"},
-        {"type": "payload", "schema_id": "pulse_program", "python_type": "dict"},
+        {"type": "quantity", "minimum": 1.0},
     ],
 )
 def test_capability_field_rejects_unsupported_or_transient_types(
@@ -261,8 +257,6 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     assert result.problems == ()
     assert instrument.applied[0] == command
     assert updated.fields[0].value == quantity_state(5.0, "GHz")
-    assert updated.fields[0].value is not command.fields[0].value
-    assert updated.fields[0].value.root is not command.fields[0].value.root
     with pytest.raises(ValidationError):
         updated.fields[0].value.root = 1.0
     updated_quantity = updated.fields[0].value.root

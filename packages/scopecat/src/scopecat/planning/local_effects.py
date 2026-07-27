@@ -9,22 +9,12 @@ from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
-    ComputeOperation,
     LocalOperation,
 )
 from scopecat.execution.program import RunCoverageEffect
-from scopecat.graph.values import ValueId
 from scopecat.kernel.product_identity import ProductUse
 from scopecat.kernel.resource_identity import LogicalResourcePortId, ResourceClaim
 from scopecat.planning.routing import ResourcePortManifest
-
-
-@dataclass(frozen=True, slots=True)
-class ComputeBindingSeed:
-    """Planning-only run results available while binding point computation."""
-
-    signatures: Mapping[ValueId, str]
-    payload_ids: Mapping[ValueId, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,8 +32,6 @@ class LocalTargetPlan:
     product_uses: tuple[ProductUse, ...]
     instrument_order: tuple[str, ...]
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest]
-    run_operations: tuple[ComputeOperation, ...]
-    compute_seed: ComputeBindingSeed
 
 
 @dataclass(frozen=True, slots=True)

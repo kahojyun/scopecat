@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from copy import deepcopy
 
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
 )
-from scopecat.compiler.relations.uses import relation_use
-from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireId,
     AcquireProduct,
 )
-from scopecat.compiler.semantic.value_expressions import verify_scalar_value_expr
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -24,11 +20,11 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
     TypedDomainExecution,
-    TypedMeasurementTransform,
+    TypedMeasurementPostprocessor,
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.compiler.typed.verification import seal_typed_program
-from scopecat.graph.relations.model import ScalarExpr, as_scalar_expr
+from scopecat.graph.relations.model import CellValue
 from scopecat.graph.values import (
     ComputeResultRef,
     OperationId,
@@ -47,7 +43,6 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
@@ -59,38 +54,19 @@ from scopecat.measurements.results import MeasurementDType
 def overlay_parameter_cell(
     table_id: str,
     *,
-    key: dict[str, object],
-    key_types: dict[str, Scalar],
+    row_index: int,
+    key: dict[str, CellValue],
     column_id: str,
-    value: object,
-    value_type: Scalar,
-    bindings: RelationTypeBindings,
+    axis_id: str,
 ) -> PointParameterOverlay:
-    """Build a typed point-local cell overlay."""
+    """Build one statically linked point-local cell overlay."""
 
-    if set(key) != set(key_types):
-        msg = "parameter overlay key and key_types must contain the same columns"
-        raise ValueError(msg)
     return PointParameterOverlay(
         table_id=table_id,
-        key_uses={
-            name: relation_use(
-                verify_scalar_value_expr(
-                    _require_scalar_expression(expression),
-                    bindings=bindings,
-                    expected_type=key_types[name],
-                )
-            )
-            for name, expression in key.items()
-        },
+        row_index=row_index,
+        key=key,
         column_id=column_id,
-        value_use=relation_use(
-            verify_scalar_value_expr(
-                _require_scalar_expression(value),
-                bindings=bindings,
-                expected_type=value_type,
-            )
-        ),
+        axis_id=axis_id,
     )
 
 
@@ -110,7 +86,7 @@ def compute_result(value: ValueId | OperationId | str) -> ComputeResultRef:
 
 
 def observable_product(
-    id: str | ProductId,  # noqa: A002
+    id: str | ProductId,
     *,
     unit: str | None = None,
     dtype: MeasurementDType = "float64",
@@ -129,7 +105,7 @@ def observable_product(
 def instrument_acquisition(
     product: ProductDef | ProductId,
     *,
-    id: AcquireId | str | None = None,  # noqa: A002
+    id: AcquireId | str | None = None,
     resource_port_id: LogicalResourcePortId | str = "source",
     capability: str,
     provider_key: str | None = None,
@@ -187,14 +163,14 @@ def instrument_acquisitions(
 
 def typed_program(
     *,
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     point_domain: PointDomain,
     resource_requirements: Sequence[LogicalResourceRequirement] = (),
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     compute_nodes: Sequence[TypedComputeNode] = (),
     domain_execution: TypedDomainExecution | None = None,
-    measurement_transforms: Sequence[TypedMeasurementTransform] = (),
+    measurement_postprocessors: Sequence[TypedMeasurementPostprocessor] = (),
     state: Sequence[SetStateSpec] = (),
     product_defs: Sequence[ProductDef] = (),
     instrument_acquisitions: Sequence[AcquireEffect] = (),
@@ -215,7 +191,7 @@ def typed_program(
             *((domain_execution,) if domain_execution is not None else ()),
             *instrument_acquisitions,
         ),
-        measurement_transforms=tuple(measurement_transforms),
+        measurement_postprocessors=tuple(measurement_postprocessors),
         product_defs=tuple(product_defs),
         product_uses=tuple(product_uses),
         record_uses=tuple(record_uses),
@@ -230,12 +206,8 @@ def link_program(
 
     return LinkedPlan(
         seal_typed_program(
-            deepcopy(program),
+            program,
             phase=ProblemPhase.PLANNING,
         ),
         environment,
     )
-
-
-def _require_scalar_expression(value: object) -> ScalarExpr:
-    return value if isinstance(value, ScalarExpr) else as_scalar_expr(value)

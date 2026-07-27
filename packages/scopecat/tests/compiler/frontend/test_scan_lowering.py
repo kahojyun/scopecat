@@ -7,13 +7,11 @@ import pytest
 
 import scopecat as sc
 from scopecat.authoring._parameter_contracts import ParameterValueContract
-from scopecat.authoring._point_domain_intents import (
-    point_domain_intent_parameter_contracts,
-    point_domain_intent_value_type,
+from scopecat.authoring._scan_intents import (
+    AxisSpec,
+    scan_parameter_contracts,
 )
-from scopecat.authoring._scan_intents import ScanLeafIntent, iter_scan_leaves
 from scopecat.compiler.frontend.scan_lowering import (
-    lower_scan_points,
     lower_scans_point_domain,
 )
 from scopecat.graph.relations.model import ParameterLookupUse
@@ -21,7 +19,7 @@ from scopecat.graph.relations.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
-    PointProduct,
+    analyze_point_domain,
 )
 from scopecat.kernel.quantity import Quantity
 
@@ -44,14 +42,17 @@ def _parameter_lookup(
     )
 
 
-def _leaf(scan: sc.Scan) -> ScanLeafIntent:
-    return cast("ScanLeafIntent", scan)
+def _axis(scan: sc.Scan) -> AxisSpec:
+    return cast("AxisSpec", scan)
+
+
+def _lower_axis(scan: sc.Scan) -> PointAxis[sc.ValueRef]:
+    [axis] = lower_scans_point_domain((_axis(scan),))
+    return axis
 
 
 def test_explicit_scan_lowers_to_a_structural_axis_with_normalized_values() -> None:
-    axis = lower_scan_points(
-        _leaf(sc.axis(_point("frequency"), [4.9, 5.1], unit="GHz"))
-    )
+    axis = _lower_axis(sc.axis(_point("frequency"), [4.9, 5.1], unit="GHz"))
 
     assert axis.id == "frequency"
     assert axis.value_type == _FREQUENCY
@@ -61,21 +62,46 @@ def test_explicit_scan_lowers_to_a_structural_axis_with_normalized_values() -> N
             Quantity(value=5.1, unit="GHz"),
         )
     )
-    assert point_domain_intent_value_type(axis).min_rows == 2
-    assert point_domain_intent_parameter_contracts(axis) == ()
+    assert analyze_point_domain((axis,)).cardinality == 2
+    assert (
+        scan_parameter_contracts(
+            _axis(sc.axis(_point("frequency"), [4.9, 5.1], unit="GHz"))
+        )
+        == ()
+    )
+
+
+def test_explicit_unit_refines_a_generic_quantity_axis_type() -> None:
+    generic = sc.ScalarType(sc.QuantityType(dimension="frequency"))
+    axis = _lower_axis(
+        sc.axis(sc.coordinate("frequency", generic), [4.9, 5.1], unit="GHz")
+    )
+
+    assert axis.value_type == sc.ScalarType(
+        sc.QuantityType(dimension="frequency", unit="GHz")
+    )
+
+
+def test_around_scan_rejects_value_unit_argument() -> None:
+    with pytest.raises(ValueError, match="only valid with explicit values"):
+        sc.axis(
+            _point("frequency"),
+            unit="GHz",
+            center=Quantity(value=5.0, unit="GHz"),
+            span="200 MHz",
+            points=3,
+        )
 
 
 def test_around_scan_keeps_only_its_typed_center_as_authoring_data() -> None:
     center = sc.input("center", _FREQUENCY)
 
-    axis = lower_scan_points(
-        _leaf(
-            sc.axis(
-                _point("frequency"),
-                center=center,
-                span="2 GHz",
-                points=5,
-            )
+    axis = _lower_axis(
+        sc.axis(
+            _point("frequency"),
+            center=center,
+            span="2 GHz",
+            points=5,
         )
     )
 
@@ -86,24 +112,20 @@ def test_around_scan_keeps_only_its_typed_center_as_authoring_data() -> None:
 
 
 def test_parameter_around_scan_uses_the_selected_cell_as_its_center() -> None:
-    axis = lower_scan_points(
-        _leaf(
-            sc.param_axis(
-                _point("frequency"),
-                _parameter_lookup(),
-                span="200 MHz",
-                points=5,
-            )
-        )
+    scan = sc.param_axis(
+        _point("frequency"),
+        _parameter_lookup(),
+        span="200 MHz",
+        points=5,
     )
-
+    axis = _lower_axis(scan)
     assert isinstance(axis.source, PointAxisLinear)
     assert axis.source.center.value_type == _FREQUENCY
     assert axis.source.span == Quantity(value=200.0, unit="MHz")
     assert axis.source.count == 5
     [lookup] = tuple(
         contract
-        for contract in point_domain_intent_parameter_contracts(axis)
+        for contract in scan_parameter_contracts(_axis(scan))
         if isinstance(contract, ParameterLookupUse)
     )
     assert lookup.table_id == "device_parameters"
@@ -142,35 +164,28 @@ def test_parameter_around_scan_requires_a_quantity_point() -> None:
 
 
 def test_flat_scans_lower_to_a_cartesian_product() -> None:
-    scan = sc.cartesian(
-        sc.axis(_point("source"), [4.9, 5.1], unit="GHz"),
-        sc.axis(_point("target"), [5.0, 5.2], unit="GHz"),
+    scans = (
+        _axis(sc.axis(_point("source"), [4.9, 5.1], unit="GHz")),
+        _axis(sc.axis(_point("target"), [5.0, 5.2], unit="GHz")),
     )
 
-    domain = lower_scans_point_domain(iter_scan_leaves(scan))
+    domain = lower_scans_point_domain(scans)
 
-    assert isinstance(domain, PointProduct)
-    assert tuple(
-        factor.id for factor in domain.factors if isinstance(factor, PointAxis)
-    ) == ("source", "target")
+    assert tuple(axis.id for axis in domain) == ("source", "target")
 
 
 def test_linear_center_is_the_only_point_domain_parameter_contract_source() -> None:
-    explicit = lower_scan_points(
-        _leaf(sc.axis(_point("explicit"), [4.9, 5.1], unit="GHz"))
-    )
-    linear = lower_scan_points(
-        _leaf(
-            sc.axis(
-                _point("linear"),
-                center=sc.parameter("frequency_center", _FREQUENCY),
-                span="2 GHz",
-                points=3,
-            )
+    explicit = _axis(sc.axis(_point("explicit"), [4.9, 5.1], unit="GHz"))
+    linear = _axis(
+        sc.axis(
+            _point("linear"),
+            center=sc.parameter("frequency_center", _FREQUENCY),
+            span="2 GHz",
+            points=3,
         )
     )
 
-    assert point_domain_intent_parameter_contracts(explicit) == ()
-    assert point_domain_intent_parameter_contracts(linear) == (
+    assert scan_parameter_contracts(explicit) == ()
+    assert scan_parameter_contracts(linear) == (
         ParameterValueContract("frequency_center", _FREQUENCY),
     )

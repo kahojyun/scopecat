@@ -8,12 +8,11 @@ import {
   activateConfigEntry,
   getConfigRegistry,
   getConfigRegistryEntry,
-  importConfigProfile,
   parseConfigProfileJson,
   previewConfigDraft,
-  registerConfigDraft,
+  registerConfigRevision,
   rollbackConfig,
-  setConfigDraftDefault,
+  setConfigDefault,
 } from "./config-api";
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
@@ -25,17 +24,16 @@ afterEach(() => {
 
 describe("config registry reads", () => {
   it("keeps the generated wire model and only sorts registry projections", async () => {
-    const fetchMock = vi.fn((_input: string | URL | Request) =>
+    const fetchMock = vi.fn((input: string | URL | Request) =>
       Promise.resolve(
-        jsonResponse({
-          entries: [registryEntry("config-a", HASH_A), registryEntry("config-b", HASH_B)],
-          active_state: {
-            generation: 2,
-            active_entry_id: "config-b",
-            active_entry_content_hash: HASH_B,
-            history: [activation(1, "config-a", HASH_A), activation(2, "config-b", HASH_B)],
-          },
-        }),
+        String(input).endsWith("/activations")
+          ? jsonResponse({
+              items: [activation(1, "config-a", HASH_A), activation(2, "config-b", HASH_B)],
+            })
+          : jsonResponse({
+              entries: [registryEntry("config-a", HASH_A), registryEntry("config-b", HASH_B)],
+              activation: activation(2, "config-b", HASH_B),
+            }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -43,24 +41,32 @@ describe("config registry reads", () => {
     const overview = await getConfigRegistry();
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/config-registry");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/config-registry/activations");
     expect(overview.entries.map((entry) => entry.id)).toEqual(["config-b", "config-a"]);
-    expect(overview.active_state).toMatchObject({
-      active_entry_id: "config-b",
-      active_entry_content_hash: HASH_B,
+    expect(overview.activation).toMatchObject({
+      entry_id: "config-b",
+      entry_content_hash: HASH_B,
       generation: 2,
     });
-    expect(overview.active_state?.history?.map((item) => item.generation)).toEqual([2, 1]);
+    expect(overview.activation_history.map((item) => item.generation)).toEqual([2, 1]);
   });
 
   it("returns null active state without inventing a second projection", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(jsonResponse({ entries: [], active_state: null }))),
+      vi.fn((input: string | URL | Request) =>
+        Promise.resolve(
+          String(input).endsWith("/activations")
+            ? jsonResponse({ items: [] })
+            : jsonResponse({ entries: [], activation: null }),
+        ),
+      ),
     );
 
     await expect(getConfigRegistry()).resolves.toEqual({
       entries: [],
-      active_state: null,
+      activation: null,
+      activation_history: [],
     });
   });
 
@@ -107,15 +113,18 @@ describe("config registry commands", () => {
     };
     const config = configProfile("profile-import");
     const imported = {
+      source: {
+        kind: "direct_config_profile" as const,
+        config,
+      },
       entry_id: "profile-import",
       registered_by: "Grace",
       note: "bench setup",
-      config,
     };
 
     await activateConfigEntry(activationCommand);
     await rollbackConfig(rollback);
-    await importConfigProfile(imported);
+    await registerConfigRevision(imported);
 
     expectRequest(fetchMock, 0, "/api/v1/config-registry/active", activationCommand);
     expectRequest(fetchMock, 1, "/api/v1/config-registry/rollback", rollback);
@@ -167,15 +176,17 @@ describe("typed config drafts", () => {
 
   it("sends register and set-default commands unchanged", async () => {
     const registration = {
-      draft,
-      expected_result_content_hash: HASH_B,
+      source: {
+        kind: "manual_parameter_updates" as const,
+        draft,
+        expected_result_content_hash: HASH_B,
+      },
       entry_id: "config-a-edit",
       registered_by: "Ada",
       note: "calibrated",
     };
     const registrationReceipt = {
       entry: registryEntry("config-a-edit", HASH_B),
-      result_content_hash: HASH_B,
       deltas: [
         {
           parameter_id: "drive.frequency",
@@ -188,16 +199,11 @@ describe("typed config drafts", () => {
     const defaultCommand = {
       registration,
       operator: "Ada",
+      expected_generation: 3,
       activation_note: "accepted edit",
     };
     const defaultReceipt = {
       ...registrationReceipt,
-      active_state: {
-        generation: 4,
-        active_entry_id: "config-a-edit",
-        active_entry_content_hash: HASH_B,
-        history: [activationRecord],
-      },
       activation: activationRecord,
     };
     const fetchMock = vi
@@ -206,10 +212,10 @@ describe("typed config drafts", () => {
       .mockResolvedValueOnce(jsonResponse(defaultReceipt));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(registerConfigDraft(registration)).resolves.toEqual(registrationReceipt);
-    await expect(setConfigDraftDefault(defaultCommand)).resolves.toEqual(defaultReceipt);
-    expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/register", registration);
-    expectRequest(fetchMock, 1, "/api/v1/config-registry/drafts/set-default", defaultCommand);
+    await expect(registerConfigRevision(registration)).resolves.toEqual(registrationReceipt);
+    await expect(setConfigDefault(defaultCommand)).resolves.toEqual(defaultReceipt);
+    expectRequest(fetchMock, 0, "/api/v1/config-registry/entries", registration);
+    expectRequest(fetchMock, 1, "/api/v1/config-registry/default", defaultCommand);
   });
 });
 
@@ -234,14 +240,6 @@ describe("config snapshot import boundary", () => {
         }),
       ),
     ).toThrow("Unsupported config snapshot format");
-    expect(() =>
-      parseConfigProfileJson(
-        JSON.stringify({
-          format_version: "scopecat.config_profile_manifest.v1",
-          id: "split-profile",
-        }),
-      ),
-    ).toThrow("must be loaded by Python");
   });
 });
 
@@ -250,7 +248,6 @@ function registryEntry(id: string, contentHash: string): ConfigRegistryEntry {
     id,
     config_ref: `entries/${id}.json`,
     content_hash: contentHash,
-    status: "registered",
     source: { kind: "direct_config_profile" },
     registered_by: "scopecat",
     note: "",
@@ -300,7 +297,7 @@ function configProfile(id: string): ConfigProfileSnapshot {
             id: "drive.frequency",
             value_type: {
               shape: "scalar",
-              atom: { type: "quantity", unit: "GHz" },
+              atom: { type: "quantity", finite: true, unit: "GHz" },
             },
             description: "Drive frequency",
           },

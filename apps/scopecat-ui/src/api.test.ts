@@ -175,7 +175,7 @@ describe("project daemon reads", () => {
         Promise.resolve(
           jsonResponse({
             items: [runSummary("run/queued", "queued"), runSummary("run/leased", "leased")],
-            previous_cursor: null,
+            next_cursor: null,
           }),
         ),
       ),
@@ -204,9 +204,9 @@ describe("project daemon reads", () => {
                   key: "fit",
                   outputs: [
                     {
-                      kind: "note",
-                      title: "Conclusion",
-                      content: "Converged",
+                      kind: "table",
+                      title: "Fit parameters",
+                      content: [{ converged: true }],
                     },
                   ],
                 },
@@ -260,7 +260,13 @@ describe("project daemon reads", () => {
       id: "analysis-fit",
       title: "Fit review",
       key: "fit",
-      outputs: [{ kind: "note", title: "Conclusion", content: "Converged" }],
+      outputs: [
+        {
+          kind: "table",
+          title: "Fit parameters",
+          content: [{ converged: true }],
+        },
+      ],
     });
     expect(text).toMatchObject({ format: "text", content: "Converged\n" });
     expect(json).toMatchObject({
@@ -318,7 +324,7 @@ describe("project daemon reads", () => {
               },
             },
           ],
-          previous_cursor: path.includes("before=") ? null : 2,
+          next_cursor: path.includes("before=") ? null : 2,
         }),
       );
     });
@@ -326,17 +332,17 @@ describe("project daemon reads", () => {
 
     await expect(getRuns()).resolves.toMatchObject({
       items: [{ runId: "run-new", sequence: 2 }],
-      previousCursor: 2,
+      nextCursor: 2,
     });
     await expect(getOlderRuns(2)).resolves.toMatchObject({
       items: [{ runId: "run-old", sequence: 1 }],
-      previousCursor: undefined,
+      nextCursor: undefined,
     });
     await expect(getRunEvents("run/1")).resolves.toMatchObject([
       { id: 12, runId: "run/1", kind: "run_state_changed" },
     ]);
     expect(fetchMock.mock.calls.map(([path]) => String(path))).toEqual([
-      "/api/v1/runs?limit=100&latest=true",
+      "/api/v1/runs?limit=100",
       "/api/v1/runs?limit=100&before=2",
       "/api/v1/events?limit=500&latest=true&run_id=run%2F1",
     ]);

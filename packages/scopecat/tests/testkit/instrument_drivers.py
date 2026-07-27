@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import ConfigProfileSnapshot
@@ -96,7 +96,7 @@ class SignalInstrumentDriver:
 
 
 def load_config() -> ConfigProfileSnapshot:
-    return load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    return load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
 
 
 def quantity_state(value: float, unit: str) -> StateValue:

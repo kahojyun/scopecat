@@ -1,39 +1,13 @@
-"""Configuration validation and experiment source resolution."""
+"""Configuration validation shared by bootstrap and registry imports."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import cast
-
-from scopecat.config.candidates import (
-    CandidateConfig,
-    resolve_candidate_config_snapshot,
-)
 from scopecat.config.profile_validation import (
     validate_config_profile as validate_planning_config,
 )
-from scopecat.config.profiles import load_config_profile
-from scopecat.config.registry import (
-    ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
-    ConfigRegistryEntry,
-)
-from scopecat.config.registry import service as registry_service
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
-from scopecat.kernel.problems import (
-    ProblemPhase,
-    model_location,
-    problem,
-)
-from scopecat.project_state import ProjectStateServices
-from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.run import AnalysisCandidateRunConfigSource, RunConfigSource
-from scopecat.runs.refs import record_content_ref
-
-type ConfigProfileInput = str | Path | ConfigProfileSnapshot
 
 
 def config_revision_entry_id(config: ConfigProfileSnapshot) -> str:
@@ -43,218 +17,15 @@ def config_revision_entry_id(config: ConfigProfileSnapshot) -> str:
     return f"{artifact_slug(config.id, fallback='config')}-{digest}"
 
 
-@dataclass(frozen=True)
-class ResolvedConfig:
-    config: ConfigProfileSnapshot
-    config_source: RunConfigSource | None = None
-
-
-@dataclass(frozen=True)
-class RegisteredConfigActivation:
-    entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
-    activation: ConfigRegistryActivationRecord
-
-
-def _resolve_config_source(
-    *,
-    services: ProjectStateServices,
-    config_profile: ConfigProfileInput | None = None,
-    config_entry: str | None = None,
-) -> ResolvedConfig:
-    has_file_config = config_profile is not None
-    has_config_entry = config_entry is not None
-    if has_file_config and has_config_entry:
-        raise CheckFailed(
-            [
-                problem(
-                    "config.source_conflict",
-                    "provide either a config profile or a registry entry, not both",
-                    phase=ProblemPhase.CONFIGURATION,
-                    location=model_location("config_source"),
-                )
-            ]
-        )
-    if not has_file_config and not has_config_entry:
-        raise CheckFailed(
-            [
-                problem(
-                    "config.source_missing",
-                    "provide a config profile or a registry entry",
-                    phase=ProblemPhase.CONFIGURATION,
-                    location=model_location("config_source"),
-                )
-            ]
-        )
-    if config_entry is not None:
-        config, source = registry_service.resolve_config_registry_config_source(
-            selector=config_entry,
-            unit_of_work=services.config_registry,
-        )
-        return ResolvedConfig(config=config, config_source=source)
-    if config_profile is None:
-        raise AssertionError("unreachable config source state")
-    if isinstance(config_profile, ConfigProfileSnapshot):
-        return ResolvedConfig(config=config_profile)
-    return ResolvedConfig(config=load_config_profile(config_profile))
-
-
-def resolve_experiment_config(
-    *,
-    services: ProjectStateServices,
-    config: str | ConfigProfileSnapshot | CandidateConfig,
-    config_profile: ConfigProfileInput | None = None,
-) -> ResolvedConfig:
-    """Resolve one experiment config selection from its authoritative source."""
-
-    if isinstance(config, CandidateConfig | ConfigProfileSnapshot):
-        if config_profile is not None:
-            raise CheckFailed(
-                [
-                    problem(
-                        "config.source_conflict",
-                        "provide either config or config_profile, not both",
-                        phase=ProblemPhase.CONFIGURATION,
-                        location=model_location("run_options", "config"),
-                    )
-                ]
-            )
-        if isinstance(config, CandidateConfig):
-            resolved = resolve_candidate_config_snapshot(config, services=services)
-            manifest = services.runs.read_manifest(config.source_run_id)
-            durable_records = {(record.kind, record.id) for record in manifest.records}
-            required_records = {
-                *(("analysis", record_id) for record_id in config.analysis_record_ids),
-                *(
-                    ("parameter_change_proposal", proposal_id)
-                    for proposal_id in config.proposal_ids
-                ),
-            }
-            missing_records = sorted(required_records - durable_records)
-            if missing_records:
-                raise CheckFailed(
-                    [
-                        problem(
-                            "config.candidate_evidence_missing",
-                            (
-                                "save the producing analysis before using its "
-                                "candidate config"
-                            ),
-                            phase=ProblemPhase.CONFIGURATION,
-                            location=model_location("run_options", "config"),
-                            details={
-                                "missing_records": [
-                                    {"kind": kind, "id": record_id}
-                                    for kind, record_id in missing_records
-                                ]
-                            },
-                        )
-                    ]
-                )
-            mismatched_proposals: list[str] = []
-            for proposal in config.parameter_proposals:
-                analysis = services.runs.read_model(
-                    config.source_run_id,
-                    record_content_ref(
-                        record_id=proposal.analysis_record_id,
-                        kind="analysis",
-                    ),
-                    AnalysisRecord,
-                )
-                if not any(
-                    output.kind == "parameter_change_proposal"
-                    and isinstance(output.content, dict)
-                    and cast("dict[str, object]", output.content).get("proposal_id")
-                    == proposal.id
-                    for output in analysis.outputs
-                ):
-                    mismatched_proposals.append(proposal.id)
-            if mismatched_proposals:
-                raise CheckFailed(
-                    [
-                        problem(
-                            "config.candidate_analysis_mismatch",
-                            (
-                                "candidate proposals do not belong to their "
-                                "producing analyses"
-                            ),
-                            phase=ProblemPhase.CONFIGURATION,
-                            location=model_location("run_options", "config"),
-                            details={"proposal_ids": mismatched_proposals},
-                        )
-                    ]
-                )
-            return ResolvedConfig(
-                config=resolved,
-                config_source=AnalysisCandidateRunConfigSource(
-                    source_run_id=config.source_run_id,
-                    analysis_record_ids=config.analysis_record_ids,
-                    proposal_ids=config.proposal_ids,
-                    base_config_content_hash=config.base_config_content_hash,
-                    content_hash=config_content_hash(resolved),
-                ),
-            )
-        return ResolvedConfig(config=config)
-
-    config_entry = None if config_profile is not None and config == "active" else config
-    return _resolve_config_source(
-        services=services,
-        config_profile=config_profile,
-        config_entry=config_entry,
-    )
-
-
 def validate_config_profile(
-    config_profile: ConfigProfileInput,
+    config: ConfigProfileSnapshot,
 ) -> ConfigProfileSnapshot:
-    config = (
-        config_profile
-        if isinstance(config_profile, ConfigProfileSnapshot)
-        else load_config_profile(config_profile)
-    )
+    """Validate a complete configuration snapshot."""
+
     problems = validate_planning_config(config)
-    if bool(problems):
+    if problems:
         raise CheckFailed(problems)
     return config
 
 
-def register_and_activate_candidate_config(
-    *,
-    candidate: CandidateConfig,
-    services: ProjectStateServices,
-    entry_id: str | None = None,
-    registered_by: str,
-    operator: str,
-    note: str = "",
-    activation_note: str | None = None,
-    expected_generation: int | None = None,
-) -> RegisteredConfigActivation:
-    selected_generation = (
-        registry_service.current_config_registry_generation(
-            unit_of_work=services.config_registry
-        )
-        if expected_generation is None
-        else expected_generation
-    )
-    candidate_config = resolve_candidate_config_snapshot(candidate, services=services)
-    selected_entry_id = entry_id or f"{candidate_config.id}-{candidate.source_run_id}"
-    entry, active_state, activation = (
-        registry_service.register_and_activate_candidate_config(
-            config=candidate_config,
-            unit_of_work=services.config_registry,
-            entry_id=selected_entry_id,
-            registered_by=registered_by,
-            run_id=candidate.source_run_id,
-            proposal_ids=candidate.proposal_ids,
-            base_config_content_hash=candidate.base_config_content_hash,
-            operator=operator,
-            expected_generation=selected_generation,
-            note=note,
-            activation_note=activation_note,
-        )
-    )
-    return RegisteredConfigActivation(
-        entry=entry,
-        active_state=active_state,
-        activation=activation,
-    )
+__all__ = ["config_revision_entry_id", "validate_config_profile"]

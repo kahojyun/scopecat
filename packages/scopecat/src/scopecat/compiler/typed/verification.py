@@ -2,25 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from types import MappingProxyType
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.relations.uses import RelationUseId
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.semantic.value_expressions import ValueExpr
-from scopecat.compiler.typed.dependencies import (
-    ComputePlan,
-    VariationAnalysis,
-    analyze_compute_plan,
-    analyze_variation_support,
-)
-from scopecat.compiler.typed.iteration import (
-    PointIterationLayout,
-    analyze_point_iteration_layout,
-)
+from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
@@ -34,8 +22,6 @@ from scopecat.compiler.typed.program import (
     core_state,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
-from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.point_domain import iter_point_axis_linear
 from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.errors import CheckFailed
@@ -50,7 +36,7 @@ from scopecat.measurements.records import plan_records, validate_record_axes
 
 def _seal_core_program(
     program: CoreProgram,
-) -> tuple[VerifiedPointDomain, tuple[ProgramRelationConsumer, ...]]:
+) -> VerifiedPointDomain:
     """Build final proofs without rechecking facts owned by earlier stages."""
 
     problems: list[Problem] = list(_product_demand_problems(program))
@@ -87,11 +73,7 @@ def _seal_core_program(
         raise CheckFailed(problems)
     if point_domain is None:
         raise AssertionError("successful typed sealing lost its point-domain proof")
-    consumers = (
-        *tuple(_point_axis_center_consumers(point_domain)),
-        *tuple(_program_relation_consumers(program)),
-    )
-    return point_domain, consumers
+    return point_domain
 
 
 def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
@@ -109,14 +91,14 @@ def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
     )
     owned_products.update(
         output.product_id
-        for transform in program.measurement_transforms
-        for output in transform.outputs
+        for postprocessor in program.measurement_postprocessors
+        for output in postprocessor.outputs
     )
     return tuple(
         _problem(
             "product_acquire_missing",
             f"product {product_id.qualified_name!r} is selected but has no "
-            "acquisition, domain, or transform owner",
+            "acquisition, domain, or postprocessor owner",
             model_location("product_uses", product_id.qualified_name),
         )
         for product_id in sorted(
@@ -128,11 +110,10 @@ def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
 
 @dataclass(frozen=True, slots=True)
 class ProgramRelationConsumer:
-    """Diagnostic index entry for one compiler-produced relation-plan use."""
+    """One scalar plan paired with its semantic role and diagnostic path."""
 
-    id: RelationUseId
     kind: ProgramRelationConsumerKind
-    plan: VerifiedRelationPlan[PlanNode]
+    plan: VerifiedRelationPlan
     location: ModelLocation
 
 
@@ -142,54 +123,10 @@ class VerifiedCoreProgram:
 
     program: CoreProgram
     point_domain: VerifiedPointDomain = dc_field(init=False)
-    iteration_layout: PointIterationLayout = dc_field(init=False)
-    relation_consumers: tuple[ProgramRelationConsumer, ...] = dc_field(init=False)
-    compute_plan: ComputePlan = dc_field(init=False)
-    variation_analysis: VariationAnalysis = dc_field(init=False)
-    _relation_plan_by_use: Mapping[RelationUseId, VerifiedRelationPlan[PlanNode]] = (
-        dc_field(init=False, repr=False)
-    )
 
     def __post_init__(self) -> None:
-        point_domain, consumers = _seal_core_program(self.program)
+        point_domain = _seal_core_program(self.program)
         object.__setattr__(self, "point_domain", point_domain)
-        object.__setattr__(
-            self,
-            "iteration_layout",
-            analyze_point_iteration_layout(point_domain),
-        )
-        compute_plan = analyze_compute_plan(self.program)
-        object.__setattr__(self, "compute_plan", compute_plan)
-        object.__setattr__(
-            self,
-            "variation_analysis",
-            analyze_variation_support(self.program, compute_plan),
-        )
-        object.__setattr__(
-            self,
-            "relation_consumers",
-            consumers,
-        )
-        relation_plan_by_use = {consumer.id: consumer.plan for consumer in consumers}
-        if len(relation_plan_by_use) != len(consumers):
-            raise AssertionError("compiler-produced relation-use ids must be unique")
-        object.__setattr__(
-            self,
-            "_relation_plan_by_use",
-            MappingProxyType(relation_plan_by_use),
-        )
-
-    def relation_plan(
-        self,
-        relation_use_id: RelationUseId,
-    ) -> VerifiedRelationPlan[PlanNode]:
-        """Return the verified plan owned by an exact program consumer."""
-
-        try:
-            return self._relation_plan_by_use[relation_use_id]
-        except KeyError:
-            msg = f"no verified relation plan for relation use {relation_use_id}"
-            raise KeyError(msg) from None
 
 
 def seal_typed_program(
@@ -213,13 +150,11 @@ def seal_typed_program(
 
 
 def _consumer(
-    id: RelationUseId,  # noqa: A002
     kind: ProgramRelationConsumerKind,
-    value: ValueExpr,
+    value: ScalarValueExpr,
     location: ModelLocation,
 ) -> ProgramRelationConsumer:
     return ProgramRelationConsumer(
-        id=id,
         kind=kind,
         plan=value.plan,
         location=location,
@@ -229,14 +164,22 @@ def _consumer(
 def _point_axis_center_consumers(
     point_domain: VerifiedPointDomain,
 ) -> Iterator[ProgramRelationConsumer]:
-    for path, source in iter_point_axis_linear(point_domain.root):
+    for path, source in iter_point_axis_linear(point_domain.axes):
         center = source.center
         yield _consumer(
-            center.id,
             ProgramRelationConsumerKind.POINT_AXIS_CENTER,
             center.value,
             model_location("point_domain", *path, "source", "center"),
         )
+
+
+def program_relation_consumers(
+    verified: VerifiedCoreProgram,
+) -> Iterator[ProgramRelationConsumer]:
+    """Iterate relation plans with paths only when diagnostics need them."""
+
+    yield from _point_axis_center_consumers(verified.point_domain)
+    yield from _program_relation_consumers(verified.program)
 
 
 def _program_relation_consumers(
@@ -244,30 +187,9 @@ def _program_relation_consumers(
 ) -> Iterator[ProgramRelationConsumer]:
     """Index relation proofs already built with their exact lowering bindings."""
 
-    for overlay_index, overlay in enumerate(program.parameter_overlays):
-        for column_id, use in overlay.key_uses.items():
-            yield _consumer(
-                use.id,
-                ProgramRelationConsumerKind.PARAMETER_OVERLAY_KEY,
-                use.value,
-                model_location(
-                    "parameter_overlays",
-                    overlay_index,
-                    "key",
-                    column_id,
-                ),
-            )
-        yield _consumer(
-            overlay.value_use.id,
-            ProgramRelationConsumerKind.PARAMETER_OVERLAY_VALUE,
-            overlay.value_use.value,
-            model_location("parameter_overlays", overlay_index, "value"),
-        )
-
     for requirement_index, requirement in enumerate(program.resource_requirements):
         for expression_index, use in enumerate(requirement.entity_uses):
             yield _consumer(
-                use.id,
                 ProgramRelationConsumerKind.RESOURCE_ENTITY,
                 use.value,
                 model_location(
@@ -282,10 +204,10 @@ def _program_relation_consumers(
         for input_name, input_value in node.inputs.items():
             if not isinstance(input_value, ValueInput):
                 continue
+            value = input_value.value
             yield _consumer(
-                input_value.relation_use_id,
                 ProgramRelationConsumerKind.COMPUTE_INPUT,
-                input_value.value,
+                value,
                 model_location(
                     "compute_nodes",
                     *node.id.scope,
@@ -297,10 +219,10 @@ def _program_relation_consumers(
 
     for execution_index, execution in enumerate(core_domain_executions(program)):
         for input_name, input_value in execution.inputs.items():
+            value = input_value.value
             yield _consumer(
-                input_value.relation_use_id,
                 ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
-                input_value.value,
+                value,
                 model_location(
                     "domain_executions",
                     execution_index,
@@ -309,10 +231,12 @@ def _program_relation_consumers(
                 ),
             )
         for input_name, input_value in execution.compiler_inputs.items():
+            value = input_value.value
+            if not isinstance(value, ScalarValueExpr):
+                continue
             yield _consumer(
-                input_value.relation_use_id,
                 ProgramRelationConsumerKind.DOMAIN_COMPILER_INPUT,
-                input_value.value,
+                value,
                 model_location(
                     "domain_executions",
                     execution_index,
@@ -322,36 +246,12 @@ def _program_relation_consumers(
             )
 
     for state_index, state in enumerate(core_state(program)):
-        yield from _state_relation_consumers(
-            state,
-            location=model_location("state", state_index),
-        )
-
-
-def _state_relation_consumers(
-    state: SetStateSpec,
-    *,
-    location: ModelLocation,
-) -> Iterator[ProgramRelationConsumer]:
-    if not isinstance(state.value_use, ComputeResultRef):
-        yield _consumer(
-            state.value_use.id,
-            ProgramRelationConsumerKind.STATE_VALUE,
-            state.value_use.value,
-            model_location(location.root, *location.path, "value"),
-        )
-    for index, use in enumerate(state.target_entity_uses):
-        yield _consumer(
-            use.id,
-            ProgramRelationConsumerKind.STATE_TARGET_ENTITY,
-            use.value,
-            model_location(
-                location.root,
-                *location.path,
-                "target_entities",
-                index,
-            ),
-        )
+        if not isinstance(state.value_use, ComputeResultRef):
+            yield _consumer(
+                ProgramRelationConsumerKind.STATE_VALUE,
+                state.value_use.value,
+                model_location("state", state_index, "value"),
+            )
 
 
 def _problem(code: str, message: str, location: ModelLocation) -> Problem:

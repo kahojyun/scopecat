@@ -1,4 +1,4 @@
-"""Backend-neutral relation, series, and scalar plan nodes.
+"""Backend-neutral scalar plan nodes and runtime relation values.
 
 Nodes contain declared semantics and construction helpers only. Traversal and
 reference analysis live in :mod:`scopecat.graph.relations.analysis`;
@@ -7,7 +7,7 @@ materialization belongs to an explicitly selected compiler backend.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TypeGuard, cast
 
@@ -15,7 +15,6 @@ from scopecat.graph.relations.operators import ScalarOperator
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
 
 type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
@@ -30,20 +29,6 @@ def is_cell_value(value: object) -> TypeGuard[CellValue]:
         value,
         str | int | float | bool | Quantity | EntityRef | PayloadValue | dict,
     )
-
-
-@dataclass(frozen=True, slots=True)
-class RowScopeId:
-    """Nominal lexical identity for one relation-row callback binder."""
-
-    symbol: SymbolId
-
-    @property
-    def qualified_name(self) -> str:
-        return self.symbol.qualified_name
-
-    def prefixed(self, *scope: str) -> RowScopeId:
-        return RowScopeId(self.symbol.prefixed(*scope))
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,40 +101,17 @@ class ScalarExpr:
     def __truediv__(self, other: object) -> BinaryScalarExpr:
         return self._binary("/", other)
 
-    def eq(self, other: object) -> BinaryScalarExpr:
-        return self._binary("==", other)
-
-    def ne(self, other: object) -> BinaryScalarExpr:
-        return self._binary("!=", other)
-
-    def lt(self, other: object) -> BinaryScalarExpr:
-        return self._binary("<", other)
-
-    def le(self, other: object) -> BinaryScalarExpr:
-        return self._binary("<=", other)
-
-    def gt(self, other: object) -> BinaryScalarExpr:
-        return self._binary(">", other)
-
-    def ge(self, other: object) -> BinaryScalarExpr:
-        return self._binary(">=", other)
-
-    def and_(self, other: object) -> BinaryScalarExpr:
-        return self._binary("and", other)
-
-    def or_(self, other: object) -> BinaryScalarExpr:
-        return self._binary("or", other)
+    def __rtruediv__(self, other: object) -> BinaryScalarExpr:
+        return BinaryScalarExpr(
+            op="/",
+            left=as_scalar_expr(other),
+            right=cast("ScalarExpression", self),
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class LiteralScalarExpr(ScalarExpr):
     value: CellValue
-
-
-@dataclass(frozen=True, slots=True)
-class ColumnScalarExpr(ScalarExpr):
-    name: str
-    row_scope_id: RowScopeId
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +144,6 @@ class BinaryScalarExpr(ScalarExpr):
 
 type ScalarExpression = (
     LiteralScalarExpr
-    | ColumnScalarExpr
     | PointColumnScalarExpr
     | InputScalarExpr
     | ParameterScalarExpr
@@ -191,142 +152,18 @@ type ScalarExpression = (
 )
 
 
-class SeriesExpr:
-    """Common base for one-dimensional series plan variants."""
-
-
-@dataclass(frozen=True, slots=True)
-class ValuesSeriesExpr(SeriesExpr):
-    items: list[CellValue]
-
-
-@dataclass(frozen=True, slots=True)
-class InputSeriesExpr(SeriesExpr):
-    name: str
-
-
-@dataclass(frozen=True, slots=True)
-class ParameterSeriesExpr(SeriesExpr):
-    name: str
-
-
-@dataclass(frozen=True, slots=True)
-class RelationEntitiesSeriesExpr(SeriesExpr):
-    source: RelationExpression
-    columns: list[str]
-
-
-type SeriesExpression = (
-    ValuesSeriesExpr
-    | InputSeriesExpr
-    | ParameterSeriesExpr
-    | RelationEntitiesSeriesExpr
-)
-
-
-class RelationExpr:
-    """Common base for relation plan variants."""
-
-    def select(self, *columns: str) -> SelectRelationExpr:
-        return SelectRelationExpr(
-            source=cast("RelationExpression", self),
-            select_columns=list(columns),
-        )
-
-    def with_columns(
-        self,
-        *,
-        row_scope_id: RowScopeId,
-        **columns: object,
-    ) -> WithColumnsRelationExpr:
-        return WithColumnsRelationExpr(
-            source=cast("RelationExpression", self),
-            new_columns={
-                name: as_scalar_expr(value) for name, value in columns.items()
-            },
-            row_scope_id=row_scope_id,
-        )
-
-    def entities(self, *columns: str) -> RelationEntitiesSeriesExpr:
-        """Flatten entity columns row-major and remove duplicates stably."""
-
-        return RelationEntitiesSeriesExpr(
-            source=cast("RelationExpression", self),
-            columns=list(columns),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class LiteralRowsRelationExpr(RelationExpr):
-    rows: list[Row]
-
-
-@dataclass(frozen=True, slots=True)
-class TableRelationExpr(RelationExpr):
-    table_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class InputRelationExpr(RelationExpr):
-    name: str
-
-
-@dataclass(frozen=True, slots=True)
-class SelectRelationExpr(RelationExpr):
-    source: RelationExpression
-    select_columns: list[str]
-
-
-@dataclass(frozen=True, slots=True)
-class WithColumnsRelationExpr(RelationExpr):
-    source: RelationExpression
-    new_columns: dict[str, ScalarExpression]
-    row_scope_id: RowScopeId
-
-
-type RelationExpression = (
-    LiteralRowsRelationExpr
-    | TableRelationExpr
-    | InputRelationExpr
-    | SelectRelationExpr
-    | WithColumnsRelationExpr
-)
-
-
 def lit(value: CellValue) -> LiteralScalarExpr:
     return LiteralScalarExpr(value=value)
 
 
-def col(name: str, *, row_scope_id: RowScopeId) -> ColumnScalarExpr:
-    return ColumnScalarExpr(name=name, row_scope_id=row_scope_id)
-
-
 def point_col(name: str) -> PointColumnScalarExpr:
-    """Reference a field from the experiment point independently of row scope."""
+    """Reference a field from the current experiment point."""
 
     return PointColumnScalarExpr(name=name)
 
 
 def input_ref(name: str) -> InputScalarExpr:
     return InputScalarExpr(name=name)
-
-
-def input_series(name: str) -> InputSeriesExpr:
-    """Reference a series-shaped input."""
-
-    return InputSeriesExpr(name=name)
-
-
-def parameter_series(name: str) -> ParameterSeriesExpr:
-    """Reference one series-shaped parameter."""
-
-    return ParameterSeriesExpr(name=name)
-
-
-def input_table(name: str) -> InputRelationExpr:
-    """Reference a table-shaped input."""
-
-    return InputRelationExpr(name=name)
 
 
 def param(parameter_id: str) -> ParameterScalarExpr:
@@ -356,24 +193,3 @@ def as_scalar_expr(value: object) -> ScalarExpression:
         return lit(value)
     msg = f"cannot convert {value!r} to scalar expression"
     raise TypeError(msg)
-
-
-def values(items: Sequence[object], *, unit: str | None = None) -> ValuesSeriesExpr:
-    if unit is None:
-        return ValuesSeriesExpr(
-            items=[cast("CellValue", item) for item in items],
-        )
-    return ValuesSeriesExpr(
-        items=[
-            Quantity(value=float(cast("int | float", item)), unit=unit)
-            for item in items
-        ],
-    )
-
-
-def literal_rows(rows: Sequence[Mapping[str, CellValue]]) -> LiteralRowsRelationExpr:
-    return LiteralRowsRelationExpr(rows=[dict(row) for row in rows])
-
-
-def table(table_id: str) -> TableRelationExpr:
-    return TableRelationExpr(table_id=table_id)

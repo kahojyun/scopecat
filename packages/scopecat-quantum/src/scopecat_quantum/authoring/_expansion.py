@@ -21,7 +21,6 @@ from ._ir import (
     _ExpandedFragment,
     _FragmentCall,
     _FragmentHandle,
-    _QuantumConditionalFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
     _QuantumSequenceFragment,
@@ -72,12 +71,6 @@ def _expand_fragment_calls(
         return replace(
             value,
             operation=_expand_fragment_calls(value.operation, bindings, stack=stack),
-        )
-    if isinstance(value, _QuantumConditionalFragment):
-        return replace(
-            value,
-            when_true=_expand_fragment_calls(value.when_true, bindings, stack=stack),
-            when_false=_expand_fragment_calls(value.when_false, bindings, stack=stack),
         )
     return value
 

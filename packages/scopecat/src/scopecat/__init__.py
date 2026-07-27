@@ -32,7 +32,7 @@ if TYPE_CHECKING:
         FloatType,
         Input,
         IntType,
-        MeasurementTransform,
+        MeasurementPostprocessor,
         ModuleBuilder,
         ModuleInvocation,
         ModuleOutputs,
@@ -41,15 +41,11 @@ if TYPE_CHECKING:
         ProductOutputs,
         ProductRef,
         QuantityType,
-        RecordField,
-        RecordType,
         RuntimeInput,
         ScalarType,
         ScratchDefinition,
-        SeriesType,
         StringType,
         TableColumn,
-        TableRow,
         TableType,
         ValueRef,
         ValueType,
@@ -60,7 +56,7 @@ if TYPE_CHECKING:
         entity_axis,
         experiment,
         input_ref,
-        measurement_transform,
+        measurement_postprocessor,
         module,
         module_body,
         parameter,
@@ -72,12 +68,11 @@ if TYPE_CHECKING:
         template,
     )
     from scopecat.authoring import (
-        input as input,  # noqa: A004
+        input as input,
     )
     from scopecat.authoring.scans import (
         Scan,
         axis,
-        cartesian,
         param_axis,
     )
     from scopecat.config.candidates import CandidateConfig
@@ -86,7 +81,6 @@ if TYPE_CHECKING:
         delete_parameter_rows,
         insert_parameter_rows,
         replace_scalar_parameter,
-        replace_series_parameter,
         replace_table_parameter,
         update_parameter_rows,
     )
@@ -98,13 +92,8 @@ if TYPE_CHECKING:
     from scopecat.planning.preview_models import ExperimentPreview
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import Project, open_project
-    from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 
 _EXPORTS: dict[str, tuple[str, str]] = {
-    "AutomaticPolicyDecisionAuthority": (
-        "scopecat.records.parameter_change",
-        "AutomaticPolicyDecisionAuthority",
-    ),
     "BoolType": ("scopecat.authoring", "BoolType"),
     "Compute": ("scopecat.authoring", "Compute"),
     "ComputeInput": ("scopecat.authoring", "ComputeInput"),
@@ -119,7 +108,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "Input": ("scopecat.authoring", "Input"),
     "IntType": ("scopecat.authoring", "IntType"),
     "LabClient": ("scopecat.api.lab", "LabClient"),
-    "MeasurementTransform": ("scopecat.authoring", "MeasurementTransform"),
+    "MeasurementPostprocessor": ("scopecat.authoring", "MeasurementPostprocessor"),
     "ModuleBuilder": ("scopecat.authoring", "ModuleBuilder"),
     "ModuleInvocation": ("scopecat.authoring", "ModuleInvocation"),
     "ModuleOutputs": ("scopecat.authoring", "ModuleOutputs"),
@@ -128,15 +117,11 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ProductOutputs": ("scopecat.authoring", "ProductOutputs"),
     "ProductRef": ("scopecat.authoring", "ProductRef"),
     "QuantityType": ("scopecat.authoring", "QuantityType"),
-    "RecordField": ("scopecat.authoring", "RecordField"),
-    "RecordType": ("scopecat.authoring", "RecordType"),
     "RuntimeInput": ("scopecat.authoring", "RuntimeInput"),
     "ScratchDefinition": ("scopecat.authoring", "ScratchDefinition"),
     "ScalarType": ("scopecat.authoring", "ScalarType"),
-    "SeriesType": ("scopecat.authoring", "SeriesType"),
     "StringType": ("scopecat.authoring", "StringType"),
     "TableColumn": ("scopecat.authoring", "TableColumn"),
-    "TableRow": ("scopecat.authoring", "TableRow"),
     "TableType": ("scopecat.authoring", "TableType"),
     "ValueRef": ("scopecat.authoring", "ValueRef"),
     "ValueType": ("scopecat.authoring", "ValueType"),
@@ -148,7 +133,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "experiment": ("scopecat.authoring", "experiment"),
     "input": ("scopecat.authoring", "input"),
     "input_ref": ("scopecat.authoring", "input_ref"),
-    "measurement_transform": ("scopecat.authoring", "measurement_transform"),
+    "measurement_postprocessor": ("scopecat.authoring", "measurement_postprocessor"),
     "module": ("scopecat.authoring", "module"),
     "module_body": ("scopecat.authoring", "module_body"),
     "parameter": ("scopecat.authoring", "parameter"),
@@ -160,7 +145,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "template": ("scopecat.authoring", "template"),
     "Scan": ("scopecat.authoring.scans", "Scan"),
     "axis": ("scopecat.authoring.scans", "axis"),
-    "cartesian": ("scopecat.authoring.scans", "cartesian"),
     "param_axis": ("scopecat.authoring.scans", "param_axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "Project": ("scopecat.project", "Project"),
@@ -171,10 +155,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "replace_scalar_parameter": (
         "scopecat.config.parameters",
         "replace_scalar_parameter",
-    ),
-    "replace_series_parameter": (
-        "scopecat.config.parameters",
-        "replace_series_parameter",
     ),
     "replace_table_parameter": (
         "scopecat.config.parameters",

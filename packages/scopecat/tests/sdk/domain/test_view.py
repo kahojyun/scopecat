@@ -15,13 +15,13 @@ from scopecat.sdk.domain import (
     DomainProductUseRef,
 )
 from scopecat.sdk.domain._bridge import (
-    make_domain_batch_context,
-    make_domain_compile_template,
+    make_domain_batch_request,
+    make_domain_call_view,
 )
 from tests.testkit.authoring import link_invocation, load_config
 
 
-def test_domain_batch_context_materializes_only_selected_residual_inputs(
+def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     tmp_path: Path,
 ) -> None:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
@@ -47,7 +47,7 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     module_call = module.domain(execution).build()()
     experiment_body = (
         sc.experiment(module_call)
-        .scan(count, (1, 3, 5))
+        .scan(sc.axis(count, (1, 3, 5)))
         .record_product(module_call.products.counts, record_id="counts")
     )
     template = sc.template(id="test.domain.view", kind="domain_view")(
@@ -62,51 +62,26 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
 
     execution_id = core_domain_executions(linked.program)[0].id
     closure = domain_result_closure(linked.program, execution_id)
-    request = make_domain_compile_template(
+    call = make_domain_call_view(
         linked,
         execution_id,
         closure,
-    ).bind_coverage(
-        ((0, 1, 2),),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution_id,
-            "program",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution_id,
-            "compiler",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
     )
-    layout = request.iteration_layout
-    assert layout is not None
-    assert layout.preferred_tile_size == 3
-    full = make_domain_batch_context(
-        request,
+    full = make_domain_batch_request(
+        call,
         linked_points,
         (0, 1, 2),
         batch_ordinal=0,
     )
-    selected = full.execution
-    assert selected.program.id == "program%2Fvariant"
-    assert selected.program.dialect_id == "test.domain"
-    assert selected.program.dialect_version == "1"
-    assert selected.program.body is body
-    assert selected.input_values("count") == (1, 3, 5)
+    assert full.call.program.id == "program%2Fvariant"
+    assert full.call.program.dialect_id == "test.domain"
+    assert full.call.program.dialect_version == "1"
+    assert full.call.program.body is body
+    assert full.inputs.program_input("count") == (1, 3, 5)
     assert all(isinstance(point, DomainPointRef) for point in full.points)
     assert [point.ordinal for point in full.points] == [0, 1, 2]
-    assert tuple(point.ref for point in selected.points) == full.points
-    assert all(
-        point.ref is ref
-        for point, ref in zip(selected.points, full.points, strict=True)
-    )
 
-    result = selected.result("counts")
+    result = full.call.result("counts")
     assert result.contract == ("counts", "v1")
     assert result.product.unit == "count"
     assert result.product.dtype == "int64"
@@ -116,15 +91,14 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     assert product_use.product is result.product
     assert product_use is full.product_uses[0]
 
-    batch = make_domain_batch_context(
-        request,
+    batch = make_domain_batch_request(
+        call,
         linked_points,
         (1, 2),
         batch_ordinal=1,
     )
-    batched = batch.execution
-    assert batched.input_values("count") == (3, 5)
-    assert [point.logical_ordinal for point in batched.points] == [1, 2]
+    assert batch.inputs.program_input("count") == (3, 5)
+    assert [point.ordinal for point in batch.points] == [1, 2]
     assert all(
         (selected_ref.id, selected_ref.ordinal) == (full_ref.id, full_ref.ordinal)
         for selected_ref, full_ref in zip(
@@ -132,10 +106,6 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
             full.points[1:],
             strict=True,
         )
-    )
-    assert all(
-        point.ref is ref
-        for point, ref in zip(batched.points, batch.points, strict=True)
     )
     assert tuple(use.id for use in batch.product_uses) == tuple(
         use.id for use in full.product_uses

@@ -29,11 +29,6 @@ class _NominalId:
 
 
 @dataclass(frozen=True, slots=True)
-class CircuitId(_NominalId):
-    """Identity of one circuit program."""
-
-
-@dataclass(frozen=True, slots=True)
 class QuantumProgramId(_NominalId):
     """Identity of one mixed gate-and-pulse quantum program."""
 
@@ -128,11 +123,6 @@ class PulseEventId(_StructuralId):
 @dataclass(frozen=True, slots=True)
 class AcquisitionSlotId(_StructuralId):
     """Structural identity of one domain-local acquisition result."""
-
-
-@dataclass(frozen=True, slots=True)
-class RealtimeValueId(_StructuralId):
-    """Structural SSA identity of one target-local realtime value."""
 
 
 @dataclass(frozen=True, slots=True)

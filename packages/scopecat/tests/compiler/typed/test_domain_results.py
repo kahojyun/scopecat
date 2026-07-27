@@ -1,30 +1,21 @@
 from __future__ import annotations
 
-from scopecat.compiler.semantic.model import (
-    MeasurementTransformId,
-)
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
     TypedDomainResultBinding,
-    TypedMeasurementTransform,
-    TypedMeasurementTransformInput,
-    TypedMeasurementTransformOutput,
 )
 from scopecat.domain.program import DomainProgramDef
-from scopecat.graph.relations.point_domain import POINT_UNIT
 from scopecat.kernel.product_identity import (
     ProductUse,
     ProductUseId,
     product_id,
 )
-from scopecat.kernel.symbols import SymbolId
-from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 
 
-def test_domain_result_closure_follows_exact_product_use_edges() -> None:
+def test_domain_result_closure_contains_only_exact_direct_product_uses() -> None:
     shared_product = product_id("shared")
     output_product = product_id("output")
     direct_use = ProductUse(shared_product, ProductUseId("shared/direct"))
@@ -46,34 +37,14 @@ def test_domain_result_closure_follows_exact_product_use_edges() -> None:
             ),
         ),
     )
-    transform = TypedMeasurementTransform(
-        id=MeasurementTransformId(SymbolId(local_id="derive")),
-        semantic=MeasurementTransformSemanticContract(id="test.derive", version="1"),
-        inputs=(
-            TypedMeasurementTransformInput(
-                id="source",
-                product_id=shared_product,
-                product_use_id=foreign_use.id,
-            ),
-        ),
-        outputs=(
-            TypedMeasurementTransformOutput(
-                id="output",
-                product_id=output_product,
-                product_use_ids=(output_use.id,),
-            ),
-        ),
-    )
     program = CoreProgram(
         id="test.domain-results",
         kind="test",
-        point_domain=PointDomain(POINT_UNIT),
+        point_domain=PointDomain(axes=()),
         effects=(execution,),
-        measurement_transforms=(transform,),
         product_uses=(direct_use, foreign_use, output_use),
     )
 
     result_closure = domain_result_closure(program, "domain")
 
-    assert result_closure.transforms == ()
     assert result_closure.product_use_ids == (direct_use.id,)

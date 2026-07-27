@@ -30,7 +30,6 @@ class RunOutcome(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     run_id: str

@@ -21,7 +21,6 @@ from tests.testkit.authoring import (
     simple_template,
     template_fixture,
 )
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.runtime import check_experiment, sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
@@ -107,10 +106,8 @@ def test_compile_validates_default_scan_axes() -> None:
         id="test.invalid-default-scans",
         kind="invalid-default-scans",
         scans=(
-            sc.cartesian(
-                sc.axis(first, (1.0, 2.0)),
-                sc.axis(second, (1.0,)),
-            ),
+            sc.axis(first, (1.0, 2.0)),
+            sc.axis(second, (1.0,)),
             sc.axis(first, (3.0,)),
         ),
     )
@@ -132,7 +129,7 @@ def test_compile_rejects_repeated_scan_overrides_before_merging() -> None:
         kind="repeated-scan-overrides",
         scans=(sc.axis(point, (1.0,)),),
     )
-    invocation = template().scan(point, (2.0,)).scan(point, (3.0,))
+    invocation = template().scan(sc.axis(point, (2.0,))).scan(sc.axis(point, (3.0,)))
 
     with pytest.raises(CheckFailed) as error:
         compile_invocation(invocation)
@@ -154,20 +151,6 @@ def test_authoring_compile_precedes_config_linking(tmp_path: Path) -> None:
     assert error.value.problems[0].code == "experiment_missing_input"
 
 
-def test_check_experiment_resolves_template_invocation_with_config_profile(
-    tmp_path: Path,
-) -> None:
-    result = check_experiment(
-        simple_template().bind(subject="q0"),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        services=sqlite_project_services(tmp_path),
-        config_profile=EXAMPLE_DIR / "config-profile.json",
-    )
-
-    assert result.preview is not None
-    assert result.preview.experiment_id == simple_template().definition.id
-
-
 def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -175,7 +158,7 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
         simple_template().bind(subject="q0"),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         services=sqlite_project_services(tmp_path),
-        config_profile=load_config(),
+        config=load_config(),
     )
 
     assert result.preview is not None
@@ -183,12 +166,13 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
 
 
 def _module_consuming_input() -> tuple[sc.ExperimentModule[...], sc.ValueRef]:
-    value = sc.input("value", sc.ScalarType(sc.FloatType()))
+    value_type = sc.ScalarType(sc.FloatType())
+    value = sc.input("value", value_type)
     consume = sc.compute(
         "consume-value",
         fn=_identity_value,
         inputs={"value": value},
-        output_type=value.value_type,
+        output_type=value_type,
     )
     module = (
         sc.module_body(id="test.consumed-input").inputs(value).computes(consume).build()
@@ -273,7 +257,7 @@ def test_unused_child_expression_binding_does_not_consume_outer_input(
     link_invocation(invocation, config_profile=load_config())
 
 
-def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
+def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
     module, _value = _module_consuming_input()
     invocation = template_fixture(
         module,
@@ -287,7 +271,10 @@ def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
         ),
     ).bind()
 
-    link_invocation(invocation, config_profile=load_config())
+    with pytest.raises(CheckFailed) as error:
+        compile_invocation(invocation)
+
+    assert error.value.problems[0].code == "module_input_binding_missing"
 
 
 def _identity_value(value: object) -> object:

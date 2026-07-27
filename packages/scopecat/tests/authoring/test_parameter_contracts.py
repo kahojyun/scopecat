@@ -8,7 +8,6 @@ from scopecat.kernel.problems import model_location
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,
-    SeriesParameterValue,
     TableParameterValue,
 )
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
@@ -17,6 +16,10 @@ from tests.testkit.materialized_effects import materialized_effects_contract
 
 def _identity(value: object) -> object:
     return value
+
+
+def _capture(value: object) -> dict[str, object]:
+    return {"value": value}
 
 
 def _resolve_dependency(
@@ -28,9 +31,9 @@ def _resolve_dependency(
 ) -> None:
     dependency = sc.compute(
         "consume-parameter-dependency",
-        fn=_identity,
+        fn=_capture,
         inputs={"value": value},
-        output_type=value.value_type,
+        output_type=sc.ScalarType(sc.PayloadType("parameter-dependency")),
     )
     module = (
         sc.module_body(id="test.parameter-contract")
@@ -39,6 +42,30 @@ def _resolve_dependency(
         .build()
     )
     _resolve_module(module, config, inputs=bound_inputs)
+
+
+def _resolve_table_dependency(
+    value: sc.ValueRef,
+    config: ConfigProfileSnapshot,
+) -> None:
+    program = sc.domain_program(
+        "consume-parameter-table",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        compiler_inputs={"value": value.value_type},
+    )
+    module = (
+        sc.module_body(id="test.parameter-table-contract")
+        .domain(
+            sc.domain_execution(
+                program,
+                compiler_inputs={"value": value},
+            )
+        )
+        .build()
+    )
+    _resolve_module(module, config)
 
 
 def _resolve_module(
@@ -60,7 +87,7 @@ def _resolve_module(
 
 def _config_with_parameter_table(
     *,
-    frequency_required: bool = True,
+    frequency_type: sc.ScalarType | None = None,
 ) -> ConfigProfileSnapshot:
     config = load_config()
     definition = ParameterDefinition(
@@ -76,8 +103,8 @@ def _config_with_parameter_table(
                 ),
                 sc.TableColumn(
                     id="frequency",
-                    value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-                    required=frequency_required,
+                    value_type=frequency_type
+                    or sc.ScalarType(sc.QuantityType(unit="GHz")),
                 ),
             ),
         ),
@@ -188,46 +215,17 @@ def test_unknown_scalar_parameter_has_authoring_problem() -> None:
     )
 
 
-def test_series_parameter_is_first_class_in_authoring_and_resolution() -> None:
-    config = load_config()
-    series_type = sc.SeriesType(sc.ScalarType(sc.FloatType()))
-    definition = ParameterDefinition(id="frequency_offsets", value_type=series_type)
-    system = config.system.model_copy(
-        update={
-            "parameter_catalog": config.parameter_catalog.model_copy(
-                update={
-                    "definitions": (*config.parameter_catalog.definitions, definition)
-                }
-            )
-        }
-    )
-    parameter_snapshot = config.parameter_snapshot.model_copy(
-        update={
-            "values": (
-                *config.parameter_snapshot.values,
-                SeriesParameterValue(id="frequency_offsets", items=(0.0, 0.1)),
-            )
-        }
-    )
-
-    _resolve_dependency(
-        sc.parameter("frequency_offsets", series_type),
-        config.model_copy(
-            update={"system": system, "parameter_snapshot": parameter_snapshot}
-        ),
-    )
-
-
 def test_parameter_contract_survives_nested_elaboration() -> None:
+    frequency_type = sc.ScalarType(sc.StringType())
     frequency = sc.input(
         "frequency",
-        sc.ScalarType(sc.StringType()),
+        frequency_type,
     )
     dependency = sc.compute(
         "consume-child-frequency",
         fn=_identity,
         inputs={"value": frequency},
-        output_type=frequency.value_type,
+        output_type=frequency_type,
     )
     child = (
         sc.module_body(id="test.parameter-contract-child")
@@ -418,6 +416,37 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
     assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")
 
 
+def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
+    bounded_frequency = sc.ScalarType(
+        sc.QuantityType(unit="GHz", minimum=4.0, maximum=6.0)
+    )
+    config = _config_with_parameter_table(frequency_type=bounded_frequency)
+    frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
+    scan = sc.param_axis(
+        sc.coordinate("scanned_frequency", frequency_type),
+        sc.parameter_lookup(
+            "device_parameters",
+            key={"device": "q0"},
+            column="frequency",
+            value_type=frequency_type,
+        ),
+        [5.0],
+        unit="GHz",
+    )
+    module = sc.module_body(id="test.parameter-scan-write-type").build()
+    invocation = template_fixture(
+        module,
+        id="test.parameter-scan-write-type",
+        kind="parameter_contract",
+        scans=(scan,),
+    ).bind()
+
+    with pytest.raises(CheckFailed) as error:
+        link_invocation(invocation, config_profile=config)
+
+    assert error.value.problems[0].code == "authoring_parameter_scan_type_mismatch"
+
+
 def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
     config = _config_with_parameter_table()
     _resolve_dependency(
@@ -459,23 +488,6 @@ def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
     )
 
 
-def test_parameter_lookup_rejects_an_optional_result_column() -> None:
-    with pytest.raises(CheckFailed) as caught:
-        _resolve_dependency(
-            sc.parameter_lookup(
-                "device_parameters",
-                key={"device": "q0"},
-                column="frequency",
-                value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-            ),
-            _config_with_parameter_table(frequency_required=False),
-        )
-
-    assert caught.value.problems[0].code == (
-        "authoring_parameter_lookup_column_optional"
-    )
-
-
 def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> None:
     config = _config_with_parameter_table()
     typed_device = sc.input(
@@ -492,7 +504,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
         "consume-typed-parameter-key",
         fn=_identity,
         inputs={"value": lookup},
-        output_type=lookup.value_type,
+        output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
     module = (
         sc.module_body(id="test.typed-parameter-key")
@@ -560,7 +572,6 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             sc.ScalarType(sc.StringType()),
             sc.Quantity(value=1.0, unit="GHz"),
         ),
-        (sc.ScalarType(sc.StringType()), None),
     ],
 )
 def test_parameter_lookup_checks_every_literal_key_type(
@@ -597,7 +608,7 @@ def test_parameter_table_declaration_is_checked_against_catalog_schema() -> None
             ),
         ),
     )
-    _resolve_dependency(
+    _resolve_table_dependency(
         sc.parameter("device_parameters", valid_table),
         config,
     )
@@ -609,10 +620,9 @@ def test_parameter_table_declaration_is_checked_against_catalog_schema() -> None
                 sc.ScalarType(sc.StringType()),
             ),
         ),
-        allow_extra_columns=True,
     )
     with pytest.raises(CheckFailed) as error:
-        _resolve_dependency(
+        _resolve_table_dependency(
             sc.parameter("device_parameters", incompatible_table),
             config,
         )
@@ -631,7 +641,7 @@ def test_unknown_parameter_table_has_authoring_problem() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        _resolve_dependency(
+        _resolve_table_dependency(
             sc.parameter("missing_table", value_type),
             load_config(),
         )
@@ -640,36 +650,3 @@ def test_unknown_parameter_table_has_authoring_problem() -> None:
     assert error.value.problems[0].location == model_location(
         "parameters", "missing_table"
     )
-
-
-def test_table_row_callback_retains_source_and_added_parameter_contracts() -> None:
-    table = sc.parameter(
-        "device_parameters",
-        sc.TableType(
-            columns=(
-                sc.TableColumn(
-                    "device",
-                    sc.ScalarType(sc.EntityType(entity_kind="logical_device")),
-                ),
-                sc.TableColumn(
-                    "frequency",
-                    sc.ScalarType(sc.QuantityType()),
-                ),
-            )
-        ),
-    )
-    derived = table.with_columns(
-        lambda row: {
-            "invalid_frequency": sc.parameter_lookup(
-                "device_parameters",
-                key={"device": row["device"]},
-                column="frequency",
-                value_type=sc.ScalarType(sc.StringType()),
-            )
-        }
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        _resolve_dependency(derived, _config_with_parameter_table())
-
-    assert error.value.problems[0].code == "semantic_parameter_lookup_type_conflict"

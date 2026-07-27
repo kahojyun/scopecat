@@ -42,16 +42,6 @@ class RunRequestEntityRef(_RunRequestModel):
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)
 
 
-class RunRequestAxisValue(_RunRequestModel):
-    kind: Literal["axis"] = "axis"
-    axis_id: str
-
-
-class RunRequestInputValue(_RunRequestModel):
-    kind: Literal["input"] = "input"
-    input_id: str
-
-
 class RunRequestParameterValue(_RunRequestModel):
     kind: Literal["parameter"] = "parameter"
     parameter_id: str
@@ -69,14 +59,6 @@ type RunRequestBinaryOperator = Literal[
     "-",
     "*",
     "/",
-    "==",
-    "!=",
-    "<",
-    "<=",
-    ">",
-    ">=",
-    "and",
-    "or",
 ]
 
 
@@ -88,11 +70,7 @@ class RunRequestBinaryValue(_RunRequestModel):
 
 
 type RunRequestExpressionValue = Annotated[
-    RunRequestAxisValue
-    | RunRequestInputValue
-    | RunRequestParameterValue
-    | RunRequestParameterLookupValue
-    | RunRequestBinaryValue,
+    RunRequestParameterValue | RunRequestParameterLookupValue | RunRequestBinaryValue,
     Field(discriminator="kind"),
 ]
 
@@ -132,17 +110,14 @@ class PointScanRecord(_RunRequestModel):
     """Persisted point-value scan axis record."""
 
     kind: Literal["point"] = "point"
-    target_id: str
     axis_id: str
     values: list[RunRequestScalarValue]
-    unit: str | None = None
 
 
 class AroundScanRecord(_RunRequestModel):
     """Persisted center/span scan axis record."""
 
     kind: Literal["scan"] = "scan"
-    target_id: str
     axis_id: str
     center: RunRequestScalarValue
     span: RunRequestScalarValue
@@ -158,7 +133,6 @@ class ParameterScanRecord(_RunRequestModel):
     column: str
     axis_id: str
     values: list[RunRequestScalarValue]
-    unit: str | None = None
 
 
 class ParameterAroundScanRecord(_RunRequestModel):

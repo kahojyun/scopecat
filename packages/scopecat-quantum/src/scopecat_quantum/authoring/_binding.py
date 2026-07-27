@@ -20,12 +20,9 @@ from scopecat_quantum._ids import (
     PulseEventId,
     PulseProgramId,
     QubitId,
-    RealtimeValueId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.circuits import CircuitNode, Measure
-from scopecat_quantum.circuits import Parallel as IrParallel
-from scopecat_quantum.circuits import Sequence as IrSequence
+from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import (
     GateArgument,
     GateArgumentValue,
@@ -33,14 +30,10 @@ from scopecat_quantum.gates import (
     GateDefinition,
 )
 from scopecat_quantum.programs import (
-    Conditional as IrQuantumConditional,
-)
-from scopecat_quantum.programs import (
     ImplementedGate,
     PulseBlock,
     QuantumNode,
     QuantumProgramIR,
-    RealtimeBitRef,
     VerifiedQuantumProgram,
     verify_quantum_program,
 )
@@ -55,7 +48,6 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     AcquisitionSlot,
     AnalyticEnvelope,
-    Barrier,
     Constant,
     Delay,
     FrameSignal,
@@ -73,7 +65,6 @@ from ._analysis import (
     _operation_id,
     _program_input_type,
     _pulse_envelope_parts,
-    _result_axis_input_ids,
     _summarize_fragment,
     _unique_gate_definitions,
     program_port_type,
@@ -86,20 +77,16 @@ from ._expansion import (
 )
 from ._ir import (
     Acquisition,
-    CircuitFragment,
     ElementBindings,
     Measurement,
     ProgramBindingError,
     ProgramInput,
-    ProgramResult,
     ProgramResults,
     PulseEnvelope,
     QuantumFragment,
     QuantumQuantity,
     Qubit,
-    RealtimeBit,
     RepeatCount,
-    _BarrierFragment,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
@@ -108,7 +95,6 @@ from ._ir import (
     _ParallelFragment,
     _PlayFragment,
     _PulseTemplateCallFragment,
-    _QuantumConditionalFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
     _QuantumSequenceFragment,
@@ -138,7 +124,7 @@ class BoundProgram:
     def gate_definitions(self) -> tuple[GateDefinition, ...]:
         """Return the verified logical gate catalog."""
 
-        return self.verified.gate_definitions
+        return self.verified.unresolved.gate_definitions
 
     @property
     def results(self) -> ProgramResults:
@@ -148,7 +134,7 @@ class BoundProgram:
 
 
 def materialize_pulse_recipe_body(
-    id: str,  # noqa: A002
+    id: str,
     body: QuantumFragment,
     /,
     *,
@@ -226,7 +212,6 @@ def bind(
         input_handle.id
         for input_handle in _summarize_fragment(declaration.body).repeat_inputs
     }
-    result_axis_input_ids = _result_axis_input_ids(declaration.results)
     concrete_bindings: dict[str, object] = {}
     element_bindings: dict[QubitId | CouplerId, QubitId | CouplerId] = {}
     for element in declaration.elements:
@@ -251,7 +236,6 @@ def bind(
         value_type = _program_input_type(
             input_handle,
             non_negative=input_handle.id in repeat_input_ids,
-            positive=input_handle.id in result_axis_input_ids,
         )
         try:
             concrete_bindings[input_handle.id] = coerce_literal(
@@ -264,14 +248,12 @@ def bind(
 
     expanded_body = _expand_fragment_calls(declaration.body, concrete_bindings)
     gate_definitions = _bound_gate_definitions(expanded_body, concrete_bindings)
-    realtime_values = _realtime_value_bindings(expanded_body, path=("body",))
     concrete = QuantumProgramIR(
         id=declaration.ir_id,
         body=_bind_quantum_fragment(
             expanded_body,
             concrete_bindings,
             element_bindings=element_bindings,
-            realtime_values=realtime_values,
             path=("body",),
         ),
     )
@@ -282,14 +264,13 @@ def bind(
     )
 
 
-def _bind_fragment(
-    fragment: CircuitFragment,
+def _bind_circuit_operation(
+    fragment: _GateFragment | Measurement,
     bindings: Mapping[str, GateArgumentValue],
     *,
     element_bindings: ElementBindings,
-    realtime_values: Mapping[RealtimeBit, RealtimeValueId] | None = None,
     path: tuple[str, ...],
-) -> CircuitNode:
+) -> GateCall | Measure:
     if isinstance(fragment, _GateFragment):
         return GateCall(
             id=CircuitOperationId(_operation_id(path, "gate")),
@@ -305,74 +286,12 @@ def _bind_fragment(
                 for argument_id, value in fragment.arguments
             ),
         )
-    if isinstance(fragment, Measurement):
-        result = fragment.result
-        return Measure(
-            id=CircuitOperationId(_operation_id(path, "measure")),
-            qubit=_bound_qubit_id(result.qubit, element_bindings),
-            acquisition_slot_id=_physical_result_slot_id(result, path),
-            acquisition_kind=result.acquisition_kind,
-            realtime_bit_id=(
-                None
-                if fragment.realtime_bit is None
-                else _bound_realtime_value_id(
-                    fragment.realtime_bit,
-                    realtime_values,
-                )
-            ),
-        )
-    if isinstance(fragment, _SequenceFragment):
-        return IrSequence(
-            tuple(
-                _bind_fragment(
-                    operation,
-                    bindings,
-                    element_bindings=element_bindings,
-                    realtime_values=realtime_values,
-                    path=(*path, f"sequence[{index}]"),
-                )
-                for index, operation in enumerate(fragment.operations)
-            )
-        )
-    if isinstance(fragment, _ParallelFragment):
-        return IrParallel(
-            tuple(
-                _bind_fragment(
-                    branch,
-                    bindings,
-                    element_bindings=element_bindings,
-                    realtime_values=realtime_values,
-                    path=(*path, f"parallel[{index}]"),
-                )
-                for index, branch in enumerate(fragment.branches)
-            )
-        )
-    if not isinstance(fragment, _RepeatFragment):
-        msg = f"unsupported circuit fragment {type(fragment).__name__}"
-        raise TypeError(msg)
-    count = (
-        bindings[fragment.count.id]
-        if isinstance(fragment.count, ProgramInput)
-        else fragment.count
-    )
-    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        input_id = (
-            fragment.count.id if isinstance(fragment.count, ProgramInput) else None
-        )
-        qualifier = f" input {input_id!r}" if input_id is not None else ""
-        msg = f"repeat count{qualifier} must bind to a non-negative integer"
-        raise ProgramBindingError(msg)
-    return IrSequence(
-        tuple(
-            _bind_fragment(
-                fragment.operation,
-                bindings,
-                element_bindings=element_bindings,
-                realtime_values=realtime_values,
-                path=(*path, f"repeat[{index}]"),
-            )
-            for index in range(count)
-        )
+    result = fragment.result
+    return Measure(
+        id=CircuitOperationId(_operation_id(path, "measure")),
+        qubit=_bound_qubit_id(result.qubit, element_bindings),
+        acquisition_slot_id=result.acquisition_slot_id,
+        acquisition_kind=result.acquisition_kind,
     )
 
 
@@ -381,7 +300,6 @@ def _bind_quantum_fragment(
     bindings: Mapping[str, object],
     *,
     element_bindings: ElementBindings,
-    realtime_values: Mapping[RealtimeBit, RealtimeValueId],
     path: tuple[str, ...],
 ) -> QuantumNode:
     if isinstance(fragment, _ExpandedFragment):
@@ -389,32 +307,27 @@ def _bind_quantum_fragment(
             fragment.body,
             bindings,
             element_bindings=element_bindings,
-            realtime_values=realtime_values,
             path=(*path, f"fragment[{fragment.definition_id}]"),
         )
     if isinstance(fragment, _FragmentCall):
         raise AssertionError("quantum fragment calls must expand before binding")
     if isinstance(fragment, _GateFragment | Measurement):
-        return cast(
-            "GateCall | Measure",
-            _bind_fragment(
-                fragment,
-                cast("Mapping[str, GateArgumentValue]", bindings),
-                element_bindings=element_bindings,
-                realtime_values=realtime_values,
-                path=path,
-            ),
-        )
-    if isinstance(fragment, _ImplementedGateFragment):
-        call = _bind_fragment(
-            fragment.gate,
+        return _bind_circuit_operation(
+            fragment,
             cast("Mapping[str, GateArgumentValue]", bindings),
             element_bindings=element_bindings,
-            realtime_values=realtime_values,
-            path=(*path, "logical"),
+            path=path,
         )
-        if not isinstance(call, GateCall):
-            raise AssertionError("implemented gate binding must produce a GateCall")
+    if isinstance(fragment, _ImplementedGateFragment):
+        call = cast(
+            "GateCall",
+            _bind_circuit_operation(
+                fragment.gate,
+                cast("Mapping[str, GateArgumentValue]", bindings),
+                element_bindings=element_bindings,
+                path=(*path, "logical"),
+            ),
+        )
         pulse_template_id = (
             fragment.pulse.template.ir_id
             if isinstance(fragment.pulse, _PulseTemplateCallFragment)
@@ -439,7 +352,7 @@ def _bind_quantum_fragment(
             candidate_id=fragment.candidate_id,
         )
     if isinstance(fragment, Acquisition):
-        slot_id = _physical_result_slot_id(fragment.result, path)
+        slot_id = fragment.result.acquisition_slot_id
         bound_acquire = _bind_pulse_fragment(
             fragment,
             bindings,
@@ -480,7 +393,7 @@ def _bind_quantum_fragment(
         )
     if isinstance(
         fragment,
-        _PlayFragment | _DelayFragment | _ShiftPhaseFragment | _BarrierFragment,
+        _PlayFragment | _DelayFragment | _ShiftPhaseFragment,
     ):
         return PulseBlock(
             id=CircuitOperationId(_operation_id(path, "pulse")),
@@ -501,7 +414,6 @@ def _bind_quantum_fragment(
                     operation,
                     bindings,
                     element_bindings=element_bindings,
-                    realtime_values=realtime_values,
                     path=(*path, f"sequence[{index}]"),
                 )
                 for index, operation in enumerate(fragment.operations)
@@ -514,7 +426,6 @@ def _bind_quantum_fragment(
                     branch,
                     bindings,
                     element_bindings=element_bindings,
-                    realtime_values=realtime_values,
                     path=(*path, f"parallel[{index}]"),
                 )
                 for index, branch in enumerate(fragment.branches)
@@ -530,33 +441,10 @@ def _bind_quantum_fragment(
                     fragment.operation,
                     bindings,
                     element_bindings=element_bindings,
-                    realtime_values=realtime_values,
                     path=(*path, "repeat-body"),
                 )
             ),
             count=count,
-            axis_id=(None if fragment.result_axis is None else fragment.result_axis.id),
-        )
-    if isinstance(fragment, _QuantumConditionalFragment):
-        return IrQuantumConditional(
-            condition=RealtimeBitRef(
-                _bound_realtime_value_id(fragment.condition, realtime_values)
-            ),
-            equals=fragment.equals,
-            when_true=_bind_quantum_fragment(
-                fragment.when_true,
-                bindings,
-                element_bindings=element_bindings,
-                realtime_values=realtime_values,
-                path=(*path, "when-true"),
-            ),
-            when_false=_bind_quantum_fragment(
-                fragment.when_false,
-                bindings,
-                element_bindings=element_bindings,
-                realtime_values=realtime_values,
-                path=(*path, "when-false"),
-            ),
         )
     msg = f"unsupported quantum fragment {type(fragment).__name__}"
     raise TypeError(msg)
@@ -621,14 +509,6 @@ def _bind_pulse_fragment(
             ),
             phase=_bound_quantity(fragment.phase, bindings),
         )
-    if isinstance(fragment, _BarrierFragment):
-        return Barrier(
-            id=PulseEventId("barrier", scope=path),
-            signals=tuple(
-                cast("PlaySignal", _substitute_signal(signal, element_bindings))
-                for signal in fragment.signals
-            ),
-        )
     if isinstance(fragment, _PulseTemplateCallFragment):
         return _bind_pulse_fragment(
             fragment.body,
@@ -675,15 +555,6 @@ def _bind_pulse_fragment(
         )
     msg = f"unsupported pulse fragment {type(fragment).__name__}"
     raise TypeError(msg)
-
-
-def _physical_result_slot_id(
-    result: ProgramResult,
-    path: tuple[str, ...],
-) -> AcquisitionSlotId:
-    if not result.contract.axes:
-        return result.acquisition_slot_id
-    return AcquisitionSlotId(result.id, scope=path)
 
 
 def _bind_envelope(
@@ -755,13 +626,6 @@ def _bound_gate_definitions(
         if _bound_repeat_count(fragment.count, bindings) == 0:
             return ()
         return _bound_gate_definitions(fragment.operation, bindings)
-    if isinstance(fragment, _QuantumConditionalFragment):
-        return _unique_gate_definitions(
-            (
-                *_bound_gate_definitions(fragment.when_true, bindings),
-                *_bound_gate_definitions(fragment.when_false, bindings),
-            )
-        )
     if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
         children = fragment.operations
     elif isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
@@ -774,60 +638,6 @@ def _bound_gate_definitions(
             for child in children
             for definition in _bound_gate_definitions(child, bindings)
         )
-    )
-
-
-def _realtime_value_bindings(
-    fragment: QuantumFragment,
-    *,
-    path: tuple[str, ...],
-) -> dict[RealtimeBit, RealtimeValueId]:
-    """Resolve authored bit handles to exact producer-scoped SSA identities."""
-
-    selected: dict[RealtimeBit, RealtimeValueId] = {}
-
-    def collect(node: QuantumFragment, node_path: tuple[str, ...]) -> None:
-        if isinstance(node, _ExpandedFragment):
-            collect(node.body, (*node_path, f"fragment[{node.definition_id}]"))
-            return
-        bit = node.realtime_bit if isinstance(node, Measurement) else None
-        if bit is not None:
-            if bit in selected:
-                raise ProgramBindingError(
-                    f"realtime bit {bit.id!r} has more than one producer"
-                )
-            selected[bit] = RealtimeValueId(
-                bit.id,
-                scope=node_path,
-            )
-            return
-        if isinstance(node, _SequenceFragment | _QuantumSequenceFragment):
-            for index, operation in enumerate(node.operations):
-                collect(operation, (*node_path, f"sequence[{index}]"))
-            return
-        if isinstance(node, _ParallelFragment | _QuantumParallelFragment):
-            for index, branch in enumerate(node.branches):
-                collect(branch, (*node_path, f"parallel[{index}]"))
-            return
-        if isinstance(node, _RepeatFragment | _QuantumRepeatFragment):
-            collect(node.operation, (*node_path, "repeat-body"))
-            return
-        if isinstance(node, _QuantumConditionalFragment):
-            collect(node.when_true, (*node_path, "when-true"))
-            collect(node.when_false, (*node_path, "when-false"))
-
-    collect(fragment, path)
-    return selected
-
-
-def _bound_realtime_value_id(
-    bit: RealtimeBit,
-    bindings: Mapping[RealtimeBit, RealtimeValueId] | None,
-) -> RealtimeValueId:
-    if bindings is not None and bit in bindings:
-        return bindings[bit]
-    raise ProgramBindingError(
-        f"realtime bit {bit.id!r} is not produced by this quantum program"
     )
 
 

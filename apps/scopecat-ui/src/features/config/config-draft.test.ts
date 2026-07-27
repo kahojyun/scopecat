@@ -115,7 +115,7 @@ function testConfig(): ConfigProfileSnapshot {
             id: "enabled",
             value_type: {
               shape: "scalar",
-              atom: { type: "bool", nullable: false },
+              atom: { type: "bool" },
             },
           },
           {
@@ -128,22 +128,17 @@ function testConfig(): ConfigProfileSnapshot {
                   value_type: {
                     type: "entity",
                     entity_kind: "logical_qubit",
-                    nullable: false,
                   },
-                  required: true,
                 },
                 {
                   id: "frequency",
                   value_type: {
                     type: "float",
-                    nullable: false,
                     finite: true,
                   },
-                  required: true,
                 },
               ],
               primary_key: ["entity"],
-              min_rows: 0,
             },
           },
           {
@@ -155,19 +150,14 @@ function testConfig(): ConfigProfileSnapshot {
                   id: "name",
                   value_type: {
                     type: "string",
-                    nullable: false,
-                    min_length: 1,
                   },
-                  required: true,
                 },
                 {
                   id: "enabled",
-                  value_type: { type: "bool", nullable: false },
-                  required: true,
+                  value_type: { type: "bool" },
                 },
               ],
               primary_key: [],
-              min_rows: 0,
             },
           },
         ],

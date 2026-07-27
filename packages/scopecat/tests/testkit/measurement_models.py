@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
-    MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementRecord,
@@ -27,13 +26,11 @@ def signal_record(
 def signal_point_schema(
     *,
     dataset_id: str = "raw-measurements",
-    dataset_role: MeasurementDatasetRole = "raw",
     size: int = 1,
     drive_frequency_unit: str = "GHz",
 ) -> MeasurementDatasetSchema:
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
-        dataset_role=dataset_role,
         dimensions=[MeasurementDimension(id="point", kind="point", size=size)],
         variables=[
             MeasurementVariable(

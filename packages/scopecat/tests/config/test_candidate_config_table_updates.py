@@ -3,11 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.registry import (
     CandidateConfigRegistrySource,
 )
-from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
@@ -16,7 +15,10 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     TableParameterValue,
 )
-from tests.testkit.config_registry import load_config_registry_config
+from tests.testkit.config_registry import (
+    activate_candidate_config,
+    load_config_registry_config,
+)
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.runtime import (
@@ -69,7 +71,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
     analysis.save()
     lab.review_parameter_proposal(run, proposal.id)
 
-    activation = register_and_activate_candidate_config(
+    activation = activate_candidate_config(
         candidate=candidate,
         services=sqlite_project_services(tmp_path),
         registered_by="operator",
@@ -78,7 +80,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
     )
     entry = activation.entry
     assert isinstance(entry.source, CandidateConfigRegistrySource)
-    assert entry.source.proposal_ids == ["drive-channel-update"]
+    assert entry.source.proposal_id == "drive-channel-update"
 
     candidate_config = load_config_registry_config(
         entry_id=entry.id,
@@ -103,7 +105,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
 
 
 def _config_with_drive_channels() -> ConfigProfileSnapshot:
-    config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     definition = ParameterDefinition(
         id="drive_channels",
         value_type=Table(

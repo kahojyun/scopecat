@@ -1,11 +1,7 @@
 # Scopecat
 
-Scopecat is a local-first, domain-neutral experiment authoring, planning,
-execution, and measurement package. A user project owns its Python code,
-`scopecat.toml`, and Python-constructed bootstrap configuration; the resident
-daemon owns accepted configuration and run records.
-
-Open the project and connect its high-level notebook client:
+Domain-neutral experiment authoring, planning, execution, measurement, and
+notebook APIs for a local Scopecat project.
 
 ```python
 import scopecat as sc
@@ -16,27 +12,11 @@ with project.connect() as lab:
     runs = lab.runs()
 ```
 
-Project discovery loads the same version-controlled `LabApplication` used by
-the daemon. The application supplies an optional bootstrap factory and a
-config-aware system builder; notebook planning always passes the builder the
-accepted config snapshot selected for that run.
+Project discovery loads the version-controlled `LabApplication` shared with
+the daemon. Its optional system builder receives the accepted configuration
+snapshot selected for each run.
 
-The Python application may provide the initial immutable snapshot when the
-registry is empty. Later default changes, analysis, acceptance decisions, and
-run data all go through the daemon and survive notebook and daemon restarts.
-Project tooling keeps source reconciliation explicit:
-
-```sh
-scopecat config diff ./my-lab
-scopecat config apply ./my-lab --actor operator-name
-scopecat config export ./my-lab --output ./active-config.json
-```
-
-The CLI freshly evaluates and validates Python configuration source. The
-daemon never watches or rewrites it; exported JSON is a generated snapshot for
-review or backup.
-
-Routine configuration work uses typed intent APIs:
+Routine configuration changes use typed intent APIs:
 
 ```python
 with project.connect() as lab:
@@ -51,29 +31,17 @@ with project.connect() as lab:
     restored = lab.config.undo(note="restore the previous default")
 ```
 
-These calls retain immutable history and provenance without asking notebook
-code for registry entry ids or concurrency generations. Explicit import,
-review, activation, and generation-checked rollback remain available for
-operator and diagnostic workflows.
-
-Transient scratch code can stay in the notebook when a closure or interactive
-object cannot be reconstructed reliably in the daemon:
+Interactive closures may execute in the notebook process:
 
 ```python
 with project.connect() as lab:
     run = lab.prepare(scratch_invocation).run()
 ```
 
-Scratch planning and Python closures stay in the notebook process. Admission,
-resource ownership, measurements, terminal state, saved analysis, acceptance
-decisions, and configuration changes still go through the daemon.
+Admission, resource ownership, measurements, analysis, and configuration
+history still cross the daemon boundary. Operator controls such as event replay
+and attention resolution are available through `lab.control`.
 
-Operator and infrastructure workflows use the same project client through
-`lab.control` for event replay and attention resolution. There is no second
-public connection facade.
-
-See the [repository README](../../README.md) for the runnable introduction and
-development commands, and the
-[daemon design](../../docs/lab-daemon.md) for ownership and fencing
-semantics. Implementation contracts and rationale are documented in the owning
-modules' docstrings.
+See the [repository README](../../README.md) for setup and development commands,
+and the [daemon model](../../docs/lab-daemon.md) for durable ownership and
+fencing semantics.

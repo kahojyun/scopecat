@@ -21,7 +21,7 @@ import type {
 
 const API = {
   health: "/api/v1/health",
-  runs: "/api/v1/runs?limit=100&latest=true",
+  runs: "/api/v1/runs?limit=100",
   events: "/api/v1/events?limit=500&latest=true",
 } as const;
 
@@ -109,7 +109,7 @@ export async function getOlderRuns(before: number, signal?: AbortSignal): Promis
 function normalizeRunPage(response: DaemonUiApi["runPage"]): ProjectRunPage {
   return {
     items: response.items.map((run) => normalizeRun(run.control, run.manifest)).sort(compareRuns),
-    previousCursor: response.previous_cursor ?? undefined,
+    nextCursor: response.next_cursor ?? undefined,
   };
 }
 
@@ -147,11 +147,18 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
     key: analysis.key ?? undefined,
     stepId: analysis.step_id ?? undefined,
     outputs: analysis.outputs.map((output) => ({
-      kind: output.kind,
+      kind: analysisOutputKind(output.kind),
       title: output.title,
       content: output.content,
     })),
   }));
+}
+
+function analysisOutputKind(kind: string): RunAnalysis["outputs"][number]["kind"] {
+  if (kind === "table" || kind === "figure" || kind === "parameter_change_proposal") {
+    return kind;
+  }
+  throw new ApiError(`The daemon returned an unsupported analysis output kind: ${kind}.`);
 }
 
 export function canPreviewRunContent(entry: ContentEntry): boolean {

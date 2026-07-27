@@ -14,12 +14,11 @@ from scopecat.authoring._identities import (
     InvocationKey,
 )
 from scopecat.authoring._value_refs import (
-    ScalarOperationOperand,
     ValueRef,
     internal_input_value_ref,
     internal_operation_result_value_ref,
 )
-from scopecat.authoring.value_types import ValueType
+from scopecat.authoring.value_types import Scalar, ValueType
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
@@ -36,7 +35,7 @@ class ModuleOperationDecl:
 
     id: str
     declaration_key: ComputeDeclarationKey
-    output_type: ValueType
+    output_type: Scalar
     inputs: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     scope: tuple[str, ...] = ()
     instance_path: tuple[InvocationKey, ...] = ()
@@ -62,13 +61,3 @@ class ModuleInputPort:
     @property
     def ref(self) -> ValueRef:
         return internal_input_value_ref(self.id, self.value_type)
-
-
-@dataclass(frozen=True)
-class ParameterScanOverlayIntent:
-    """One point-driven parameter-table cell overlay retained until linking."""
-
-    table_id: str
-    key: tuple[tuple[str, ScalarOperationOperand], ...]
-    column_id: str
-    point_id: str

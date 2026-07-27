@@ -12,7 +12,6 @@ from scopecat.authoring import (
     Input as ExperimentInput,
 )
 from scopecat.authoring import (
-    IntType,
     ScalarType,
 )
 from scopecat.authoring.value_types import (
@@ -80,47 +79,12 @@ class ProgramInput:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class QuantumResultAxis:
-    """One non-shot product axis declared by a quantum result contract."""
-
-    id: str
-    size: int | ProgramInput
-    kind: str
-    unit: str | None = "count"
-
-    def __post_init__(self) -> None:
-        if not self.id.strip() or not self.kind.strip():
-            raise ValueError("quantum result axis id and kind must be non-empty")
-        if self.id == "shot":
-            raise ValueError("quantum result contracts add the shot axis automatically")
-        if isinstance(self.size, int):
-            if isinstance(self.size, bool) or self.size <= 0:
-                raise ValueError("quantum result axis size must be a positive integer")
-        elif not isinstance(self.size.value_type.atom, IntType):
-            raise TypeError("quantum result axis inputs must be integers")
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class QuantumResultContract:
-    """Product schema for one integrated-IQ quantum result.
-
-    ``axes`` follow the automatic shot axis and index recursively repeated or
-    composite acquisition addresses.
-    """
+    """Product schema for one shot-indexed integrated-IQ result."""
 
     acquisition_kind: AcquisitionKind
     dtype: MeasurementDType
     unit: str | None
-    axes: tuple[QuantumResultAxis, ...] = ()
-
-    def __post_init__(self) -> None:
-        axis_ids = tuple(axis.id for axis in self.axes)
-        duplicates = tuple(
-            sorted(axis_id for axis_id in set(axis_ids) if axis_ids.count(axis_id) > 1)
-        )
-        if duplicates:
-            rendered = ", ".join(repr(item) for item in duplicates)
-            raise ValueError(f"quantum result has duplicate axes: {rendered}")
 
 
 INTEGRATED_IQ_RESULT = QuantumResultContract(
@@ -164,23 +128,6 @@ class MeasurementResult:
 
 
 type ProgramResult = MeasurementResult
-
-
-@dataclass(frozen=True, slots=True, repr=False, eq=False)
-class RealtimeBit:
-    """One explicitly requested target-local discriminator output."""
-
-    _id: str
-
-    def __post_init__(self) -> None:
-        if not self._id.strip():
-            raise ValueError("measurement bit id must be a non-empty string")
-
-    @property
-    def id(self) -> str:
-        """Return the authored local value name used in diagnostics."""
-
-        return self._id
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -337,23 +284,6 @@ class Measurement(CircuitFragment):
     """A measurement statement and its first-class acquisition result."""
 
     result: MeasurementResult
-    _bit: RealtimeBit | None = None
-
-    @property
-    def bit(self) -> RealtimeBit:
-        """Return the explicitly requested realtime discriminator output."""
-
-        if self._bit is None:
-            raise ValueError(
-                "measurement has no realtime bit; pass bit= when authoring it"
-            )
-        return self._bit
-
-    @property
-    def realtime_bit(self) -> RealtimeBit | None:
-        """Return the optional realtime output without requiring one."""
-
-        return self._bit
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -387,20 +317,17 @@ class _GateFragment(CircuitFragment):
 @dataclass(frozen=True, slots=True)
 class _SequenceFragment(CircuitFragment):
     operations: tuple[CircuitFragment, ...]
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _ParallelFragment(CircuitFragment):
     branches: tuple[CircuitFragment, ...]
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _RepeatFragment(CircuitFragment):
     operation: CircuitFragment
     count: int | ProgramInput
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,11 +340,6 @@ class _PlayFragment(PulseFragment):
 class _DelayFragment(PulseFragment):
     signal: PlaySignal
     duration: QuantumQuantity
-
-
-@dataclass(frozen=True, slots=True)
-class _BarrierFragment(PulseFragment):
-    signals: tuple[PlaySignal, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,28 +357,17 @@ class _PulseTemplateCallFragment(PulseFragment):
 @dataclass(frozen=True, slots=True)
 class _QuantumSequenceFragment(QuantumFragment):
     operations: tuple[QuantumFragment, ...]
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _QuantumParallelFragment(QuantumFragment):
     branches: tuple[QuantumFragment, ...]
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _QuantumRepeatFragment(QuantumFragment):
     operation: QuantumFragment
     count: RepeatCount
-    result_axis: QuantumResultAxis | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _QuantumConditionalFragment(QuantumFragment):
-    condition: RealtimeBit
-    equals: int
-    when_true: QuantumFragment
-    when_false: QuantumFragment
 
 
 @dataclass(frozen=True, slots=True)

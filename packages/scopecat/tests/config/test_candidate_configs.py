@@ -10,28 +10,26 @@ import scopecat as sc
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_from_snapshot,
-    resolve_candidate_config_snapshot,
 )
 from scopecat.config.changes import (
-    list_parameter_change_decisions,
+    load_parameter_change_approval,
     load_parameter_change_proposal,
 )
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry import list_config_registry_entries
-from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
+from tests.testkit.config_registry import activate_candidate_config
 from tests.testkit.in_process_lab import InProcessLab, in_process_lab
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.runtime import (
     sqlite_config_registry_unit_of_work,
     sqlite_project_services,
     sqlite_run_repository,
 )
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_invocation
+from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 
 def test_candidate_config_resolves_proposal_and_runs_follow_up(
@@ -51,46 +49,20 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
     candidate = analysis.candidate_config()
 
     follow_up = lab.prepare(load_invocation(), config=candidate).run()
-    decision = lab.review_parameter_proposal(
+    approval = lab.review_parameter_proposal(
         run,
         "drive_frequency",
         note="checked parameter proposal",
     )
 
-    assert decision.decision == "approved"
-    assert decision.proposal_id == "drive_frequency"
-    assert candidate.proposal_ids == ("drive_frequency",)
+    assert approval.actor == "operator"
+    assert approval.proposal_id == "drive_frequency"
+    assert candidate.proposal_id == "drive_frequency"
     updated = follow_up.config.parameter_snapshot.get("drive_frequency")
     assert isinstance(updated, ScalarParameterValue)
     assert updated.value == Quantity(value=5.5, unit="GHz")
     proposal = analysis.parameter_proposals[0]
     assert proposal.deltas[0].after == updated
-
-
-def test_unsaved_candidate_fails_closed_before_follow_up_run(
-    tmp_path: Path,
-) -> None:
-    lab = _lab(tmp_path)
-    source_run = lab.prepare(load_invocation()).run()
-    candidate = (
-        source_run.analysis("unsaved candidate")
-        .propose(
-            "drive-frequency",
-            sc.replace_scalar_parameter(
-                "drive_frequency",
-                sc.Quantity(5.4, "GHz"),
-            ),
-        )
-        .candidate_config()
-    )
-    prepared = lab.prepare(load_invocation(), config=candidate)
-
-    check = prepared.check()
-    assert not check.ok
-    assert check.problems[0].code == "config.candidate_evidence_missing"
-    with pytest.raises(CheckFailed) as error:
-        prepared.run()
-    assert error.value.problems[0].code == "config.candidate_evidence_missing"
 
 
 def test_candidate_checks_and_run_leave_source_run_unchanged(
@@ -136,9 +108,9 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
             "missing_frequency",
             sc.Quantity(4.9, "GHz"),
         ),
-        sc.replace_series_parameter(
+        sc.replace_table_parameter(
             "drive_frequency",
-            [sc.Quantity(4.9, "GHz")],
+            [],
         ),
         sc.replace_scalar_parameter("drive_frequency", True),
     ],
@@ -153,36 +125,6 @@ def test_analysis_rejects_invalid_update_at_propose(
         run.analysis("invalid proposal").propose("invalid", update)
 
     assert error.value.problems[0].code == "analysis_parameter_proposal_invalid"
-
-
-def test_candidate_config_rejects_overlapping_proposals(tmp_path: Path) -> None:
-    run = _lab(tmp_path).prepare(load_invocation()).run()
-    analysis = (
-        run.analysis("competing fits")
-        .propose(
-            "fit-a",
-            sc.replace_scalar_parameter(
-                "drive_frequency",
-                sc.Quantity(5.4, "GHz"),
-            ),
-        )
-        .propose(
-            "fit-b",
-            sc.replace_scalar_parameter(
-                "drive_frequency",
-                sc.Quantity(5.5, "GHz"),
-            ),
-        )
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        resolve_candidate_config_snapshot(
-            analysis.candidate_config(("fit-a", "fit-b")),
-            services=sqlite_project_services(tmp_path),
-        )
-
-    assert error.value.problems[0].code == ("parameter_change_proposal_merge_invalid")
-    assert "overlap" in error.value.problems[0].message
 
 
 def test_candidate_config_from_snapshot_rejects_stale_base_hash(
@@ -229,8 +171,8 @@ def test_candidate_config_from_snapshot_rejects_stale_base_id(
         .parameter_proposals[0]
     )
     candidate = CandidateConfig(
-        parameter_proposals=(
-            proposal.model_copy(update={"base_config_id": "different-config"}),
+        parameter_proposal=proposal.model_copy(
+            update={"base_config_id": "different-config"}
         )
     )
 
@@ -243,37 +185,6 @@ def test_candidate_config_from_snapshot_rejects_stale_base_id(
     assert error.value.problems[0].code == (
         "parameter_change_proposal_base_id_mismatch"
     )
-
-
-def test_candidate_config_from_snapshot_validates_proposal_merge(
-    tmp_path: Path,
-) -> None:
-    run = _lab(tmp_path).prepare(load_invocation()).run()
-    analysis = (
-        run.analysis("competing fits")
-        .propose(
-            "fit-a",
-            sc.replace_scalar_parameter(
-                "drive_frequency",
-                sc.Quantity(5.4, "GHz"),
-            ),
-        )
-        .propose(
-            "fit-b",
-            sc.replace_scalar_parameter(
-                "drive_frequency",
-                sc.Quantity(5.5, "GHz"),
-            ),
-        )
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        resolve_candidate_config_from_snapshot(
-            analysis.candidate_config(("fit-a", "fit-b")),
-            source_config=run.config,
-        )
-
-    assert error.value.problems[0].code == ("parameter_change_proposal_merge_invalid")
 
 
 def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
@@ -300,7 +211,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
     )
 
     with pytest.raises(DataIntegrityError) as error:
-        register_and_activate_candidate_config(
+        activate_candidate_config(
             candidate=candidate,
             services=sqlite_project_services(tmp_path),
             registered_by="operator",
@@ -385,11 +296,10 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     first.save()
     first.save()
     first_proposal = first.parameter_proposals[0]
-    decision = lab.review_parameter_proposal(
+    approval = lab.review_parameter_proposal(
         run,
         first_proposal.id,
-        decision="rejected",
-        note="review history must survive an idempotent analysis-cell retry",
+        note="approval must survive an idempotent analysis-cell retry",
     )
     rebuilt = run.analysis("first fit").propose(
         "drive-frequency",
@@ -428,19 +338,18 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
         for record in manifest.records
         if record.kind == "parameter_change_proposal"
     ] == [first_proposal.id]
-    decisions = list_parameter_change_decisions(
+    persisted_approval = load_parameter_change_approval(
         run_id=run.id,
         selector=first_proposal.id,
         storage=sqlite_run_repository(tmp_path),
     )
-    assert [event.decision for event in decisions] == [decision.decision]
-    assert [event.event_id for event in decisions] == [decision.event_id]
+    assert persisted_approval == approval
 
 
 def _lab(tmp_path: Path) -> InProcessLab:
     return in_process_lab(
         tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
+        config=load_config(),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
 

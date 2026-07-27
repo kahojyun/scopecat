@@ -10,7 +10,6 @@ from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CouplerId,
     PulseEventId,
     PulseProgramId,
     QubitId,
@@ -21,11 +20,9 @@ from scopecat_quantum.pulses import (
     Acquire,
     AcquireSignal,
     AcquisitionSlot,
-    Barrier,
     Constant,
     Delay,
     DriveSignal,
-    FluxSignal,
     Gaussian,
     Parallel,
     Play,
@@ -184,9 +181,13 @@ def test_parallel_phase_shifts_are_canonical_and_preserve_signal_identity() -> N
     ]
 
 
-def test_same_time_control_chain_precedes_parallel_waveform_sampling() -> None:
-    barrier = Barrier(PulseEventId("z-barrier"), (DRIVE_Q0,))
-    shift = ShiftPhase(
+def test_same_time_frame_chain_precedes_parallel_waveform_sampling() -> None:
+    first_shift = ShiftPhase(
+        PulseEventId("z-first-shift"),
+        DRIVE_Q0,
+        Quantity(0.25, "rad"),
+    )
+    second_shift = ShiftPhase(
         PulseEventId("z-shift"),
         DRIVE_Q0,
         Quantity(0.5, "rad"),
@@ -197,7 +198,7 @@ def test_same_time_control_chain_precedes_parallel_waveform_sampling() -> None:
         _program(
             Parallel(
                 (
-                    Sequence((barrier, shift)),
+                    Sequence((first_shift, second_shift)),
                     play,
                 )
             )
@@ -205,7 +206,7 @@ def test_same_time_control_chain_precedes_parallel_waveform_sampling() -> None:
     )
 
     assert [event.id.value for event in scheduled.events] == [
-        "z-barrier",
+        "z-first-shift",
         "z-shift",
         "a-play",
     ]
@@ -282,38 +283,6 @@ def test_shift_phase_rejects_invalid_phases() -> None:
     } <= _issue_codes(raised.value)
 
 
-@given(
-    first=st.integers(min_value=1, max_value=10_000),
-    second=st.integers(min_value=1, max_value=10_000),
-    third=st.integers(min_value=1, max_value=10_000),
-)
-def test_sequence_reassociation_is_semantically_invariant(
-    first: int, second: int, third: int
-) -> None:
-    a = _play("a", DRIVE_Q0, first)
-    b = _play("b", DRIVE_Q0, second)
-    c = _play("c", DRIVE_Q0, third)
-    left = _program(Sequence((Sequence((a, b)), c)))
-    right = _program(Sequence((a, Sequence((b, c)))))
-
-    assert schedule(left) == schedule(right)
-
-
-@given(
-    first=st.integers(min_value=1, max_value=10_000),
-    second=st.integers(min_value=1, max_value=10_000),
-)
-def test_parallel_branch_permutation_is_semantically_invariant(
-    first: int, second: int
-) -> None:
-    q0 = _play("q0", DRIVE_Q0, first)
-    q1 = _play("q1", DRIVE_Q1, second)
-
-    assert schedule(_program(Parallel((q0, q1)))) == schedule(
-        _program(Parallel((q1, q0)))
-    )
-
-
 def test_canonical_order_uses_structural_identity_not_rendered_text() -> None:
     structurally_first_event = PulseEventId("event", scope=("a", "b"))
     rendered_first_event = PulseEventId("event", scope=("a/b",))
@@ -341,8 +310,16 @@ def test_canonical_order_uses_structural_identity_not_rendered_text() -> None:
             id=PulseProgramId("structural-order"),
             body=Parallel(
                 (
-                    Barrier(rendered_first_event, (DRIVE_Q0,)),
-                    Barrier(structurally_first_event, (DRIVE_Q0,)),
+                    ShiftPhase(
+                        rendered_first_event,
+                        DRIVE_Q0,
+                        Quantity(0.25, "rad"),
+                    ),
+                    ShiftPhase(
+                        structurally_first_event,
+                        DRIVE_Q0,
+                        Quantity(0.5, "rad"),
+                    ),
                     Acquire(
                         PulseEventId("acquire-q1"),
                         q1_acquire,
@@ -361,10 +338,12 @@ def test_canonical_order_uses_structural_identity_not_rendered_text() -> None:
         )
     )
 
-    barrier_ids = tuple(
-        event.id for event in scheduled.events if isinstance(event.instruction, Barrier)
+    shift_ids = tuple(
+        event.id
+        for event in scheduled.events
+        if isinstance(event.instruction, ShiftPhase)
     )
-    assert barrier_ids == (structurally_first_event, rendered_first_event)
+    assert shift_ids == (structurally_first_event, rendered_first_event)
     assert tuple(slot.id for slot in scheduled.acquisition_slots) == (
         structurally_first_slot,
         rendered_first_slot,
@@ -626,92 +605,3 @@ def test_gaussian_and_drag_shape_parameters_are_validated() -> None:
         "pulse_sigma_exceeds_duration",
         "pulse_time_unit_invalid",
     } <= _issue_codes(raised.value)
-
-
-def test_logical_flux_and_barrier_are_hardware_independent_and_canonical() -> None:
-    qubit_flux = FluxSignal(Q0)
-    coupler_flux = FluxSignal(CouplerId("c0"))
-    barrier = Barrier(
-        PulseEventId("barrier"),
-        (coupler_flux, DRIVE_Q0, qubit_flux),
-    )
-
-    scheduled = schedule(_program(barrier))
-
-    assert cast("Barrier", scheduled.events[0].instruction).signals == (
-        DRIVE_Q0,
-        coupler_flux,
-        qubit_flux,
-    )
-
-
-def test_schedule_preserves_timeline_beyond_float_range() -> None:
-    program = _program(
-        Sequence(
-            tuple(
-                Play(
-                    PulseEventId(f"huge-{index}"),
-                    DRIVE_Q0,
-                    _constant(1e308, "s"),
-                )
-                for index in range(3)
-            )
-        )
-    )
-
-    scheduled = schedule(program)
-
-    assert scheduled.duration_seconds == Decimal("3e308")
-    assert [event.start_seconds for event in scheduled.events] == [
-        Decimal(0),
-        Decimal("1e308"),
-        Decimal("2e308"),
-    ]
-    assert all(event.duration_seconds == Decimal("1e308") for event in scheduled.events)
-
-
-def test_schedule_rejects_duration_that_underflows_normalized_quantity() -> None:
-    program = _program(
-        Play(
-            PulseEventId("tiny"),
-            DRIVE_Q0,
-            _constant(1e-320, "ns"),
-        )
-    )
-
-    with pytest.raises(PulseValidationError) as raised:
-        schedule(program)
-
-    assert _issue_codes(raised.value) == {"pulse_quantity_unrepresentable"}
-    messages = [issue.message for issue in raised.value.issues]
-    assert (
-        "nonzero envelope duration rounds to zero in a Quantity expressed in seconds"
-        in messages
-    )
-
-
-def test_schedule_preserves_small_intervals_on_a_large_timeline() -> None:
-    program = _program(
-        Sequence(
-            (
-                Play(
-                    PulseEventId("large"),
-                    DRIVE_Q0,
-                    _constant(1e20, "s"),
-                ),
-                Play(PulseEventId("small"), DRIVE_Q0, _constant(1, "s")),
-                Play(PulseEventId("tail"), DRIVE_Q0, _constant(1, "s")),
-            )
-        )
-    )
-
-    scheduled = schedule(program)
-
-    large = Decimal("1e20")
-    assert [event.start_seconds for event in scheduled.events] == [
-        Decimal(0),
-        large,
-        large + 1,
-    ]
-    assert scheduled.events[1].start_seconds < scheduled.events[2].start_seconds
-    assert scheduled.duration_seconds == large + 2

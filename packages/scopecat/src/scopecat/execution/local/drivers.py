@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
 
-from scopecat.execution.events import TransitionRecorder
 from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
@@ -21,6 +19,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     InstrumentDriver,
 )
+from scopecat.sdk.journal import ExecutionJournal, commit_transition
 from scopecat.sdk.runtime_problems import problem_from_exception, runtime_problem
 
 logger = logging.getLogger(__name__)
@@ -149,23 +148,14 @@ def cleanup_after_setup_failure(
     problems: list[Problem],
     *,
     run_id: str,
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
 ) -> tuple[list[InstrumentStateSnapshot], BaseException | None]:
     """Release provisioned drivers and capture their terminal state."""
 
     interruption: BaseException | None = None
-    managed: list[tuple[str, bool, InstrumentDriver]] = []
-    for instrument_index, instrument in enumerate(instruments):
-        instrument_id, identity_known, identity_interruption = _safe_instrument_id(
-            instrument,
-            run_id=run_id,
-            fallback=f"provider-driver-{instrument_index}",
-            problems=problems,
-        )
-        interruption = _first_interruption(interruption, identity_interruption)
-        managed.append((instrument_id, identity_known, instrument))
+    managed = [(instrument.instrument_id, instrument) for instrument in instruments]
 
-    for cleanup_index, (instrument_id, _, instrument) in enumerate(reversed(managed)):
+    for cleanup_index, (instrument_id, instrument) in enumerate(reversed(managed)):
         entry = ExecutionTransition(
             run_id=run_id,
             operation_id=(f"lifecycle.setup-cleanup.{cleanup_index}.{instrument_id}"),
@@ -177,7 +167,7 @@ def cleanup_after_setup_failure(
         interruption = _first_interruption(
             interruption,
             _commit_setup_transition(
-                recorder,
+                journal,
                 entry,
                 problems,
             ),
@@ -197,7 +187,7 @@ def cleanup_after_setup_failure(
             interruption = _first_interruption(
                 interruption,
                 _commit_setup_transition(
-                    recorder,
+                    journal,
                     entry.model_copy(
                         update={"state": "failed", "problems": (problem,)}
                     ),
@@ -217,7 +207,7 @@ def cleanup_after_setup_failure(
             interruption = _first_interruption(
                 interruption,
                 _commit_setup_transition(
-                    recorder,
+                    journal,
                     entry.model_copy(
                         update={"state": "failed", "problems": (problem,)}
                     ),
@@ -228,67 +218,52 @@ def cleanup_after_setup_failure(
         interruption = _first_interruption(
             interruption,
             _commit_setup_transition(
-                recorder,
+                journal,
                 entry.model_copy(update={"state": "completed"}),
                 problems,
             ),
         )
     states: list[InstrumentStateSnapshot] = []
-    for read_index, (instrument_id, identity_known, instrument) in enumerate(managed):
-        entry = ExecutionTransition(
-            run_id=run_id,
-            operation_id=(
-                f"lifecycle.setup-terminal-read-state.{read_index}.{instrument_id}"
-            ),
-            stage="setup_terminal_readback",
-            effect="read",
-            state="started",
-            instrument_id=instrument_id,
+    for read_index, (instrument_id, instrument) in enumerate(managed):
+        operation_id = (
+            f"lifecycle.setup-terminal-read-state.{read_index}.{instrument_id}"
         )
-        recorder.observe(entry)
         try:
             state = instrument.read_state().model_copy(deep=True)
-            if identity_known and state.instrument_id != instrument_id:
+            if state.instrument_id != instrument_id:
                 raise ValueError("read state belongs to a different instrument")
         except Exception as error:
             problem = problem_from_exception(
                 "instrument_readback_failed",
                 f"instrument terminal readback failed for {instrument_id}",
                 run_id=run_id,
-                operation_id=entry.operation_id,
+                operation_id=operation_id,
                 instrument_id=instrument_id,
                 error=error,
             )
             problems.append(problem)
-            recorder.observe(
-                entry.model_copy(update={"state": "failed", "problems": (problem,)})
-            )
             continue
         except BaseException as error:
             interruption = _first_interruption(interruption, error)
             problem = _interruption_problem(
                 error,
                 run_id=run_id,
-                operation_id=entry.operation_id,
+                operation_id=operation_id,
                 instrument_id=instrument_id,
             )
             problems.append(problem)
-            recorder.observe(
-                entry.model_copy(update={"state": "failed", "problems": (problem,)})
-            )
             continue
         states.append(state)
-        recorder.observe(entry.model_copy(update={"state": "completed"}))
     return states, interruption
 
 
 def _commit_setup_transition(
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
     entry: ExecutionTransition,
     problems: list[Problem],
 ) -> BaseException | None:
     try:
-        recorder.commit(entry)
+        commit_transition(journal, entry)
     except Exception as error:
         problems.append(
             problem_from_exception(
@@ -310,49 +285,6 @@ def _commit_setup_transition(
         )
         return error
     return None
-
-
-def _safe_instrument_id(
-    instrument: InstrumentDriver,
-    *,
-    run_id: str,
-    fallback: str,
-    problems: list[Problem],
-) -> tuple[str, bool, BaseException | None]:
-    try:
-        instrument_id = cast("object", instrument.instrument_id)
-    except Exception as error:
-        problems.append(
-            problem_from_exception(
-                "instrument_identity_failed",
-                "instrument identity lookup failed during setup finalization",
-                run_id=run_id,
-                instrument_id=fallback,
-                error=error,
-            )
-        )
-        return fallback, False, None
-    except BaseException as error:
-        problems.append(
-            _interruption_problem(
-                error,
-                run_id=run_id,
-                instrument_id=fallback,
-            )
-        )
-        return fallback, False, error
-    if type(instrument_id) is not str or not instrument_id:
-        problems.append(
-            runtime_problem(
-                "instrument_identity_invalid",
-                "instrument identity must be a non-empty string during setup "
-                "finalization",
-                run_id=run_id,
-                instrument_id=fallback,
-            )
-        )
-        return fallback, False, None
-    return instrument_id, True, None
 
 
 def _first_interruption(

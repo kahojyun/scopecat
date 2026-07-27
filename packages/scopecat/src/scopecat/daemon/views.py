@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.config.registry.records import (
-    ConfigRegistryActiveState,
+    ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
 )
 from scopecat.control.models import ControlRun, ResourceKey
@@ -24,7 +24,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.parameter_change import (
-    ParameterChangeDecisionRecord,
+    ParameterChangeApprovalRecord,
     ParameterChangeProposal,
     ParameterValueDelta,
 )
@@ -36,7 +36,6 @@ class _ViewModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
 
@@ -50,28 +49,22 @@ class DaemonHealth(_ViewModel):
 
 
 class ConfigRegistryView(_ViewModel):
-    """Registered entries and the authoritative activation history."""
+    """Registered entries and the current activation head."""
 
     entries: tuple[ConfigRegistryEntry, ...] = ()
-    active_state: ConfigRegistryActiveState | None = None
+    activation: ConfigRegistryActivationRecord | None = None
+
+
+class ConfigActivationHistoryView(_ViewModel):
+    items: tuple[ConfigRegistryActivationRecord, ...] = ()
 
 
 class ActiveConfigView(_ViewModel):
     """The active registry identity and its resolved immutable snapshot."""
 
     entry: ConfigRegistryEntry
-    active_state: ConfigRegistryActiveState
+    activation: ConfigRegistryActivationRecord
     config: ConfigProfileSnapshot
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> ActiveConfigView:
-        if (
-            self.active_state.active_entry_id != self.entry.id
-            or self.active_state.active_entry_content_hash != self.entry.content_hash
-            or config_content_hash(self.config) != self.entry.content_hash
-        ):
-            raise ValueError("active config view identity is inconsistent")
-        return self
 
 
 class ConfigEntryView(_ViewModel):
@@ -79,12 +72,6 @@ class ConfigEntryView(_ViewModel):
 
     entry: ConfigRegistryEntry
     config: ConfigProfileSnapshot
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> ConfigEntryView:
-        if config_content_hash(self.config) != self.entry.content_hash:
-            raise ValueError("config entry view identity is inconsistent")
-        return self
 
 
 class ConfigDraftPreview(_ViewModel):
@@ -98,23 +85,6 @@ class ConfigDraftPreview(_ViewModel):
     result_content_hash: ConfigContentHash | None = None
     deltas: tuple[ParameterValueDelta, ...] = ()
     problems: tuple[Problem, ...] = ()
-
-    @model_validator(mode="after")
-    def validate_result(self) -> ConfigDraftPreview:
-        if self.base_entry.content_hash != self.base_content_hash:
-            raise ValueError("config draft preview base identity is inconsistent")
-        if self.valid:
-            if (
-                self.config is None
-                or self.result_content_hash is None
-                or not self.deltas
-                or config_content_hash(self.config) != self.result_content_hash
-                or bool(self.problems)
-            ):
-                raise ValueError("valid config draft preview is incomplete")
-        elif self.config is not None or self.result_content_hash is not None:
-            raise ValueError("invalid config draft preview cannot expose a candidate")
-        return self
 
 
 class RunResourceView(_ViewModel):
@@ -141,7 +111,6 @@ class RunSummaryPage(_ViewModel):
 
     items: tuple[RunSummary, ...] = ()
     next_cursor: int | None = Field(default=None, ge=1)
-    previous_cursor: int | None = Field(default=None, ge=1)
 
 
 class RunDetail(RunSummary):
@@ -216,19 +185,18 @@ class RunArtifactBytesView(_ViewModel):
 
 
 class ParameterProposalView(_ViewModel):
-    """One proposal and its append-only operator review history."""
+    """One proposal and its optional immutable operator approval."""
 
     proposal: ParameterChangeProposal
-    decisions: tuple[ParameterChangeDecisionRecord, ...] = ()
+    approval: ParameterChangeApprovalRecord | None = None
 
     @model_validator(mode="after")
     def validate_identity(self) -> ParameterProposalView:
-        if any(
-            decision.run_id != self.proposal.source_run_id
-            or decision.proposal_id != self.proposal.id
-            for decision in self.decisions
+        if self.approval is not None and (
+            self.approval.run_id != self.proposal.source_run_id
+            or self.approval.proposal_id != self.proposal.id
         ):
-            raise ValueError("parameter proposal decision identity is inconsistent")
+            raise ValueError("parameter proposal approval identity is inconsistent")
         return self
 
 
@@ -267,6 +235,7 @@ def _validate_base64(value: str) -> None:
 
 __all__ = [
     "ActiveConfigView",
+    "ConfigActivationHistoryView",
     "ConfigDraftPreview",
     "ConfigEntryView",
     "ConfigRegistryView",

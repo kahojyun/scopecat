@@ -4,10 +4,8 @@ from typing import Protocol
 
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
-from quantum_lab_demo.workflows.readout_frequency import (
-    readout_frequency_analysis,
-    readout_frequency_template,
-)
+from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
+from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
     ConfigRegistryRunConfigSource,
@@ -18,21 +16,21 @@ class _DemoDaemon(Protocol):
     url: str
 
 
-def test_daemon_client_closes_config_provenance_loop(
+def test_drag_beta_first_use_closes_config_provenance_loop(
     demo_daemon: _DemoDaemon,
 ) -> None:
     """Exercise run, candidate, accept, history, and undo through one daemon."""
 
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as lab:
-        baseline = lab.prepare(readout_frequency_template(qubit="q0")).run(
+        baseline = lab.prepare(drag_beta_template()).run(
             name="first-use smoke",
             tags=("first-use",),
         )
-        analysis = baseline.analyze(readout_frequency_analysis(qubit="q0"))
+        analysis = baseline.analyze(drag_beta_analysis())
         saved = analysis.save()
         candidate = analysis.candidate_config()
         candidate_run = lab.prepare(
-            readout_frequency_template(qubit="q0"),
+            drag_beta_template(),
             config=candidate,
         ).run(
             name="first-use candidate",
@@ -42,7 +40,7 @@ def test_daemon_client_closes_config_provenance_loop(
             candidate,
             note="accept the first-use fit",
         )
-        default_run = lab.prepare(readout_frequency_template(qubit="q0")).run(
+        default_run = lab.prepare(drag_beta_template()).run(
             name="first-use accepted default",
             tags=("first-use", "default"),
         )
@@ -59,17 +57,17 @@ def test_daemon_client_closes_config_provenance_loop(
     assert detail.manifest.status == "completed"
     assert request.metadata["name"] == "first-use smoke"
     assert request.metadata["tags"] == ["first-use"]
-    assert saved.record.id == candidate.analysis_record_ids[0]
+    assert saved.record.id == candidate.analysis_record_id
     candidate_source = candidate_detail.manifest.config_source
     assert isinstance(candidate_source, AnalysisCandidateRunConfigSource)
     assert candidate_source.source_run_id == baseline.id
-    assert candidate_source.analysis_record_ids == candidate.analysis_record_ids
-    assert candidate_source.proposal_ids == candidate.proposal_ids
+    assert candidate_source.analysis_record_id == candidate.analysis_record_id
+    assert candidate_source.proposal_id == candidate.proposal_id
     default_source = default_detail.manifest.config_source
     assert isinstance(default_source, ConfigRegistryRunConfigSource)
     assert default_source.entry_id == accepted.entry.id
-    assert proposals.items[0].decisions[-1].decision == "approved"
-    assert proposals.items[0].decisions[-1].authority.kind == "human"
-    assert registry.active_state is not None
-    assert registry.active_state == restored.active_state
-    assert registry.active_state.active_entry_id != accepted.entry.id
+    assert proposals.items[0].approval is not None
+    assert proposals.items[0].approval.actor == "operator"
+    assert registry.activation is not None
+    assert registry.activation == restored.activation
+    assert registry.activation.entry_id != accepted.entry.id

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
@@ -14,7 +14,6 @@ from scopecat.kernel.value_types import (
     Int,
     Payload,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -26,7 +25,6 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     ParameterSnapshot,
     ScalarParameterValue,
-    SeriesParameterValue,
     TableParameterValue,
 )
 from scopecat.records.run_request import (
@@ -67,7 +65,7 @@ def test_durable_metadata_boundaries_reject_non_json_values(
 
 
 def test_config_profile_snapshot_round_trip() -> None:
-    snapshot = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    snapshot = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     restored = assert_model_round_trip(snapshot)
 
     assert restored.parameter_snapshot.get("drive_frequency") is not None
@@ -92,10 +90,8 @@ def test_run_request_records_canonical_scans_only() -> None:
     request = RunRequest(
         scans=[
             PointScanRecord(
-                target_id="drive_frequency",
                 axis_id="drive_frequency",
                 values=[5.0, 5.1],
-                unit="GHz",
             )
         ],
     )
@@ -108,10 +104,8 @@ def test_run_request_records_canonical_scans_only() -> None:
     assert restored.model_dump(mode="json")["scans"] == [
         {
             "kind": "point",
-            "target_id": "drive_frequency",
             "axis_id": "drive_frequency",
             "values": [5.0, 5.1],
-            "unit": "GHz",
         }
     ]
     with pytest.raises(ValidationError):
@@ -120,7 +114,6 @@ def test_run_request_records_canonical_scans_only() -> None:
                 "scans": [
                     {
                         "kind": "point",
-                        "target_id": "drive_frequency",
                         "axis_id": "drive_frequency",
                         "values": [5.0],
                         "input_id": "frequencies",
@@ -134,9 +127,7 @@ def test_run_request_records_canonical_scans_only() -> None:
                 "scans": [
                     {
                         "kind": "point",
-                        "target_id": "drive_frequency",
                         "axis_id": "drive_frequency",
-                        "unit": "GHz",
                     }
                 ],
             }
@@ -170,7 +161,6 @@ def test_run_request_values_have_a_closed_durable_domain() -> None:
             "scans": [
                 {
                     "kind": "scan",
-                    "target_id": "drive_frequency",
                     "axis_id": "drive_frequency",
                     "center": {
                         "kind": "parameter",
@@ -246,19 +236,19 @@ def test_run_request_symbolic_values_are_closed_and_recursive() -> None:
     center = {
         "kind": "binary",
         "operator": "+",
-        "left": {"kind": "input", "input_id": "frequency_offset"},
+        "left": {
+            "kind": "parameter",
+            "parameter_id": "frequency_offset",
+        },
         "right": {
             "kind": "parameter_lookup",
             "table_id": "device_parameters",
-            "key": {
-                "subject": {"kind": "axis", "axis_id": "subject"},
-            },
+            "key": {"subject": "q0"},
             "column": "frequency",
         },
     }
     scan = AroundScanRecord.model_validate(
         {
-            "target_id": "drive_frequency",
             "axis_id": "drive_frequency",
             "center": center,
             "span": Quantity(value=100.0, unit="MHz"),
@@ -289,7 +279,6 @@ def test_scan_records_reject_unknown_or_structured_scalar_values() -> None:
     with pytest.raises(ValidationError):
         AroundScanRecord.model_validate(
             {
-                "target_id": "drive_frequency",
                 "axis_id": "drive_frequency",
                 "center": {"kind": "unknown", "value": 5.0},
                 "span": 1.0,
@@ -299,7 +288,6 @@ def test_scan_records_reject_unknown_or_structured_scalar_values() -> None:
     with pytest.raises(ValidationError):
         PointScanRecord.model_validate(
             {
-                "target_id": "drive_frequency",
                 "axis_id": "drive_frequency",
                 "values": [{"arbitrary": "mapping"}],
             }
@@ -336,7 +324,6 @@ def test_table_parameter_cells_are_closed_finite_and_round_trip_without_catalog(
                     "count": 2,
                     "gain": 0.5,
                     "label": "q0",
-                    "optional": None,
                     "frequency": {"value": 5.0, "unit": "GHz"},
                     "subject": {
                         "id": "q0",
@@ -385,12 +372,11 @@ def test_parameter_snapshot_is_recursively_immutable_and_durable() -> None:
     assert ParameterSnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot
 
 
-def test_parameter_snapshot_uses_one_shape_discriminated_namespace() -> None:
+def test_parameter_snapshot_uses_one_discriminated_namespace() -> None:
     snapshot = ParameterSnapshot(
         id="parameter-snapshot",
         values=[
             ScalarParameterValue(id="enabled", value=True),
-            SeriesParameterValue(id="frequencies", items=[4.9, 5.0]),
             TableParameterValue(id="calibrations", rows=[{"id": "q0"}]),
         ],
     )
@@ -398,29 +384,24 @@ def test_parameter_snapshot_uses_one_shape_discriminated_namespace() -> None:
     restored = ParameterSnapshot.model_validate_json(snapshot.model_dump_json())
 
     assert isinstance(restored.get("enabled"), ScalarParameterValue)
-    assert isinstance(restored.get("frequencies"), SeriesParameterValue)
     assert isinstance(restored.get("calibrations"), TableParameterValue)
     with pytest.raises(ValidationError, match="duplicate stored parameter value"):
         ParameterSnapshot(
             id="duplicate",
             values=[
                 ScalarParameterValue(id="same", value=1),
-                SeriesParameterValue(id="same", items=[1]),
+                TableParameterValue(id="same"),
             ],
         )
 
 
-def test_parameter_catalog_supports_all_value_shapes() -> None:
+def test_parameter_catalog_supports_scalar_and_table_shapes() -> None:
     catalog = ParameterCatalog(
         id="public-lab-catalog",
         definitions=[
             ParameterDefinition(
                 id="enabled",
                 value_type=Scalar(Bool()),
-            ),
-            ParameterDefinition(
-                id="frequencies",
-                value_type=Series(Scalar(QuantityType(unit="GHz"))),
             ),
             ParameterDefinition(
                 id="calibration_points",
@@ -444,13 +425,10 @@ def test_parameter_catalog_supports_all_value_shapes() -> None:
     restored = assert_model_round_trip(catalog)
 
     enabled = restored.get("enabled")
-    frequencies = restored.get("frequencies")
     calibration_points = restored.get("calibration_points")
     assert enabled is not None
-    assert frequencies is not None
     assert calibration_points is not None
     assert isinstance(enabled.value_type, Scalar)
-    assert isinstance(frequencies.value_type, Series)
     assert isinstance(calibration_points.value_type, Table)
 
 
@@ -474,7 +452,7 @@ def test_durable_parameter_schema_rejects_invalid_values() -> None:
         Scalar(Bool()),
         Scalar(Int(minimum=1, maximum=3)),
         Scalar(Float(minimum=0.0, maximum=1.0)),
-        Scalar(String(min_length=1, choices=("a", "b"))),
+        Scalar(String(choices=("a", "b"))),
         Scalar(Entity(entity_kind="qubit")),
         Scalar(
             QuantityType(
@@ -483,7 +461,6 @@ def test_durable_parameter_schema_rejects_invalid_values() -> None:
                 minimum=4.0,
                 maximum=6.0,
             ),
-            nullable=True,
         ),
     ],
 )
@@ -505,7 +482,7 @@ def test_parameter_definition_scalar_type_has_stable_wire_format(
     assert restored_from_json.model_dump_json() == definition.model_dump_json()
 
 
-def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
+def test_persistable_value_type_wire_is_strict() -> None:
     definition = ParameterDefinition(
         id="value",
         value_type=Scalar(Float(minimum=0)),
@@ -515,7 +492,7 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
     assert isinstance(value_type, Scalar)
     assert isinstance(value_type.atom, Float)
     assert value_type.atom.minimum == 0.0
-    with pytest.raises(ValidationError, match="unknown fields: garbage"):
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ParameterDefinition.model_validate(
             {
                 "id": "value",
@@ -535,7 +512,7 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
             id="value",
             value_type=Scalar(Payload("pulse_program")),
         )
-    with pytest.raises(ValidationError, match="field 'finite' must be a bool"):
+    with pytest.raises(ValidationError, match="Input should be True"):
         ParameterDefinition.model_validate(
             {
                 "id": "value",
@@ -545,75 +522,13 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
                 },
             }
         )
-    with pytest.raises(ValidationError, match="field names must be strings"):
+    with pytest.raises(ValidationError, match="valid integer"):
         ParameterDefinition.model_validate(
             {
                 "id": "value",
                 "value_type": {
                     "shape": "scalar",
-                    "atom": {"type": "float", 1: "unexpected"},
+                    "atom": {"type": "int", "minimum": 1.0},
                 },
             }
-        )
-
-    integer_definition = ParameterDefinition.model_validate(
-        {
-            "id": "value",
-            "value_type": {
-                "shape": "scalar",
-                "atom": {"type": "int", "minimum": 1.0},
-            },
-        }
-    )
-    assert isinstance(integer_definition.value_type, Scalar)
-    assert isinstance(integer_definition.value_type.atom, Int)
-    assert integer_definition.value_type.atom.minimum == 1
-
-    schema = ParameterDefinition.model_json_schema(mode="validation")
-    value_schema = schema["properties"]["value_type"]
-    value_schema = schema["$defs"][value_schema["$ref"].rsplit("/", maxsplit=1)[-1]]
-    assert len(value_schema["oneOf"]) == 3
-    assert all(
-        variant["additionalProperties"] is False for variant in value_schema["oneOf"]
-    )
-
-
-def test_durable_scalar_models_reject_malformed_runtime_declarations() -> None:
-    invalid_nullable = Scalar(Float())
-    object.__setattr__(invalid_nullable, "nullable", "false")
-    invalid_finite = Float()
-    object.__setattr__(invalid_finite, "finite", "false")
-    invalid_length = String()
-    object.__setattr__(invalid_length, "min_length", False)
-
-    for value_type in (
-        invalid_nullable,
-        Scalar(invalid_finite),
-        Scalar(invalid_length),
-    ):
-        with pytest.raises(ValidationError):
-            ParameterDefinition(id="value", value_type=value_type)
-
-
-@pytest.mark.parametrize(
-    "column",
-    [
-        TableColumn(
-            id="id",
-            value_type=Scalar(String()),
-            required=False,
-        ),
-        TableColumn(
-            id="id",
-            value_type=Scalar(String(), nullable=True),
-        ),
-    ],
-)
-def test_parameter_table_primary_key_must_be_required_and_non_null(
-    column: TableColumn,
-) -> None:
-    with pytest.raises(ValueError, match="required and non-null"):
-        ParameterDefinition(
-            id="values",
-            value_type=Table(primary_key=("id",), columns=(column,)),
         )

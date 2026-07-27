@@ -31,10 +31,7 @@ jobs:
           enable-cache: true
 
       - name: Run tests
-        run: uv run --locked coverage run -m pytest
-
-      - name: Report coverage
-        run: uv run --locked coverage report --skip-covered
+        run: uv run --locked pytest
 
   python-quality:
     name: Python quality
@@ -114,8 +111,8 @@ jobs:
       - name: Run UI lint
         run: pnpm run lint
 
-      - name: Run UI tests with coverage
-        run: pnpm run test:coverage
+      - name: Run UI tests
+        run: pnpm run test
 
       - name: Run UI type check
         run: pnpm run typecheck

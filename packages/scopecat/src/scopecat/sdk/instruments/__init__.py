@@ -1,6 +1,6 @@
 # ruff: noqa: F401
 # pyright: reportUnusedImport=false, reportUnsupportedDunderAll=false
-"""Instrument adapter contracts and simple reference implementation."""
+"""Instrument driver contracts."""
 
 from __future__ import annotations
 
@@ -46,17 +46,6 @@ if TYPE_CHECKING:
         quantity_field,
         string_field,
         validate_state_command,
-    )
-    from scopecat.sdk.instruments.simple import (
-        SimpleCapability,
-        SimpleInstrumentDriver,
-        SimpleLifecycleCallback,
-        SimpleProduct,
-        SimpleProductReader,
-        SimpleStateField,
-        SimpleStateReader,
-        SimpleStateWriter,
-        simple_capability,
     )
 
 
@@ -137,21 +126,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "validate_state_command",
     ),
-    "SimpleCapability": ("scopecat.sdk.instruments.simple", "SimpleCapability"),
-    "SimpleInstrumentDriver": (
-        "scopecat.sdk.instruments.simple",
-        "SimpleInstrumentDriver",
-    ),
-    "SimpleLifecycleCallback": (
-        "scopecat.sdk.instruments.simple",
-        "SimpleLifecycleCallback",
-    ),
-    "SimpleProduct": ("scopecat.sdk.instruments.simple", "SimpleProduct"),
-    "SimpleProductReader": ("scopecat.sdk.instruments.simple", "SimpleProductReader"),
-    "SimpleStateField": ("scopecat.sdk.instruments.simple", "SimpleStateField"),
-    "SimpleStateReader": ("scopecat.sdk.instruments.simple", "SimpleStateReader"),
-    "SimpleStateWriter": ("scopecat.sdk.instruments.simple", "SimpleStateWriter"),
-    "simple_capability": ("scopecat.sdk.instruments.simple", "simple_capability"),
     "PayloadRef": ("scopecat.kernel.state", "PayloadRef"),
     "StateValue": ("scopecat.kernel.state", "StateValue"),
 }

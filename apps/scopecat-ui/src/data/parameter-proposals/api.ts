@@ -2,16 +2,16 @@ import { request } from "../../api";
 import type { DaemonUiApi } from "../../api-contract";
 import type {
   ActivateProposalCandidateCommand,
+  ApproveProposalCommand,
   ParameterProposal,
-  ParameterProposalDecision,
+  ParameterProposalApproval,
   ParameterProposalDelta,
-  ReviewProposalCommand,
   RunParameterProposals,
 } from "./types";
 
 type WireProposalView = NonNullable<DaemonUiApi["parameterProposals"]["items"]>[number];
 type WireProposalDelta = WireProposalView["proposal"]["deltas"][number];
-type WireProposalDecision = NonNullable<WireProposalView["decisions"]>[number];
+type WireProposalApproval = NonNullable<WireProposalView["approval"]>;
 
 export async function getRunParameterProposals(
   runId: string,
@@ -27,18 +27,17 @@ export async function getRunParameterProposals(
   };
 }
 
-export async function reviewParameterProposal(
+export async function approveParameterProposal(
   runId: string,
   proposalId: string,
-  command: ReviewProposalCommand,
+  command: ApproveProposalCommand,
 ): Promise<void> {
-  const payload: DaemonUiApi["parameterProposalReviewCommand"] = {
-    decision: command.decision,
-    reviewer: command.reviewer,
+  const payload: DaemonUiApi["parameterProposalApprovalCommand"] = {
+    actor: command.reviewer,
     note: command.note ?? "",
   };
-  await request<DaemonUiApi["parameterProposalDecision"]>(
-    `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/review`,
+  await request<DaemonUiApi["parameterProposalApproval"]>(
+    `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/approval`,
     undefined,
     jsonRequest(payload),
   );
@@ -47,26 +46,24 @@ export async function reviewParameterProposal(
 export async function activateProposalCandidate(
   command: ActivateProposalCandidateCommand,
 ): Promise<void> {
-  const payload: DaemonUiApi["candidateConfigActivationCommand"] = {
-    run_id: command.runId,
-    proposal_ids:
-      command.proposalIds as DaemonUiApi["candidateConfigActivationCommand"]["proposal_ids"],
-    registered_by: command.registeredBy,
+  const payload: DaemonUiApi["configRevisionDefaultCommand"] = {
+    registration: {
+      source: {
+        kind: "candidate_config",
+        run_id: command.runId,
+        proposal_id: command.proposalId,
+      },
+      registered_by: command.registeredBy,
+      note: command.note ?? "",
+    },
     operator: command.operator,
     expected_generation: command.expectedGeneration,
-    note: command.note ?? "",
   };
-  await request<DaemonUiApi["candidateConfigActivationReceipt"]>(
-    "/api/v1/config-registry/candidates/activate",
+  await request<DaemonUiApi["configRevisionDefaultReceipt"]>(
+    "/api/v1/config-registry/default",
     undefined,
     jsonRequest(payload),
   );
-}
-
-export function latestProposalDecision(
-  proposal: ParameterProposal,
-): ParameterProposalDecision | undefined {
-  return proposal.decisions.at(-1);
 }
 
 function normalizeProposalView(source: WireProposalView): ParameterProposal {
@@ -80,7 +77,7 @@ function normalizeProposalView(source: WireProposalView): ParameterProposal {
     confidence: source.proposal.confidence ?? undefined,
     proposedAt: source.proposal.proposed_at,
     deltas: source.proposal.deltas.map(normalizeDelta),
-    decisions: (source.decisions ?? []).map(normalizeDecision),
+    approval: source.approval ? normalizeApproval(source.approval) : undefined,
   };
 }
 
@@ -92,17 +89,11 @@ function normalizeDelta(source: WireProposalDelta): ParameterProposalDelta {
   };
 }
 
-function normalizeDecision(source: WireProposalDecision): ParameterProposalDecision {
+function normalizeApproval(source: WireProposalApproval): ParameterProposalApproval {
   return {
-    eventId: source.event_id,
-    decision: source.decision,
-    actor: source.authority.actor,
-    authorityKind: source.authority.kind ?? "human",
-    policyId: source.authority.kind === "automatic_policy" ? source.authority.policy_id : undefined,
-    policyVersion:
-      source.authority.kind === "automatic_policy" ? source.authority.policy_version : undefined,
+    actor: source.actor,
     note: source.note || undefined,
-    decidedAt: source.decided_at,
+    approvedAt: source.approved_at,
   };
 }
 
@@ -110,8 +101,6 @@ function parameterValue(value: WireProposalDelta["before"]): unknown {
   switch (value.shape) {
     case "scalar":
       return value.value;
-    case "series":
-      return value.items;
     case "table":
       return value.rows;
     case undefined:

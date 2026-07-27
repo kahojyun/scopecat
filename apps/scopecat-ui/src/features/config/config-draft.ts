@@ -56,7 +56,6 @@ export function defaultParameterAtom(
   type: ParameterScalarType,
   entities: ParameterEntity[],
 ): ParameterAtom {
-  if (type.nullable) return null;
   switch (type.type) {
     case "bool":
       return false;
@@ -91,12 +90,7 @@ export function defaultTableRow(
   entities: ParameterEntity[],
 ): Record<string, ParameterAtom> {
   return Object.fromEntries(
-    type.columns.map((column) => [
-      column.id,
-      (column.required ?? true) || !column.value_type.nullable
-        ? defaultParameterAtom(column.value_type, entities)
-        : null,
-    ]),
+    type.columns.map((column) => [column.id, defaultParameterAtom(column.value_type, entities)]),
   );
 }
 
@@ -137,7 +131,7 @@ function deriveKeyedTableUpdates(
       type.columns
         .filter((column) => !primaryKey.includes(column.id))
         .filter((column) => !atomsEqual(before[column.id], row[column.id]))
-        .map((column) => [column.id, row[column.id] ?? null]),
+        .map((column) => [column.id, row[column.id]!]),
     );
     if (Object.keys(values).length > 0) {
       updates.push({
@@ -166,11 +160,11 @@ function pickColumns(
   row: Record<string, ParameterAtom>,
   columns: string[],
 ): Record<string, ParameterAtom> {
-  return Object.fromEntries(columns.map((column) => [column, row[column] ?? null]));
+  return Object.fromEntries(columns.map((column) => [column, row[column]!]));
 }
 
 function tableRowIdentity(row: Record<string, ParameterAtom>, primaryKey: string[]): string {
-  return JSON.stringify(primaryKey.map((column) => parameterAtomIdentity(row[column] ?? null)));
+  return JSON.stringify(primaryKey.map((column) => parameterAtomIdentity(row[column]!)));
 }
 
 function atomsEqual(left: unknown, right: unknown): boolean {
@@ -184,9 +178,6 @@ function storedValuesEqual(
   if (!left || left.shape !== right.shape) return false;
   if (left.shape === "scalar" && right.shape === "scalar") {
     return atomsEqual(left.value, right.value);
-  }
-  if (left.shape === "series" && right.shape === "series") {
-    return atomsEqual(left.items ?? [], right.items ?? []);
   }
   if (left.shape === "table" && right.shape === "table") {
     return atomsEqual(left.rows ?? [], right.rows ?? []);

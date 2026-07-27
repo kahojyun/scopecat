@@ -25,7 +25,6 @@ from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterSnapshot,
     ScalarParameterValue,
-    SeriesParameterValue,
     StoredParameterValue,
 )
 
@@ -58,19 +57,15 @@ def resolve_config_parameters(
         config.parameter_snapshot,
     )
     scalars: dict[str, CellValue] = {}
-    series: dict[str, list[CellValue]] = {}
     tables: dict[str, list[Row]] = {}
     for value in normalized:
         if isinstance(value, ScalarParameterValue):
             scalars[value.id] = cast("CellValue", value.value)
-        elif isinstance(value, SeriesParameterValue):
-            series[value.id] = [cast("CellValue", item) for item in value.items]
         else:
             tables[value.id] = [cast("Row", dict(row)) for row in value.rows]
     return ResolvedConfigParameters(
         data=ParameterRelationData(
             scalars=scalars,
-            series=series,
             tables=tables,
         ),
         problems=problems,

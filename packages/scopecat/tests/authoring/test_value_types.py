@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pytest
 
 from scopecat.authoring.value_types import (
@@ -11,10 +9,7 @@ from scopecat.authoring.value_types import (
     Int,
     Payload,
     Quantity,
-    Record,
-    RecordField,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -43,30 +38,18 @@ def test_scalar_types_coerce_literals_and_apply_constraints() -> None:
         coerce_literal(floating, float("inf"))
 
 
-def test_nullable_is_a_scalar_property() -> None:
-    assert coerce_literal(Scalar(String(), nullable=True), None) is None
-
+def test_value_shapes_reject_null() -> None:
     with pytest.raises(ValueValidationError, match="must not be null"):
         coerce_literal(Scalar(String()), None)
-    with pytest.raises(ValueValidationError, match="must not be null"):
-        coerce_literal(Series(Scalar(Int())), None)
     with pytest.raises(ValueValidationError, match="must not be null"):
         coerce_literal(Table(columns=()), None)
 
 
-def test_string_constraints_are_structural_not_named_kinds() -> None:
-    gate_label = Scalar(
-        String(
-            min_length=2,
-            pattern=r"[A-Z][A-Z0-9]+",
-            choices=("CZ", "CX"),
-        )
-    )
+def test_string_choices_are_structural_not_named_kinds() -> None:
+    gate_label = Scalar(String(choices=("CZ", "CX")))
 
     assert coerce_literal(gate_label, "CZ") == "CZ"
 
-    with pytest.raises(ValueValidationError, match="does not match pattern"):
-        coerce_literal(gate_label, "cz")
     with pytest.raises(ValueValidationError, match="must be one of"):
         coerce_literal(gate_label, "ZZ")
 
@@ -110,53 +93,19 @@ def test_entity_coercion_applies_domain_kind_constraint() -> None:
         coerce_literal(qubit, EntityRef(id="c0", kind="logical_coupler"))
 
 
-def test_record_and_series_types_coerce_recursively() -> None:
-    batch = Scalar(
-        Record(
-            fields=(
-                RecordField("label", Scalar(String(min_length=1))),
-                RecordField(
-                    "values",
-                    Series(Scalar(Float()), min_length=1),
-                ),
-                RecordField(
-                    "note",
-                    Scalar(String(), nullable=True),
-                    required=False,
-                ),
-            )
-        )
-    )
-
-    assert coerce_literal(batch, {"label": "scan", "values": [1, 2.5]}) == {
-        "label": "scan",
-        "values": (1.0, 2.5),
-    }
-
-    with pytest.raises(ValueValidationError, match="record contains unknown fields"):
-        coerce_literal(
-            batch,
-            {"label": "scan", "values": [1.0], "unexpected": True},
-        )
-    with pytest.raises(ValueValidationError, match=r"value\.values\[0\]"):
-        coerce_literal(batch, {"label": "scan", "values": ["bad"]})
-
-
 def test_table_type_coerces_rows_and_enforces_primary_key() -> None:
     calibration_table = Table(
         columns=(
-            TableColumn("qubit_id", Scalar(String(min_length=1))),
+            TableColumn("qubit_id", Scalar(String())),
             TableColumn("frequency", Scalar(Quantity(unit="GHz"))),
-            TableColumn("enabled", Scalar(Bool()), required=False),
         ),
         primary_key=("qubit_id",),
-        min_rows=1,
     )
 
     assert coerce_literal(
         calibration_table,
         [
-            {"qubit_id": "q0", "frequency": 5.0, "enabled": True},
+            {"qubit_id": "q0", "frequency": 5.0},
             {
                 "qubit_id": "q1",
                 "frequency": QuantityValue(value=5100.0, unit="MHz"),
@@ -166,7 +115,6 @@ def test_table_type_coerces_rows_and_enforces_primary_key() -> None:
         {
             "qubit_id": "q0",
             "frequency": QuantityValue(value=5.0, unit="GHz"),
-            "enabled": True,
         },
         {
             "qubit_id": "q1",
@@ -234,22 +182,20 @@ def test_table_primary_keys_use_entity_and_quantity_semantic_identity() -> None:
         )
 
 
-@dataclass(frozen=True)
-class _PulseProgram:
-    samples: tuple[float, ...]
-
-
 def test_payload_is_an_opaque_atom_with_a_schema_constraint() -> None:
-    payload = Scalar(Payload("pulse_program", python_type=_PulseProgram))
-    program = _PulseProgram(samples=(0.0, 1.0))
+    payload = Scalar(Payload("pulse_program"))
+    program = {"samples": [0.0, 1.0]}
 
     assert coerce_literal(payload, program) == PayloadValue(
         schema_id="pulse_program",
         payload=program,
     )
 
-    with pytest.raises(ValueValidationError, match="payload 'pulse_program' expects"):
-        coerce_literal(payload, {"samples": [0.0, 1.0]})
+    with pytest.raises(ValueValidationError, match="expected payload 'pulse_program'"):
+        coerce_literal(
+            payload,
+            PayloadValue(schema_id="other_program", payload=program),
+        )
 
 
 def test_invalid_type_definitions_fail_at_construction() -> None:
@@ -266,9 +212,9 @@ def test_invalid_type_definitions_fail_at_construction() -> None:
         )
     with pytest.raises(ValueError, match="references unknown columns"):
         Table(columns=(), primary_key=("id",))
-    with pytest.raises(ValueError, match="required and non-null"):
+    with pytest.raises(ValueError, match="primitive, quantity, or entity"):
         Table(
-            columns=(TableColumn("id", Scalar(String(), nullable=True)),),
+            columns=(TableColumn("id", Scalar(Payload("opaque"))),),
             primary_key=("id",),
         )
     with pytest.raises(ValueError, match="guarantee finite"):

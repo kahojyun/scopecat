@@ -8,23 +8,18 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.config.changes import (
-    list_parameter_change_decisions,
+    load_parameter_change_approval,
     load_parameter_change_proposal,
     prepare_parameter_change_proposal_contents,
 )
 from scopecat.kernel.errors import Conflict, DataIntegrityError
-from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
+from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import (
-    decide_parameter_change_proposal,
-    invalidate_parameter_change_proposal,
     review_parameter_change_proposal,
     signal_run_with_parameter_change,
 )
-from tests.testkit.runtime import (
-    sqlite_project_services,
-    sqlite_run_repository,
-)
+from tests.testkit.runtime import sqlite_project_services, sqlite_run_repository
 
 
 def test_same_proposal_intent_retry_reuses_durable_entry_hash(
@@ -65,125 +60,58 @@ def test_same_proposal_intent_retry_reuses_durable_entry_hash(
         )
 
 
-def test_invalidate_parameter_change_records_decision_without_mutating_proposal(
-    tmp_path: Path,
-) -> None:
+def test_parameter_change_approval_is_single_and_idempotent(tmp_path: Path) -> None:
     run_id = signal_run_with_parameter_change(tmp_path)
-    before = load_parameter_change_proposal(
+    services = sqlite_project_services(tmp_path)
+    first = review_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=sqlite_project_services(tmp_path),
+        services=services,
+        reviewer="reviewer-a",
+        note="evidence reviewed",
     )
-
-    record = invalidate_parameter_change_proposal(
+    second = review_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-        reason="active config changed before review",
-        invalidated_by="operator",
-        invalidated_by_refs=["config-profile.snapshot.json"],
+        services=services,
+        reviewer="reviewer-a",
+        note="evidence reviewed",
     )
 
-    assert record.proposal_id == "best-signal"
-    assert record.decision == "invalidated"
-    assert record.note == "active config changed before review"
-    assert record.actor == "operator"
-    assert record.authority.kind == "human"
-    assert record.related_refs == ("config-profile.snapshot.json",)
-    assert (
-        load_parameter_change_proposal(
+    assert second == first
+    with pytest.raises(Conflict):
+        review_parameter_change_proposal(
             run_id=run_id,
             selector="best-signal",
-            services=sqlite_project_services(tmp_path),
+            services=services,
+            reviewer="reviewer-b",
+            note="evidence reviewed",
         )
-        == before
+    with pytest.raises(Conflict):
+        review_parameter_change_proposal(
+            run_id=run_id,
+            selector="best-signal",
+            services=services,
+            reviewer="reviewer-a",
+            note="different evidence",
+        )
+    assert (
+        load_parameter_change_approval(
+            run_id=run_id,
+            selector="best-signal",
+            storage=services.runs,
+        )
+        == first
     )
-    manifest = sqlite_run_repository(tmp_path).read_manifest(run_id)
-    decision_record = next(
-        record
-        for record in manifest.records
-        if record.kind == "parameter_change_decision_record"
-    )
-    assert decision_record.id.startswith("best-signal-decision-")
-    assert decision_record.kind == "parameter_change_decision_record"
-
-
-def test_parameter_change_decisions_append_invalidation_after_approval(
-    tmp_path: Path,
-) -> None:
-    run_id = signal_run_with_parameter_change(tmp_path)
-    approval = review_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-        state="approved",
-        reviewer="operator",
-        note="manual approval",
-    )
-    invalidation = invalidate_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-        reason="active config changed after review",
-        invalidated_by="operator",
-    )
-
-    decisions = list_parameter_change_decisions(
-        run_id=run_id,
-        selector="best-signal",
-        storage=sqlite_run_repository(tmp_path),
-    )
-    assert decisions == [approval, invalidation]
-    assert [decision.decision for decision in decisions] == [
-        "approved",
-        "invalidated",
+    records = [
+        entry
+        for entry in services.runs.read_manifest(run_id).records
+        if entry.kind == "parameter_change_approval_record"
     ]
-    manifest = sqlite_run_repository(tmp_path).read_manifest(run_id)
-    decision_records = [
-        record
-        for record in manifest.records
-        if record.kind == "parameter_change_decision_record"
-    ]
-    assert len(decision_records) == 2
-    assert decision_records[0].id != decision_records[1].id
-    assert decisions[-1].decision == "invalidated"
-    assert [event.decision for event in decisions] == [
-        "approved",
-        "invalidated",
-    ]
-    assert approval.authority.kind == "human"
-    assert approval.actor == "operator"
+    assert [entry.id for entry in records] == ["best-signal-approval"]
 
 
-def test_automatic_policy_decision_authority_round_trips_without_verification(
-    tmp_path: Path,
-) -> None:
-    run_id = signal_run_with_parameter_change(tmp_path)
-    authority = AutomaticPolicyDecisionAuthority(
-        actor="nightly-calibration",
-        policy_id="high-confidence-fit",
-        policy_version="3",
-    )
-
-    decision = decide_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-        decision="approved",
-        authority=authority,
-        note="fit confidence exceeded the automatic acceptance threshold",
-    )
-
-    assert decision.related_refs == ()
-    assert list_parameter_change_decisions(
-        run_id=run_id,
-        selector="best-signal",
-        storage=sqlite_run_repository(tmp_path),
-    ) == [decision]
-    assert decision.authority == authority
-
-
-def test_parameter_change_decision_history_fails_closed_on_corruption(
+def test_parameter_change_approval_fails_closed_on_corruption(
     tmp_path: Path,
 ) -> None:
     run_id = signal_run_with_parameter_change(tmp_path)
@@ -191,14 +119,13 @@ def test_parameter_change_decision_history_fails_closed_on_corruption(
         run_id=run_id,
         selector="best-signal",
         services=sqlite_project_services(tmp_path),
-        state="approved",
         reviewer="operator",
     )
     storage = sqlite_run_repository(tmp_path)
     entry = next(
         record
         for record in storage.read_manifest(run_id).records
-        if record.kind == "parameter_change_decision_record"
+        if record.kind == "parameter_change_approval_record"
     )
     ref = record_content_ref(record_id=entry.id, kind=entry.kind)
     payload = json.loads(storage.read_text(run_id, ref))
@@ -206,56 +133,21 @@ def test_parameter_change_decision_history_fails_closed_on_corruption(
     storage.write_text(run_id, ref, json.dumps(payload))
 
     with pytest.raises(DataIntegrityError) as error:
-        list_parameter_change_decisions(
+        load_parameter_change_approval(
             run_id=run_id,
             selector="best-signal",
             storage=storage,
         )
 
     assert error.value.problems[0].code == (
-        "invalid_parameter_change_decision_identity"
+        "invalid_parameter_change_approval_identity"
     )
 
 
-def test_parameter_decisions_preserve_every_append(tmp_path: Path) -> None:
-    run_id = signal_run_with_parameter_change(tmp_path)
-    event_ids = {
-        review_parameter_change_proposal(
-            run_id=run_id,
-            selector="best-signal",
-            services=sqlite_project_services(tmp_path),
-            state="approved",
-            reviewer=actor,
-        ).event_id
-        for actor in ("reviewer-a", "reviewer-b")
-    }
-
-    decisions = list_parameter_change_decisions(
-        run_id=run_id,
-        selector="best-signal",
-        storage=sqlite_run_repository(tmp_path),
-    )
-    manifest = sqlite_run_repository(tmp_path).read_manifest(run_id)
-    manifest_event_ids = {
-        record.id.removeprefix("best-signal-decision-")
-        for record in manifest.records
-        if record.kind == "parameter_change_decision_record"
-    }
-    assert {decision.event_id for decision in decisions} == event_ids
-    assert manifest_event_ids == event_ids
-
-
-def test_parameter_decision_validation_rejects_empty_actor(tmp_path: Path) -> None:
-    run_id = signal_run_with_parameter_change(tmp_path)
-    decision = review_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-        state="approved",
-        reviewer="reviewer",
-    )
-
-    invalid = decision.model_dump(mode="python")
-    invalid["authority"]["actor"] = ""
+def test_parameter_approval_validation_rejects_empty_actor() -> None:
     with pytest.raises(ValidationError):
-        type(decision).model_validate(invalid)
+        ParameterChangeApprovalRecord(
+            run_id="run-1",
+            proposal_id="proposal-1",
+            actor="",
+        )

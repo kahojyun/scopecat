@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from types import NoneType, UnionType
+from types import UnionType
 from typing import (
     Annotated,
     TypeAliasType,
@@ -26,7 +26,7 @@ from scopecat.authoring._module_handles import (
 )
 from scopecat.authoring._products import ProductRef, RecordSelection, record_product
 from scopecat.authoring._value_refs import ValueRef, empty_frozen_mapping
-from scopecat.authoring.scans import Scan, ScanCenter, ScanValue, build_scan
+from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
     ExperimentDefinition,
     ExperimentInvocation,
@@ -40,9 +40,7 @@ from scopecat.authoring.value_types import (
     Int,
     Payload,
     Quantity,
-    Record,
     Scalar,
-    Series,
     String,
     Table,
     ValueType,
@@ -91,27 +89,11 @@ class ExperimentBody:
 
     def scan(
         self,
-        target: ValueRef | Scan,
-        values: Sequence[ScanValue] = (),
-        *,
-        unit: str | None = None,
-        center: ScanCenter | None = None,
-        span: QuantityValue | str | None = None,
-        points: int | None = None,
+        *scans: Scan,
     ) -> ExperimentBody:
         return replace(
             self,
-            scans=(
-                *self.scans,
-                build_scan(
-                    target,
-                    values,
-                    unit=unit,
-                    center=center,
-                    span=span,
-                    points=points,
-                ),
-            ),
+            scans=(*self.scans, *scans),
         )
 
     def record_product(
@@ -208,7 +190,7 @@ def module[**P](
     definition: Callable[P, ModuleBuilder] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentModule[P] | Callable[[Callable[P, ModuleBuilder]], ExperimentModule[P]]:
     """Define a closed module from a Python function."""
@@ -220,7 +202,7 @@ def module[**P](
 
 def module_body(
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ModuleBuilder:
     """Start a low-level module body or an ``@module`` return value."""
@@ -267,7 +249,7 @@ def template[**P](
     definition: Callable[P, ExperimentBody] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
@@ -313,7 +295,7 @@ def scratch[**P](
     definition: Callable[P, ExperimentBody] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
@@ -338,7 +320,7 @@ def scratch[**P](
 def _module_from_function[**P](
     fn: Callable[P, ModuleBuilder],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentModule[P]:
     source = cast("DefinitionFunction", fn)
@@ -369,7 +351,7 @@ def _module_from_function[**P](
 def _template_from_function[**P](
     fn: Callable[P, ExperimentBody],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
     kind: str | None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentTemplate[P]:
@@ -423,7 +405,7 @@ def _template_from_function[**P](
 def _close_experiment_body(
     body: ExperimentBody,
     *,
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     metadata: Mapping[str, MetadataValue] | None,
     input_defaults: Mapping[str, RuntimeInput],
@@ -507,20 +489,20 @@ def _annotation_value_type(annotation: object, *, parameter: str) -> ValueType:
 
 
 def _is_value_type(value: object) -> bool:
-    if isinstance(value, Scalar | Series | Table):
+    if isinstance(value, Scalar | Table):
         return True
     return isinstance(
         value,
-        Bool | Entity | Float | Int | Payload | Quantity | Record | String,
+        Bool | Entity | Float | Int | Payload | Quantity | String,
     )
 
 
 def _as_value_type(value: object) -> ValueType:
-    if isinstance(value, Scalar | Series | Table):
+    if isinstance(value, Scalar | Table):
         return value
     if isinstance(
         value,
-        Bool | Entity | Float | Int | Payload | Quantity | Record | String,
+        Bool | Entity | Float | Int | Payload | Quantity | String,
     ):
         return Scalar(value)
     raise AssertionError("value-type metadata was checked before normalization")
@@ -531,21 +513,15 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
         [annotation] = cast("tuple[object, ...]", get_args(annotation))
     origin = get_origin(annotation)
     if origin is UnionType:
-        options = cast("tuple[object, ...]", get_args(annotation))
         return all(
-            (
-                isinstance(value_type, Scalar)
-                and value_type.nullable
-                and option is NoneType
-            )
-            or _python_annotation_matches(option, value_type)
-            for option in options
+            _python_annotation_matches(option, value_type)
+            for option in cast("tuple[object, ...]", get_args(annotation))
         )
     if annotation is object:
         return True
     if isinstance(value_type, Scalar):
         atom = value_type.atom
-        if isinstance(atom, Payload | Record) and origin in (dict, Mapping):
+        if isinstance(atom, Payload) and origin in (dict, Mapping):
             return True
         expected: dict[type[object], tuple[object, ...]] = {
             Bool: (bool,),
@@ -554,17 +530,9 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
             Int: (int,),
             Payload: (dict, Mapping),
             Quantity: (QuantityValue,),
-            Record: (dict, Mapping),
             String: (str,),
         }
         return annotation in expected[type(atom)]
-    if isinstance(value_type, Series):
-        if origin not in (tuple, list, Sequence):
-            return False
-        item_types = cast("tuple[object, ...]", get_args(annotation))
-        if not item_types:
-            return False
-        return _python_annotation_matches(item_types[0], value_type.item_type)
     if origin not in (tuple, list, Sequence):
         return False
     row_types = cast("tuple[object, ...]", get_args(annotation))

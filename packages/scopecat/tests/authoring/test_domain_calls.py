@@ -5,14 +5,21 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.linking.linked import materialize_linked_points
+from scopecat.compiler.semantic.value_expressions import TableValue
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import (
     ValueInput,
     core_acquisitions,
     core_domain_executions,
 )
+from scopecat.graph.table_values import LiteralTableSource
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.sdk.domain._bridge import (
+    make_domain_batch_request,
+    make_domain_call_view,
+)
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 
 
@@ -92,6 +99,94 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
     )
 
 
+def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> None:
+    table_type = sc.TableType(
+        columns=(
+            sc.TableColumn("id", sc.ScalarType(sc.IntType())),
+            sc.TableColumn("gain", sc.ScalarType(sc.FloatType())),
+        ),
+        primary_key=("id",),
+    )
+    program = sc.domain_program(
+        "table-program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        compiler_inputs={"rows": table_type},
+    )
+    leaf_rows = sc.input("rows", table_type)
+    leaf = (
+        sc.module_body(id="test.domain.table-leaf")
+        .inputs(leaf_rows)
+        .domain(
+            sc.domain_execution(
+                program,
+                id="compile",
+                compiler_inputs={"rows": leaf_rows},
+            )
+        )
+        .build()
+    )
+    middle_rows = sc.input("rows", table_type)
+    middle = (
+        sc.module_body(id="test.domain.table-middle")
+        .inputs(middle_rows)
+        .use(leaf.instantiate("leaf", rows=middle_rows))
+        .build()
+    )
+    root_rows = sc.input("rows", table_type)
+    root = (
+        sc.module_body(id="test.domain.table-root")
+        .inputs(root_rows)
+        .use(middle.instantiate("middle", rows=root_rows))
+        .build()
+    )
+    linked = link_invocation(
+        template_fixture(
+            root,
+            id="test.domain.table-forwarding",
+            kind="domain",
+        ).bind(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
+        config_profile=load_config(),
+    )
+
+    [execution] = core_domain_executions(linked.program)
+    table_value = execution.compiler_inputs["rows"].value
+    assert isinstance(table_value, TableValue)
+    assert isinstance(table_value.source, LiteralTableSource)
+
+    points = materialize_linked_points(linked)
+    call = make_domain_call_view(
+        linked,
+        execution.id,
+        domain_result_closure(linked.program, execution.id),
+    )
+    request = make_domain_batch_request(
+        call,
+        points,
+        (0,),
+        batch_ordinal=0,
+    )
+    assert request.inputs.compiler_input("rows") == (
+        ({"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}),
+    )
+
+
+def test_domain_program_tables_are_compiler_inputs_only() -> None:
+    table_type = sc.TableType(
+        columns=(sc.TableColumn("id", sc.ScalarType(sc.IntType())),)
+    )
+
+    with pytest.raises(TypeError, match="use compiler_inputs"):
+        sc.domain_program(
+            "program",
+            dialect_id="test",
+            dialect_version="1",
+            body=object(),
+            inputs={"rows": table_type},  # pyright: ignore[reportArgumentType]
+        )
+
+
 def test_domain_program_rejects_overlapping_input_namespaces() -> None:
     value_type = sc.ScalarType(sc.IntType())
 
@@ -104,56 +199,6 @@ def test_domain_program_rejects_overlapping_input_namespaces() -> None:
             inputs={"value": value_type},
             compiler_inputs={"value": value_type},
         )
-
-
-def test_domain_execution_binds_declared_resource_roles_and_source_anchor() -> None:
-    program = sc.domain_program(
-        "controller-program",
-        dialect_id="test",
-        dialect_version="1",
-        body=object(),
-        results={"counts": None},
-        resources={"controller": ("run-program",)},
-    )
-    builder = (
-        sc.module_body(id="test.domain.resources")
-        .resource("controller", requires=("run-program",))
-        .product("counts", unit="count", dtype="int64")
-    )
-    execution = sc.domain_execution(
-        program,
-        id="run-controller",
-        results={"counts": builder.products.counts},
-        resources={"controller": "controller"},
-    )
-
-    assembly = elaborate_module(builder.domain(execution).build().ir)
-    semantic = assembly.domain_executions[0]
-
-    assert semantic.resources == (
-        ("controller", logical_resource_port_id("controller")),
-    )
-    assert semantic.program.resource_ports[0].capabilities == ("run-program",)
-
-
-def test_domain_resource_role_checks_module_capabilities() -> None:
-    program = sc.domain_program(
-        "controller-program",
-        dialect_id="test",
-        dialect_version="1",
-        body=object(),
-        resources={"controller": ("run-program",)},
-    )
-    builder = sc.module_body(id="test.domain.bad-resource").resource("controller")
-    execution = sc.domain_execution(
-        program,
-        resources={"controller": "controller"},
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        builder.domain(execution).build()
-
-    assert error.value.problems[0].code == "domain_resource_capability_mismatch"
 
 
 def test_domain_execution_captures_literal_inputs_at_authoring_ingress() -> None:

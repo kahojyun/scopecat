@@ -6,9 +6,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
@@ -24,7 +21,7 @@ from scopecat.graph.values import (
     operation_result_id,
 )
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Float, Int, Payload, Scalar, ValueType
+from scopecat.kernel.value_types import Float, Int, Payload, Scalar
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
@@ -41,7 +38,7 @@ def _operation_id(local_id: str = "compute") -> OperationId:
 
 def _result(
     operation_id: OperationId,
-    value_type: ValueType = _FLOAT,
+    value_type: Scalar = _FLOAT,
     *,
     value_id: ValueId | None = None,
 ) -> ComputeOutput:
@@ -55,7 +52,7 @@ def _program(
     *,
     implementation_id: str = "python-v1",
     kernel: Callable[..., object] = lambda: 1.0,
-    output_type: ValueType = _FLOAT,
+    output_type: Scalar = _FLOAT,
     output_id: ValueId | None = None,
     point_count: int = 1,
 ) -> CoreProgram:
@@ -64,16 +61,17 @@ def _program(
         id="implementation-sidecar",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_axis_values(
-                "point_index",
-                Scalar(Int()),
-                tuple(range(point_count)),
+            axes=(
+                point_axis_values(
+                    "point_index",
+                    Scalar(Int()),
+                    tuple(range(point_count)),
+                ),
             )
         ),
         compute_nodes=(
             TypedComputeNode(
                 id=operation_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId(implementation_id),
                     kernel=kernel,
@@ -101,8 +99,8 @@ def test_binding_preserves_stable_implementation_identity() -> None:
     first_plan = materialize_local_execution(link_program(first, environment))
     second_plan = materialize_local_execution(link_program(second, environment))
 
-    first_call = first_plan.preamble_operations[0]
-    second_call = second_plan.preamble_operations[0]
+    first_call = operations_of_type(first_plan, ComputeOperation, point_index=0)[0]
+    second_call = operations_of_type(second_plan, ComputeOperation, point_index=0)[0]
     assert first_call.semantic_operation_id == operation_id.qualified_name
     assert first_call.implementation_id == "python-v1"
     assert second_call.implementation_id == "python-v2"
@@ -127,11 +125,20 @@ def test_plan_pins_exact_implementation_callable() -> None:
     plan = materialize_local_execution(link_program(first_program, environment))
     second_plan = materialize_local_execution(link_program(second_program, environment))
 
-    assert plan.preamble_operations[0].kernel is first_kernel
-    assert second_plan.preamble_operations[0].kernel is second_kernel
+    assert operations_of_type(plan, ComputeOperation, point_index=0)[0].kernel is (
+        first_kernel
+    )
+    assert (
+        operations_of_type(
+            second_plan,
+            ComputeOperation,
+            point_index=0,
+        )[0].kernel
+        is second_kernel
+    )
 
 
-def test_dependency_free_compute_is_lowered_once_outside_point_effects() -> None:
+def test_dependency_free_compute_is_lowered_for_each_point() -> None:
     program = _program(
         point_count=2,
     )
@@ -139,8 +146,9 @@ def test_dependency_free_compute_is_lowered_once_outside_point_effects() -> None
         link_program(program, build_config_environment(load_config())),
     )
 
-    assert len(materialized.preamble_operations) == 1
-    assert operations_of_type(materialized, ComputeOperation) == ()
+    calls = operations_of_type(materialized, ComputeOperation)
+    assert len(calls) == 2
+    assert len({call.operation_id for call in calls}) == 2
 
 
 def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
@@ -155,16 +163,16 @@ def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
         link_program(_program(output_id=second_output), environment)
     )
 
-    first_call = first.preamble_operations[0]
-    second_call = second.preamble_operations[0]
+    first_call = operations_of_type(first, ComputeOperation, point_index=0)[0]
+    second_call = operations_of_type(second, ComputeOperation, point_index=0)[0]
     assert first_call.result.id == first_output
     assert second_call.result.id == second_output
 
 
-def test_compute_interface_accepts_payload_python_type() -> None:
+def test_compute_interface_accepts_payload_schema() -> None:
     program = _program(
         kernel=dict,
-        output_type=Scalar(Payload("program", python_type=dict)),
+        output_type=Scalar(Payload("program")),
     )
 
     materialize_local_execution(

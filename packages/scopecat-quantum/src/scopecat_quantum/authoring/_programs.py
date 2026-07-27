@@ -22,7 +22,6 @@ from scopecat.authoring import (
     ScalarType,
     ValueRef,
     ValueType,
-    product_axis,
     shot_axis,
 )
 from scopecat.authoring import (
@@ -38,7 +37,6 @@ from scopecat_quantum._ids import (
 )
 
 from ._analysis import (
-    _result_axis_input_ids,
     _summarize_fragment,
     program_port_type,
 )
@@ -234,7 +232,6 @@ def _domain_program(
         input_handle.id
         for input_handle in _summarize_fragment(declaration.body).repeat_inputs
     }
-    result_axis_input_ids = _result_axis_input_ids(declaration.results)
     return _core_domain_program(
         declaration.id,
         dialect_id=QUANTUM_PROGRAM_DIALECT_ID,
@@ -244,7 +241,6 @@ def _domain_program(
             port.id: program_port_type(
                 port,
                 non_negative=port.id in repeat_input_ids,
-                positive=port.id in result_axis_input_ids,
             )
             for port in declaration.ports
         },
@@ -256,7 +252,7 @@ def _domain_program(
 def _domain_execution(
     program: DomainProgramDef,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     inputs: Mapping[ProgramPort, ComputeInput] | None = None,
     compiler_inputs: Mapping[str, ComputeInput] | None = None,
     results: Mapping[ProgramResult, ProductRef] | None = None,
@@ -359,22 +355,7 @@ def _program_call_module(
             result.id,
             unit=contract.unit,
             dtype=contract.dtype,
-            axes=(
-                shot_axis(shots_input),
-                *(
-                    product_axis(
-                        axis.id,
-                        size=(
-                            local_inputs[axis.size.id]
-                            if isinstance(axis.size, ProgramInput)
-                            else axis.size
-                        ),
-                        kind=axis.kind,
-                        unit=axis.unit,
-                    )
-                    for axis in contract.axes
-                ),
-            ),
+            axes=(shot_axis(shots_input),),
         )
     execution = _domain_execution(
         domain,

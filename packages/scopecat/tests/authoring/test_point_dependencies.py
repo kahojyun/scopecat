@@ -24,7 +24,7 @@ def _point_module(
         f"{module_id}.consume",
         fn=_identity,
         inputs={"value": point},
-        output_type=point.value_type,
+        output_type=_FREQUENCY_TYPE,
     )
     return sc.module_body(id=module_id).computes(consume).build()
 
@@ -86,7 +86,7 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
         "test.point-child.consume",
         fn=_identity,
         inputs={"value": child_frequency},
-        output_type=child_frequency.value_type,
+        output_type=_FREQUENCY_TYPE,
     )
     child = (
         sc.module_body(id="test.point-child")

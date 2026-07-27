@@ -22,6 +22,7 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.results import MeasurementDType
 
 type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
@@ -155,13 +156,13 @@ class RecordSelection:
 
 
 def product_axis(
-    id: str,  # noqa: A002
+    id: str,
     *,
     size: ValueRef | Quantity | float | Sequence[EntityRef | str],
     kind: str | None = None,
     unit: str | None = None,
 ) -> ProductAxis:
-    selected_size = size if isinstance(size, ValueRef) else capture_runtime_input(size)
+    selected_size = _axis_value(size)
     return ProductAxis(
         id=id,
         size=cast("AxisSizeInput", selected_size),
@@ -171,12 +172,10 @@ def product_axis(
 
 
 def entity_axis(
-    id: str,  # noqa: A002
+    id: str,
     entities: ValueRef | Sequence[EntityRef | str],
 ) -> ProductAxis:
-    selected_entities = (
-        entities if isinstance(entities, ValueRef) else capture_runtime_input(entities)
-    )
+    selected_entities = _axis_value(entities)
     return ProductAxis(
         id=id,
         size=cast("AxisSizeInput", selected_entities),
@@ -184,6 +183,14 @@ def entity_axis(
         unit=None,
         entity_values=True,
     )
+
+
+def _axis_value(value: object) -> object:
+    if not isinstance(value, ValueRef):
+        return capture_runtime_input(value)
+    if not isinstance(value.value_type, Scalar):
+        raise TypeError("product and entity axis values must be scalar")
+    return value
 
 
 def shot_axis(

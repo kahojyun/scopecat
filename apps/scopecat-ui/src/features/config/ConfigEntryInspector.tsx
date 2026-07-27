@@ -2,10 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, GitCompareArrows, LoaderCircle, SlidersHorizontal } from "lucide-react";
 import { getRunAnalyses } from "../../api";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
-import {
-  getRunParameterProposals,
-  latestProposalDecision,
-} from "../../data/parameter-proposals/api";
+import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import type { RunAnalysis } from "../../types";
@@ -199,13 +196,16 @@ function EntryProvenance({
   }
 
   const runId = source.run_id;
-  const proposalIds = source.proposal_evidence.map((evidence) => evidence.proposal_id);
+  const proposalId = source.proposal_id;
   const proposalsById = new Map(
     (candidateProposals ?? []).map((proposal) => [proposal.id, proposal]),
   );
   const analysesById = new Map(
     (candidateAnalyses ?? []).map((analysis) => [analysis.id, analysis]),
   );
+  const proposal = proposalsById.get(proposalId);
+  const analysis = proposal ? analysesById.get(proposal.analysisRecordId) : undefined;
+  const approval = proposal?.approval;
   return (
     <div className="config-provenance candidate-provenance">
       <GitCompareArrows size={16} aria-hidden="true" />
@@ -236,99 +236,66 @@ function EntryProvenance({
         )}
 
         <div className="candidate-evidence-list">
-          {proposalIds.length === 0 && (
-            <p className="candidate-evidence-status">
-              No proposal evidence is recorded for this candidate.
-            </p>
-          )}
-          {proposalIds.map((proposalId) => {
-            const proposal = proposalsById.get(proposalId);
-            const analysis = proposal ? analysesById.get(proposal.analysisRecordId) : undefined;
-            const decision = proposal ? latestProposalDecision(proposal) : undefined;
-            return (
-              <article key={proposalId} aria-label={`Proposal ${proposalId}`}>
-                <dl>
+          <article aria-label={`Proposal ${proposalId}`}>
+            <dl>
+              <div>
+                <dt>Proposal</dt>
+                <dd>
+                  <code>{proposalId}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Analysis</dt>
+                <dd>
+                  {proposal ? (
+                    <>
+                      <code>{proposal.analysisRecordId}</code>
+                      {analysis && <span>{analysis.title}</span>}
+                      {!analysis && candidateAnalysesPending && " · Loading details"}
+                    </>
+                  ) : candidateProposalsPending ? (
+                    "Loading proposal"
+                  ) : (
+                    "Proposal details unavailable"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Operator approval</dt>
+                <dd>
+                  {approval
+                    ? `Approved · ${approval.actor}`
+                    : candidateProposalsPending
+                      ? "Loading approval"
+                      : "Approval unavailable"}
+                </dd>
+              </div>
+              {approval && (
+                <>
                   <div>
-                    <dt>Proposal</dt>
-                    <dd>
-                      <code>{proposalId}</code>
-                    </dd>
+                    <dt>Note</dt>
+                    <dd>{approval.note || "No approval note"}</dd>
                   </div>
                   <div>
-                    <dt>Analysis</dt>
+                    <dt>Approved</dt>
                     <dd>
-                      {proposal ? (
-                        <>
-                          <code>{proposal.analysisRecordId}</code>
-                          {analysis && <span>{analysis.title}</span>}
-                          {!analysis && candidateAnalysesPending && " · Loading details"}
-                        </>
-                      ) : candidateProposalsPending ? (
-                        "Loading proposal"
+                      {approval.approvedAt ? (
+                        <time dateTime={approval.approvedAt}>
+                          {formatDateTime(approval.approvedAt)}
+                        </time>
                       ) : (
-                        "Proposal details unavailable"
+                        "Approval time unavailable"
                       )}
                     </dd>
                   </div>
-                  <div>
-                    <dt>
-                      {decision?.decision === "approved" ? "Latest acceptance" : "Latest decision"}
-                    </dt>
-                    <dd>
-                      {decision
-                        ? `${displayDecision(decision.decision)} · ${decisionAuthorityLabel(
-                            decision,
-                          )}`
-                        : candidateProposalsPending
-                          ? "Loading decision"
-                          : "Decision unavailable"}
-                    </dd>
-                  </div>
-                  {decision && (
-                    <>
-                      <div>
-                        <dt>Note</dt>
-                        <dd>{decision.note || "No decision note"}</dd>
-                      </div>
-                      <div>
-                        <dt>Decided</dt>
-                        <dd>
-                          {decision.decidedAt ? (
-                            <time dateTime={decision.decidedAt}>
-                              {formatDateTime(decision.decidedAt)}
-                            </time>
-                          ) : (
-                            "Decision time unavailable"
-                          )}
-                        </dd>
-                      </div>
-                    </>
-                  )}
-                </dl>
-              </article>
-            );
-          })}
+                </>
+              )}
+            </dl>
+          </article>
         </div>
       </div>
     </div>
   );
-}
-
-function decisionAuthorityLabel(
-  decision: NonNullable<ReturnType<typeof latestProposalDecision>>,
-): string {
-  if (decision.authorityKind === "automatic_policy") {
-    const policy =
-      decision.policyId && decision.policyVersion
-        ? `${decision.policyId}@${decision.policyVersion}`
-        : "unidentified policy";
-    return `Automatic policy ${policy} · ${decision.actor}`;
-  }
-  return `Human · ${decision.actor}`;
-}
-
-function displayDecision(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).replaceAll("_", " ");
 }
 
 function SnapshotSummary({ snapshot }: { snapshot: ConfigSnapshotSummary }) {

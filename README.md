@@ -78,19 +78,13 @@ configuration history, parameter values, runs, data, and saved analysis.
 Run the notebook-style walkthrough in another terminal:
 
 ```sh
-uv run python examples/quantum/notebooks/getting_started/01_open_project.py
-uv run python examples/quantum/notebooks/getting_started/02_edit_config.py
-uv run python examples/quantum/notebooks/getting_started/04_run_and_read_data.py
-uv run python examples/quantum/notebooks/getting_started/07_rerun_candidate_config.py
+uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
 ```
 
-The run appears live in the GUI and remains available to later notebooks.
-Normal configuration changes are one intent: set an immutable revision as the
-default, accept an analysis candidate, or undo to the previous default. The
-daemon still records every revision, acceptance decision, and activation while
-keeping entry ids and concurrency generations out of the ordinary workflow.
-Verification runs are optional evidence rather than a prerequisite for
-acceptance.
+The walkthrough runs the supported DRAG-beta calibration from measurement
+through candidate acceptance, production use, and undo. The daemon records
+every immutable revision, acceptance decision, and activation while keeping
+entry ids and concurrency generations out of the ordinary workflow.
 
 Explicitly local scratch code still executes in the notebook process when it
 cannot be sent reliably to another process. Admission, resource ownership,
@@ -127,9 +121,14 @@ Run the repository checks from the repository root:
 ```sh
 uv run pytest
 uv run basedpyright
+uv run lint-imports
 uv run ruff check packages examples docs scripts
 uv run ruff format --check packages examples docs scripts
 ```
+
+The default test run includes all package tests and one end-to-end quantum
+first-use slice. Run the complete demo suite explicitly with
+`uv run pytest examples/quantum/tests examples/quantum/support/tests`.
 
 To assemble release artifacts without modifying either source tree:
 

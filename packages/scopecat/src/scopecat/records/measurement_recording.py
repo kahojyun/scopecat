@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -12,20 +12,16 @@ from scopecat.kernel.content_identity import (
 )
 from scopecat.records.measurement import MeasurementRecord
 
-_MAX_DATASET_REF_LENGTH = 512
-_DURABLE_DATASET_REF = re.compile(
-    r"[A-Za-z][A-Za-z0-9._-]*/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*"
-    r"[A-Za-z0-9][A-Za-z0-9._-]*"
+type _MeasurementDatasetRef = Literal["data/measurement_dataset/raw-measurements"]
+CANONICAL_MEASUREMENT_DATASET_REF: _MeasurementDatasetRef = (
+    "data/measurement_dataset/raw-measurements"
 )
-_FORBIDDEN_DATASET_REF_NAMESPACES = frozenset({"inline", "javascript"})
 
 
 class MeasurementDatasetAppend(BaseModel):
     """One idempotent append to a canonical run dataset."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     recording_contract_fingerprint: str
@@ -77,13 +73,11 @@ class MeasurementDatasetAppend(BaseModel):
 class MeasurementDatasetReceipt(BaseModel):
     """Durable evidence for one dataset append or seal operation."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation_id: str
     dataset_content_hash: str
-    dataset_ref: str
+    dataset_ref: _MeasurementDatasetRef = CANONICAL_MEASUREMENT_DATASET_REF
 
     @field_validator("operation_id", "dataset_content_hash")
     @classmethod
@@ -92,29 +86,11 @@ class MeasurementDatasetReceipt(BaseModel):
             raise ValueError("measurement dataset receipt fields must be non-empty")
         return value
 
-    @field_validator("dataset_ref")
-    @classmethod
-    def validate_dataset_ref(cls, value: str) -> str:
-        namespace, separator, _key = value.partition("/")
-        if (
-            not value
-            or len(value) > _MAX_DATASET_REF_LENGTH
-            or not separator
-            or namespace.lower() in _FORBIDDEN_DATASET_REF_NAMESPACES
-            or _DURABLE_DATASET_REF.fullmatch(value) is None
-        ):
-            raise ValueError(
-                "measurement dataset receipt ref must be a safe durable locator"
-            )
-        return value
-
 
 class MeasurementDatasetSeal(BaseModel):
     """Seal one append-only dataset after its admitted point range is complete."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     recording_contract_fingerprint: str
@@ -165,6 +141,7 @@ def measurement_dataset_content_hash(
 
 
 __all__ = [
+    "CANONICAL_MEASUREMENT_DATASET_REF",
     "MeasurementDatasetAppend",
     "MeasurementDatasetReceipt",
     "MeasurementDatasetSeal",

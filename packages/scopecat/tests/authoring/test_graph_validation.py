@@ -14,12 +14,9 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
-    LiteralValueSource,
     SemanticDomainExecution,
     SemanticGraphIR,
-    ValueUse,
 )
-from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.compiler.semantic.verification import (
     VerifiedSemanticGraph,
     verify_semantic_graph,
@@ -129,49 +126,49 @@ def test_state_rejects_a_non_payload_compute_output() -> None:
     assert "numeric-value/outputs/result" in error.value.problems[0].message
 
 
-def test_compile_rejects_a_table_shaped_plan_state_binding() -> None:
+def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
     rows = sc.input(
         "rows",
         sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
     )
-    module = (
-        sc.module_body(id="test.graph.table-state-binding")
-        .inputs(rows)
-        .resource("drive", requires=("set_gain",))
-        .bind_field(
-            "drive",
-            capability="set_gain",
-            field="value",
-            value=rows,
+
+    with pytest.raises(TypeError, match="scalar typed value or scalar literal"):
+        (
+            sc.module_body(id="test.graph.table-state-binding")
+            .inputs(rows)
+            .resource("drive", requires=("set_gain",))
+            .bind_field(
+                "drive",
+                capability="set_gain",
+                field="value",
+                value=rows,
+            )
         )
-        .build()
+
+
+def test_product_axes_reject_table_values_at_authoring_boundary() -> None:
+    rows = sc.input(
+        "rows",
+        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
     )
-    invocation = template_fixture(
-        module,
-        id="test.graph.table-state-binding",
-        kind="graph",
-    ).bind(rows=({"value": 1.0},))
 
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(invocation)
-
-    problem = error.value.problems[0]
-    assert problem.code == "state_binding_value_shape_invalid"
-    assert problem.phase is ProblemPhase.AUTHORING
-    assert problem.location == model_location("bindings", 0, "value")
-    assert problem.message == "state binding value must be scalar-shaped"
+    with pytest.raises(TypeError, match="axis values must be scalar"):
+        sc.product_axis("sample", size=rows)
+    with pytest.raises(TypeError, match="axis values must be scalar"):
+        sc.entity_axis("entity", rows)
 
 
 def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
+    value_type = sc.ScalarType(sc.FloatType())
     missing_parameter = sc.parameter(
         "missing-record-parameter",
-        sc.ScalarType(sc.FloatType()),
+        value_type,
     )
     consume = sc.compute(
         "consume-parameter",
         fn=_identity_value,
         inputs={"value": missing_parameter},
-        output_type=missing_parameter.value_type,
+        output_type=value_type,
     )
     duplicate_axis = sc.product_axis("sample", size=2)
     module = (
@@ -431,7 +428,7 @@ def test_entrypoint_closure_is_an_authoring_problem(
     assert problem.location == model_location(root)
 
 
-def test_resource_selector_requires_scalar_or_series_entity_values() -> None:
+def test_resource_selector_requires_a_scalar_entity_value() -> None:
     invalid_entity = sc.input("subject", sc.ScalarType(sc.StringType()))
     port = resource_port(
         "drive",
@@ -449,98 +446,17 @@ def test_resource_selector_requires_scalar_or_series_entity_values() -> None:
     )
 
 
-def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
+def test_compute_output_arithmetic_requires_an_explicit_compute() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     child_value = sc.input("value", value_type)
-    consumer = sc.compute(
-        "consumer",
-        fn=_identity_value,
-        inputs={"value": child_value + 1.0},
-        output_type=value_type,
-    )
-    child = (
-        sc.module_body(id="test.graph.execute-expression-child")
-        .inputs(child_value)
-        .computes(consumer)
-        .build()
-    )
     producer = sc.compute(
         "producer",
         fn=lambda: 1.0,
         output_type=value_type,
     )
-    parent = (
-        sc.module_body(id="test.graph.execute-expression-parent")
-        .computes(producer)
-        .use(child.instantiate("expression-child", value=producer.output))
-        .build()
-    )
 
-    invocation = template_fixture(
-        parent,
-        id="test.graph.execute-expression",
-        kind="graph",
-    ).bind()
-    compiled = compile_invocation(invocation)
-    graph = compiled.assembly.source.semantic_graph
-    definitions = {definition.id: definition for definition in graph.value_defs}
-    producer_operation = next(
-        operation
-        for operation in graph.operations
-        if operation.id.local_id == "producer"
-    )
-    consumer_operation = next(
-        operation
-        for operation in graph.operations
-        if operation.id.local_id == "consumer"
-    )
-    scalar_operation = next(
-        operation
-        for operation in graph.operations
-        if isinstance(operation.contract, ScalarBinarySemantics)
-    )
-
-    assert scalar_operation.contract == ScalarBinarySemantics("+")
-    scalar_inputs = dict(scalar_operation.inputs)
-    scalar_output = scalar_operation.result_id
-    consumer_input = dict(consumer_operation.inputs)["value"]
-    assert isinstance(consumer_input, ValueUse)
-    assert consumer_input.value_id == scalar_output
-
-    left = scalar_inputs["left"]
-    right = definitions[scalar_inputs["right"].value_id]
-    assert left.value_id == producer_operation.result_id
-    assert isinstance(right.source, LiteralValueSource)
-    assert right.source.value == 1.0
-
-
-def test_execute_core_operation_carries_its_implementation() -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    produce = sc.compute("produce", fn=lambda: 1.0, output_type=value_type)
-    consume = sc.compute(
-        "consume",
-        fn=_identity_value,
-        inputs={"value": produce.output + 1.0},
-        output_type=value_type,
-    )
-    module = (
-        sc.module_body(id="test.graph.core-implementation")
-        .computes(produce, consume)
-        .build()
-    )
-    invocation = template_fixture(
-        module,
-        id="test.graph.core-implementation",
-        kind="graph",
-    ).bind()
-    compiled = compile_invocation(invocation)
-    scalar_operation = next(
-        operation
-        for operation in compiled.assembly.source.semantic_graph.operations
-        if isinstance(operation.contract, ScalarBinarySemantics)
-    )
-    implementation = compiled.assembly.source.implementations[scalar_operation.id]
-    assert implementation.id.value.startswith("core.scalar:")
+    with pytest.raises(TypeError, match=r"express this calculation with sc\.compute"):
+        _ = producer.output + child_value
 
 
 def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
@@ -552,7 +468,7 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
 
     verify_assembly_graph(
         SemanticExperimentIR(
-            point_domain=point_source,
+            point_domain=(point_source,),
             product_declarations=(ModuleProductDecl(id="payload"),),
             record_selections=(record_product("payload"),),
         )
@@ -569,7 +485,7 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(
             SemanticExperimentIR(
-                point_domain=point_source,
+                point_domain=(point_source,),
                 product_declarations=(ModuleProductDecl(id="coordinate"),),
                 record_selections=(record_product("coordinate"),),
             )

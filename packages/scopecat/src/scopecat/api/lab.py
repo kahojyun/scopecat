@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from types import TracebackType
 from typing import Self
@@ -12,14 +12,12 @@ from scopecat.api._control import LabControlOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.run import RunHandle, run_handle_id
-from scopecat.authoring._value_refs import ValueRef
-from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
+from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplate
 from scopecat.authoring.values import MetadataValue
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
-from scopecat.kernel.quantity import Quantity
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.records.config import ConfigProfileSnapshot
@@ -38,24 +36,11 @@ class PreparedLabExperiment:
 
     def scan(
         self,
-        target: ValueRef | Scan,
-        values: Sequence[ScanValue] = (),
-        *,
-        unit: str | None = None,
-        center: ScanCenter | None = None,
-        span: Quantity | str | None = None,
-        points: int | None = None,
+        *scans: Scan,
     ) -> PreparedLabExperiment:
         return replace(
             self,
-            invocation=self.invocation.scan(
-                target,
-                values,
-                unit=unit,
-                center=center,
-                span=span,
-                points=points,
-            ),
+            invocation=self.invocation.scan(*scans),
         )
 
     def preview(

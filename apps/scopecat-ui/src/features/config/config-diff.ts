@@ -210,9 +210,9 @@ export function parameterTypeLabel(definition: ParameterDefinition | undefined):
   if (valueType.shape === "table") {
     return `Table · ${valueType.columns.length} columns`;
   }
-  const scalar = valueType.shape === "series" ? valueType.item_type : valueType.atom;
-  const suffix = scalar.type === "quantity" && scalar.unit ? ` · ${scalar.unit}` : "";
-  return `${title(valueType.shape)} · ${title(scalar.type)}${suffix}`;
+  const suffix =
+    valueType.atom.type === "quantity" && valueType.atom.unit ? ` · ${valueType.atom.unit}` : "";
+  return `${title(valueType.shape)} · ${title(valueType.atom.type)}${suffix}`;
 }
 
 function isQuantity(value: ParameterAtom): value is ParameterQuantity {

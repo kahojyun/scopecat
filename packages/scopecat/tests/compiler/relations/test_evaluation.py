@@ -1,35 +1,25 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
+from scopecat.compiler.relations.evaluation import evaluate_table_value
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.graph.relations.analysis import (
-    RelationPlanScopeError,
-    verify_plan_scopes,
-)
 from scopecat.graph.relations.model import (
     CellValue,
     ParameterLookupUse,
     Row,
-    RowScopeId,
-    col,
     input_ref,
-    input_table,
-    literal_rows,
     param,
     parameter_lookup,
     point_col,
-    table,
 )
+from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Entity,
     Int,
@@ -40,127 +30,31 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_validation import ValueValidationError
-from tests.testkit.relation_plans import evaluate_relation, evaluate_scalar
+from tests.testkit.relation_plans import evaluate_scalar
 
-_SMALL_INT = st.integers(min_value=-2, max_value=2)
 _INT = Scalar(Int())
 _FREQUENCY = Scalar(Quantity(unit="GHz"))
 _STRING = Scalar(String())
-
-
-def _row_scope(local_id: str) -> RowScopeId:
-    return RowScopeId(SymbolId(local_id=local_id))
 
 
 def _int_row(*column_ids: str) -> RowType:
     return RowType(tuple(TableColumn(column_id, _INT) for column_id in column_ids))
 
 
-@settings(max_examples=50)
-@given(
-    values=st.lists(_SMALL_INT, max_size=5),
-    offset=_SMALL_INT,
-)
-def test_generated_projection_pipeline_preserves_relative_row_order(
-    values: list[int],
-    offset: int,
-) -> None:
-    derived_scope = _row_scope("derived-row")
-    rows = [{"token": token, "value": value} for token, value in enumerate(values)]
-    plan = (
-        input_table("rows")
-        .with_columns(
-            row_scope_id=derived_scope,
-            derived=col("value", row_scope_id=derived_scope) + offset,
-        )
-        .select("token", "derived")
-    )
-
-    actual = evaluate_relation(
-        plan,
-        EvalContext(inputs={"rows": rows}),
-        bindings=RelationTypeBindings(
-            inputs={
-                "rows": Table(
-                    (
-                        TableColumn("token", _INT),
-                        TableColumn("value", _INT),
-                    )
-                )
-            }
-        ),
-    )
-    expected = [
-        {"token": token, "derived": value + offset}
-        for token, value in enumerate(values)
-    ]
-
-    assert actual == expected
-    assert all(tuple(row) == ("token", "derived") for row in actual)
-
-
-@settings(max_examples=50)
-@given(local_value=_SMALL_INT, point_value=_SMALL_INT)
-def test_generated_point_and_local_columns_do_not_capture_same_named_values(
-    local_value: int,
-    point_value: int,
-) -> None:
-    local_scope = _row_scope("local-row")
-    plan = literal_rows([{"shared": local_value}]).with_columns(
-        row_scope_id=local_scope,
-        local_copy=col("shared", row_scope_id=local_scope),
-        point_copy=point_col("shared"),
-    )
-
-    assert evaluate_relation(
-        plan,
-        EvalContext(point_row={"shared": point_value}),
-        bindings=RelationTypeBindings(point_row=_int_row("shared")),
-    ) == [
-        {
-            "shared": local_value,
-            "local_copy": local_value,
-            "point_copy": point_value,
-        }
-    ]
-
-
-def test_scope_verifier_rejects_value_captured_from_foreign_row_scope() -> None:
-    foreign_scope = _row_scope("foreign-row")
-    active_scope = _row_scope("active-row")
-    captured = col("value", row_scope_id=foreign_scope)
-    plan = literal_rows([{"value": 1}]).with_columns(
-        row_scope_id=active_scope,
-        captured=captured,
-    )
-
-    with pytest.raises(RelationPlanScopeError) as error:
-        verify_plan_scopes(plan)
-
-    assert error.value.reference.id == "value"
-    assert error.value.reference.row_scope_id == foreign_scope
-
-
 def test_parameter_data_owns_its_containers_and_returns_detached_values() -> None:
     source_scalars: dict[str, CellValue] = {"gain": 1}
-    source_series: list[CellValue] = [2, 3]
     source_rows: list[Row] = [{"id": "r0", "value": 4}]
     parameters = ParameterRelationData(
         scalars=source_scalars,
-        series={"offsets": source_series},
         tables={"calibrations": source_rows},
     )
 
     source_scalars["gain"] = 10
-    source_series[0] = 20
     source_rows[0]["value"] = 40
-    series_values = parameters.series_values("offsets")
     table_rows = parameters.table_rows("calibrations")
-    series_values[0] = 30
     table_rows[0]["value"] = 50
 
     assert parameters.scalar("gain") == 1
-    assert parameters.series_values("offsets") == [2, 3]
     assert parameters.table_rows("calibrations") == [{"id": "r0", "value": 4}]
 
 
@@ -275,11 +169,7 @@ def test_evaluation_rejects_invalid_lookup_projection_without_linking() -> None:
 
 
 def test_evaluation_normalizes_a_used_parameter_table() -> None:
-    table_type = Table(
-        columns=(TableColumn("frequency", _FREQUENCY),),
-        min_rows=1,
-        max_rows=1,
-    )
+    table_type = Table(columns=(TableColumn("frequency", _FREQUENCY),))
     parameters = ParameterRelationData(
         tables={
             "devices": [
@@ -288,10 +178,10 @@ def test_evaluation_normalizes_a_used_parameter_table() -> None:
         }
     )
 
-    assert evaluate_relation(
-        table("devices"),
+    assert evaluate_table_value(
+        ParameterTableSource("devices"),
+        table_type,
         EvalContext(params=parameters),
-        bindings=RelationTypeBindings(parameters={"devices": table_type}),
     ) == [{"frequency": QuantityValue(value=5.0, unit="GHz")}]
 
 
@@ -325,38 +215,32 @@ def test_evaluation_normalizes_used_context_values(
     )
 
 
-def test_evaluation_rejects_invalid_open_input_carrier() -> None:
-    open_rows = Table(
-        columns=(),
-        min_rows=1,
-        max_rows=1,
-        allow_extra_columns=True,
-    )
+def test_evaluation_normalizes_only_referenced_point_columns() -> None:
+    row: Row = {
+        "frequency": {"value": 5_000.0, "unit": "MHz"},
+        "unused": "not-an-int",
+    }
 
-    with pytest.raises(ValueValidationError, match="unsupported table runtime cell"):
-        evaluate_relation(
-            input_table("rows"),
-            EvalContext(inputs={"rows": [{"extra": object()}]}),
-            bindings=RelationTypeBindings(inputs={"rows": open_rows}),
-        )
+    assert evaluate_scalar(
+        point_col("frequency"),
+        EvalContext(point_row=row),
+        bindings=RelationTypeBindings(
+            point_row=RowType(
+                (
+                    TableColumn("frequency", _FREQUENCY),
+                    TableColumn("unused", _INT),
+                )
+            )
+        ),
+    ) == QuantityValue(value=5.0, unit="GHz")
 
 
-@pytest.mark.parametrize("role", ["point", "argument"])
-def test_evaluation_validates_used_row_roles(role: str) -> None:
-    row_scope_id = _row_scope("external")
+def test_evaluation_validates_used_point_values() -> None:
     row: Row = {"value": "not-an-int"}
-    if role == "point":
-        expression = point_col("value")
-        bindings = RelationTypeBindings(point_row=_int_row("value"))
-        ctx = EvalContext(point_row=row)
-    else:
-        expression = col("value", row_scope_id=row_scope_id)
-        bindings = RelationTypeBindings(row_arguments={row_scope_id: _int_row("value")})
-        ctx = EvalContext(row_scopes={row_scope_id: row})
 
     with pytest.raises(ValueValidationError, match="expected int"):
         evaluate_scalar(
-            expression,
-            ctx,
-            bindings=bindings,
+            point_col("value"),
+            EvalContext(point_row=row),
+            bindings=RelationTypeBindings(point_row=_int_row("value")),
         )

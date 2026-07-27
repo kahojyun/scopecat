@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import PurePosixPath
-from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -12,83 +10,24 @@ from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.parameter import StoredParameterValue
 
-ParameterChangeReviewState = Literal["approved", "rejected"]
-ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]
 
-
-class HumanDecisionAuthority(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["human"] = "human"
-    actor: str
-
-    @field_validator("actor")
-    @classmethod
-    def validate_actor(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("human decision actor must be non-empty")
-        return value
-
-
-class AutomaticPolicyDecisionAuthority(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["automatic_policy"] = "automatic_policy"
-    actor: str
-    policy_id: str
-    policy_version: str
-
-    @field_validator("actor", "policy_id", "policy_version")
-    @classmethod
-    def validate_identity(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("automatic policy decision identity must be non-empty")
-        return value
-
-
-type ParameterChangeDecisionAuthority = Annotated[
-    HumanDecisionAuthority | AutomaticPolicyDecisionAuthority,
-    Field(discriminator="kind"),
-]
-
-
-class ParameterChangeDecisionRecord(BaseModel):
-    """One immutable event in a parameter proposal's review history."""
+class ParameterChangeApprovalRecord(BaseModel):
+    """The one immutable operator approval for a parameter proposal."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    event_id: str
     run_id: str
     proposal_id: str
-    decision: ParameterChangeDecision
-    authority: ParameterChangeDecisionAuthority
+    actor: str
     note: str = ""
-    related_refs: tuple[str, ...] = Field(default_factory=tuple)
-    decided_at: datetime = Field(default_factory=utc_now)
+    approved_at: datetime = Field(default_factory=utc_now)
 
-    @property
-    def actor(self) -> str:
-        return self.authority.actor
-
-    @field_validator("event_id", "run_id", "proposal_id")
+    @field_validator("run_id", "proposal_id", "actor")
     @classmethod
     def validate_non_empty_identity(cls, value: str) -> str:
         if not value.strip():
-            msg = "parameter change decision identity fields must be non-empty"
+            msg = "parameter change approval identity fields must be non-empty"
             raise ValueError(msg)
-        return value
-
-    @field_validator("related_refs")
-    @classmethod
-    def validate_related_refs(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        for ref in value:
-            if not ref:
-                msg = "parameter change decision refs must be non-empty"
-                raise ValueError(msg)
-            path = PurePosixPath(ref)
-            if path.is_absolute() or ".." in path.parts:
-                msg = f"parameter change decision ref escapes run directory: {ref}"
-                raise ValueError(msg)
         return value
 
 
@@ -102,7 +41,6 @@ class ParameterValueDelta(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     parameter_id: str
@@ -129,7 +67,6 @@ class ParameterChangeProposal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     id: str

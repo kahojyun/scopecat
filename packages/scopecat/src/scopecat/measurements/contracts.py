@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
 
-from pydantic import ValidationError
-
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import (
     Problem,
@@ -23,7 +21,6 @@ from scopecat.records.measurement import (
     ComplexQuantity,
     CoordinateValue,
     MeasurementArray,
-    MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementDType,
     MeasurementRecord,
@@ -44,7 +41,6 @@ class MeasurementValueContractIssueCode(StrEnum):
     ARRAY_STRUCTURE_MISMATCH = "array_structure_mismatch"
     ARRAY_ELEMENT_TYPE_MISMATCH = "array_element_type_mismatch"
     ARRAY_ELEMENT_UNIT_MISMATCH = "array_element_unit_mismatch"
-    VALUE_MODEL_INVALID = "value_model_invalid"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,58 +67,10 @@ def measurement_value_contract_issues(
     impersonate a typed payload.
     """
 
-    if isinstance(value, MeasurementArray):
-        try:
-            declared_shape = tuple(value.shape)
-        except TypeError:
-            declared_shape = None
-        if declared_shape is not None:
-            structure_issues: list[MeasurementValueContractIssue] = []
-            _validate_array_structure(
-                value.values,
-                declared_shape=declared_shape,
-                path=("values",),
-                issues=structure_issues,
-            )
-            if structure_issues:
-                return tuple(structure_issues)
-
-    selected_value: MeasurementValue | CoordinateValue
-    if isinstance(value, Quantity | ComplexQuantity | MeasurementArray):
-        try:
-            selected_value = validated_measurement_value_copy(value)
-        except ValidationError as error:
-            errors = error.errors(
-                include_url=False,
-                include_context=False,
-                include_input=False,
-            )
-            first_error = cast("dict[str, object]", cast("object", errors[0]))
-            first_path = _validation_error_path(first_error.get("loc", ()))
-            return (
-                MeasurementValueContractIssue(
-                    code=MeasurementValueContractIssueCode.VALUE_MODEL_INVALID,
-                    path=first_path,
-                    expected=type(value).__name__,
-                    actual=str(first_error.get("type", "validation_error")),
-                ),
-            )
-        except (OverflowError, TypeError, ValueError) as error:
-            return (
-                MeasurementValueContractIssue(
-                    code=MeasurementValueContractIssueCode.VALUE_MODEL_INVALID,
-                    path=(),
-                    expected=type(value).__name__,
-                    actual=type(error).__name__,
-                ),
-            )
-    else:
-        selected_value = value
-
     selected_shape = tuple(expected_shape)
     issues: list[MeasurementValueContractIssue] = []
-    actual_dtype = _measurement_value_dtype(selected_value)
-    if not _dtype_compatible(expected_dtype, actual_dtype, selected_value):
+    actual_dtype = _measurement_value_dtype(value)
+    if not _dtype_compatible(expected_dtype, actual_dtype, value):
         issues.append(
             MeasurementValueContractIssue(
                 code=MeasurementValueContractIssueCode.DTYPE_MISMATCH,
@@ -132,7 +80,7 @@ def measurement_value_contract_issues(
             )
         )
 
-    actual_unit = _measurement_value_unit(selected_value)
+    actual_unit = _measurement_value_unit(value)
     if expected_unit is not None and not _unit_compatible(
         expected_unit,
         actual_unit,
@@ -146,7 +94,7 @@ def measurement_value_contract_issues(
             )
         )
 
-    actual_shape = _measurement_value_shape(selected_value)
+    actual_shape = _measurement_value_shape(value)
     if actual_shape != selected_shape:
         issues.append(
             MeasurementValueContractIssue(
@@ -157,12 +105,11 @@ def measurement_value_contract_issues(
             )
         )
 
-    if isinstance(selected_value, MeasurementArray):
-        _validate_array_node(
-            selected_value.values,
-            declared_shape=tuple(selected_value.shape),
-            dtype=selected_value.dtype,
-            unit=selected_value.unit,
+    if isinstance(value, MeasurementArray):
+        _validate_array_leaves(
+            value.values,
+            dtype=value.dtype,
+            unit=value.unit,
             path=("values",),
             issues=issues,
         )
@@ -170,25 +117,9 @@ def measurement_value_contract_issues(
 
 
 def validated_measurement_value_copy(value: MeasurementValue) -> MeasurementValue:
-    """Revalidate and deeply detach one measurement value from caller state."""
+    """Detach a measurement value without repeating its construction checks."""
 
-    data = value.model_dump(mode="python", warnings=False)
-    if isinstance(value, Quantity):
-        return Quantity.model_validate(data)
-    if isinstance(value, ComplexQuantity):
-        return ComplexQuantity.model_validate(data)
-    return MeasurementArray.model_validate(data)
-
-
-def _validation_error_path(
-    value: object,
-) -> tuple[MeasurementValueContractPathItem, ...]:
-    if not isinstance(value, tuple | list):
-        return ()
-    selected = cast("tuple[object, ...] | list[object]", value)
-    return tuple(
-        item if isinstance(item, str | int) else repr(item) for item in selected
-    )
+    return value.model_copy(deep=True)
 
 
 def _measurement_value_dtype(
@@ -202,7 +133,7 @@ def _measurement_value_dtype(
         return "bool"
     if isinstance(value, int):
         return "int64"
-    if isinstance(value, str | EntityRef) or value is None:
+    if isinstance(value, str | EntityRef):
         return "string"
     return "float64"
 
@@ -248,42 +179,19 @@ def _unit_compatible(expected: str, actual: str | None) -> bool:
         return False
 
 
-def _validate_array_node(
+def _validate_array_leaves(
     value: object,
     *,
-    declared_shape: tuple[int, ...],
     dtype: MeasurementDType,
     unit: str | None,
     path: tuple[MeasurementValueContractPathItem, ...],
     issues: list[MeasurementValueContractIssue],
 ) -> None:
-    if declared_shape:
-        expected_size = declared_shape[0]
-        if not isinstance(value, list):
-            issues.append(
-                MeasurementValueContractIssue(
-                    code=MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH,
-                    path=path,
-                    expected=f"list[{expected_size}]",
-                    actual=type(value).__name__,
-                )
-            )
-            return
-        selected = cast("list[object]", value)
-        if len(selected) != expected_size:
-            issues.append(
-                MeasurementValueContractIssue(
-                    code=MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH,
-                    path=path,
-                    expected=expected_size,
-                    actual=len(selected),
-                )
-            )
-            return
+    if isinstance(value, tuple):
+        selected = cast("tuple[object, ...]", value)
         for index, item in enumerate(selected):
-            _validate_array_node(
+            _validate_array_leaves(
                 item,
-                declared_shape=declared_shape[1:],
                 dtype=dtype,
                 unit=unit,
                 path=(*path, index),
@@ -291,17 +199,6 @@ def _validate_array_node(
             )
         return
 
-    if isinstance(value, list):
-        selected = cast("list[object]", value)
-        issues.append(
-            MeasurementValueContractIssue(
-                code=MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH,
-                path=path,
-                expected="scalar",
-                actual=f"list[{len(selected)}]",
-            )
-        )
-        return
     _validate_array_leaf(
         value,
         dtype=dtype,
@@ -309,56 +206,6 @@ def _validate_array_node(
         path=path,
         issues=issues,
     )
-
-
-def _validate_array_structure(
-    value: object,
-    *,
-    declared_shape: tuple[int, ...],
-    path: tuple[MeasurementValueContractPathItem, ...],
-    issues: list[MeasurementValueContractIssue],
-) -> None:
-    if declared_shape:
-        expected_size = declared_shape[0]
-        if not isinstance(value, list):
-            issues.append(
-                MeasurementValueContractIssue(
-                    code=MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH,
-                    path=path,
-                    expected=f"list[{expected_size}]",
-                    actual=type(value).__name__,
-                )
-            )
-            return
-        selected = cast("list[object]", value)
-        if len(selected) != expected_size:
-            issues.append(
-                MeasurementValueContractIssue(
-                    code=MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH,
-                    path=path,
-                    expected=expected_size,
-                    actual=len(selected),
-                )
-            )
-            return
-        for index, item in enumerate(selected):
-            _validate_array_structure(
-                item,
-                declared_shape=declared_shape[1:],
-                path=(*path, index),
-                issues=issues,
-            )
-        return
-    if isinstance(value, list):
-        selected = cast("list[object]", value)
-        issues.append(
-            MeasurementValueContractIssue(
-                code=MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH,
-                path=path,
-                expected="scalar",
-                actual=f"list[{len(selected)}]",
-            )
-        )
 
 
 def _validate_array_leaf(
@@ -423,7 +270,6 @@ def validate_measurement_records_against_schema(
     records: Sequence[MeasurementRecord],
     schema: MeasurementDatasetSchema,
     dataset_id: str,
-    dataset_role: MeasurementDatasetRole,
 ) -> list[Problem]:
     """Validate persisted records through the canonical value contract."""
 
@@ -435,15 +281,6 @@ def validate_measurement_records_against_schema(
                 f"measurement dataset schema id {schema.dataset_id} "
                 f"does not match artifact id {dataset_id}",
                 ("dataset_schema", "dataset_id"),
-            )
-        )
-    if schema.dataset_role != dataset_role:
-        problems.append(
-            _problem(
-                "measurement_dataset_role_mismatch",
-                f"measurement dataset schema role {schema.dataset_role} "
-                f"does not match artifact role {dataset_role}",
-                ("dataset_schema", "dataset_role"),
             )
         )
     if schema.record_schema != MEASUREMENT_RECORD_SCHEMA_VERSION:
@@ -633,10 +470,7 @@ def _record_contract_problem(
     }:
         code = "measurement_record_unit_mismatch"
         dimension = "unit"
-    elif issue.code in {
-        MeasurementValueContractIssueCode.SHAPE_MISMATCH,
-        MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH,
-    }:
+    elif issue.code is MeasurementValueContractIssueCode.SHAPE_MISMATCH:
         code = "measurement_record_shape_mismatch"
         dimension = "shape"
     else:

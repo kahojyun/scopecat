@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config-registry/activations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Config Activation History */
+        get: operations["get_config_activation_history_api_v1_config_registry_activations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config-registry/active": {
         parameters: {
             query?: never;
@@ -38,7 +55,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config-registry/candidates/activate": {
+    "/api/v1/config-registry/default": {
         parameters: {
             query?: never;
             header?: never;
@@ -47,8 +64,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Activate Candidate Config */
-        post: operations["activate_candidate_config_api_v1_config_registry_candidates_activate_post"];
+        /** Set Config Default */
+        post: operations["set_config_default_api_v1_config_registry_default_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -72,40 +89,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config-registry/drafts/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Register Config Draft */
-        post: operations["register_config_draft_api_v1_config_registry_drafts_register_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/config-registry/drafts/set-default": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Set Config Draft Default */
-        post: operations["set_config_draft_default_api_v1_config_registry_drafts_set_default_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/config-registry/entries": {
         parameters: {
             query?: never;
@@ -115,8 +98,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import Direct Config */
-        post: operations["import_direct_config_api_v1_config_registry_entries_post"];
+        /** Register Config Revision */
+        post: operations["register_config_revision_api_v1_config_registry_entries_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -344,7 +327,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/review": {
+    "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval": {
         parameters: {
             query?: never;
             header?: never;
@@ -353,8 +336,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Review Parameter Proposal */
-        post: operations["review_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__review_post"];
+        /** Approve Parameter Proposal */
+        post: operations["approve_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__approval_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -382,17 +365,126 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** _BoolWire */
+        _BoolWire: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "bool";
+        };
+        _Choices: [
+            string,
+            ...string[]
+        ];
+        /** _EntityWire */
+        _EntityWire: {
+            entity_kind?: components["schemas"]["_NonEmptyString"] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "entity";
+        };
+        /** _FiniteFloatWire */
+        _FiniteFloatWire: {
+            /**
+             * Finite
+             * @default true
+             * @constant
+             */
+            finite: true;
+            maximum?: components["schemas"]["_FiniteNumber"] | null;
+            minimum?: components["schemas"]["_FiniteNumber"] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "float";
+        };
+        _FiniteNumber: number;
+        /** _FiniteQuantityWire */
+        _FiniteQuantityWire: {
+            /** Dimension */
+            dimension?: string | null;
+            /**
+             * Finite
+             * @default true
+             * @constant
+             */
+            finite: true;
+            maximum?: components["schemas"]["_FiniteNumber"] | null;
+            minimum?: components["schemas"]["_FiniteNumber"] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "quantity";
+            /** Unit */
+            unit?: string | null;
+        };
+        /** _IntWire */
+        _IntWire: {
+            /** Maximum */
+            maximum?: number | null;
+            /** Minimum */
+            minimum?: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "int";
+        };
+        _NonEmptyString: string;
         _ParameterId: string;
+        _PersistableScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_EntityWire"];
+        /** _PersistableScalarTypeWire */
+        _PersistableScalarTypeWire: {
+            atom: components["schemas"]["PersistableScalarWire"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            shape: "scalar";
+        };
+        /** _PersistableTableColumnWire */
+        _PersistableTableColumnWire: {
+            /** Id */
+            id: string;
+            value_type: components["schemas"]["PersistableScalarWire"];
+        };
+        /** _PersistableTableTypeWire */
+        _PersistableTableTypeWire: {
+            /** Columns */
+            columns: components["schemas"]["_PersistableTableColumnWire"][];
+            /**
+             * Primary Key
+             * @default []
+             */
+            primary_key: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            shape: "table";
+        };
+        _PersistableValueTypeWire: components["schemas"]["_PersistableScalarTypeWire"] | components["schemas"]["_PersistableTableTypeWire"];
+        /** _StringWire */
+        _StringWire: {
+            choices?: components["schemas"]["_Choices"] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "string";
+        };
         /**
          * AnalysisCandidateRunConfigSource
          * @description Analysis candidate resolved for one run without becoming the default.
          */
         AnalysisCandidateRunConfigSource: {
-            /** Analysis Record Ids */
-            analysis_record_ids: [
-                string,
-                ...string[]
-            ];
+            /** Analysis Record Id */
+            analysis_record_id: string;
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
             content_hash: components["schemas"]["ConfigContentHash"];
             /**
@@ -400,11 +492,8 @@ export interface components {
              * @enum {string}
              */
             kind: "analysis_candidate";
-            /** Proposal Ids */
-            proposal_ids: [
-                string,
-                ...string[]
-            ];
+            /** Proposal Id */
+            proposal_id: string;
             /** Source Run Id */
             source_run_id: string;
         };
@@ -427,9 +516,9 @@ export interface components {
         AnalysisRecordInput: {
             /**
              * Kind
-             * @enum {string}
+             * @constant
              */
-            kind: "artifact" | "dataset" | "uri";
+            kind: "measurement_dataset";
             metadata?: components["schemas"]["JsonMetadata-Output"] | null;
             /** Role */
             role: string;
@@ -446,7 +535,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "note" | "table" | "array" | "figure" | "artifact" | "parameter_change_proposal";
+            kind: "table" | "figure" | "parameter_change_proposal";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Title */
             title: string;
@@ -462,79 +551,42 @@ export interface components {
              */
             state: "closed";
         };
-        /** AutomaticPolicyDecisionAuthority */
-        AutomaticPolicyDecisionAuthority: {
-            /** Actor */
-            actor: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "automatic_policy";
-            /** Policy Id */
-            policy_id: string;
-            /** Policy Version */
-            policy_version: string;
-        };
-        /**
-         * CandidateConfigActivationCommand
-         * @description Build, register, and activate config from durable approved proposals.
-         */
-        CandidateConfigActivationCommand: {
-            /** Activation Note */
-            activation_note?: string | null;
-            entry_id?: components["schemas"]["NonEmptyText"] | null;
-            /** Expected Generation */
-            expected_generation: number;
-            /**
-             * Note
-             * @default
-             */
-            note: string;
-            operator: components["schemas"]["NonEmptyText"];
-            /** Proposal Ids */
-            proposal_ids: [
-                components["schemas"]["NonEmptyText"],
-                ...components["schemas"]["NonEmptyText"][]
-            ];
-            registered_by: components["schemas"]["NonEmptyText"];
-            run_id: components["schemas"]["NonEmptyText"];
-        };
-        /** CandidateConfigActivationReceipt */
-        CandidateConfigActivationReceipt: {
-            activation: components["schemas"]["ConfigRegistryActivationRecord"];
-            active_state: components["schemas"]["ConfigRegistryActiveState"];
-            entry: components["schemas"]["ConfigRegistryEntry"];
-        };
         /** CandidateConfigRegistrySource */
         CandidateConfigRegistrySource: {
+            /** Approval Record Id */
+            approval_record_id: string;
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "candidate_config";
-            /** Proposal Evidence */
-            proposal_evidence: [
-                components["schemas"]["CandidateProposalRegistryEvidence"],
-                ...components["schemas"]["CandidateProposalRegistryEvidence"][]
-            ];
+            /** Proposal Id */
+            proposal_id: string;
             /** Run Id */
             run_id: string;
         };
-        /** CandidateProposalRegistryEvidence */
-        CandidateProposalRegistryEvidence: {
-            /** Approval Event Id */
-            approval_event_id: string;
-            approval_record_content_hash: components["schemas"]["EvidenceContentHash"];
-            /** Proposal Id */
-            proposal_id: string;
-            proposal_record_content_hash: components["schemas"]["EvidenceContentHash"];
+        /** CandidateConfigRevisionSource */
+        CandidateConfigRevisionSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "candidate_config";
+            proposal_id: components["schemas"]["NonEmptyText"];
+            run_id: components["schemas"]["NonEmptyText"];
+        };
+        /** ConfigActivationHistoryView */
+        ConfigActivationHistoryView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ConfigRegistryActivationRecord"][];
         };
         /** ConfigActivationReceipt */
         ConfigActivationReceipt: {
             activation: components["schemas"]["ConfigRegistryActivationRecord"];
-            active_state: components["schemas"]["ConfigRegistryActiveState"];
         };
         ConfigContentHash: string;
         /**
@@ -552,28 +604,6 @@ export interface components {
                 components["schemas"]["ParameterUpdate"],
                 ...components["schemas"]["ParameterUpdate"][]
             ];
-        };
-        /**
-         * ConfigDraftDefaultCommand
-         * @description Register a reviewed draft and select it as the default in one transaction.
-         */
-        ConfigDraftDefaultCommand: {
-            /** Activation Note */
-            activation_note?: string | null;
-            operator: components["schemas"]["NonEmptyText"];
-            registration: components["schemas"]["ConfigDraftRegistrationCommand"];
-        };
-        /** ConfigDraftDefaultReceipt */
-        ConfigDraftDefaultReceipt: {
-            activation: components["schemas"]["ConfigRegistryActivationRecord"];
-            active_state: components["schemas"]["ConfigRegistryActiveState"];
-            /** Deltas */
-            deltas: [
-                components["schemas"]["ParameterValueDelta-Output"],
-                ...components["schemas"]["ParameterValueDelta-Output"][]
-            ];
-            entry: components["schemas"]["ConfigRegistryEntry"];
-            result_content_hash: components["schemas"]["ConfigContentHash"];
         };
         /**
          * ConfigDraftPreview
@@ -598,31 +628,6 @@ export interface components {
             result_content_hash?: components["schemas"]["ConfigContentHash"] | null;
             /** Valid */
             valid: boolean;
-        };
-        /**
-         * ConfigDraftRegistrationCommand
-         * @description Register a revalidated draft without changing the active entry.
-         */
-        ConfigDraftRegistrationCommand: {
-            draft: components["schemas"]["ConfigDraftCommand"];
-            entry_id: components["schemas"]["NonEmptyText"];
-            expected_result_content_hash: components["schemas"]["ConfigContentHash"];
-            /**
-             * Note
-             * @default
-             */
-            note: string;
-            registered_by: components["schemas"]["NonEmptyText"];
-        };
-        /** ConfigDraftRegistrationReceipt */
-        ConfigDraftRegistrationReceipt: {
-            /** Deltas */
-            deltas: [
-                components["schemas"]["ParameterValueDelta-Output"],
-                ...components["schemas"]["ParameterValueDelta-Output"][]
-            ];
-            entry: components["schemas"]["ConfigRegistryEntry"];
-            result_content_hash: components["schemas"]["ConfigContentHash"];
         };
         /**
          * ConfigEntryActivationCommand
@@ -697,21 +702,6 @@ export interface components {
              */
             recorded_at?: string;
         };
-        /** ConfigRegistryActiveState */
-        ConfigRegistryActiveState: {
-            active_entry_content_hash: components["schemas"]["ConfigContentHash"];
-            /** Active Entry Id */
-            active_entry_id: string;
-            /** Generation */
-            generation: number;
-            /** History */
-            history?: components["schemas"]["ConfigRegistryActivationRecord"][];
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at?: string;
-        };
         /** ConfigRegistryEntry */
         ConfigRegistryEntry: {
             /** Config Ref */
@@ -733,12 +723,6 @@ export interface components {
             registered_by: string;
             /** Source */
             source: components["schemas"]["DirectConfigRegistrySource"] | components["schemas"]["ManualConfigDraftRegistrySource"] | components["schemas"]["CandidateConfigRegistrySource"];
-            /**
-             * Status
-             * @default registered
-             * @constant
-             */
-            status: "registered";
         };
         /** ConfigRegistryRunConfigSource */
         ConfigRegistryRunConfigSource: {
@@ -759,16 +743,62 @@ export interface components {
         };
         /**
          * ConfigRegistryView
-         * @description Registered entries and the authoritative activation history.
+         * @description Registered entries and the current activation head.
          */
         ConfigRegistryView: {
-            active_state?: components["schemas"]["ConfigRegistryActiveState"] | null;
+            activation?: components["schemas"]["ConfigRegistryActivationRecord"] | null;
             /**
              * Entries
              * @default []
              */
             entries: components["schemas"]["ConfigRegistryEntry"][];
         };
+        /**
+         * ConfigRevisionDefaultCommand
+         * @description Register and select one revision in a single transaction.
+         */
+        ConfigRevisionDefaultCommand: {
+            /** Activation Note */
+            activation_note?: string | null;
+            /** Expected Generation */
+            expected_generation: number;
+            operator: components["schemas"]["NonEmptyText"];
+            registration: components["schemas"]["ConfigRevisionRegistrationCommand"];
+        };
+        /** ConfigRevisionDefaultReceipt */
+        ConfigRevisionDefaultReceipt: {
+            activation: components["schemas"]["ConfigRegistryActivationRecord"];
+            /**
+             * Deltas
+             * @default []
+             */
+            deltas: components["schemas"]["ParameterValueDelta-Output"][];
+            entry: components["schemas"]["ConfigRegistryEntry"];
+        };
+        /**
+         * ConfigRevisionRegistrationCommand
+         * @description Register one direct, reviewed-draft, or approved-candidate revision.
+         */
+        ConfigRevisionRegistrationCommand: {
+            entry_id?: components["schemas"]["NonEmptyText"] | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            registered_by: components["schemas"]["NonEmptyText"];
+            source: components["schemas"]["ConfigRevisionSource"];
+        };
+        /** ConfigRevisionRegistrationReceipt */
+        ConfigRevisionRegistrationReceipt: {
+            /**
+             * Deltas
+             * @default []
+             */
+            deltas: components["schemas"]["ParameterValueDelta-Output"][];
+            entry: components["schemas"]["ConfigRegistryEntry"];
+        };
+        ConfigRevisionSource: components["schemas"]["DirectConfigRevisionSource"] | components["schemas"]["ManualConfigDraftRevisionSource"] | components["schemas"]["CandidateConfigRevisionSource"];
         /**
          * ConfigRollbackCommand
          * @description Restore the previous distinct entry with generation compare-and-swap.
@@ -835,22 +865,17 @@ export interface components {
             kind: "delete_parameter_rows";
             parameter_id: components["schemas"]["_ParameterId"];
         };
-        /**
-         * DirectConfigImportCommand
-         * @description Import one direct configuration snapshot into the daemon registry.
-         */
-        DirectConfigImportCommand: {
-            config: components["schemas"]["ConfigProfileSnapshot-Input"];
-            entry_id: components["schemas"]["NonEmptyText"];
-            /**
-             * Note
-             * @default
-             */
-            note: string;
-            registered_by: components["schemas"]["NonEmptyText"];
-        };
         /** DirectConfigRegistrySource */
         DirectConfigRegistrySource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "direct_config_profile";
+        };
+        /** DirectConfigRevisionSource */
+        DirectConfigRevisionSource: {
+            config: components["schemas"]["ConfigProfileSnapshot-Input"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -920,7 +945,6 @@ export interface components {
             /** Next Cursor */
             next_cursor?: number | null;
         };
-        EvidenceContentHash: string;
         /**
          * ExternalLocation
          * @description A location in an imported document or other external source.
@@ -949,16 +973,6 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
-        };
-        /** HumanDecisionAuthority */
-        HumanDecisionAuthority: {
-            /** Actor */
-            actor: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "human";
         };
         /**
          * InsertParameterRows
@@ -993,13 +1007,9 @@ export interface components {
             /** Kind */
             kind: string;
         };
-        "JsonMetadata-Input": {
-            [key: string]: components["schemas"]["JsonValue-Input"];
-        };
         "JsonMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
-        "JsonValue-Input": unknown;
         LocationPathItem: string | number;
         /**
          * ManualConfigDraftRegistrySource
@@ -1017,6 +1027,16 @@ export interface components {
              */
             kind: "manual_parameter_updates";
         };
+        /** ManualConfigDraftRevisionSource */
+        ManualConfigDraftRevisionSource: {
+            draft: components["schemas"]["ConfigDraftCommand"];
+            expected_result_content_hash: components["schemas"]["ConfigContentHash"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manual_parameter_updates";
+        };
         /** MeasurementDataset */
         MeasurementDataset: {
             metadata?: components["schemas"]["JsonMetadata-Output"];
@@ -1028,11 +1048,6 @@ export interface components {
         MeasurementDatasetSchema: {
             /** Dataset Id */
             dataset_id: string;
-            /**
-             * Dataset Role
-             * @enum {string}
-             */
-            dataset_role: "raw" | "derived";
             /** Dimensions */
             dimensions?: components["schemas"]["MeasurementDimension"][];
             /**
@@ -1125,8 +1140,8 @@ export interface components {
             root: string;
         };
         NonEmptyText: string;
-        "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string | null;
-        "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string | null;
+        "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string;
+        "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string;
         /**
          * ParameterCatalog
          * @description Authored parameter schema in one shape-independent namespace.
@@ -1137,25 +1152,18 @@ export interface components {
             /** Id */
             id: string;
         };
-        ParameterChangeDecisionAuthority: components["schemas"]["HumanDecisionAuthority"] | components["schemas"]["AutomaticPolicyDecisionAuthority"];
         /**
-         * ParameterChangeDecisionRecord
-         * @description One immutable event in a parameter proposal's review history.
+         * ParameterChangeApprovalRecord
+         * @description The one immutable operator approval for a parameter proposal.
          */
-        ParameterChangeDecisionRecord: {
-            authority: components["schemas"]["ParameterChangeDecisionAuthority"];
+        ParameterChangeApprovalRecord: {
+            /** Actor */
+            actor: string;
             /**
-             * Decided At
+             * Approved At
              * Format: date-time
              */
-            decided_at?: string;
-            /**
-             * Decision
-             * @enum {string}
-             */
-            decision: "approved" | "rejected" | "invalidated";
-            /** Event Id */
-            event_id: string;
+            approved_at?: string;
             /**
              * Note
              * @default
@@ -1163,8 +1171,6 @@ export interface components {
             note: string;
             /** Proposal Id */
             proposal_id: string;
-            /** Related Refs */
-            related_refs?: string[];
             /** Run Id */
             run_id: string;
         };
@@ -1208,6 +1214,15 @@ export interface components {
             id: string;
             value_type: components["schemas"]["PersistableValueType"];
         };
+        /** ParameterProposalApprovalCommand */
+        ParameterProposalApprovalCommand: {
+            actor: components["schemas"]["NonEmptyText"];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
         /** ParameterProposalListView */
         ParameterProposalListView: {
             /**
@@ -1218,30 +1233,12 @@ export interface components {
             /** Run Id */
             run_id: string;
         };
-        /** ParameterProposalReviewCommand */
-        ParameterProposalReviewCommand: {
-            /**
-             * Decision
-             * @enum {string}
-             */
-            decision: "approved" | "rejected";
-            /**
-             * Note
-             * @default
-             */
-            note: string;
-            reviewer: components["schemas"]["NonEmptyText"];
-        };
         /**
          * ParameterProposalView
-         * @description One proposal and its append-only operator review history.
+         * @description One proposal and its optional immutable operator approval.
          */
         ParameterProposalView: {
-            /**
-             * Decisions
-             * @default []
-             */
-            decisions: components["schemas"]["ParameterChangeDecisionRecord"][];
+            approval?: components["schemas"]["ParameterChangeApprovalRecord"] | null;
             proposal: components["schemas"]["ParameterChangeProposal-Output"];
         };
         /**
@@ -1278,160 +1275,8 @@ export interface components {
             /** Parameter Id */
             parameter_id: string;
         };
-        PersistableValueType: {
-            atom: {
-                nullable?: boolean;
-                /** @constant */
-                type: "bool";
-            } | {
-                maximum?: number;
-                minimum?: number;
-                nullable?: boolean;
-                /** @constant */
-                type: "int";
-            } | {
-                /** @constant */
-                finite?: true;
-                maximum?: number;
-                minimum?: number;
-                nullable?: boolean;
-                /** @constant */
-                type: "float";
-            } | {
-                choices?: [
-                    string,
-                    ...string[]
-                ];
-                max_length?: number;
-                min_length?: number;
-                nullable?: boolean;
-                pattern?: string;
-                /** @constant */
-                type: "string";
-            } | {
-                dimension?: string;
-                /** @constant */
-                finite?: true;
-                maximum?: number;
-                minimum?: number;
-                nullable?: boolean;
-                /** @constant */
-                type: "quantity";
-                unit?: string;
-            } | {
-                entity_kind?: string;
-                nullable?: boolean;
-                /** @constant */
-                type: "entity";
-            };
-            /** @constant */
-            shape: "scalar";
-        } | {
-            item_type: {
-                nullable?: boolean;
-                /** @constant */
-                type: "bool";
-            } | {
-                maximum?: number;
-                minimum?: number;
-                nullable?: boolean;
-                /** @constant */
-                type: "int";
-            } | {
-                /** @constant */
-                finite?: true;
-                maximum?: number;
-                minimum?: number;
-                nullable?: boolean;
-                /** @constant */
-                type: "float";
-            } | {
-                choices?: [
-                    string,
-                    ...string[]
-                ];
-                max_length?: number;
-                min_length?: number;
-                nullable?: boolean;
-                pattern?: string;
-                /** @constant */
-                type: "string";
-            } | {
-                dimension?: string;
-                /** @constant */
-                finite?: true;
-                maximum?: number;
-                minimum?: number;
-                nullable?: boolean;
-                /** @constant */
-                type: "quantity";
-                unit?: string;
-            } | {
-                entity_kind?: string;
-                nullable?: boolean;
-                /** @constant */
-                type: "entity";
-            };
-            max_length?: number | null;
-            min_length?: number;
-            /** @constant */
-            shape: "series";
-        } | {
-            columns: {
-                id: string;
-                required?: boolean;
-                value_type: {
-                    nullable?: boolean;
-                    /** @constant */
-                    type: "bool";
-                } | {
-                    maximum?: number;
-                    minimum?: number;
-                    nullable?: boolean;
-                    /** @constant */
-                    type: "int";
-                } | {
-                    /** @constant */
-                    finite?: true;
-                    maximum?: number;
-                    minimum?: number;
-                    nullable?: boolean;
-                    /** @constant */
-                    type: "float";
-                } | {
-                    choices?: [
-                        string,
-                        ...string[]
-                    ];
-                    max_length?: number;
-                    min_length?: number;
-                    nullable?: boolean;
-                    pattern?: string;
-                    /** @constant */
-                    type: "string";
-                } | {
-                    dimension?: string;
-                    /** @constant */
-                    finite?: true;
-                    maximum?: number;
-                    minimum?: number;
-                    nullable?: boolean;
-                    /** @constant */
-                    type: "quantity";
-                    unit?: string;
-                } | {
-                    entity_kind?: string;
-                    nullable?: boolean;
-                    /** @constant */
-                    type: "entity";
-                };
-            }[];
-            max_rows?: number | null;
-            min_rows?: number;
-            primary_key?: string[];
-            /** @constant */
-            shape: "table";
-        };
+        PersistableScalarWire: components["schemas"]["_PersistableScalarModel"];
+        PersistableValueType: components["schemas"]["_PersistableValueTypeWire"];
         /**
          * Problem
          * @description One expected, structured finding without presentation policy.
@@ -1494,44 +1339,15 @@ export interface components {
          *     explicit desired-state effects or domain programs instead of replacing this
          *     ownership fact.
          */
-        "RoutingEndpointBinding-Input": {
+        RoutingEndpointBinding: {
             /** Capability */
             capability: string;
             /** Channel Id */
             channel_id?: string | null;
             /** Entity Id */
             entity_id?: string | null;
-            /** Group Ids */
-            group_ids?: string[];
             /** Instrument Id */
             instrument_id: string;
-            /** Line Id */
-            line_id?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-        };
-        /**
-         * RoutingEndpointBinding
-         * @description Accepted physical ownership fact for one instrument endpoint.
-         *
-         *     A binding is reproducible configuration, not a runtime alternative. Devices
-         *     that change a physical path, such as switches or valves, are modeled as
-         *     explicit desired-state effects or domain programs instead of replacing this
-         *     ownership fact.
-         */
-        "RoutingEndpointBinding-Output": {
-            /** Capability */
-            capability: string;
-            /** Channel Id */
-            channel_id?: string | null;
-            /** Entity Id */
-            entity_id?: string | null;
-            /** Group Ids */
-            group_ids?: string[];
-            /** Instrument Id */
-            instrument_id: string;
-            /** Line Id */
-            line_id?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
         };
         /**
          * RoutingGraph
@@ -1541,21 +1357,9 @@ export interface components {
          *     index, but it never uses it for live availability, load balancing, or
          *     implicit failover.
          */
-        "RoutingGraph-Input": {
+        RoutingGraph: {
             /** Bindings */
-            bindings?: components["schemas"]["RoutingEndpointBinding-Input"][];
-        };
-        /**
-         * RoutingGraph
-         * @description Finite static endpoint index stored in an accepted system snapshot.
-         *
-         *     Planning may project logical capability and entity selections through this
-         *     index, but it never uses it for live availability, load balancing, or
-         *     implicit failover.
-         */
-        "RoutingGraph-Output": {
-            /** Bindings */
-            bindings?: components["schemas"]["RoutingEndpointBinding-Output"][];
+            bindings?: components["schemas"]["RoutingEndpointBinding"][];
         };
         /**
          * RunAdmissionRecord
@@ -1617,8 +1421,6 @@ export interface components {
         "RunContentEntry-Output": {
             /** Content Hash */
             content_hash: string;
-            /** Dataset Role */
-            dataset_role?: string | null;
             /** Filename */
             filename?: string | null;
             /** Id */
@@ -1778,8 +1580,6 @@ export interface components {
             items: components["schemas"]["RunSummary"][];
             /** Next Cursor */
             next_cursor?: number | null;
-            /** Previous Cursor */
-            previous_cursor?: number | null;
         };
         /**
          * RuntimeLocation
@@ -1840,36 +1640,6 @@ export interface components {
             value: number;
         };
         /**
-         * SeriesParameterValue
-         * @description One stored ordered parameter series.
-         */
-        "SeriesParameterValue-Input": {
-            /** Id */
-            id: string;
-            /** Items */
-            items?: components["schemas"]["ParameterAtomValue-Input"][];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            shape: "series";
-        };
-        /**
-         * SeriesParameterValue
-         * @description One stored ordered parameter series.
-         */
-        "SeriesParameterValue-Output": {
-            /** Id */
-            id: string;
-            /** Items */
-            items?: unknown[];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            shape: "series";
-        };
-        /**
          * StorageLocation
          * @description A location in project storage or one durable run namespace.
          */
@@ -1889,8 +1659,8 @@ export interface components {
             /** Run Id */
             run_id?: string | null;
         };
-        "StoredParameterValue-Input": components["schemas"]["ScalarParameterValue-Input"] | components["schemas"]["SeriesParameterValue-Input"] | components["schemas"]["TableParameterValue-Input"];
-        "StoredParameterValue-Output": components["schemas"]["ScalarParameterValue-Output"] | components["schemas"]["SeriesParameterValue-Output"] | components["schemas"]["TableParameterValue-Output"];
+        "StoredParameterValue-Input": components["schemas"]["ScalarParameterValue-Input"] | components["schemas"]["TableParameterValue-Input"];
+        "StoredParameterValue-Output": components["schemas"]["ScalarParameterValue-Output"] | components["schemas"]["TableParameterValue-Output"];
         /**
          * SystemSpec
          * @description Stable system topology and logical parameter definitions.
@@ -1903,7 +1673,7 @@ export interface components {
             parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
-            routing?: components["schemas"]["RoutingGraph-Input"];
+            routing?: components["schemas"]["RoutingGraph"];
             topology: components["schemas"]["Topology-Input"];
         };
         /**
@@ -1918,7 +1688,7 @@ export interface components {
             parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
-            routing?: components["schemas"]["RoutingGraph-Output"];
+            routing?: components["schemas"]["RoutingGraph"];
             topology: components["schemas"]["Topology-Output"];
         };
         /**
@@ -2027,6 +1797,26 @@ export interface operations {
             };
         };
     };
+    get_config_activation_history_api_v1_config_registry_activations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigActivationHistoryView"];
+                };
+            };
+        };
+    };
     activate_config_entry_api_v1_config_registry_active_post: {
         parameters: {
             query?: never;
@@ -2060,7 +1850,7 @@ export interface operations {
             };
         };
     };
-    activate_candidate_config_api_v1_config_registry_candidates_activate_post: {
+    set_config_default_api_v1_config_registry_default_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2069,7 +1859,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CandidateConfigActivationCommand"];
+                "application/json": components["schemas"]["ConfigRevisionDefaultCommand"];
             };
         };
         responses: {
@@ -2079,7 +1869,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CandidateConfigActivationReceipt"];
+                    "application/json": components["schemas"]["ConfigRevisionDefaultReceipt"];
                 };
             };
             /** @description Validation Error */
@@ -2126,7 +1916,7 @@ export interface operations {
             };
         };
     };
-    register_config_draft_api_v1_config_registry_drafts_register_post: {
+    register_config_revision_api_v1_config_registry_entries_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2135,7 +1925,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfigDraftRegistrationCommand"];
+                "application/json": components["schemas"]["ConfigRevisionRegistrationCommand"];
             };
         };
         responses: {
@@ -2145,73 +1935,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigDraftRegistrationReceipt"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_config_draft_default_api_v1_config_registry_drafts_set_default_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConfigDraftDefaultCommand"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfigDraftDefaultReceipt"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    import_direct_config_api_v1_config_registry_entries_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DirectConfigImportCommand"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfigRegistryEntry"];
+                    "application/json": components["schemas"]["ConfigRevisionRegistrationReceipt"];
                 };
             };
             /** @description Validation Error */
@@ -2346,9 +2070,7 @@ export interface operations {
     list_runs_api_v1_runs_get: {
         parameters: {
             query?: {
-                after?: number | null;
                 before?: number | null;
-                latest?: boolean;
                 limit?: number;
                 state?: components["schemas"]["ControlRunState"] | null;
             };
@@ -2636,7 +2358,7 @@ export interface operations {
             };
         };
     };
-    review_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__review_post: {
+    approve_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__approval_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2648,7 +2370,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ParameterProposalReviewCommand"];
+                "application/json": components["schemas"]["ParameterProposalApprovalCommand"];
             };
         };
         responses: {
@@ -2658,7 +2380,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ParameterChangeDecisionRecord"];
+                    "application/json": components["schemas"]["ParameterChangeApprovalRecord"];
                 };
             };
             /** @description Validation Error */

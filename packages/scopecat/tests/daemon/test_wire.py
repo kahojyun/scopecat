@@ -9,27 +9,27 @@ from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
-    ConfigRegistryActiveState,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
 )
 from scopecat.control.models import ResourceKey, RunPlanSummary
 from scopecat.daemon.wire import (
     AnalysisJsonOutputPayload,
-    AnalysisNoteOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
-    CandidateConfigActivationCommand,
+    CandidateConfigRevisionSource,
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
     ConfigEntryActivationCommand,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
+    DirectConfigRevisionSource,
     ExecutionTransitionAppend,
     ExecutorLease,
     MeasurementAppendCommand,
-    ParameterProposalDecisionCommand,
+    ParameterProposalApprovalCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -39,7 +39,6 @@ from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
-from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config
@@ -84,26 +83,19 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         entry_content_hash=entry.content_hash,
         operator="operator",
     )
-    state = ConfigRegistryActiveState(
-        generation=1,
-        active_entry_id=entry.id,
-        active_entry_content_hash=entry.content_hash,
-        history=(activation,),
-    )
     activated = ConfigActivationReceipt(
-        active_state=state,
         activation=activation,
     )
-    defaulted = ConfigDefaultReceipt(
+    defaulted = ConfigRevisionDefaultReceipt(
         entry=entry,
-        active_state=state,
         activation=activation,
     )
-    import_command = DirectConfigImportCommand(
+    registration_command = ConfigRevisionRegistrationCommand(
+        source=DirectConfigRevisionSource(config=config),
         entry_id=entry.id,
-        config=config,
         registered_by="notebook",
     )
+    registered = ConfigRevisionRegistrationReceipt(entry=entry)
     activation_command = ConfigEntryActivationCommand(
         entry_id=entry.id,
         operator="operator",
@@ -113,10 +105,8 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         operator="operator",
         expected_generation=1,
     )
-    default_command = DirectConfigDefaultCommand(
-        entry_id=entry.id,
-        config=config,
-        registered_by="notebook",
+    default_command = ConfigRevisionDefaultCommand(
+        registration=registration_command,
         operator="operator",
         expected_generation=0,
     )
@@ -126,12 +116,20 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         == activated
     )
     assert (
-        ConfigDefaultReceipt.model_validate_json(defaulted.model_dump_json())
+        ConfigRevisionDefaultReceipt.model_validate_json(defaulted.model_dump_json())
         == defaulted
     )
     assert (
-        DirectConfigImportCommand.model_validate_json(import_command.model_dump_json())
-        == import_command
+        ConfigRevisionRegistrationCommand.model_validate_json(
+            registration_command.model_dump_json()
+        )
+        == registration_command
+    )
+    assert (
+        ConfigRevisionRegistrationReceipt.model_validate_json(
+            registered.model_dump_json()
+        )
+        == registered
     )
     assert (
         ConfigEntryActivationCommand.model_validate_json(
@@ -144,16 +142,11 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         == rollback_command
     )
     assert (
-        DirectConfigDefaultCommand.model_validate_json(
+        ConfigRevisionDefaultCommand.model_validate_json(
             default_command.model_dump_json()
         )
         == default_command
     )
-    with pytest.raises(ValidationError, match="history head"):
-        ConfigActivationReceipt(
-            active_state=state,
-            activation=activation.model_copy(update={"operator": "other"}),
-        )
 
 
 def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
@@ -176,11 +169,6 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         title="fit",
         analysis_key="fit",
         outputs=(
-            AnalysisNoteOutputPayload(
-                kind="note",
-                title="summary",
-                content="fit converged",
-            ),
             AnalysisJsonOutputPayload(
                 kind="figure",
                 title="fit curve",
@@ -193,34 +181,31 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             ),
         ),
     )
-    activation = CandidateConfigActivationCommand(
-        run_id="run-1",
-        proposal_ids=(proposal.id,),
-        entry_id="candidate-fit",
-        registered_by="notebook",
+    activation = ConfigRevisionDefaultCommand(
+        registration=ConfigRevisionRegistrationCommand(
+            source=CandidateConfigRevisionSource(
+                run_id="run-1",
+                proposal_id=proposal.id,
+            ),
+            entry_id="candidate-fit",
+            registered_by="notebook",
+        ),
         operator="operator",
         expected_generation=1,
     )
-    decision = ParameterProposalDecisionCommand(
-        decision="approved",
-        authority=AutomaticPolicyDecisionAuthority(
-            actor="nightly-calibration",
-            policy_id="fit-confidence",
-            policy_version="2",
-        ),
-        note="fit passed policy",
+    approval = ParameterProposalApprovalCommand(
+        actor="nightly-calibration",
+        note="fit reviewed",
     )
 
     assert AnalysisSaveCommand.model_validate_json(command.model_dump_json()) == command
     assert (
-        CandidateConfigActivationCommand.model_validate_json(
-            activation.model_dump_json()
-        )
+        ConfigRevisionDefaultCommand.model_validate_json(activation.model_dump_json())
         == activation
     )
     assert (
-        ParameterProposalDecisionCommand.model_validate_json(decision.model_dump_json())
-        == decision
+        ParameterProposalApprovalCommand.model_validate_json(approval.model_dump_json())
+        == approval
     )
     with pytest.raises(ValidationError, match="identify the command analysis"):
         AnalysisSaveCommand(
@@ -234,11 +219,6 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                     ),
                 ),
             ),
-        )
-    with pytest.raises(ValidationError, match="unique"):
-        CandidateConfigActivationCommand(
-            **activation.model_dump(exclude={"proposal_ids"}),
-            proposal_ids=(proposal.id, proposal.id),
         )
 
 

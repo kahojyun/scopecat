@@ -1,9 +1,4 @@
-"""Specialize linked host semantics into final local operations.
-
-Preparation binds run-invariant compute once. Bounded materialization selects
-logical entities and binds state, compute, and collection to the static
-resource manifests prepared for the local target.
-"""
+"""Specialize linked host semantics into point-local operations."""
 
 from __future__ import annotations
 
@@ -25,10 +20,6 @@ from scopecat.compiler.relations.context import (
     ParameterRelationData,
 )
 from scopecat.compiler.semantic.model import AcquireEffect
-from scopecat.compiler.typed.dependencies import (
-    ComputePlan,
-    PointVariationSupport,
-)
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
@@ -38,14 +29,10 @@ from scopecat.compiler.typed.state import (
     StateRecord,
     evaluate_state_spec,
 )
-from scopecat.compiler.typed.verification import (
-    VerifiedCoreProgram,
-)
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectionResultBinding,
     CollectOperation,
-    ComputeOperation,
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageEffect
@@ -68,11 +55,10 @@ from scopecat.planning.local_compute import (
     bind_compute_operations as _bind_compute_operations,
 )
 from scopecat.planning.local_effects import (
-    ComputeBindingSeed,
     LocalTargetPlan,
     MaterializedLocalEffects,
 )
-from scopecat.planning.local_values import evaluate_value_expr
+from scopecat.planning.local_values import evaluate_scalar_value
 from scopecat.planning.routing import (
     ResourceBinding,
     ResourceBindingError,
@@ -90,8 +76,6 @@ type _ChannelBindingIdentity = tuple[
     str,
     str,
     str | None,
-    str | None,
-    tuple[str, ...],
 ]
 type _ChannelSignature = tuple[_ChannelBindingIdentity, ...]
 
@@ -119,13 +103,6 @@ def _normalize_entity_ids(values: Sequence[object]) -> tuple[str, ...]:
             entity_ids.append(value.id)
         elif isinstance(value, str) and value:
             entity_ids.append(value)
-        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            if not value:
-                raise ResourceBindingError(
-                    "module_resource_entity_invalid",
-                    "resource entity series must not be empty",
-                )
-            entity_ids.extend(_normalize_entity_ids(value))
         else:
             raise ResourceBindingError(
                 "module_resource_entity_invalid",
@@ -152,19 +129,11 @@ def materialize_local_execution(
     *,
     target: LocalTargetPlan,
 ) -> MaterializedLocalEffects:
-    """Lower one bounded point coverage into final ordered local effects.
-
-    Structural variation selects representative points for safe reuse while
-    exact coverage preserves logical ownership of every resulting operation.
-    """
+    """Lower one bounded point coverage into final ordered local effects."""
 
     program = target.program
     problems: list[Problem] = []
-    verified_program = linked_points.linked_plan.verified_program
-    selected_compute_plan = verified_program.compute_plan
-    variation = verified_program.variation_analysis
     selected_instrument_order = target.instrument_order
-    compute_seed = target.compute_seed
     materialized_domain = linked_points.point_domain
     planner_points = materialized_domain.points
     point_count = len(planner_points)
@@ -177,65 +146,44 @@ def materialize_local_execution(
             strict=True,
         )
     }
-    rows = {ordinal: point.row for ordinal, point in point_by_ordinal.items()}
     ordinals = tuple(point.logical_ordinal for point in planner_points)
-    layout = linked_points.linked_plan.verified_program.iteration_layout
     resources_by_ordinal = _select_coverage_resources(
         program,
         target.resource_ports,
         planner_points,
         params_by_ordinal,
         problems,
-        verified_program=verified_program,
-        variation_support=variation.resource_entities,
     )
-    payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {
-        ordinal: dict(compute_seed.payload_ids) for ordinal in ordinals
+    known_compute_results = {node.result.id for node in program.compute_nodes}
+    demanded_payload_results = {
+        effect.value_use.value_id
+        for effect in program.effects
+        if isinstance(effect, SetStateSpec)
+        and isinstance(effect.value_use, ComputeResultRef)
     }
-    signatures_by_ordinal = {
-        ordinal: dict(compute_seed.signatures) for ordinal in ordinals
-    }
+    payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {}
     compute_effects: list[RunCoverageEffect] = []
-    for node in selected_compute_plan.point_nodes:
-        support = variation.compute[node.id]
-        for compute_coverage in layout.partition(
-            support.point_columns,
-            ordinals,
-            rows=rows,
-        ):
-            representative = point_by_ordinal[compute_coverage[0]]
-            representative_params = params_by_ordinal[compute_coverage[0]]
-            compute_operations, point_payload_ids, signatures = (
-                _bind_compute_operations(
-                    (node,),
-                    operation_prefix=representative.logical_id.value,
-                    ctx=EvalContext(
-                        params=representative_params,
-                        point_row=representative.row,
-                    ),
-                    compute_plan=selected_compute_plan,
-                    demanded_payload_results=set(
-                        selected_compute_plan.demanded_payload_results
-                    ),
-                    problems=problems,
-                    verified_program=verified_program,
-                    initial_signatures=signatures_by_ordinal[
-                        representative.logical_ordinal
-                    ],
-                )
-            )
-            for ordinal in compute_coverage:
-                signatures_by_ordinal[ordinal] = dict(signatures)
-                payload_ids_by_ordinal[ordinal].update(point_payload_ids)
-            compute_effects.extend(
-                RunCoverageEffect(compute_coverage, operation)
-                for operation in compute_operations
-            )
+    for ordinal in ordinals:
+        point = point_by_ordinal[ordinal]
+        point_params = params_by_ordinal[ordinal]
+        compute_operations, payload_ids = _bind_compute_operations(
+            program.compute_nodes,
+            operation_prefix=point.logical_id.value,
+            ctx=EvalContext(
+                params=point_params,
+                point_row=point.row,
+            ),
+            demanded_payload_results=demanded_payload_results,
+            problems=problems,
+        )
+        payload_ids_by_ordinal[ordinal] = payload_ids
+        compute_effects.extend(
+            RunCoverageEffect(ordinal, operation) for operation in compute_operations
+        )
 
     effect_operations: list[list[RunCoverageEffect]] = [
         [] for _effect in program.effects
     ]
-    known_compute_results = {node.result.id for node in program.compute_nodes}
     for effect_index, effect in enumerate(program.effects):
         if isinstance(effect, TypedDomainExecution):
             continue
@@ -255,7 +203,7 @@ def materialize_local_execution(
                 )
                 if collect is not None:
                     effect_operations[effect_index].append(
-                        RunCoverageEffect.at_point(ordinal, collect)
+                        RunCoverageEffect(ordinal, collect)
                     )
             continue
         if effect_index and not isinstance(
@@ -275,17 +223,10 @@ def materialize_local_execution(
             if isinstance(state, TypedDomainExecution | AcquireEffect):
                 raise AssertionError("state group contains a non-state effect")
             state_group.append((index, state))
-        support = PointVariationSupport()
-        for index, _state in state_group:
-            support = support.merged(variation.state[index])
-        for state_coverage in layout.partition(
-            support.point_columns,
-            ordinals,
-            rows=rows,
-        ):
-            representative = point_by_ordinal[state_coverage[0]]
-            representative_params = params_by_ordinal[state_coverage[0]]
-            resources = resources_by_ordinal[representative.logical_ordinal]
+        for ordinal in ordinals:
+            point = point_by_ordinal[ordinal]
+            point_params = params_by_ordinal[ordinal]
+            resources = resources_by_ordinal[ordinal]
             desired = _bind_desired_state(
                 tuple(
                     record
@@ -293,17 +234,16 @@ def materialize_local_execution(
                     for record in _evaluate_state_records(
                         state,
                         index,
-                        representative,
-                        representative_params,
-                        verified_program=verified_program,
+                        point,
+                        point_params,
                         problems=problems,
                     )
                 ),
-                point_uid=representative.logical_id.value,
+                point_uid=point.logical_id.value,
                 resources=resources,
-                payload_ids=payload_ids_by_ordinal[representative.logical_ordinal],
+                payload_ids=payload_ids_by_ordinal[ordinal],
                 known_compute_results=known_compute_results,
-                point_index=representative.logical_ordinal,
+                point_index=ordinal,
                 problems=problems,
             )
             ordered = _order_instrument_operations(
@@ -311,7 +251,7 @@ def materialize_local_execution(
                 instrument_order=selected_instrument_order,
             )
             effect_operations[state_end - 1].extend(
-                RunCoverageEffect(state_coverage, operation) for operation in ordered
+                RunCoverageEffect(ordinal, operation) for operation in ordered
             )
     if bool(problems):
         raise CheckFailed(problems)
@@ -343,7 +283,6 @@ def prepare_local_target(
     product_uses = tuple(
         use for use in linked.program.product_uses if use.id in requested
     )
-    problems: list[Problem] = []
     active_resource_ports = _active_resource_port_ids(
         linked.program,
         product_uses=product_uses,
@@ -359,21 +298,11 @@ def prepare_local_target(
             for requirement in linked.program.resource_requirements
             if requirement.port_id in active_resource_ports
         }
-    compute_plan = linked.verified_program.compute_plan
-    run_operations, compute_seed = _bind_run_compute(
-        linked,
-        compute_plan,
-        problems=problems,
-    )
-    if bool(problems):
-        raise CheckFailed(problems)
     return LocalTargetPlan(
         program=linked.program,
         product_uses=product_uses,
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,
-        run_operations=run_operations,
-        compute_seed=compute_seed,
     )
 
 
@@ -383,7 +312,6 @@ def _evaluate_state_records(
     point: MaterializedPoint,
     params: ParameterRelationData,
     *,
-    verified_program: VerifiedCoreProgram,
     problems: list[Problem],
 ) -> tuple[StateRecord, ...]:
     ctx = EvalContext(params=params, point_row=point.row)
@@ -393,7 +321,6 @@ def _evaluate_state_records(
                 state,
                 point_index=point.logical_ordinal,
                 ctx=ctx,
-                relation_plan=verified_program.relation_plan,
             )
         )
     except (ArithmeticError, KeyError, TypeError, ValueError) as error:
@@ -405,27 +332,6 @@ def _evaluate_state_records(
             )
         )
         return ()
-
-
-def _bind_run_compute(
-    linked: LinkedPlan,
-    compute_plan: ComputePlan,
-    *,
-    problems: list[Problem],
-) -> tuple[tuple[ComputeOperation, ...], ComputeBindingSeed]:
-    operations, payload_ids, signatures = _bind_compute_operations(
-        compute_plan.run_nodes,
-        operation_prefix="run",
-        ctx=EvalContext(params=linked.environment.parameters),
-        compute_plan=compute_plan,
-        demanded_payload_results=set(compute_plan.demanded_payload_results),
-        problems=problems,
-        verified_program=linked.verified_program,
-    )
-    return operations, ComputeBindingSeed(
-        signatures=signatures,
-        payload_ids=payload_ids,
-    )
 
 
 def _validate_instrument_order(
@@ -469,17 +375,9 @@ def _select_coverage_resources(
     points: Sequence[MaterializedPoint],
     params_by_ordinal: Mapping[int, ParameterRelationData],
     problems: list[Problem],
-    *,
-    verified_program: VerifiedCoreProgram,
-    variation_support: Mapping[str, PointVariationSupport],
 ) -> dict[int, Mapping[LogicalResourcePortId, _ResourceEntitySelection]]:
-    """Evaluate point-local entities over the target's static port manifests.
+    """Evaluate point-local entities over the target's static port manifests."""
 
-    Variation keys reuse identical logical selections. Physical endpoint
-    candidates were already frozen while preparing the local target.
-    """
-
-    cache: dict[tuple[str, str], _ResourceEntitySelection | None] = {}
     return {
         point.logical_ordinal: _select_point_resources(
             program,
@@ -487,9 +385,6 @@ def _select_coverage_resources(
             point,
             params_by_ordinal[point.logical_ordinal],
             problems,
-            verified_program=verified_program,
-            variation_support=variation_support,
-            cache=cache,
         )
         for point in points
     }
@@ -501,42 +396,18 @@ def _select_point_resources(
     point: MaterializedPoint,
     params: ParameterRelationData,
     problems: list[Problem],
-    *,
-    verified_program: VerifiedCoreProgram,
-    variation_support: Mapping[str, PointVariationSupport],
-    cache: dict[tuple[str, str], _ResourceEntitySelection | None],
 ) -> Mapping[LogicalResourcePortId, _ResourceEntitySelection]:
     selected: dict[LogicalResourcePortId, _ResourceEntitySelection] = {}
     for requirement in program.resource_requirements:
         manifest = resource_ports.get(requirement.port_id)
         if manifest is None:
             continue
-        port_id = requirement.port_id.qualified_name
-        key = (
-            port_id,
-            verified_program.iteration_layout.projection_key(
-                variation_support[port_id].point_columns,
-                point.logical_ordinal,
-                fallback_row=point.row,
-            ),
-        )
-        if key in cache:
-            cached = cache[key]
-            if cached is not None:
-                selected[cached.manifest.port_id] = cached
-            continue
         ctx = EvalContext(params=params, point_row=point.row)
         entity_values: list[object] = []
         failed = False
         for use in requirement.entity_uses:
             try:
-                entity_values.append(
-                    evaluate_value_expr(
-                        use.value,
-                        verified_program.relation_plan(use.id),
-                        ctx,
-                    )
-                )
+                entity_values.append(evaluate_scalar_value(use.value, ctx))
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(
@@ -552,7 +423,6 @@ def _select_point_resources(
                     )
                 )
         if failed:
-            cache[key] = None
             continue
         try:
             resource = _ResourceEntitySelection(
@@ -570,9 +440,7 @@ def _select_point_resources(
                     ),
                 )
             )
-            cache[key] = None
             continue
-        cache[key] = resource
         selected[resource.manifest.port_id] = resource
     return selected
 
@@ -668,10 +536,9 @@ def _bind_desired_state(
             )
             continue
         try:
-            bound_targets = _bind_state_resources(
+            binding = _bind_state_resource(
                 record.resource_target,
                 capability_id=capability_id,
-                target_entities=record.target_entities,
                 resources=resources,
             )
         except ResourceBindingError as error:
@@ -686,31 +553,28 @@ def _bind_desired_state(
                 )
             )
             continue
-        for binding in bound_targets:
-            channel_key = channel_signature(binding.channel_bindings)
-            group = grouped.setdefault(binding.instrument_id, {})
-            key = (capability_id, field_path, binding.entity_ids, channel_key)
-            signature_key = (
-                binding.instrument_id,
-                capability_id,
-                field_path,
-                binding.entity_ids,
-                channel_key,
-            )
-            signatures.setdefault(signature_key, set()).add(
-                state_value.model_dump_json()
-            )
-            owners.setdefault(signature_key, set()).add(record.resource_target)
-            group.setdefault(
-                key,
-                StateTarget(
-                    capability_id=capability_id,
-                    field_path=field_path,
-                    value=state_value,
-                    entity_ids=binding.entity_ids,
-                    channel_bindings=binding.channel_bindings,
-                ),
-            )
+        channel_key = channel_signature(binding.channel_bindings)
+        group = grouped.setdefault(binding.instrument_id, {})
+        key = (capability_id, field_path, binding.entity_ids, channel_key)
+        signature_key = (
+            binding.instrument_id,
+            capability_id,
+            field_path,
+            binding.entity_ids,
+            channel_key,
+        )
+        signatures.setdefault(signature_key, set()).add(state_value.model_dump_json())
+        owners.setdefault(signature_key, set()).add(record.resource_target)
+        group.setdefault(
+            key,
+            StateTarget(
+                capability_id=capability_id,
+                field_path=field_path,
+                value=state_value,
+                entity_ids=binding.entity_ids,
+                channel_bindings=binding.channel_bindings,
+            ),
+        )
     for (
         resource,
         capability,
@@ -785,118 +649,34 @@ def _bind_single_resource(
     return resource.select_one()
 
 
-def _bind_state_resources(
+def _bind_state_resource(
     target: LogicalResourcePortId,
     *,
     capability_id: str,
-    target_entities: Sequence[object],
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
-) -> tuple[ResourceBinding, ...]:
+) -> ResourceBinding:
     resource = resources.get(target)
     if resource is None:
         raise ResourceBindingError(
             "state_resource_port_unbound",
             f"logical state resource port {target.qualified_name!r} is not bound",
         )
-    requested_entity_ids = _normalize_entity_ids(target_entities)
-
-    if not resource.entity_ids:
-        binding = _bind_single_resource(
-            target,
-            resources=resources,
-            missing_code="state_resource_port_unbound",
-        )
-        entity_ids, channel_bindings, unbound = _logical_state_target(
-            binding=binding,
-            capability_id=capability_id,
-            target_entities=requested_entity_ids,
-        )
-        if unbound:
-            raise ResourceBindingError(
-                "state_target_entity_unbound",
-                "state target entities are not bound: " + ", ".join(unbound),
-            )
-        return (
-            replace(
-                binding,
-                entity_ids=entity_ids,
-                channel_bindings=channel_bindings,
-            ),
-        )
-
-    selected_entity_ids = requested_entity_ids or resource.entity_ids
-    unbound = tuple(
-        entity_id
-        for entity_id in selected_entity_ids
-        if entity_id not in resource.entity_ids
-    )
-    if unbound:
-        raise ResourceBindingError(
-            "state_target_entity_unbound",
-            "state target entities are outside the declared resource scope: "
-            + ", ".join(unbound),
-        )
-    shards = resource.manifest.select_shards(selected_entity_ids)
-    selected: list[ResourceBinding] = []
-    for shard in shards:
-        entity_ids, channel_bindings, _unbound = _logical_state_target(
-            binding=shard,
-            capability_id=capability_id,
-            target_entities=(),
-        )
-        selected.append(
-            replace(
-                shard,
-                entity_ids=entity_ids,
-                channel_bindings=channel_bindings,
-            )
-        )
-    return tuple(selected)
-
-
-def _logical_state_target(
-    *,
-    binding: ResourceBinding,
-    capability_id: str,
-    target_entities: Sequence[object],
-) -> tuple[
-    tuple[str, ...],
-    tuple[CommandChannelBinding, ...],
-    tuple[str, ...],
-]:
-    requested_entity_ids = tuple(
-        dict.fromkeys(
-            value.id if isinstance(value, EntityRef) else str(value)
-            for value in target_entities
-        )
-    )
-    selected_entity_ids = requested_entity_ids or binding.entity_ids
-    if requested_entity_ids and binding.entity_ids:
-        unbound = tuple(
-            entity_id
-            for entity_id in requested_entity_ids
-            if entity_id not in binding.entity_ids
-        )
-        if unbound:
-            return requested_entity_ids, (), unbound
+    binding = resource.select_one()
     channel_bindings = tuple(
         channel_binding
         for channel_binding in binding.channel_bindings
-        if (not selected_entity_ids or channel_binding.entity_id in selected_entity_ids)
-        and (
+        if (
             channel_binding.capability is None
             or channel_binding.capability == capability_id
         )
     )
-    return (
-        selected_entity_ids
-        or tuple(
-            dict.fromkeys(
-                channel_binding.entity_id for channel_binding in channel_bindings
-            )
-        ),
-        channel_bindings,
-        (),
+    entity_ids = binding.entity_ids or tuple(
+        dict.fromkeys(channel_binding.entity_id for channel_binding in channel_bindings)
+    )
+    return replace(
+        binding,
+        entity_ids=entity_ids,
+        channel_bindings=channel_bindings,
     )
 
 
@@ -906,9 +686,7 @@ def _channel_binding_identity(
     return (
         binding.entity_id,
         binding.channel_id,
-        binding.line_id,
         binding.capability,
-        tuple(sorted(binding.group_ids)),
     )
 
 

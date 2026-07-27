@@ -1,10 +1,7 @@
 import pytest
 
 from scopecat.compiler.relations.uses import relation_use
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    RowType,
-)
+from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
@@ -15,7 +12,6 @@ from scopecat.execution.local.program import CollectOperation
 from scopecat.graph.relations.model import (
     CellValue,
     param,
-    point_col,
 )
 from scopecat.graph.relations.point_domain import (
     point_axis_linear,
@@ -25,12 +21,12 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
-from scopecat.kernel.value_types import Int, Scalar, String
+from scopecat.kernel.value_types import Int, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.products import ProductAxisDef
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import materialized_effects_contract
-from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
+from tests.testkit.parameter_fixtures import parameters
 from tests.testkit.relation_plans import (
     scalar_value_expr,
 )
@@ -41,7 +37,6 @@ from tests.testkit.typed_program import (
     instrument_acquisition,
     instrument_acquisitions,
     observable_product,
-    overlay_parameter_cell,
     typed_program,
 )
 
@@ -59,14 +54,7 @@ def _point_domain(
     values: tuple[CellValue, ...],
 ) -> PointDomain:
     return PointDomain(
-        root=point_axis_values(column_id, value_type, values),
-    )
-
-
-def _point_bindings(points: PointDomain) -> RelationTypeBindings:
-    return RelationTypeBindings(
-        parameters=PARAMETER_TYPES,
-        point_row=RowType.from_table(points.value_type),
+        axes=(point_axis_values(column_id, value_type, values),),
     )
 
 
@@ -210,12 +198,14 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
         id="missing-points",
         kind="problem",
         point_domain=PointDomain(
-            point_axis_linear(
-                "frequency",
-                center_type,
-                center,
-                Quantity(value=0.2, unit="GHz"),
-                2,
+            axes=(
+                point_axis_linear(
+                    "frequency",
+                    center_type,
+                    center,
+                    Quantity(value=0.2, unit="GHz"),
+                    2,
+                ),
             )
         ),
     )
@@ -225,85 +215,6 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
 
     assert [problem.code for problem in failure.value.problems] == [
         "linked_parameter_missing"
-    ]
-
-
-def test_materialized_effects_reports_parameter_overlay_problems() -> None:
-    points = _point_domain("device_id", Scalar(String()), ("r0",))
-    bindings = _point_bindings(points)
-    spec = typed_program(
-        id="bad-overlay",
-        kind="problem",
-        point_domain=points,
-        resource_requirements=(
-            LogicalResourceRequirement(
-                port_id=logical_resource_port_id("source"),
-                capabilities=("set_frequency",),
-            ),
-        ),
-        parameter_overlays=[
-            overlay_parameter_cell(
-                "readout_devices",
-                key={"device_id": point_col("device_id")},
-                key_types={"device_id": Scalar(String())},
-                column_id="frequency",
-                value=Quantity(value=5.9, unit="GHz"),
-                value_type=Scalar(QuantityType(unit="GHz")),
-                bindings=bindings,
-            ),
-            overlay_parameter_cell(
-                "readout_devices",
-                key={"device_id": "missing"},
-                key_types={"device_id": Scalar(String())},
-                column_id="frequency",
-                value=Quantity(value=5.9, unit="GHz"),
-                value_type=Scalar(QuantityType(unit="GHz")),
-                bindings=bindings,
-            ),
-        ],
-        state=[
-            set_state_field(
-                "source",
-                capability_id="set_frequency",
-                field_path="frequency",
-                value=Quantity(value=5.9, unit="GHz"),
-            )
-        ],
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialized_effects_contract(spec, parameters())
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "experiment_parameter_overlay_row_not_found"
-    ]
-
-
-def test_materialized_effects_reports_unknown_parameter_table_problems() -> None:
-    points = _point_domain("device_id", Scalar(String()), ("r0",))
-    bindings = _point_bindings(points)
-    spec = typed_program(
-        id="missing-overlay-table",
-        kind="problem",
-        point_domain=points,
-        parameter_overlays=[
-            overlay_parameter_cell(
-                "missing_table",
-                key={"device_id": point_col("device_id")},
-                key_types={"device_id": Scalar(String())},
-                column_id="frequency",
-                value=Quantity(value=5.9, unit="GHz"),
-                value_type=Scalar(QuantityType(unit="GHz")),
-                bindings=bindings,
-            )
-        ],
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialized_effects_contract(spec, parameters())
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "experiment_parameter_overlay_table_missing"
     ]
 
 

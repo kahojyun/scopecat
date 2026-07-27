@@ -16,13 +16,11 @@ from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
     prepare_analysis,
-    prepare_analysis_artifact,
 )
 from scopecat.config.changes import (
-    list_parameter_change_decisions,
     list_parameter_change_proposals,
-    prepare_parameter_change_decision,
-    prepare_parameter_change_review,
+    load_parameter_change_approval,
+    prepare_parameter_change_approval,
 )
 from scopecat.control.models import (
     ControlRunState,
@@ -44,13 +42,11 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
-    AnalysisArtifactOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    ParameterProposalDecisionCommand,
-    ParameterProposalReviewCommand,
+    ParameterProposalApprovalCommand,
     RunAttachmentCommand,
 )
 from scopecat.kernel.errors import (
@@ -62,7 +58,7 @@ from scopecat.kernel.errors import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
@@ -84,26 +80,10 @@ from .errors import BackendConflict, BackendNotFound
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
-    if isinstance(item, AnalysisArtifactOutputPayload):
-        content = prepare_analysis_artifact(
-            title=item.title,
-            kind=item.artifact_kind,
-            artifact_id=item.artifact_id,
-            filename=item.filename,
-            model=None,
-            json_content=None,
-            text=None,
-            content=b64decode(item.content_base64, validate=True),
-            path=None,
-            media_type=item.media_type,
-            metadata=item.artifact_metadata,
-        )
-    else:
-        content = item.content
     return AnalysisOutput(
         kind=item.kind,
         title=item.title,
-        content=content,
+        content=item.content,
         metadata=item.metadata,
     )
 
@@ -126,19 +106,15 @@ class RunService:
         self,
         *,
         limit: int,
-        after: int | None,
         before: int | None,
         state: ControlRunState | None,
-        latest: bool = False,
     ) -> RunSummaryPage:
         with self._control.transaction() as connection:
             page = self._control.list_runs_in_transaction(
                 connection,
                 limit=limit,
-                after=after,
                 before=before,
                 state=state,
-                latest=latest,
             )
             return RunSummaryPage(
                 items=tuple(
@@ -152,7 +128,6 @@ class RunService:
                     for control in page.items
                 ),
                 next_cursor=page.next_cursor,
-                previous_cursor=page.previous_cursor,
             )
 
     def get_run(self, run_id: str) -> RunDetail:
@@ -295,7 +270,6 @@ class RunService:
             record=prepared.saved.record,
             analysis_key=prepared.saved.analysis_key,
             inputs=command.inputs,
-            output_artifacts=prepared.saved.output_artifacts,
         )
 
     def get_run_artifact_bytes(
@@ -410,33 +384,32 @@ class RunService:
                 items=tuple(
                     ParameterProposalView(
                         proposal=proposal,
-                        decisions=tuple(
-                            list_parameter_change_decisions(
-                                run_id=run_id,
-                                selector=proposal.id,
-                                storage=self._runs,
-                            )
+                        approval=load_parameter_change_approval(
+                            run_id=run_id,
+                            selector=proposal.id,
+                            storage=self._runs,
                         ),
                     )
                     for proposal in proposals
                 ),
             )
 
-    def review_parameter_proposal(
+    def approve_parameter_proposal(
         self,
         run_id: str,
         proposal_id: str,
-        command: ParameterProposalReviewCommand,
-    ) -> ParameterChangeDecisionRecord:
+        command: ParameterProposalApprovalCommand,
+    ) -> ParameterChangeApprovalRecord:
         with self._config_errors():
-            prepared = prepare_parameter_change_review(
+            prepared = prepare_parameter_change_approval(
                 run_id=run_id,
                 selector=proposal_id,
                 services=self._services,
-                state=command.decision,
-                reviewer=command.reviewer,
+                actor=command.actor,
                 note=command.note,
             )
+            if prepared.publication is None:
+                return prepared.approval
             publication = self._runs.prepare_content_publication(prepared.publication)
             with self._control.transaction() as connection:
                 self._runs.publish_prepared_content_in_transaction(
@@ -447,53 +420,15 @@ class RunService:
                     connection,
                     DurableEventInput(
                         run_id=run_id,
-                        kind="parameter_proposal_reviewed",
+                        kind="parameter_proposal_approved",
                         payload={
-                            "proposal_id": prepared.decision.proposal_id,
-                            "decision": prepared.decision.decision,
-                            "event_id": prepared.decision.event_id,
+                            "proposal_id": prepared.approval.proposal_id,
+                            "actor": prepared.approval.actor,
                         },
-                        occurred_at=prepared.decision.decided_at,
+                        occurred_at=prepared.approval.approved_at,
                     ),
                 )
-        return prepared.decision
-
-    def decide_parameter_proposal(
-        self,
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalDecisionCommand,
-    ) -> ParameterChangeDecisionRecord:
-        with self._config_errors():
-            prepared = prepare_parameter_change_decision(
-                run_id=run_id,
-                selector=proposal_id,
-                services=self._services,
-                decision=command.decision,
-                authority=command.authority,
-                note=command.note,
-            )
-            publication = self._runs.prepare_content_publication(prepared.publication)
-            with self._control.transaction() as connection:
-                self._runs.publish_prepared_content_in_transaction(
-                    connection,
-                    publication,
-                )
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        run_id=run_id,
-                        kind="parameter_proposal_decided",
-                        payload={
-                            "proposal_id": prepared.decision.proposal_id,
-                            "decision": prepared.decision.decision,
-                            "authority_kind": prepared.decision.authority.kind,
-                            "event_id": prepared.decision.event_id,
-                        },
-                        occurred_at=prepared.decision.decided_at,
-                    ),
-                )
-        return prepared.decision
+        return prepared.approval
 
     def measurements(
         self,

@@ -15,7 +15,7 @@ from scopecat_quantum._ids import (
     PulseImplementationId,
     QubitId,
 )
-from scopecat_quantum.circuits import Measure, VerifiedCircuitProgram
+from scopecat_quantum.circuits import Measure, VerifiedCircuitOperations
 from scopecat_quantum.gates import (
     GateArgumentValue,
     GateCall,
@@ -27,25 +27,10 @@ from scopecat_quantum.measurement_implementations import (
     MeasurementPulseImplementationKey,
 )
 from scopecat_quantum.pulses import (
-    Acquire,
-    PulseLeaf,
     PulseProgram,
-    iter_pulse_leaves,
     pulse_leaf_owners,
+    schedule,
 )
-
-
-def _gate_template_leaves(
-    pulse_template: PulseProgram,
-    *,
-    subject: str,
-) -> tuple[PulseLeaf, ...]:
-    leaves = tuple(iter_pulse_leaves(pulse_template.body))
-    event_ids = tuple(leaf.id for leaf in leaves)
-    if len(set(event_ids)) != len(event_ids):
-        msg = f"{subject} pulse template event ids must be unique"
-        raise ValueError(msg)
-    return leaves
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,18 +123,10 @@ class GatePulseImplementation:
         if len(set(resources)) != len(resources):
             msg = "gate implementation resources must be unique"
             raise ValueError(msg)
-        leaves = _gate_template_leaves(
-            self.pulse_template,
-            subject="gate implementation",
-        )
-        if self.pulse_template.acquisition_slots or any(
-            isinstance(leaf, Acquire) for leaf in leaves
-        ):
-            msg = (
-                "gate implementation pulse templates cannot declare acquisition slots "
-                "or contain Acquire instructions"
-            )
+        if self.pulse_template.acquisition_slots:
+            msg = "gate implementation pulse templates cannot declare acquisition slots"
             raise ValueError(msg)
+        schedule(self.pulse_template)
         owners = set(pulse_leaf_owners(self.pulse_template.body))
         allowed_owners = {*self.key.operands, *resources}
         foreign_owners = owners - allowed_owners
@@ -243,7 +220,6 @@ class PulseImplementationBindingIssueCode(StrEnum):
     """Stable kinds of pulse implementation binding failure."""
 
     MISSING = "pulse_implementation_missing"
-    DISCRIMINATOR_MISSING = "measurement_discriminator_missing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,7 +273,7 @@ class PulseImplementationBindings:
 
 
 def bind_pulse_implementations(
-    program: VerifiedCircuitProgram,
+    operations: VerifiedCircuitOperations,
     implementations: ResolvedPulseImplementations,
 ) -> PulseImplementationBindings:
     """Bind every logical operation to its exact resolved pulse implementation."""
@@ -307,7 +283,7 @@ def bind_pulse_implementations(
 
     bindings: list[PulseImplementationBinding] = []
     issues: list[PulseImplementationBindingIssue] = []
-    for operation in program.operations:
+    for operation in operations.operations:
         if isinstance(operation, GateCall):
             key: PulseImplementationKey = GatePulseImplementationKey.from_call(
                 operation
@@ -316,33 +292,13 @@ def bind_pulse_implementations(
                 GatePulseImplementation | MeasurementPulseImplementation | None
             ) = gates_by_key.get(key)
         else:
-            assert isinstance(operation, Measure)  # noqa: S101
+            assert isinstance(operation, Measure)
             key = MeasurementPulseImplementationKey.from_measurement(operation)
             selected = measurements_by_key.get(key)
         if selected is not None:
-            if (
-                isinstance(operation, Measure)
-                and operation.realtime_bit_id is not None
-                and isinstance(selected, MeasurementPulseImplementation)
-                and selected.discriminator is None
-            ):
-                issues.append(
-                    PulseImplementationBindingIssue(
-                        code=(
-                            PulseImplementationBindingIssueCode.DISCRIMINATOR_MISSING
-                        ),
-                        operation_id=operation.id,
-                        key=key,
-                        message=(
-                            f"measurement {operation.id.value!r} requests realtime "
-                            "feedback but its pulse implementation has no discriminator"
-                        ),
-                    )
-                )
-                continue
             if isinstance(operation, GateCall):
-                assert isinstance(key, GatePulseImplementationKey)  # noqa: S101
-                assert isinstance(selected, GatePulseImplementation)  # noqa: S101
+                assert isinstance(key, GatePulseImplementationKey)
+                assert isinstance(selected, GatePulseImplementation)
                 bindings.append(
                     GatePulseImplementationBinding(
                         call_id=operation.id,
@@ -353,8 +309,8 @@ def bind_pulse_implementations(
                     )
                 )
             else:
-                assert isinstance(key, MeasurementPulseImplementationKey)  # noqa: S101
-                assert isinstance(selected, MeasurementPulseImplementation)  # noqa: S101
+                assert isinstance(key, MeasurementPulseImplementationKey)
+                assert isinstance(selected, MeasurementPulseImplementation)
                 bindings.append(
                     MeasurementPulseImplementationBinding(
                         measurement_id=operation.id,
@@ -362,7 +318,6 @@ def bind_pulse_implementations(
                         implementation_id=selected.id,
                         implementation_fingerprint=selected.fingerprint,
                         pulse_template=selected.pulse_template,
-                        discriminator=selected.discriminator,
                     )
                 )
             continue

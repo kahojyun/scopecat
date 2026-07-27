@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
+from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
@@ -15,18 +14,15 @@ from scopecat.compiler.entity_resolution import (
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
-    evaluate_relation,
     evaluate_scalar,
-    evaluate_series,
+    evaluate_table_value,
     normalize_relation_parameter_import,
 )
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
-    VerifiedRelationPlan,
 )
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
-    SeriesValueExpr,
 )
 from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
 from scopecat.compiler.typed.point_domain import (
@@ -46,14 +42,10 @@ from scopecat.compiler.typed.specialization import specialize_core_program
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
     VerifiedCoreProgram,
+    program_relation_consumers,
     seal_typed_program,
 )
-from scopecat.graph.relations.model import (
-    RelationExpr,
-    Row,
-    ScalarExpr,
-    SeriesExpr,
-)
+from scopecat.graph.relations.model import Row
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -107,8 +99,6 @@ class MaterializedLinkedPoints:
         input_kind: Literal["program", "compiler"],
         input_ids: Sequence[str],
         ordinals: Sequence[int],
-        *,
-        max_points: int,
     ) -> tuple[tuple[str, tuple[object, ...]], ...]:
         """Evaluate selected domain inputs for selected logical ordinals."""
 
@@ -122,11 +112,8 @@ class MaterializedLinkedPoints:
                 strict=True,
             )
         }
-        _validate_ordinal_selection(
-            selected,
-            known_ordinals=entries.keys(),
-            max_points=max_points,
-        )
+        if any(ordinal not in entries for ordinal in selected):
+            raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
             for item in core_domain_executions(self.linked_plan.program)
@@ -138,7 +125,7 @@ class MaterializedLinkedPoints:
         known_input_ids = tuple(available_inputs)
         selected_input_set = set(selected_input_ids)
         if not selected_input_ids:
-            raise ValueError("domain input binding requires at least one input")
+            return ()
         if selected_input_ids != tuple(
             input_id for input_id in known_input_ids if input_id in selected_input_set
         ):
@@ -156,7 +143,6 @@ class MaterializedLinkedPoints:
                 input_kind,
                 point,
                 selected_input_ids,
-                verified_program=self.linked_plan.verified_program,
                 parameters=parameters,
                 problems=problems,
             )
@@ -174,31 +160,18 @@ def materialize_linked_points(linked: LinkedPlan) -> MaterializedLinkedPoints:
     """Eagerly close the linked point space before target compilation."""
 
     point_domain = _materialize_linked_point_domain(linked)
-    problems: list[Problem] = []
-    point_by_ordinal = {point.logical_ordinal: point for point in point_domain.points}
-    parameter_by_ordinal: dict[int, ParameterRelationData] = {}
-    ordinals = tuple(point_by_ordinal)
-    parameter_support = linked.verified_program.variation_analysis.parameters
-    for coverage in linked.verified_program.iteration_layout.partition(
-        parameter_support.point_columns,
-        ordinals,
-        rows={ordinal: point.row for ordinal, point in point_by_ordinal.items()},
-    ):
-        parameters = _point_parameters(
-            linked,
-            point_by_ordinal[coverage[0]],
-            problems=problems,
+    point_parameters = tuple(
+        resolve_point_parameters(
+            linked.environment.parameters,
+            linked.program.parameter_overlays,
+            point_row=point.row,
         )
-        for ordinal in coverage:
-            parameter_by_ordinal[ordinal] = parameters
-    if bool(problems):
-        raise CheckFailed(problems)
+        for point in point_domain.points
+    )
     return MaterializedLinkedPoints(
         linked_plan=linked,
         point_domain=point_domain,
-        point_parameters=tuple(
-            parameter_by_ordinal[point.logical_ordinal] for point in point_domain.points
-        ),
+        point_parameters=point_parameters,
     )
 
 
@@ -243,45 +216,12 @@ def _materialize_linked_point_domain(
     return point_domain
 
 
-def _point_parameters(
-    linked: LinkedPlan,
-    point: MaterializedPoint,
-    *,
-    problems: list[Problem],
-) -> ParameterRelationData:
-    try:
-        return resolve_point_parameters(
-            linked.environment.parameters,
-            linked.program.parameter_overlays,
-            point_row=point.row,
-            relation_plan=linked.verified_program.relation_plan,
-        )
-    except CompilerProblemError as error:
-        problems.append(error.problem)
-        return ParameterRelationData()
-
-
-def _validate_ordinal_selection(
-    ordinals: tuple[int, ...],
-    *,
-    known_ordinals: AbstractSet[int],
-    max_points: int,
-) -> None:
-    if type(max_points) is not int or max_points <= 0:
-        raise ValueError("point selection budget must be positive")
-    if len(ordinals) > max_points:
-        raise ValueError("point selection exceeds the requested budget")
-    if any(ordinal not in known_ordinals for ordinal in ordinals):
-        raise ValueError("point selection contains an unknown ordinal")
-
-
 def _domain_inputs(
     execution: TypedDomainExecution,
     input_kind: Literal["program", "compiler"],
     point: MaterializedPoint,
     input_ids: tuple[str, ...],
     *,
-    verified_program: VerifiedCoreProgram,
     parameters: ParameterRelationData,
     problems: list[Problem],
 ) -> tuple[tuple[str, object], ...] | None:
@@ -293,7 +233,6 @@ def _domain_inputs(
             input_kind=input_kind,
             input_name=input_name,
             point=point,
-            verified_program=verified_program,
             parameters=parameters,
             problems=problems,
         )
@@ -312,7 +251,6 @@ def _materialize_domain_execution_input(
     input_kind: Literal["program", "compiler"],
     input_name: str,
     point: MaterializedPoint,
-    verified_program: VerifiedCoreProgram,
     parameters: ParameterRelationData,
     problems: list[Problem],
 ) -> tuple[bool, object]:
@@ -327,7 +265,6 @@ def _materialize_domain_execution_input(
     try:
         evaluated = _evaluate_domain_input(
             input_spec,
-            verified_program=verified_program,
             context=context,
         )
         value = coerce_literal(
@@ -366,25 +303,12 @@ def _materialize_domain_execution_input(
 def _evaluate_domain_input(
     input_spec: ValueInput,
     *,
-    verified_program: VerifiedCoreProgram,
     context: EvalContext,
 ) -> object:
     value = input_spec.value
-    verified_plan = verified_program.relation_plan(input_spec.relation_use_id)
     if isinstance(value, ScalarValueExpr):
-        return evaluate_scalar(
-            cast("VerifiedRelationPlan[ScalarExpr]", verified_plan),
-            context,
-        )
-    if isinstance(value, SeriesValueExpr):
-        return evaluate_series(
-            cast("VerifiedRelationPlan[SeriesExpr]", verified_plan),
-            context,
-        )
-    return evaluate_relation(
-        cast("VerifiedRelationPlan[RelationExpr]", verified_plan),
-        context,
-    )
+        return evaluate_scalar(value.plan, context)
+    return evaluate_table_value(value.source, value.value_type, context)
 
 
 def _unwrap_domain_input(value: object) -> object:
@@ -435,7 +359,7 @@ def _relation_import_problems(
     parameters: ParameterRelationData,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    for consumer in verified_program.relation_consumers:
+    for consumer in program_relation_consumers(verified_program):
         plan = consumer.plan
         for imported in plan.imports:
             if imported.namespace is PlanImportNamespace.INPUT:

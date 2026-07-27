@@ -10,14 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from dataclasses import dataclass, field
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
     PulseEventId,
     PulseProgramId,
-    QubitId,
     TargetArtifactId,
     TargetCompileEntryId,
     TargetCompilerId,
@@ -26,38 +24,8 @@ from scopecat_quantum._ids import (
 from scopecat_quantum.pulses import (
     AcquireSignal,
     DriveSignal,
-    FluxSignal,
     ReadoutSignal,
 )
-
-
-def _require_text(value: str, *, field_name: str) -> str:
-    if not value.strip():
-        msg = f"{field_name} must be a non-empty string"
-        raise ValueError(msg)
-    return value
-
-
-def _require_positive_int(value: int, *, field_name: str) -> int:
-    if isinstance(value, bool) or value <= 0:
-        msg = f"{field_name} must be a positive integer"
-        raise ValueError(msg)
-    return value
-
-
-def _require_positive_finite_float(value: float, *, field_name: str) -> float:
-    if isinstance(value, bool):
-        msg = f"{field_name} must be a positive finite number"
-        raise ValueError(msg)
-    try:
-        selected = float(value)
-    except OverflowError as error:
-        msg = f"{field_name} must be a positive finite number"
-        raise ValueError(msg) from error
-    if not math.isfinite(selected) or selected <= 0:
-        msg = f"{field_name} must be a positive finite number"
-        raise ValueError(msg)
-    return selected
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -66,9 +34,6 @@ class FakeAwgChannelId:
 
     value: str
 
-    def __post_init__(self) -> None:
-        _require_text(self.value, field_name="AWG channel id")
-
 
 @dataclass(frozen=True, slots=True, order=True)
 class FakeDigitizerChannelId:
@@ -76,11 +41,8 @@ class FakeDigitizerChannelId:
 
     value: str
 
-    def __post_init__(self) -> None:
-        _require_text(self.value, field_name="digitizer channel id")
 
-
-type FakeOutputSignal = DriveSignal | ReadoutSignal | FluxSignal
+type FakeOutputSignal = DriveSignal | ReadoutSignal
 
 
 def signal_key(
@@ -92,10 +54,7 @@ def signal_key(
         return ("drive", "qubit", signal.qubit.value)
     if isinstance(signal, ReadoutSignal):
         return ("readout", "qubit", signal.qubit.value)
-    if isinstance(signal, AcquireSignal):
-        return ("acquire", "qubit", signal.qubit.value)
-    owner_kind = "qubit" if isinstance(signal.owner, QubitId) else "coupler"
-    return ("flux", owner_kind, signal.owner.value)
+    return ("acquire", "qubit", signal.qubit.value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,58 +114,25 @@ class FakeListTarget:
     sample_rate_hz: int
     max_list_entries: int
     max_samples_per_entry: int
-    max_waveform_memory_samples: int
-    max_capture_memory_samples: int
     max_repetitions: int
-    max_frames: int
     max_abs_amplitude: float
     output_bindings: tuple[FakeOutputBinding, ...]
     acquisition_bindings: tuple[FakeAcquisitionBinding, ...]
     _capability_fingerprint: str = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        for field_name, value in (
-            ("sample_rate_hz", self.sample_rate_hz),
-            ("max_list_entries", self.max_list_entries),
-            ("max_samples_per_entry", self.max_samples_per_entry),
-            ("max_waveform_memory_samples", self.max_waveform_memory_samples),
-            ("max_capture_memory_samples", self.max_capture_memory_samples),
-            ("max_repetitions", self.max_repetitions),
-            ("max_frames", self.max_frames),
-        ):
-            _require_positive_int(value, field_name=field_name)
-        amplitude = _require_positive_finite_float(
-            self.max_abs_amplitude,
-            field_name="max_abs_amplitude",
-        )
-        selected_outputs = self.output_bindings
-        selected_acquisitions = self.acquisition_bindings
-        if not selected_outputs and not selected_acquisitions:
-            msg = "fake list targets require at least one signal binding"
-            raise ValueError(msg)
-        if len({binding.signal for binding in selected_outputs}) != len(
-            selected_outputs
-        ):
-            msg = "fake output logical signals must be bound exactly once"
-            raise ValueError(msg)
-        if len({binding.signal for binding in selected_acquisitions}) != len(
-            selected_acquisitions
-        ):
-            msg = "fake acquisition logical signals must be bound exactly once"
-            raise ValueError(msg)
         canonical_outputs = tuple(
             sorted(
-                selected_outputs,
+                self.output_bindings,
                 key=lambda binding: (*signal_key(binding.signal), binding.channel_id),
             )
         )
         canonical_acquisitions = tuple(
             sorted(
-                selected_acquisitions,
+                self.acquisition_bindings,
                 key=lambda binding: (*signal_key(binding.signal), binding.channel_id),
             )
         )
-        object.__setattr__(self, "max_abs_amplitude", amplitude)
         object.__setattr__(self, "output_bindings", canonical_outputs)
         object.__setattr__(self, "acquisition_bindings", canonical_acquisitions)
         object.__setattr__(
@@ -241,15 +167,12 @@ class FakeListTarget:
 
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "quantum_lab_demo.fake_list_target.capabilities.v1",
+            "schema": "quantum_lab_demo.fake_list_target.capabilities.v2",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
             "max_list_entries": self.max_list_entries,
             "max_samples_per_entry": self.max_samples_per_entry,
-            "max_waveform_memory_samples": self.max_waveform_memory_samples,
-            "max_capture_memory_samples": self.max_capture_memory_samples,
             "max_repetitions": self.max_repetitions,
-            "max_frames": self.max_frames,
             "max_abs_amplitude": float(self.max_abs_amplitude).hex(),
             "supported_envelopes": list(self.supported_envelopes),
             "output_bindings": [
@@ -288,12 +211,6 @@ class FakeAcquisitionWindow:
     start_sample: int
     sample_count: int
 
-    def __post_init__(self) -> None:
-        if isinstance(self.start_sample, bool) or self.start_sample < 0:
-            msg = "fake acquisition start_sample must be a non-negative integer"
-            raise ValueError(msg)
-        _require_positive_int(self.sample_count, field_name="acquisition sample_count")
-
 
 @dataclass(frozen=True, slots=True)
 class FakeListEntry:
@@ -305,61 +222,6 @@ class FakeListEntry:
     sample_count: int
     waveforms: tuple[FakeChannelWaveform, ...]
     acquisitions: tuple[FakeAcquisitionWindow, ...]
-
-    def __post_init__(self) -> None:
-        if isinstance(self.list_index, bool) or self.list_index < 0:
-            msg = "fake list_index must be a non-negative integer"
-            raise ValueError(msg)
-        _require_positive_int(self.sample_count, field_name="list entry sample_count")
-        selected_waveforms = self.waveforms
-        selected_acquisitions = self.acquisitions
-        if len({waveform.channel_id for waveform in selected_waveforms}) != len(
-            selected_waveforms
-        ):
-            msg = "fake list waveform channels must be unique"
-            raise ValueError(msg)
-        if any(
-            len(waveform.samples) != self.sample_count
-            for waveform in selected_waveforms
-        ):
-            msg = "fake list waveform buffers must match the entry sample_count"
-            raise ValueError(msg)
-        if len({window.slot_id for window in selected_acquisitions}) != len(
-            selected_acquisitions
-        ):
-            msg = "fake list acquisition slots must be unique"
-            raise ValueError(msg)
-        if len({window.event_id for window in selected_acquisitions}) != len(
-            selected_acquisitions
-        ):
-            msg = "fake list acquisition event ids must be unique"
-            raise ValueError(msg)
-        if any(
-            window.start_sample + window.sample_count > self.sample_count
-            for window in selected_acquisitions
-        ):
-            msg = "fake acquisition windows must fit within the list entry"
-            raise ValueError(msg)
-        object.__setattr__(
-            self,
-            "waveforms",
-            tuple(sorted(selected_waveforms, key=lambda item: item.channel_id)),
-        )
-        object.__setattr__(
-            self,
-            "acquisitions",
-            tuple(
-                sorted(
-                    selected_acquisitions,
-                    key=lambda item: (
-                        item.start_sample,
-                        item.channel_id,
-                        item.slot_id.scope,
-                        item.slot_id.local_id,
-                    ),
-                )
-            ),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -375,34 +237,6 @@ class FakeListArtifact:
     repetitions: int
     sample_rate_hz: int
     entries: tuple[FakeListEntry, ...]
-
-    def __post_init__(self) -> None:
-        _require_text(
-            self.capability_fingerprint,
-            field_name="capability_fingerprint",
-        )
-        _require_text(
-            self.artifact_fingerprint,
-            field_name="artifact_fingerprint",
-        )
-        _require_positive_int(self.repetitions, field_name="artifact repetitions")
-        _require_positive_int(self.sample_rate_hz, field_name="artifact sample_rate_hz")
-        selected_entries = self.entries
-        if not selected_entries:
-            msg = "fake artifacts require at least one list entry"
-            raise ValueError(msg)
-        if tuple(entry.list_index for entry in selected_entries) != tuple(
-            range(len(selected_entries))
-        ):
-            msg = "fake artifact list indices must be contiguous and ordered"
-            raise ValueError(msg)
-        selected_source_ids = self.source_entry_ids
-        if len(set(selected_source_ids)) != len(selected_source_ids):
-            msg = "fake artifact source_entry_ids must be unique"
-            raise ValueError(msg)
-        if tuple(entry.entry_id for entry in selected_entries) != selected_source_ids:
-            msg = "fake artifact entries must exactly cover source_entry_ids in order"
-            raise ValueError(msg)
 
 
 __all__ = [

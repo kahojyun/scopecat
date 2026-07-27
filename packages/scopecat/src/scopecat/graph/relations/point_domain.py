@@ -1,11 +1,11 @@
-"""Exact backend-neutral algebra for ordered logical point domains."""
+"""Exact backend-neutral model for ordered logical point domains."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from math import prod
-from typing import Generic, Never, TypeVar, overload
+from typing import Generic, Never, TypeVar
 
 from scopecat.graph.relations.model import CellValue
 from scopecat.kernel.quantity import Quantity
@@ -55,11 +55,6 @@ def point_axis_linear_value(
 
 
 @dataclass(frozen=True, slots=True)
-class PointUnit:
-    """The exact-one empty-row identity for point products."""
-
-
-@dataclass(frozen=True, slots=True)
 class PointAxisValues:
     """One finite axis whose values are known literally."""
 
@@ -95,21 +90,7 @@ class PointAxis(Generic[CenterT_co]):
         TableColumn(self.id, self.value_type)
 
 
-@dataclass(frozen=True, slots=True)
-class PointProduct(Generic[CenterT_co]):
-    """A flat declaration-ordered Cartesian product."""
-
-    factors: tuple[PointAxis[CenterT_co], ...]
-
-    def __post_init__(self) -> None:
-        if len(self.factors) < 2:
-            msg = "canonical point product requires at least two factors"
-            raise ValueError(msg)
-
-
-type PointDomainExpr[CenterT] = PointUnit | PointAxis[CenterT] | PointProduct[CenterT]
-
-POINT_UNIT = PointUnit()
+type PointAxes[CenterT] = tuple[PointAxis[CenterT], ...]
 
 
 def point_axis_values(
@@ -138,65 +119,20 @@ def point_axis_linear[CenterT](
     )
 
 
-@overload
-def point_product() -> PointUnit: ...
-
-
-@overload
-def point_product(
-    first: PointDomainExpr[Never],
-    *rest: PointDomainExpr[Never],
-) -> PointDomainExpr[Never]: ...
-
-
-@overload
-def point_product[CenterT](
-    first: PointDomainExpr[CenterT],
-    *rest: PointDomainExpr[CenterT],
-) -> PointDomainExpr[CenterT]: ...
-
-
-def point_product[CenterT](
-    first: PointDomainExpr[CenterT] | None = None,
-    *rest: PointDomainExpr[CenterT],
-) -> PointDomainExpr[CenterT]:
-    """Build a canonical flat product without reordering or deduplication."""
-
-    factors = () if first is None else (first, *rest)
-    flattened: list[PointAxis[CenterT]] = []
-    for factor in factors:
-        if isinstance(factor, PointUnit):
-            continue
-        if isinstance(factor, PointProduct):
-            flattened.extend(factor.factors)
-        else:
-            flattened.append(factor)
-    if not flattened:
-        return POINT_UNIT
-    if len(flattened) == 1:
-        return flattened[0]
-    return PointProduct(tuple(flattened))
-
-
 def iter_point_axis_linear[CenterT](
-    root: PointDomainExpr[CenterT],
+    axes: PointAxes[CenterT],
 ) -> Iterator[tuple[PointDomainPath, PointAxisLinear[CenterT]]]:
     """Yield linear sources and their stable axis paths."""
 
-    if isinstance(root, PointAxis):
-        if isinstance(root.source, PointAxisLinear):
-            yield (), root.source
-        return
-    if isinstance(root, PointProduct):
-        for index, axis in enumerate(root.factors):
-            if isinstance(axis.source, PointAxisLinear):
-                yield ("factors", index), axis.source
+    for index, axis in enumerate(axes):
+        if isinstance(axis.source, PointAxisLinear):
+            yield ("axes", index), axis.source
 
 
 def map_point_axis_centers[CenterT, MappedCenterT](
-    root: PointDomainExpr[CenterT],
+    axes: PointAxes[CenterT],
     transform: Callable[[CenterT, PointDomainPath], MappedCenterT],
-) -> PointDomainExpr[MappedCenterT]:
+) -> PointAxes[MappedCenterT]:
     """Map linear centers while preserving the flat domain structure."""
 
     def map_axis(
@@ -215,16 +151,7 @@ def map_point_axis_centers[CenterT, MappedCenterT](
             mapped_source = source
         return PointAxis(axis.id, axis.value_type, mapped_source)
 
-    if isinstance(root, PointUnit):
-        return POINT_UNIT
-    if isinstance(root, PointAxis):
-        return map_axis(root, ())
-    return PointProduct(
-        tuple(
-            map_axis(axis, ("factors", index))
-            for index, axis in enumerate(root.factors)
-        )
-    )
+    return tuple(map_axis(axis, ("axes", index)) for index, axis in enumerate(axes))
 
 
 class PointDomainShapeError(ValueError):
@@ -251,23 +178,16 @@ class PointDomainShape:
 
     @property
     def value_type(self) -> Table:
-        """Project the exact shape to the compiler's table type."""
+        """Project the columns to the compiler's table type."""
 
-        return Table(
-            columns=self.columns,
-            min_rows=self.cardinality,
-            max_rows=self.cardinality,
-        )
+        return Table(columns=self.columns)
 
 
 def analyze_point_domain[CenterT](
-    root: PointDomainExpr[CenterT],
+    axes: PointAxes[CenterT],
 ) -> PointDomainShape:
-    """Compute exact schema and cardinality from the flat point structure."""
+    """Compute exact schema and cardinality from ordered point axes."""
 
-    if isinstance(root, PointUnit):
-        return PointDomainShape((), 1)
-    axes = (root,) if isinstance(root, PointAxis) else root.factors
     columns = tuple(TableColumn(axis.id, axis.value_type) for axis in axes)
     column_ids = tuple(column.id for column in columns)
     duplicates = tuple(

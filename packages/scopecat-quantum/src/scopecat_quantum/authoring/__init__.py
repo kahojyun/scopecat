@@ -16,7 +16,6 @@ from ._construction import (
 )
 from ._construction import (
     acquire,
-    barrier,
     constant,
     coupler,
     delay,
@@ -27,7 +26,7 @@ from ._construction import (
     gate,
     gaussian,
     implementation,
-    input,  # noqa: A004
+    input,
     measure,
     parallel,
     play,
@@ -41,7 +40,6 @@ from ._construction import (
     shift_phase,
     single_qubit_gate,
     two_qubit_gate,
-    when,
 )
 from ._definitions import (
     FragmentDefinition,
@@ -79,11 +77,9 @@ from ._ir import (
     PulseFragment,
     QuantumFragment,
     QuantumQuantity,
-    QuantumResultAxis,
     QuantumResultContract,
     Qubit,
     QubitInput,
-    RealtimeBit,
     RepeatCount,
 )
 from ._programs import (
@@ -127,16 +123,13 @@ __all__ = [
     "QuantumFragment",
     "QuantumProgramCall",
     "QuantumQuantity",
-    "QuantumResultAxis",
     "QuantumResultContract",
     "Qubit",
     "QubitInput",
-    "RealtimeBit",
     "RepeatCount",
     "SingleQubitGate",
     "TwoQubitGate",
     "acquire",
-    "barrier",
     "bind",
     "constant",
     "coupler",
@@ -165,5 +158,4 @@ __all__ = [
     "shift_phase",
     "single_qubit_gate",
     "two_qubit_gate",
-    "when",
 ]

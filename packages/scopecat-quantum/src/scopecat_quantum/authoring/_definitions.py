@@ -59,7 +59,6 @@ from ._ir import (
     QuantumQuantity,
     Qubit,
     RepeatCount,
-    _BarrierFragment,
     _DelayFragment,
     _FragmentCall,
     _GateFragment,
@@ -614,13 +613,6 @@ def _substitute_pulse_fragment(
                 _substitute_template_value(fragment.phase, input_bindings),
             ),
         )
-    if isinstance(fragment, _BarrierFragment):
-        return _BarrierFragment(
-            signals=tuple(
-                cast("PlaySignal", _substitute_signal(signal, element_bindings))
-                for signal in fragment.signals
-            )
-        )
     if isinstance(fragment, _PulseTemplateCallFragment):
         return _PulseTemplateCallFragment(
             template=fragment.template,
@@ -712,15 +704,15 @@ def _substitute_signal(
 ) -> LogicalSignal:
     if isinstance(signal, DriveSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)  # noqa: S101
+        assert isinstance(owner, QubitId)
         return DriveSignal(owner)
     if isinstance(signal, ReadoutSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)  # noqa: S101
+        assert isinstance(owner, QubitId)
         return ReadoutSignal(owner)
     if isinstance(signal, AcquireSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)  # noqa: S101
+        assert isinstance(owner, QubitId)
         return AcquireSignal(owner)
     owner = signal.owner
     return FluxSignal(bindings.get(owner, owner))

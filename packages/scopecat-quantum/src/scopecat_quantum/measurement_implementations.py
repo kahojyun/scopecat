@@ -14,31 +14,13 @@ from scopecat_quantum._ids import (
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.pulses import (
-    Acquire,
     AcquireSignal,
     Play,
-    PulseLeaf,
     PulseProgram,
     ReadoutSignal,
-    iter_pulse_leaves,
     pulse_leaf_owners,
+    schedule,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class MeasurementDiscriminator:
-    """Point-effective classifier that produces one realtime bit from a capture."""
-
-    id: str
-    input_kind: AcquisitionKind
-    parameters: tuple[tuple[str, object], ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.id.strip():
-            raise ValueError("measurement discriminator id must be non-empty")
-        parameter_ids = tuple(name for name, _value in self.parameters)
-        if len(set(parameter_ids)) != len(parameter_ids):
-            raise ValueError("measurement discriminator parameter ids must be unique")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,52 +42,34 @@ class MeasurementPulseImplementationKey:
         )
 
 
-def _measurement_template_leaves(
+def _validate_measurement_template(
     pulse_template: PulseProgram,
     key: MeasurementPulseImplementationKey,
-    *,
-    subject: str,
-) -> tuple[PulseLeaf, ...]:
-    """Validate and expose the measurement-specific refinement contract."""
+) -> None:
+    """Validate only the measurement refinement of a canonical pulse program."""
 
-    slots = pulse_template.acquisition_slots
+    scheduled = schedule(pulse_template)
+    slots = scheduled.acquisition_slots
     if len(slots) != 1:
-        msg = f"{subject} pulse template must declare exactly one acquisition slot"
+        msg = "measurement implementation must declare exactly one acquisition slot"
         raise ValueError(msg)
     slot = slots[0]
     if slot.kind is not key.acquisition_kind:
-        msg = f"{subject} acquisition slot kind must match its implementation key"
+        msg = "measurement acquisition slot kind must match its implementation key"
         raise ValueError(msg)
     expected_acquire_signal = AcquireSignal(key.qubit)
     if slot.signal != expected_acquire_signal:
-        msg = f"{subject} acquisition slot signal must match its implementation qubit"
-        raise ValueError(msg)
-
-    leaves = tuple(iter_pulse_leaves(pulse_template.body))
-    event_ids = tuple(leaf.id for leaf in leaves)
-    if len(set(event_ids)) != len(event_ids):
-        msg = f"{subject} pulse template event ids must be unique"
-        raise ValueError(msg)
-
-    acquires = tuple(leaf for leaf in leaves if isinstance(leaf, Acquire))
-    if len(acquires) != 1:
-        msg = f"{subject} pulse template must contain exactly one Acquire instruction"
-        raise ValueError(msg)
-    acquire = acquires[0]
-    if acquire.slot_id != slot.id:
-        msg = f"{subject} Acquire instruction must close its declared acquisition slot"
-        raise ValueError(msg)
-    if acquire.signal != expected_acquire_signal:
-        msg = f"{subject} Acquire signal must match its implementation qubit"
+        msg = "measurement acquisition slot signal must match its implementation qubit"
         raise ValueError(msg)
 
     expected_readout_signal = ReadoutSignal(key.qubit)
     if not any(
-        isinstance(leaf, Play) and leaf.signal == expected_readout_signal
-        for leaf in leaves
+        isinstance(event.instruction, Play)
+        and event.instruction.signal == expected_readout_signal
+        for event in scheduled.events
     ):
         msg = (
-            f"{subject} pulse template must play its implementation qubit "
+            "measurement implementation must play its implementation qubit "
             "readout signal"
         )
         raise ValueError(msg)
@@ -115,9 +79,8 @@ def _measurement_template_leaves(
             repr(owner.value)
             for owner in sorted(foreign_owners, key=lambda item: item.value)
         )
-        msg = f"{subject} contains unauthorized signal owners: {rendered}"
+        msg = f"measurement implementation has unauthorized signal owners: {rendered}"
         raise ValueError(msg)
-    return leaves
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,21 +90,9 @@ class MeasurementPulseImplementation:
     id: PulseImplementationId
     key: MeasurementPulseImplementationKey
     pulse_template: PulseProgram
-    discriminator: MeasurementDiscriminator | None = None
 
     def __post_init__(self) -> None:
-        _measurement_template_leaves(
-            self.pulse_template,
-            self.key,
-            subject="measurement implementation",
-        )
-        if (
-            self.discriminator is not None
-            and self.discriminator.input_kind is not self.key.acquisition_kind
-        ):
-            raise ValueError(
-                "measurement discriminator input kind must match its implementation"
-            )
+        _validate_measurement_template(self.pulse_template, self.key)
 
     @property
     def fingerprint(self) -> str:
@@ -159,4 +110,3 @@ class MeasurementPulseImplementationBinding:
     implementation_id: PulseImplementationId
     implementation_fingerprint: str
     pulse_template: PulseProgram
-    discriminator: MeasurementDiscriminator | None = None

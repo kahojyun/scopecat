@@ -48,25 +48,29 @@ vi.mock("./features/proposals/RunProposals", () => ({
 
 const RUNS = [projectRun("run-1"), projectRun("run-2")];
 let projectEventListener: ((event: Event) => void) | undefined;
+let openEventListener: ((event: Event) => void) | undefined;
 
 beforeEach(() => {
   projectEventListener = undefined;
+  openEventListener = undefined;
   window.history.replaceState(null, "", "#configuration");
   vi.stubGlobal("scrollTo", vi.fn());
   vi.stubGlobal(
     "EventSource",
     class {
       addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
-        if (type !== "project") return;
-        projectEventListener = (event) => {
+        const callback = (event: Event) => {
           if (typeof listener === "function") {
             listener(event);
           } else {
             listener.handleEvent(event);
           }
         };
+        if (type === "open") openEventListener = callback;
+        if (type === "project") projectEventListener = callback;
       }
       removeEventListener(type: string) {
+        if (type === "open") openEventListener = undefined;
         if (type === "project") projectEventListener = undefined;
       }
       close() {}
@@ -172,7 +176,7 @@ describe("config provenance navigation", () => {
     window.history.replaceState(null, "", "/");
     vi.mocked(getRuns).mockResolvedValue({
       items: RUNS.map((run, index) => ({ ...run, sequence: index + 20 })),
-      previousCursor: 20,
+      nextCursor: 20,
     });
     vi.mocked(getOlderRuns).mockResolvedValue({
       items: [
@@ -200,11 +204,11 @@ describe("config provenance navigation", () => {
     vi.mocked(getRuns)
       .mockResolvedValueOnce({
         items: RUNS.map((run, index) => ({ ...run, sequence: index + 20 })),
-        previousCursor: 20,
+        nextCursor: 20,
       })
       .mockResolvedValue({
         items: RUNS.map((run, index) => ({ ...run, sequence: index + 30 })),
-        previousCursor: 30,
+        nextCursor: 30,
       });
     vi.mocked(getOlderRuns).mockResolvedValue({
       items: [{ ...projectRun("run-old"), sequence: 2 }],
@@ -376,6 +380,30 @@ describe("config provenance navigation", () => {
     expect(screen.getByRole("button", { name: "Load more measurements" })).toBeVisible();
   });
 
+  it("refreshes canonical queries whenever SSE connects", async () => {
+    window.history.replaceState(null, "", "/?run=run-1");
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "Recent events" })).toBeVisible();
+    await waitFor(() => expect(openEventListener).toBeDefined());
+    const initialCounts = canonicalQueryCallCounts();
+
+    act(() => {
+      emitSseOpen();
+    });
+    await waitFor(() =>
+      expect(canonicalQueryCallCounts()).toEqual(initialCounts.map((count) => count + 1)),
+    );
+    const connectedCounts = canonicalQueryCallCounts();
+
+    act(() => {
+      emitSseOpen();
+    });
+    await waitFor(() =>
+      expect(canonicalQueryCallCounts()).toEqual(connectedCounts.map((count) => count + 1)),
+    );
+  });
+
   it("labels the bounded run event timeline honestly", async () => {
     window.history.replaceState(null, "", "/?run=run-1");
     vi.mocked(getRunEvents).mockResolvedValue(
@@ -436,4 +464,20 @@ function emitProjectEvent(runId: string, kind: string): void {
       data: JSON.stringify({ event_id: 42, run_id: runId, kind, payload: {} }),
     }),
   );
+}
+
+function emitSseOpen(): void {
+  if (!openEventListener) throw new Error("SSE open listener is not ready");
+  openEventListener(new Event("open"));
+}
+
+function canonicalQueryCallCounts(): number[] {
+  return [
+    vi.mocked(getRuns).mock.calls.length,
+    vi.mocked(getEvents).mock.calls.length,
+    vi.mocked(getRun).mock.calls.length,
+    vi.mocked(getRunEvents).mock.calls.length,
+    vi.mocked(getMeasurementPreview).mock.calls.length,
+    vi.mocked(getRunAnalyses).mock.calls.length,
+  ];
 }

@@ -4,11 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-import scopecat as sc
-from scopecat.authoring._value_refs import (
-    internal_lower_scalar_value_ref,
-)
-from scopecat.graph.relations.model import BinaryScalarExpr, LiteralScalarExpr
 from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
@@ -32,19 +27,3 @@ def test_typed_value_assignability_and_descriptions() -> None:
 
     assert error.value.code == "incompatible_value_type"
     assert error.value.path == ("input", "count")
-
-
-def test_scalar_operations_capture_entity_literal_snapshots() -> None:
-    subject = sc.coordinate("subject", sc.ScalarType(sc.EntityType()))
-    labels = ["data"]
-    entity = sc.EntityRef(id="q0", metadata={"labels": labels})
-
-    expression = subject.eq(entity)
-    labels.append("changed")
-    lowered = internal_lower_scalar_value_ref(expression)
-
-    assert isinstance(lowered, BinaryScalarExpr)
-    assert isinstance(lowered.right, LiteralScalarExpr)
-    captured = lowered.right.value
-    assert isinstance(captured, sc.EntityRef)
-    assert captured.metadata == {"labels": ("data",)}

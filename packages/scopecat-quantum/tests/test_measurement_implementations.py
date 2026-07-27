@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -27,8 +25,6 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     AcquisitionSlot,
     Constant,
-    Delay,
-    DriveSignal,
     Play,
     PulseProgram,
     ReadoutSignal,
@@ -188,109 +184,65 @@ def test_valid_template_contract_is_independent_of_identity_spelling(
 
 @pytest.mark.parametrize("slot_count", [0, 2])
 def test_template_requires_exactly_one_declared_slot(slot_count: int) -> None:
-    pulse_template = _template()
-    slot = pulse_template.acquisition_slots[0]
-    object.__setattr__(pulse_template, "acquisition_slots", (slot,) * slot_count)
+    signal = AcquireSignal(Q0)
+    slots = tuple(
+        AcquisitionSlot(
+            id=AcquisitionSlotId(f"result-{index}"),
+            kind=AcquisitionKind.INTEGRATED_IQ,
+            signal=signal,
+        )
+        for index in range(slot_count)
+    )
+    pulse_template = PulseProgram(
+        id=PulseProgramId("measurement-template"),
+        body=PulseSequence(
+            (
+                Play(
+                    id=PulseEventId("readout"),
+                    signal=ReadoutSignal(Q0),
+                    envelope=_envelope(),
+                ),
+                *(
+                    Acquire(
+                        id=PulseEventId(f"acquire-{index}"),
+                        signal=signal,
+                        slot_id=slot.id,
+                        duration=Quantity(500, "ns"),
+                    )
+                    for index, slot in enumerate(slots)
+                ),
+            )
+        ),
+        acquisition_slots=slots,
+    )
 
     with pytest.raises(ValueError, match="exactly one acquisition slot"):
         _implementation(pulse_template=pulse_template)
 
 
 def test_template_slot_signal_must_match_key_qubit() -> None:
-    pulse_template = _template()
-    slot = pulse_template.acquisition_slots[0]
-    object.__setattr__(slot, "signal", AcquireSignal(Q1))
-
     with pytest.raises(ValueError, match="slot signal must match"):
-        _implementation(pulse_template=pulse_template)
-
-
-@pytest.mark.parametrize("acquire_count", [0, 2])
-def test_template_requires_exactly_one_acquire(acquire_count: int) -> None:
-    pulse_template = _template()
-    readout, acquire = cast("PulseParallel", pulse_template.body).branches
-    acquires = tuple(
-        Acquire(
-            id=PulseEventId(f"acquire-{index}"),
-            signal=cast("Acquire", acquire).signal,
-            slot_id=cast("Acquire", acquire).slot_id,
-            duration=cast("Acquire", acquire).duration,
-        )
-        for index in range(acquire_count)
-    )
-    object.__setattr__(pulse_template, "body", PulseSequence((readout, *acquires)))
-
-    with pytest.raises(ValueError, match="exactly one Acquire"):
-        _implementation(pulse_template=pulse_template)
-
-
-def test_template_acquire_must_close_declared_slot() -> None:
-    pulse_template = _template()
-    acquire = cast("PulseParallel", pulse_template.body).branches[1]
-    object.__setattr__(acquire, "slot_id", AcquisitionSlotId("other"))
-
-    with pytest.raises(ValueError, match="close its declared acquisition slot"):
-        _implementation(pulse_template=pulse_template)
-
-
-def test_template_acquire_signal_must_match_key_qubit() -> None:
-    pulse_template = _template()
-    acquire = cast("PulseParallel", pulse_template.body).branches[1]
-    object.__setattr__(acquire, "signal", AcquireSignal(Q1))
-
-    with pytest.raises(ValueError, match="Acquire signal must match"):
-        _implementation(pulse_template=pulse_template)
+        _implementation(pulse_template=_template(qubit=Q1))
 
 
 def test_template_requires_matching_readout_play() -> None:
-    pulse_template = _template()
-    readout, acquire = cast("PulseParallel", pulse_template.body).branches
-    object.__setattr__(readout, "signal", ReadoutSignal(Q1))
-
-    with pytest.raises(
-        ValueError, match="play its implementation qubit readout signal"
-    ):
-        _implementation(pulse_template=pulse_template)
-
-    object.__setattr__(
-        pulse_template,
-        "body",
-        PulseSequence(
-            (
-                Delay(PulseEventId("delay"), DriveSignal(Q0), Quantity(5, "ns")),
-                acquire,
-            )
+    slot = AcquisitionSlot(
+        id=AcquisitionSlotId("result"),
+        kind=AcquisitionKind.INTEGRATED_IQ,
+        signal=AcquireSignal(Q0),
+    )
+    pulse_template = PulseProgram(
+        id=PulseProgramId("measurement-template"),
+        body=Acquire(
+            id=PulseEventId("acquire"),
+            signal=slot.signal,
+            slot_id=slot.id,
+            duration=Quantity(500, "ns"),
         ),
+        acquisition_slots=(slot,),
     )
+
     with pytest.raises(
         ValueError, match="play its implementation qubit readout signal"
     ):
         _implementation(pulse_template=pulse_template)
-
-
-@given(duplicate_local_id=st.integers(min_value=0, max_value=10_000))
-def test_template_rejects_duplicate_structural_event_identity(
-    duplicate_local_id: int,
-) -> None:
-    duplicate = PulseEventId(
-        f"event-{duplicate_local_id}",
-        scope=("template",),
-    )
-    pulse_template = _template(
-        readout_event_id=duplicate,
-        acquire_event_id=duplicate,
-    )
-
-    with pytest.raises(ValueError, match="event ids must be unique"):
-        _implementation(pulse_template=pulse_template)
-
-
-def test_template_accepts_same_local_event_id_in_distinct_structural_scopes() -> None:
-    pulse_template = _template(
-        readout_event_id=PulseEventId("event", scope=("readout",)),
-        acquire_event_id=PulseEventId("event", scope=("acquire",)),
-    )
-
-    assert (
-        _implementation(pulse_template=pulse_template).pulse_template is pulse_template
-    )

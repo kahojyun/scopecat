@@ -3,25 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Literal, Protocol
+from typing import Protocol, cast
 
 from pydantic import JsonValue
 
-from scopecat.execution.events import TransitionRecorder
+from scopecat.execution.effects.journaled import JournaledEffectBoundary
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
 from scopecat.measurements.projection import ProjectedMeasurementDataset
-from scopecat.records.execution_journal import ExecutionStage, ExecutionTransition
+from scopecat.records.execution_journal import ExecutionStage
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat.sdk.journal import commit_transition as _commit_transition
-from scopecat.sdk.runtime_problems import problem_from_exception, runtime_problem
+from scopecat.sdk.journal import ExecutionJournal
 
 
 class _DatasetOperation(Protocol):
@@ -35,7 +34,7 @@ class _DatasetOperation(Protocol):
 def append_measurement_dataset(
     dataset: ProjectedMeasurementDataset,
     writer: MeasurementDatasetWriter,
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt | None:
     """Append one contiguous projected point range."""
 
@@ -60,7 +59,7 @@ def append_measurement_dataset(
             "append_content_hash": append.content_hash,
         },
         invoke=lambda: writer.append(append),
-        recorder=recorder,
+        journal=journal,
     )
 
 
@@ -71,7 +70,7 @@ def seal_measurement_dataset(
     point_count: int,
     append_content_hashes: tuple[str, ...],
     writer: MeasurementDatasetWriter,
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt:
     """Seal the dataset after all admitted point ranges have been appended."""
 
@@ -93,7 +92,7 @@ def seal_measurement_dataset(
             "dataset_content_hash": seal.dataset_content_hash,
         },
         invoke=lambda: writer.seal(seal),
-        recorder=recorder,
+        journal=journal,
     )
 
 
@@ -103,177 +102,115 @@ def _record_operation(
     expected_hash: str,
     stage: ExecutionStage,
     evidence: dict[str, JsonValue],
-    invoke: Callable[[], object],
-    recorder: TransitionRecorder,
+    invoke: Callable[[], MeasurementDatasetReceipt],
+    journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt:
-    started = _transition(
-        operation,
+    boundary = JournaledEffectBoundary(run_id=operation.run_id, journal=journal)
+    started = boundary.entry(
+        operation_id=operation.operation_id,
         stage=stage,
+        effect="persistence",
         state="started",
         evidence=evidence,
     )
+    invoked = False
+
+    def invoke_once() -> MeasurementDatasetReceipt:
+        nonlocal invoked
+        result = invoke()
+        invoked = True
+        return result
+
     try:
-        recorder.commit(started)
+        receipt = cast(
+            "MeasurementDatasetReceipt",
+            boundary.invoke(
+                started,
+                invoke_once,
+                unknown_code="measurement_dataset_operation_raised",
+                unknown_message="measurement dataset writer raised",
+                phase=ProblemPhase.PERSISTENCE,
+            ),
+        )
     except Exception as error:
         raise _error(
             operation,
             problems=(
-                _problem(
-                    operation,
+                boundary.problem_from_exception(
                     "measurement_dataset_intent_persistence_failed",
                     "failed to persist measurement dataset intent",
                     error,
+                    operation_id=operation.operation_id,
+                    phase=ProblemPhase.PERSISTENCE,
                 ),
             ),
             receipt=None,
             uncertain=False,
         ) from error
-    try:
-        raw_receipt = invoke()
-    except Exception as error:
-        problem = _problem(
-            operation,
-            "measurement_dataset_operation_raised",
-            "measurement dataset writer raised",
-            error,
-        )
-        _append_unknown(recorder, started, operation, stage, (problem,), None)
+    if boundary.interruption is not None:
+        raise boundary.interruption
+    if not invoked:
         raise _error(
             operation,
-            problems=(problem,),
+            problems=tuple(boundary.problems),
             receipt=None,
             uncertain=True,
-        ) from error
-    except BaseException:
-        problem = runtime_problem(
-            "measurement_dataset_operation_interrupted",
-            "measurement dataset operation was interrupted",
-            run_id=operation.run_id,
-            operation_id=operation.operation_id,
-            phase=ProblemPhase.PERSISTENCE,
         )
-        _append_unknown(recorder, started, operation, stage, (problem,), None)
-        raise
-    receipt: MeasurementDatasetReceipt | None = None
-    try:
-        if not isinstance(raw_receipt, MeasurementDatasetReceipt):
-            raise TypeError("measurement writer must return MeasurementDatasetReceipt")
-        receipt = MeasurementDatasetReceipt.model_validate(
-            raw_receipt.model_dump(mode="json")
-        )
-        if (
-            receipt.operation_id != operation.operation_id
-            or receipt.dataset_content_hash != expected_hash
-        ):
-            raise ValueError("measurement dataset receipt does not correlate")
-    except Exception as error:
-        problem = runtime_problem(
+    if (
+        receipt.operation_id != operation.operation_id
+        or receipt.dataset_content_hash != expected_hash
+    ):
+        problem = boundary.problem(
             "measurement_dataset_receipt_invalid",
             "measurement dataset writer returned an invalid receipt",
-            run_id=operation.run_id,
             operation_id=operation.operation_id,
             phase=ProblemPhase.PERSISTENCE,
-            details={
-                "error_type": f"{type(error).__module__}.{type(error).__qualname__}"
-            },
         )
-        _append_unknown(recorder, started, operation, stage, (problem,), receipt)
+        boundary.commit_best_effort(
+            started.model_copy(
+                update={
+                    "state": "unknown",
+                    "problems": (problem,),
+                    "evidence": {
+                        **evidence,
+                        "receipt": receipt.model_dump(mode="json"),
+                    },
+                }
+            )
+        )
         raise _error(
             operation,
             problems=(problem,),
             receipt=receipt,
             uncertain=True,
-        ) from error
-    completed = _transition(
-        operation,
-        stage=stage,
-        state="completed",
-        evidence={
-            **evidence,
-            "receipt": receipt.model_dump(mode="json"),
-        },
+        )
+    completed = started.model_copy(
+        update={
+            "state": "completed",
+            "evidence": {
+                **evidence,
+                "receipt": receipt.model_dump(mode="json"),
+            },
+        }
     )
     try:
-        recorder.commit(completed)
+        boundary.commit_after_effect(completed)
     except Exception as error:
         raise _error(
             operation,
             problems=(
-                _problem(
-                    operation,
+                boundary.problem_from_exception(
                     "measurement_dataset_receipt_persistence_failed",
                     "failed to persist measurement dataset receipt",
                     error,
+                    operation_id=operation.operation_id,
+                    phase=ProblemPhase.PERSISTENCE,
                 ),
             ),
             receipt=receipt,
             uncertain=True,
         ) from error
     return receipt
-
-
-def _transition(
-    operation: _DatasetOperation,
-    *,
-    stage: ExecutionStage,
-    state: Literal["started", "completed", "unknown"],
-    evidence: dict[str, JsonValue],
-    problems: Sequence[Problem] = (),
-) -> ExecutionTransition:
-    return ExecutionTransition(
-        run_id=operation.run_id,
-        operation_id=operation.operation_id,
-        stage=stage,
-        effect="persistence",
-        state=state,
-        point_index=None,
-        problems=tuple(problems),
-        evidence=evidence,
-    )
-
-
-def _append_unknown(
-    recorder: TransitionRecorder,
-    started: ExecutionTransition,
-    operation: _DatasetOperation,
-    stage: ExecutionStage,
-    problems: tuple[Problem, ...],
-    receipt: MeasurementDatasetReceipt | None,
-) -> None:
-    """Best-effort journal-only closure for an uncertain dataset effect."""
-
-    evidence = dict(started.evidence)
-    if receipt is not None:
-        evidence["receipt"] = receipt.model_dump(mode="json")
-    try:
-        _commit_transition(
-            recorder.journal,
-            _transition(
-                operation,
-                stage=stage,
-                state="unknown",
-                evidence=evidence,
-                problems=problems,
-            ),
-        )
-    except Exception:
-        return
-
-
-def _problem(
-    operation: _DatasetOperation,
-    code: str,
-    message: str,
-    error: Exception,
-) -> Problem:
-    return problem_from_exception(
-        code,
-        message,
-        run_id=operation.run_id,
-        operation_id=operation.operation_id,
-        error=error,
-        phase=ProblemPhase.PERSISTENCE,
-    )
 
 
 def _error(

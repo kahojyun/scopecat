@@ -14,35 +14,22 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QuantumProgramId,
     QubitId,
-    RealtimeValueId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.circuits import Measure
+from scopecat_quantum.circuits import CircuitVerificationError, Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
-from scopecat_quantum.measurement_implementations import MeasurementDiscriminator
 from scopecat_quantum.programs import (
-    AuthoredPulseAcquisitionProvenance,
-    AuthoredPulseEventProvenance,
-    Conditional,
     ImplementedGate,
-    ImplementedGatePulseEventProvenance,
+    Parallel,
     PulseBlock,
     QuantumProgramIR,
     QuantumProgramVerificationError,
-    RealtimeBitRef,
-    Repeat,
     Sequence,
-    StructuredPulseBlock,
-    StructuredPulseConditional,
-    StructuredPulseRepeat,
-    StructuredPulseSequence,
     lower_quantum_program_to_pulses,
-    lower_quantum_program_to_structured_pulses,
     verify_quantum_program,
 )
 from scopecat_quantum.pulse_implementations import (
     GatePulseImplementation,
-    GatePulseImplementationBinding,
     GatePulseImplementationKey,
     MeasurementPulseImplementation,
     MeasurementPulseImplementationKey,
@@ -59,6 +46,7 @@ from scopecat_quantum.pulses import (
     Play,
     PulseProgram,
     ReadoutSignal,
+    iter_pulse_leaves,
     schedule,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
@@ -73,6 +61,23 @@ def _gate_call(operation_id: str) -> GateCall:
         gate_id=X90.id,
         qubits=(Q0,),
     )
+
+
+def test_parallel_branches_must_have_disjoint_qubits() -> None:
+    source = QuantumProgramIR(
+        id=QuantumProgramId("parallel"),
+        body=Parallel(
+            (
+                _gate_call("left"),
+                Sequence((_gate_call("right"),)),
+            )
+        ),
+    )
+
+    with pytest.raises(CircuitVerificationError) as error:
+        verify_quantum_program(source, (X90,))
+
+    assert [issue.code for issue in error.value.issues] == ["parallel_qubit_conflict"]
 
 
 def _gate_template(program_id: str = "x90-reference") -> PulseProgram:
@@ -104,15 +109,12 @@ def _drag_template(program_id: str = "x90-drag-candidate") -> PulseProgram:
 
 def _measurement(
     operation_id: str = "measure",
-    *,
-    realtime_bit_id: RealtimeValueId | None = None,
 ) -> Measure:
     return Measure(
         id=CircuitOperationId(operation_id),
         qubit=Q0,
         acquisition_slot_id=AcquisitionSlotId("result"),
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-        realtime_bit_id=realtime_bit_id,
     )
 
 
@@ -163,10 +165,6 @@ def _implementations(
                 id=PulseImplementationId("readout-q0"),
                 key=MeasurementPulseImplementationKey.from_measurement(measurement),
                 pulse_template=_measurement_template(),
-                discriminator=MeasurementDiscriminator(
-                    "binary-iq-threshold",
-                    AcquisitionKind.INTEGRATED_IQ,
-                ),
             ),
         ),
     )
@@ -198,119 +196,35 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
         output_id=PulseProgramId("drag-sweep-point-pulses"),
     )
 
-    assert tuple(operation.id for operation in verified.logical_circuit.operations) == (
+    assert tuple(operation.id for operation in verified.logical_operations) == (
         reference.id,
         candidate_call.id,
         measurement.id,
     )
-    assert tuple(
-        binding.call_id
-        if isinstance(binding, GatePulseImplementationBinding)
-        else binding.measurement_id
-        for binding in lowered.implementation_bindings.bindings
-    ) == (
-        reference.id,
-        measurement.id,
-    )
     assert schedule(lowered.program).duration_seconds == Decimal("40e-9")
-    assert tuple(type(item) for item in lowered.event_provenance) == (
-        # The logical reference and measurement retain implementation provenance.
-        type(lowered.event_provenance[0]),
-        ImplementedGatePulseEventProvenance,
-        type(lowered.event_provenance[0]),
-        type(lowered.event_provenance[0]),
+    leaves = tuple(iter_pulse_leaves(lowered.program.body))
+    assert len(leaves) == 4
+    assert any(
+        leaf.id.scope[:4]
+        == (
+            "programs",
+            source.id.value,
+            "operations",
+            candidate_call.id.value,
+        )
+        for leaf in leaves
     )
-    candidate_origin = lowered.event_provenance[1]
-    assert isinstance(candidate_origin, ImplementedGatePulseEventProvenance)
-    assert candidate_origin.operation_id == candidate_call.id
-    assert candidate_origin.candidate_id == "x90.drag"
-    assert candidate_origin.event_id.scope[:4] == (
-        "programs",
-        source.id.value,
-        "operations",
-        candidate_call.id.value,
+    assert lowered.program.acquisition_slots[0].id == measurement.acquisition_slot_id
+    assert any(
+        leaf.id.scope[:4]
+        == (
+            "programs",
+            source.id.value,
+            "operations",
+            measurement.id.value,
+        )
+        for leaf in leaves
     )
-    assert all(
-        lowered.provenance_for(origin.event_id) is origin
-        for origin in lowered.event_provenance
-    )
-    assert all(
-        lowered.acquisition_provenance_for(origin.acquisition_slot_id) is origin
-        for origin in lowered.acquisition_provenance
-    )
-
-
-def test_structured_pulse_refinement_retains_repeat_and_feedback() -> None:
-    gate = _gate_call("conditional-x90")
-    value_id = RealtimeValueId("result", scope=("measure",))
-    measurement = _measurement(
-        "reset-measurement",
-        realtime_bit_id=value_id,
-    )
-    source = QuantumProgramIR(
-        id=QuantumProgramId("bounded-active-reset"),
-        body=Repeat(
-            Sequence(
-                (
-                    measurement,
-                    Conditional(
-                        RealtimeBitRef(value_id),
-                        equals=1,
-                        when_true=gate,
-                        when_false=Sequence(()),
-                    ),
-                )
-            ),
-            count=2,
-            axis_id="round",
-        ),
-    )
-    verified = verify_quantum_program(source, (X90,))
-
-    refined = lower_quantum_program_to_structured_pulses(
-        verified,
-        _implementations(gate, measurement),
-        output_id=PulseProgramId("bounded-active-reset-pulses"),
-    )
-
-    assert isinstance(refined.body, StructuredPulseRepeat)
-    assert refined.body.count == 2
-    assert refined.body.axis_id == "round"
-    assert isinstance(refined.body.operation, StructuredPulseSequence)
-    measured, branch = refined.body.operation.operations
-    assert isinstance(measured, StructuredPulseBlock)
-    assert isinstance(branch, StructuredPulseConditional)
-    assert branch.condition == RealtimeBitRef(value_id)
-    assert isinstance(branch.when_true, StructuredPulseBlock)
-    assert isinstance(branch.when_false, StructuredPulseSequence)
-    assert len(refined.event_provenance) == 3
-    assert len(refined.acquisition_provenance) == 1
-
-
-def test_realtime_condition_uses_exact_structural_value_identity() -> None:
-    defined = RealtimeValueId("result", scope=("producer",))
-    same_name_elsewhere = RealtimeValueId("result", scope=("other",))
-    source = QuantumProgramIR(
-        id=QuantumProgramId("scoped-feedback"),
-        body=Sequence(
-            (
-                _measurement(realtime_bit_id=defined),
-                Conditional(
-                    RealtimeBitRef(same_name_elsewhere),
-                    equals=1,
-                    when_true=Sequence(()),
-                    when_false=Sequence(()),
-                ),
-            )
-        ),
-    )
-
-    with pytest.raises(QuantumProgramVerificationError) as caught:
-        verify_quantum_program(source, ())
-
-    assert [issue.code for issue in caught.value.issues] == [
-        "quantum_realtime_condition_not_dominated"
-    ]
 
 
 def test_authored_pulse_block_can_own_an_acquisition() -> None:
@@ -330,18 +244,8 @@ def test_authored_pulse_block_can_own_an_acquisition() -> None:
         output_id=PulseProgramId("inline-pulse-lowered"),
     )
 
-    assert lowered.implementation_bindings.bindings == ()
-    assert all(
-        isinstance(item, AuthoredPulseEventProvenance)
-        for item in lowered.event_provenance
-    )
-    [acquisition_origin] = lowered.acquisition_provenance
-    assert isinstance(acquisition_origin, AuthoredPulseAcquisitionProvenance)
-    assert acquisition_origin.source_id == block.id
-    assert acquisition_origin.template_acquisition_slot_id == (
-        template.acquisition_slots[0].id
-    )
-    assert acquisition_origin.acquisition_slot_id.scope[:4] == (
+    [slot] = lowered.program.acquisition_slots
+    assert slot.id.scope[:4] == (
         "programs",
         verified.program.id.value,
         "operations",
@@ -371,9 +275,6 @@ def test_authored_pulse_block_can_bind_a_template_slot_to_a_public_slot() -> Non
     )
 
     assert lowered.program.acquisition_slots[0].id == public_slot
-    [origin] = lowered.acquisition_provenance
-    assert origin.acquisition_slot_id == public_slot
-    assert origin.template_acquisition_slot_id == template_slot
 
 
 def test_pulse_block_rejects_invalid_acquisition_slot_bindings() -> None:

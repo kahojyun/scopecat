@@ -1,29 +1,19 @@
-"""Circuit composition and config-free structural verification.
-
-Circuit IR contains logical operands, typed gate calls, measurement
-declarations, and sequence or parallel composition. It contains no physical
-channels, waveforms, sample rates, products, or record policy. A measurement
-is an acquisition declaration with its own result slot, not a unitary gate.
-Physical meaning enters only through later implementation and target passes.
-"""
+"""Config-free verification of logical circuit operations."""
 
 from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
-from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CircuitId,
     CircuitOperationId,
     GateId,
     QubitId,
-    RealtimeValueId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.gates import (
@@ -38,39 +28,15 @@ from scopecat_quantum.gates import (
 
 @dataclass(frozen=True, slots=True)
 class Measure:
-    """A logical measurement with an optional target-local bit output."""
+    """A logical measurement and its acquisition result."""
 
     id: CircuitOperationId
     qubit: QubitId
     acquisition_slot_id: AcquisitionSlotId
     acquisition_kind: AcquisitionKind
-    realtime_bit_id: RealtimeValueId | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Sequence:
-    """Circuit nodes executed in order."""
-
-    operations: tuple[CircuitNode, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class Parallel:
-    """Circuit branches that may execute concurrently."""
-
-    branches: tuple[CircuitNode, ...]
 
 
 type CircuitOperation = GateCall | Measure
-type CircuitNode = CircuitOperation | Sequence | Parallel
-
-
-@dataclass(frozen=True, slots=True)
-class CircuitProgram:
-    """One closed hardware-independent circuit tree."""
-
-    id: CircuitId
-    body: CircuitNode
 
 
 type CircuitIssuePathItem = str | int
@@ -95,21 +61,19 @@ class CircuitVerificationError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class VerifiedCircuitProgram:
-    """Circuit facts safe for later domain lowering.
+class VerifiedCircuitOperations:
+    """Flat circuit facts safe for implementation materialization.
 
-    ``operations`` is flattened in circuit order. Arguments of verified gate
-    calls are canonicalized into their definition order, so downstream
+    Gate-call arguments are canonicalized into definition order so downstream
     implementation binding does not depend on authoring argument order.
     """
 
-    program: CircuitProgram
+    operations: tuple[CircuitOperation, ...]
     gate_definitions: tuple[GateDefinition, ...]
-    operations: tuple[CircuitOperation, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         definitions, operations = _verified_circuit_components(
-            self.program,
+            self.operations,
             self.gate_definitions,
         )
         object.__setattr__(self, "gate_definitions", definitions)
@@ -125,49 +89,30 @@ class VerifiedCircuitProgram:
         raise KeyError(msg)
 
 
-def iter_circuit_operations(node: CircuitNode) -> Iterator[CircuitOperation]:
-    """Yield leaf operations in deterministic structural order."""
-
-    if isinstance(node, GateCall | Measure):
-        yield node
-        return
-    children = node.operations if isinstance(node, Sequence) else node.branches
-    for child in children:
-        yield from iter_circuit_operations(child)
-
-
-def verify_circuit_program(
-    program: CircuitProgram,
+def verify_circuit_operations(
+    operations: SequenceCollection[CircuitOperation],
     gate_definitions: SequenceCollection[GateDefinition],
-) -> VerifiedCircuitProgram:
-    """Verify a circuit against an exact gate catalog and return its proof.
+) -> VerifiedCircuitOperations:
+    """Verify ordered operations against an exact gate catalog.
 
-    Verification is deliberately config-free and exhaustive: catalog,
-    identity, argument, arity, and parallel-resource checks contribute to one
-    aggregate error instead of stopping at the first malformed leaf.
+    Catalog, identity, argument, and arity checks contribute to one aggregate
+    error instead of stopping at the first malformed operation.
     """
 
-    return VerifiedCircuitProgram(program, tuple(gate_definitions))
+    return VerifiedCircuitOperations(tuple(operations), tuple(gate_definitions))
 
 
 def _verified_circuit_components(
-    program: CircuitProgram,
+    operations: SequenceCollection[CircuitOperation],
     gate_definitions: SequenceCollection[GateDefinition],
 ) -> tuple[tuple[GateDefinition, ...], tuple[CircuitOperation, ...]]:
     """Validate and canonicalize the fields stored by a verified circuit."""
 
     issues: list[CircuitIssue] = []
     catalog = _verify_gate_catalog(gate_definitions, issues)
-    operation_entries_buffer: list[
-        tuple[CircuitOperation, tuple[CircuitIssuePathItem, ...]]
-    ] = []
-    _analyze_circuit_node(
-        program.body,
-        ("body",),
-        issues,
-        operation_entries_buffer,
+    operation_entries = tuple(
+        (operation, ("operations", index)) for index, operation in enumerate(operations)
     )
-    operation_entries = tuple(operation_entries_buffer)
     _verify_operation_identities(operation_entries, issues)
 
     canonical_operations: list[CircuitOperation] = []
@@ -442,60 +387,6 @@ def _argument_matches(
             return False
         return True
     return False
-
-
-def _analyze_circuit_node(
-    node: CircuitNode,
-    path: tuple[CircuitIssuePathItem, ...],
-    issues: list[CircuitIssue],
-    entries: list[tuple[CircuitOperation, tuple[CircuitIssuePathItem, ...]]],
-) -> set[QubitId]:
-    if isinstance(node, GateCall):
-        entries.append((node, path))
-        return set(node.qubits)
-    if isinstance(node, Measure):
-        entries.append((node, path))
-        return {node.qubit}
-    if isinstance(node, Sequence):
-        sequence_touched: set[QubitId] = set()
-        for index, operation in enumerate(node.operations):
-            sequence_touched.update(
-                _analyze_circuit_node(
-                    operation,
-                    (*path, "operations", index),
-                    issues,
-                    entries,
-                )
-            )
-        return sequence_touched
-    branch_qubits: list[set[QubitId]] = []
-    for index, branch in enumerate(node.branches):
-        branch_qubits.append(
-            _analyze_circuit_node(
-                branch,
-                (*path, "branches", index),
-                issues,
-                entries,
-            )
-        )
-    for right_index, right_qubits in enumerate(branch_qubits):
-        for left_index in range(right_index):
-            overlap = branch_qubits[left_index] & right_qubits
-            for qubit in sorted(overlap, key=lambda item: item.value):
-                issues.append(
-                    CircuitIssue(
-                        code="parallel_qubit_conflict",
-                        message=(
-                            f"parallel branches {left_index} and {right_index} "
-                            f"both use qubit {qubit.value!r}"
-                        ),
-                        path=(*path, "branches", right_index),
-                    )
-                )
-    parallel_touched: set[QubitId] = set()
-    for branch in branch_qubits:
-        parallel_touched.update(branch)
-    return parallel_touched
 
 
 def _duplicates[T](values: SequenceCollection[T]) -> set[T]:

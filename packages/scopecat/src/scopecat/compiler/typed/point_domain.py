@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from itertools import product
 from typing import cast
 
@@ -14,43 +14,40 @@ from scopecat.compiler.relations.evaluation import (
 from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
-    RelationPlanVerificationError,
-    verify_relation_plan,
 )
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.graph.relations.model import CellValue, Row
 from scopecat.graph.relations.point_domain import (
+    PointAxes,
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
-    PointDomainExpr,
     PointDomainPath,
     PointDomainShape,
     PointDomainShapeError,
-    PointUnit,
     analyze_point_domain,
     is_point_coordinate_type,
     point_axis_linear_value,
 )
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.kernel.value_types import Entity, Scalar, Table, TableColumn
+from scopecat.kernel.value_types import Entity, Table, TableColumn
 from scopecat.kernel.value_validation import coerce_literal
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
-type CompilerPointDomainExpr = PointDomainExpr[RelationUse[ScalarValueExpr]]
+type CompilerPointAxes = PointAxes[RelationUse[ScalarValueExpr]]
 
 
 @dataclass(frozen=True, slots=True)
 class PointDomain:
-    """One exact algebra value defining an ordered logical point space."""
+    """One exact ordered logical point space."""
 
-    root: CompilerPointDomainExpr
+    axes: CompilerPointAxes
     id: str = "root"
 
     @property
     def value_type(self) -> Table:
-        return analyze_point_domain(self.root).value_type
+        return analyze_point_domain(self.axes).value_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +83,7 @@ class VerifiedPointDomain:
     """A shape-checked exact point domain."""
 
     id: PointDomainId
-    root: CompilerPointDomainExpr
+    axes: CompilerPointAxes
     shape: PointDomainShape
 
     @property
@@ -143,7 +140,7 @@ def verify_point_domain(
 
     domain_id = PointDomainId(program_id=program_id, domain_id=domain.id)
     try:
-        shape = analyze_point_domain(domain.root)
+        shape = analyze_point_domain(domain.axes)
     except PointDomainShapeError as error:
         raise PointDomainVerificationError(
             (
@@ -155,17 +152,16 @@ def verify_point_domain(
             )
         ) from error
     issues: list[PointDomainVerificationIssue] = []
-    for path, axis in _iter_axes(domain.root):
+    for axis_index, axis in enumerate(domain.axes):
         if isinstance(axis.source, PointAxisLinear):
             _verify_center_role(
                 axis.source.center.value,
-                expected_type=axis.value_type,
-                path=(*path, "source", "center"),
+                path=("axes", axis_index, "source", "center"),
                 issues=issues,
             )
     if issues:
         raise PointDomainVerificationError(issues)
-    return VerifiedPointDomain(domain_id, domain.root, shape)
+    return VerifiedPointDomain(domain_id, domain.axes, shape)
 
 
 def materialize_point_domain(
@@ -176,7 +172,7 @@ def materialize_point_domain(
 ) -> MaterializedPointDomain:
     """Materialize the exact domain and assign canonical ordinal identities."""
 
-    rows = _materialize_node(verified.root, params=params, path=())
+    rows = _materialize_axes(verified.axes, params=params)
     normalized_rows: Sequence[Mapping[str, object]] = rows
     if row_normalizer is not None:
         normalized_rows = tuple(row_normalizer(dict(row)) for row in rows)
@@ -195,40 +191,21 @@ def materialize_point_domain(
     return MaterializedPointDomain(verified.id, points)
 
 
-def _iter_axes(
-    root: CompilerPointDomainExpr,
-) -> Iterator[tuple[PointDomainPath, PointAxis[RelationUse[ScalarValueExpr]]]]:
-    if isinstance(root, PointUnit):
-        return
-    if isinstance(root, PointAxis):
-        yield (), root
-        return
-    for index, axis in enumerate(root.factors):
-        yield ("factors", index), axis
-
-
-def _materialize_node(
-    node: CompilerPointDomainExpr,
+def _materialize_axes(
+    axes: CompilerPointAxes,
     *,
     params: ParameterRelationData,
-    path: PointDomainPath,
 ) -> list[Row]:
-    if isinstance(node, PointUnit):
-        return [{}]
-    if isinstance(node, PointAxis):
-        return [
-            {node.id: value} for value in _axis_values(node, params=params, path=path)
-        ]
     factor_rows = tuple(
         [
             {axis.id: value}
             for value in _axis_values(
                 axis,
                 params=params,
-                path=("factors", index),
+                path=("axes", index),
             )
         ]
-        for index, axis in enumerate(node.factors)
+        for index, axis in enumerate(axes)
     )
     return [_merge_rows(group) for group in product(*factor_rows)]
 
@@ -264,19 +241,17 @@ def _axis_values(
 def _verify_center_role(
     value: ScalarValueExpr,
     *,
-    expected_type: Scalar,
     path: PointDomainPath,
     issues: list[PointDomainVerificationIssue],
 ) -> None:
     plan = value.plan
-    row_interface = plan.external_row_interface
-    open_interface = bool(row_interface.arguments) or row_interface.point is not None
+    open_interface = plan.external_point_requirement is not None
     if open_interface:
         issues.append(
             PointDomainVerificationIssue(
-                "point_axis_center_open_row_interface",
+                "point_axis_center_open_point",
                 path,
-                "point-axis center has an unbound external row",
+                "point-axis center depends on the current experiment point",
             )
         )
     if any(
@@ -287,39 +262,6 @@ def _verify_center_role(
                 "point_axis_center_open_input",
                 path,
                 "point-axis center depends on an unresolved input",
-            )
-        )
-    if open_interface:
-        return
-    try:
-        reverified = verify_relation_plan(
-            plan.root,
-            bindings=replace(
-                plan.bindings,
-                point_row=None,
-                row_arguments={},
-            ),
-            expected_type=expected_type,
-        )
-    except RelationPlanVerificationError as error:
-        issues.append(
-            PointDomainVerificationIssue(
-                error.code,
-                (*path, *error.path),
-                error.reason,
-            )
-        )
-        return
-    if (
-        reverified.certified_type != plan.certified_type
-        or reverified.imports != plan.imports
-        or reverified.external_row_interface != plan.external_row_interface
-    ):
-        issues.append(
-            PointDomainVerificationIssue(
-                "point_axis_center_stale_proof",
-                path,
-                "point-axis center proof does not match its closed role",
             )
         )
 
@@ -339,7 +281,7 @@ def _coerce_rows(
 
 
 __all__ = [
-    "CompilerPointDomainExpr",
+    "CompilerPointAxes",
     "MaterializedPoint",
     "MaterializedPointDomain",
     "PointDomain",

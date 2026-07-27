@@ -107,7 +107,7 @@ function configSnapshot({
             id: "drive.frequency",
             value_type: {
               shape: "scalar",
-              atom: { type: "quantity", unit: "GHz" },
+              atom: { type: "quantity", finite: true, unit: "GHz" },
             },
           },
           {
@@ -124,7 +124,7 @@ function configSnapshot({
                 },
                 {
                   id: "readout_frequency",
-                  value_type: { type: "quantity", unit: "GHz" },
+                  value_type: { type: "quantity", finite: true, unit: "GHz" },
                 },
               ],
               primary_key: primaryKey,

@@ -146,18 +146,13 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
     )
 
 
-def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
+def test_projection_emits_complete_run_records() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
-    candidates = list(measurement_value_candidates(scenario, scenario.uses))
     assembled = seal_measurement_values(
         scenario.catalog,
-        candidates,
+        measurement_value_candidates(scenario, scenario.uses),
         points=scenario.points,
     )
-    exposed_candidate_value = candidates[0].value
-    assert isinstance(exposed_candidate_value, Quantity)
-    # Simulate mutation below the frozen public API after sealing copied it.
-    object.__setattr__(exposed_candidate_value, "value", 999.0)
     projection = select_measurement_projection(scenario.catalog, scenario.records)
 
     projected = project_measurement_records(
@@ -175,11 +170,6 @@ def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
     primary = record.observables["primary"]
     assert isinstance(primary, Quantity)
     assert primary.value == 0.0
-
-    object.__setattr__(primary, "value", 777.0)
-    retained_primary = projected.records[0].observables["primary"]
-    assert isinstance(retained_primary, Quantity)
-    assert retained_primary.value == 0.0
 
 
 def test_zero_points_and_no_record_projection_produce_no_measurement_records() -> None:

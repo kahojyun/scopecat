@@ -6,10 +6,8 @@ measurement operations may be composed with authored pulse blocks, while an
 implementation. Refinement binds only the still-abstract operations to resolved
 pulse implementations, then produces the canonical pulse authoring IR.
 
-Pulse refinement has two explicit exits. Straight-line targets receive an
-expanded canonical pulse program; realtime targets receive resolved pulse
-regions while bounded loops and feedback remain structural. Both forms stay
-behind target-owned compile requests.
+Pulse refinement expands the finite source tree into one canonical pulse
+program behind the target-owned compile request.
 """
 
 from __future__ import annotations
@@ -17,30 +15,24 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CircuitId,
     CircuitOperationId,
-    GateId,
-    PulseEventId,
-    PulseImplementationId,
     PulseProgramId,
     QuantumProgramId,
-    RealtimeValueId,
+    QubitId,
 )
 from scopecat_quantum.circuits import (
-    CircuitProgram,
+    CircuitIssue,
+    CircuitVerificationError,
     Measure,
-    VerifiedCircuitProgram,
-    verify_circuit_program,
+    VerifiedCircuitOperations,
+    verify_circuit_operations,
 )
-from scopecat_quantum.circuits import Parallel as CircuitParallel
-from scopecat_quantum.circuits import Sequence as CircuitSequence
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.measurement_implementations import (
-    MeasurementDiscriminator,
     MeasurementPulseImplementationBinding,
 )
 from scopecat_quantum.pulse_implementations import (
@@ -101,43 +93,19 @@ class Parallel:
 
 
 @dataclass(frozen=True, slots=True)
-class RealtimeBitRef:
-    """An exact use of one target-local discriminated SSA value."""
-
-    value_id: RealtimeValueId
-
-
-@dataclass(frozen=True, slots=True)
 class Repeat:
-    """A finite loop retained for target-aware lowering."""
+    """A finite repeated subtree."""
 
     operation: QuantumNode
     count: int
-    axis_id: str | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.count, bool) or self.count < 0:
             raise ValueError("quantum repeat count must be a non-negative integer")
-        if self.axis_id is not None and not self.axis_id.strip():
-            raise ValueError("quantum repeat axis id must be non-empty")
-
-
-@dataclass(frozen=True, slots=True)
-class Conditional:
-    """Measurement-conditioned control with two result-free branches."""
-
-    condition: RealtimeBitRef
-    equals: int
-    when_true: QuantumNode
-    when_false: QuantumNode
-
-    def __post_init__(self) -> None:
-        if self.equals not in (0, 1):
-            raise ValueError("quantum realtime conditions compare against one bit")
 
 
 type QuantumOperation = GateCall | Measure | PulseBlock | ImplementedGate
-type QuantumNode = QuantumOperation | Sequence | Parallel | Repeat | Conditional
+type QuantumNode = QuantumOperation | Sequence | Parallel | Repeat
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,21 +156,11 @@ class QuantumProgramVerificationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class VerifiedQuantumProgram:
-    """Mixed source plus verified logical and unresolved-circuit projections."""
+    """Mixed source plus flat logical operations and its unresolved proof."""
 
     program: QuantumProgramIR
-    gate_definitions: tuple[GateDefinition, ...]
-    logical_circuit: VerifiedCircuitProgram = field(init=False)
-    unresolved_circuit: VerifiedCircuitProgram = field(init=False)
-
-    def __post_init__(self) -> None:
-        definitions, logical, unresolved = _verified_quantum_program_components(
-            self.program,
-            self.gate_definitions,
-        )
-        object.__setattr__(self, "gate_definitions", definitions)
-        object.__setattr__(self, "logical_circuit", logical)
-        object.__setattr__(self, "unresolved_circuit", unresolved)
+    logical_operations: tuple[GateCall | Measure, ...]
+    unresolved: VerifiedCircuitOperations
 
     @property
     def operations(self) -> tuple[QuantumOperation, ...]:
@@ -222,10 +180,6 @@ def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
         if node.count:
             yield from iter_quantum_operations(node.operation)
         return
-    if isinstance(node, Conditional):
-        yield from iter_quantum_operations(node.when_true)
-        yield from iter_quantum_operations(node.when_false)
-        return
     children = node.operations if isinstance(node, Sequence) else node.branches
     for child in children:
         yield from iter_quantum_operations(child)
@@ -235,39 +189,26 @@ def verify_quantum_program(
     program: QuantumProgramIR,
     gate_definitions: SequenceCollection[GateDefinition],
 ) -> VerifiedQuantumProgram:
-    """Verify the mixed source and both logical circuit projections."""
+    """Verify the mixed source and its logical operations."""
 
-    return VerifiedQuantumProgram(program, tuple(gate_definitions))
+    logical, unresolved = _verified_quantum_program_components(
+        program,
+        gate_definitions,
+    )
+    return VerifiedQuantumProgram(program, logical.operations, unresolved)
 
 
 def _verified_quantum_program_components(
     program: QuantumProgramIR,
     gate_definitions: SequenceCollection[GateDefinition],
 ) -> tuple[
-    tuple[GateDefinition, ...],
-    VerifiedCircuitProgram,
-    VerifiedCircuitProgram,
+    VerifiedCircuitOperations,
+    VerifiedCircuitOperations,
 ]:
     """Validate and canonicalize the fields stored by a verified program."""
 
     issues: list[QuantumProgramIssue] = []
     operation_entries = tuple(_iter_operations_with_paths(program.body, ("body",)))
-    _verify_realtime_flow(program.body, _RealtimeFlow(), ("body",), issues)
-    realtime_value_ids = tuple(
-        value_id
-        for operation, _path in operation_entries
-        if (value_id := _defined_realtime_value(operation)) is not None
-    )
-    for value_id, count in Counter(realtime_value_ids).items():
-        if count > 1:
-            issues.append(
-                QuantumProgramIssue(
-                    code="quantum_realtime_value_duplicate",
-                    message=(
-                        f"realtime value {value_id.value!r} has multiple definitions"
-                    ),
-                )
-            )
     operation_ids = tuple(
         _operation_id(operation) for operation, _path in operation_entries
     )
@@ -348,26 +289,34 @@ def _verified_quantum_program_components(
     if issues:
         raise QuantumProgramVerificationError(issues)
 
+    parallel_issues: list[CircuitIssue] = []
+    _verify_parallel_qubits(program.body, ("body",), parallel_issues)
+
     definitions = tuple(gate_definitions)
-    logical_circuit = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId(program.id.value),
-            body=_circuit_projection(program.body, include_implemented=True),
+    try:
+        logical = verify_circuit_operations(
+            tuple(
+                operation.call if isinstance(operation, ImplementedGate) else operation
+                for operation, _path in operation_entries
+                if not isinstance(operation, PulseBlock)
+            ),
+            definitions,
+        )
+    except CircuitVerificationError as error:
+        if parallel_issues:
+            raise CircuitVerificationError((*parallel_issues, *error.issues)) from None
+        raise
+    if parallel_issues:
+        raise CircuitVerificationError(parallel_issues)
+    unresolved = verify_circuit_operations(
+        tuple(
+            operation
+            for operation, _path in operation_entries
+            if isinstance(operation, GateCall | Measure)
         ),
         definitions,
     )
-    unresolved_circuit = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId(program.id.value),
-            body=_circuit_projection(program.body, include_implemented=False),
-        ),
-        definitions,
-    )
-    return (
-        logical_circuit.gate_definitions,
-        logical_circuit,
-        unresolved_circuit,
-    )
+    return logical, unresolved
 
 
 def _verify_pulse_template(
@@ -482,14 +431,6 @@ def _operation_id(operation: QuantumOperation) -> CircuitOperationId:
     return operation.id
 
 
-def _defined_realtime_value(
-    operation: QuantumOperation,
-) -> RealtimeValueId | None:
-    if isinstance(operation, Measure):
-        return operation.realtime_bit_id
-    return None
-
-
 def _iter_operations_with_paths(
     node: QuantumNode,
     path: tuple[QuantumIssuePathItem, ...],
@@ -514,456 +455,86 @@ def _iter_operations_with_paths(
                 (*path, "branches", index),
             )
         return
-    if isinstance(node, Repeat):
-        if node.count:
-            yield from _iter_operations_with_paths(
-                node.operation,
-                (*path, "operation"),
-            )
-        return
-    for branch_name, branch in (
-        ("when_true", node.when_true),
-        ("when_false", node.when_false),
-    ):
+    if node.count:
         yield from _iter_operations_with_paths(
-            branch,
-            (*path, branch_name),
+            node.operation,
+            (*path, "operation"),
         )
 
 
-@dataclass(frozen=True, slots=True)
-class _RealtimeFlow:
-    values: tuple[RealtimeValueId, ...] = ()
-
-
-def _verify_realtime_flow(
+def _verify_parallel_qubits(
     node: QuantumNode,
-    flow: _RealtimeFlow,
     path: tuple[QuantumIssuePathItem, ...],
-    issues: list[QuantumProgramIssue],
-) -> _RealtimeFlow:
-    """Verify exact measurement-bit dominance through structured control flow."""
-
+    issues: list[CircuitIssue],
+) -> set[QubitId]:
+    if isinstance(node, GateCall):
+        return set(node.qubits)
     if isinstance(node, Measure):
-        return (
-            flow
-            if node.realtime_bit_id is None
-            else replace(flow, values=(*flow.values, node.realtime_bit_id))
-        )
-    if isinstance(node, GateCall | PulseBlock | ImplementedGate):
-        return flow
+        return {node.qubit}
+    if isinstance(node, PulseBlock):
+        return set()
+    if isinstance(node, ImplementedGate):
+        return set(node.call.qubits)
     if isinstance(node, Sequence):
-        selected = flow
-        for index, operation in enumerate(node.operations):
-            selected = _verify_realtime_flow(
-                operation,
-                selected,
-                (*path, "operations", index),
-                issues,
+        touched: set[QubitId] = set()
+        for index, child in enumerate(node.operations):
+            touched.update(
+                _verify_parallel_qubits(
+                    child,
+                    (*path, "operations", index),
+                    issues,
+                )
             )
-        return selected
+        return touched
     if isinstance(node, Parallel):
-        branches = tuple(
-            _verify_realtime_flow(
+        branch_qubits = tuple(
+            _verify_parallel_qubits(
                 branch,
-                flow,
                 (*path, "branches", index),
                 issues,
             )
             for index, branch in enumerate(node.branches)
         )
-        return _RealtimeFlow(
-            values=tuple(
-                dict.fromkeys(value for branch in branches for value in branch.values)
-            ),
-        )
-    if isinstance(node, Repeat):
-        if not node.count:
-            return flow
-        return _verify_realtime_flow(
-            node.operation,
-            flow,
-            (*path, "operation"),
-            issues,
-        )
-
-    _require_realtime_value(
-        node.condition,
-        flow,
-        (*path, "condition"),
-        issues,
-        code="quantum_realtime_condition_not_dominated",
-    )
-    when_true = _verify_realtime_flow(
-        node.when_true,
-        flow,
-        (*path, "when_true"),
-        issues,
-    )
-    when_false = _verify_realtime_flow(
-        node.when_false,
-        flow,
-        (*path, "when_false"),
+        for right_index, right_qubits in enumerate(branch_qubits):
+            for left_index in range(right_index):
+                for qubit in sorted(
+                    branch_qubits[left_index] & right_qubits,
+                    key=lambda item: item.value,
+                ):
+                    issues.append(
+                        CircuitIssue(
+                            code="parallel_qubit_conflict",
+                            message=(
+                                f"parallel branches {left_index} and {right_index} "
+                                f"both use qubit {qubit.value!r}"
+                            ),
+                            path=(*path, "branches", right_index),
+                        )
+                    )
+        parallel_touched: set[QubitId] = set()
+        for branch in branch_qubits:
+            parallel_touched.update(branch)
+        return parallel_touched
+    if node.count == 0:
+        return set()
+    return _verify_parallel_qubits(
+        node.operation,
+        (*path, "operation"),
         issues,
     )
-    false_values = set(when_false.values)
-    return _RealtimeFlow(
-        values=tuple(value for value in when_true.values if value in false_values),
-    )
-
-
-def _require_realtime_value(
-    value: RealtimeBitRef,
-    flow: _RealtimeFlow,
-    path: tuple[QuantumIssuePathItem, ...],
-    issues: list[QuantumProgramIssue],
-    *,
-    code: str = "quantum_realtime_value_not_dominated",
-) -> None:
-    if value.value_id in flow.values:
-        return
-    issues.append(
-        QuantumProgramIssue(
-            code=code,
-            message=(
-                f"realtime value {value.value_id.value!r} must be defined on every "
-                "preceding control path"
-            ),
-            path=path,
-        )
-    )
-
-
-def _circuit_projection(
-    node: QuantumNode,
-    *,
-    include_implemented: bool,
-) -> GateCall | Measure | CircuitSequence | CircuitParallel:
-    if isinstance(node, GateCall | Measure):
-        return node
-    if isinstance(node, PulseBlock):
-        return CircuitSequence(())
-    if isinstance(node, ImplementedGate):
-        return node.call if include_implemented else CircuitSequence(())
-    if isinstance(node, Sequence):
-        return CircuitSequence(
-            tuple(
-                _circuit_projection(child, include_implemented=include_implemented)
-                for child in node.operations
-            )
-        )
-    if isinstance(node, Parallel):
-        return CircuitParallel(
-            tuple(
-                _circuit_projection(child, include_implemented=include_implemented)
-                for child in node.branches
-            )
-        )
-    if isinstance(node, Repeat):
-        if not node.count:
-            return CircuitSequence(())
-        return _circuit_projection(
-            node.operation,
-            include_implemented=include_implemented,
-        )
-    return CircuitSequence(
-        (
-            _circuit_projection(
-                node.when_true,
-                include_implemented=include_implemented,
-            ),
-            _circuit_projection(
-                node.when_false,
-                include_implemented=include_implemented,
-            ),
-        )
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class CircuitPulseEventProvenance:
-    """Exact circuit origin of one instantiated pulse event."""
-
-    event_id: PulseEventId
-    operation_id: CircuitOperationId
-    implementation_id: PulseImplementationId
-    implementation_fingerprint: str
-    template_program_id: PulseProgramId
-    template_event_id: PulseEventId
-    template_path: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "template_path", tuple(self.template_path))
-
-
-@dataclass(frozen=True, slots=True)
-class CircuitPulseAcquisitionProvenance:
-    """Exact circuit origin of one instantiated acquisition."""
-
-    acquisition_slot_id: AcquisitionSlotId
-    measurement_id: CircuitOperationId
-    implementation_id: PulseImplementationId
-    implementation_fingerprint: str
-    template_program_id: PulseProgramId
-    template_acquisition_slot_id: AcquisitionSlotId
-    acquire_event_id: PulseEventId
-
-
-@dataclass(frozen=True, slots=True)
-class AuthoredPulseEventProvenance:
-    """Origin of one event authored directly as a pulse block."""
-
-    event_id: PulseEventId
-    source_id: CircuitOperationId
-    template_program_id: PulseProgramId
-    template_event_id: PulseEventId
-    template_path: tuple[int, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ImplementedGatePulseEventProvenance:
-    """Origin of one event from an explicitly implemented gate occurrence."""
-
-    event_id: PulseEventId
-    operation_id: CircuitOperationId
-    gate_id: GateId
-    candidate_id: str | None
-    template_program_id: PulseProgramId
-    template_event_id: PulseEventId
-    template_path: tuple[int, ...]
-
-
-type QuantumPulseEventProvenance = (
-    CircuitPulseEventProvenance
-    | AuthoredPulseEventProvenance
-    | ImplementedGatePulseEventProvenance
-)
-
-
-@dataclass(frozen=True, slots=True)
-class AuthoredPulseAcquisitionProvenance:
-    """Template-to-output mapping for one directly authored acquisition."""
-
-    acquisition_slot_id: AcquisitionSlotId
-    source_id: CircuitOperationId
-    template_program_id: PulseProgramId
-    template_acquisition_slot_id: AcquisitionSlotId
-    acquire_event_id: PulseEventId
-
-
-type QuantumPulseAcquisitionProvenance = (
-    CircuitPulseAcquisitionProvenance | AuthoredPulseAcquisitionProvenance
-)
-
-
-@dataclass(frozen=True, slots=True)
-class StructuredPulseBlock:
-    """One resolved pulse region inside retained control flow."""
-
-    source_id: CircuitOperationId
-    program: PulseProgram
-    realtime_bit_outputs: tuple[RealtimeBitOutput, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class RealtimeBitOutput:
-    """One exact acquisition-to-discriminator definition in a pulse region."""
-
-    value_id: RealtimeValueId
-    acquisition_slot_id: AcquisitionSlotId
-    discriminator: MeasurementDiscriminator
-
-
-@dataclass(frozen=True, slots=True)
-class StructuredPulseSequence:
-    operations: tuple[StructuredPulseNode, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class StructuredPulseParallel:
-    branches: tuple[StructuredPulseNode, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class StructuredPulseRepeat:
-    operation: StructuredPulseNode
-    count: int
-    axis_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class StructuredPulseConditional:
-    condition: RealtimeBitRef
-    equals: int
-    when_true: StructuredPulseNode
-    when_false: StructuredPulseNode
-
-
-type StructuredPulseNode = (
-    StructuredPulseBlock
-    | StructuredPulseSequence
-    | StructuredPulseParallel
-    | StructuredPulseRepeat
-    | StructuredPulseConditional
-)
-
-
-@dataclass(frozen=True, slots=True)
-class StructuredQuantumPulseProgram:
-    """Resolved pulse regions with bounded loops and feedback retained."""
-
-    source_program_id: QuantumProgramId
-    body: StructuredPulseNode
-    implementation_bindings: PulseImplementationBindings
-    event_provenance: tuple[QuantumPulseEventProvenance, ...]
-    acquisition_provenance: tuple[QuantumPulseAcquisitionProvenance, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class LoweredQuantumPulseProgram:
-    """Pulse refinement with mixed-source event and result provenance.
+    """Canonical pulse program produced by quantum lowering."""
 
-    :func:`lower_quantum_program_to_pulses` owns total provenance coverage and
-    implementation congruence for instances of this internal lowering snapshot.
-    """
-
-    source_program_id: QuantumProgramId
     program: PulseProgram
-    implementation_bindings: PulseImplementationBindings
-    event_provenance: tuple[QuantumPulseEventProvenance, ...]
-    acquisition_provenance: tuple[QuantumPulseAcquisitionProvenance, ...]
-
-    def provenance_for(
-        self,
-        event_id: PulseEventId,
-    ) -> QuantumPulseEventProvenance:
-        """Return the exact calibrated or authored origin of one pulse event."""
-
-        for provenance in self.event_provenance:
-            if provenance.event_id == event_id:
-                return provenance
-        msg = f"pulse event {event_id!r} does not belong to this quantum program"
-        raise KeyError(msg)
-
-    def acquisition_provenance_for(
-        self,
-        slot_id: AcquisitionSlotId,
-    ) -> QuantumPulseAcquisitionProvenance:
-        """Return the exact source origin of one acquisition slot."""
-
-        for provenance in self.acquisition_provenance:
-            if provenance.acquisition_slot_id == slot_id:
-                return provenance
-        msg = f"acquisition slot {slot_id!r} does not belong to this quantum program"
-        raise KeyError(msg)
-
-
-class RealtimeControlFlowUnsupportedError(ValueError):
-    """A straight-line pulse backend received measurement-conditioned control."""
-
-
-@dataclass(frozen=True, slots=True)
-class _EventInstantiation:
-    event_id: PulseEventId
-    template_event_id: PulseEventId
-    template_path: tuple[int, ...]
-    instruction: PulseInstruction
-
-
-@dataclass(frozen=True, slots=True)
-class _SlotInstantiation:
-    acquisition_slot_id: AcquisitionSlotId
-    template_acquisition_slot_id: AcquisitionSlotId
 
 
 @dataclass(frozen=True, slots=True)
 class _InstantiatedTemplate:
     body: PulseInstruction
     acquisition_slots: tuple[AcquisitionSlot, ...]
-    events: tuple[_EventInstantiation, ...]
-    slots: tuple[_SlotInstantiation, ...]
-
-
-def lower_quantum_program_to_structured_pulses(
-    program: VerifiedQuantumProgram,
-    implementations: ResolvedPulseImplementations,
-    *,
-    output_id: PulseProgramId,
-) -> StructuredQuantumPulseProgram:
-    """Resolve pulse implementations while retaining bounded control flow."""
-
-    bindings = bind_pulse_implementations(
-        program.unresolved_circuit,
-        implementations,
-    )
-    event_provenance: list[QuantumPulseEventProvenance] = []
-    acquisition_provenance: list[QuantumPulseAcquisitionProvenance] = []
-
-    def refine(node: QuantumNode) -> StructuredPulseNode:
-        if isinstance(node, Sequence):
-            return StructuredPulseSequence(
-                tuple(refine(item) for item in node.operations)
-            )
-        if isinstance(node, Parallel):
-            return StructuredPulseParallel(
-                tuple(refine(item) for item in node.branches)
-            )
-        if isinstance(node, Repeat):
-            return StructuredPulseRepeat(
-                refine(node.operation),
-                count=node.count,
-                axis_id=node.axis_id,
-            )
-        if isinstance(node, Conditional):
-            return StructuredPulseConditional(
-                condition=node.condition,
-                equals=node.equals,
-                when_true=refine(node.when_true),
-                when_false=refine(node.when_false),
-            )
-        acquisition_slots: list[AcquisitionSlot] = []
-        body = _lower_leaf(
-            node,
-            source_program_id=program.program.id,
-            bindings=bindings,
-            event_provenance=event_provenance,
-            acquisition_slots=acquisition_slots,
-            acquisition_provenance=acquisition_provenance,
-            occurrence_scope=(),
-        )
-        source_id = _operation_id(node)
-        realtime_bit_outputs: tuple[RealtimeBitOutput, ...] = ()
-        if isinstance(node, Measure) and node.realtime_bit_id is not None:
-            binding = bindings.binding_for(node.id)
-            assert isinstance(  # noqa: S101
-                binding, MeasurementPulseImplementationBinding
-            )
-            assert binding.discriminator is not None  # noqa: S101
-            [output_slot] = acquisition_slots
-            realtime_bit_outputs = (
-                RealtimeBitOutput(
-                    value_id=node.realtime_bit_id,
-                    acquisition_slot_id=output_slot.id,
-                    discriminator=binding.discriminator,
-                ),
-            )
-        return StructuredPulseBlock(
-            source_id=source_id,
-            program=PulseProgram(
-                id=PulseProgramId(f"{output_id.value}.blocks.{source_id.value}"),
-                body=body,
-                acquisition_slots=tuple(acquisition_slots),
-            ),
-            realtime_bit_outputs=realtime_bit_outputs,
-        )
-
-    return StructuredQuantumPulseProgram(
-        source_program_id=program.program.id,
-        body=refine(program.program.body),
-        implementation_bindings=bindings,
-        event_provenance=tuple(event_provenance),
-        acquisition_provenance=tuple(acquisition_provenance),
-    )
 
 
 def lower_quantum_program_to_pulses(
@@ -975,31 +546,23 @@ def lower_quantum_program_to_pulses(
     """Resolve abstract leaves and lower one mixed program to pulse IR."""
 
     bindings = bind_pulse_implementations(
-        program.unresolved_circuit,
+        program.unresolved,
         implementations,
     )
-    event_provenance: list[QuantumPulseEventProvenance] = []
-    acquisition_provenance: list[QuantumPulseAcquisitionProvenance] = []
     acquisition_slots: list[AcquisitionSlot] = []
     body = _lower_node(
         program.program.body,
         source_program_id=program.program.id,
         bindings=bindings,
-        event_provenance=event_provenance,
         acquisition_slots=acquisition_slots,
-        acquisition_provenance=acquisition_provenance,
         occurrence_scope=(),
     )
     return LoweredQuantumPulseProgram(
-        source_program_id=program.program.id,
         program=PulseProgram(
             id=output_id,
             body=body,
             acquisition_slots=tuple(acquisition_slots),
         ),
-        implementation_bindings=bindings,
-        event_provenance=tuple(event_provenance),
-        acquisition_provenance=tuple(acquisition_provenance),
     )
 
 
@@ -1008,9 +571,7 @@ def _lower_node(
     *,
     source_program_id: QuantumProgramId,
     bindings: PulseImplementationBindings,
-    event_provenance: list[QuantumPulseEventProvenance],
     acquisition_slots: list[AcquisitionSlot],
-    acquisition_provenance: list[QuantumPulseAcquisitionProvenance],
     occurrence_scope: tuple[str, ...],
 ) -> PulseInstruction:
     if isinstance(node, Sequence):
@@ -1020,9 +581,7 @@ def _lower_node(
                     child,
                     source_program_id=source_program_id,
                     bindings=bindings,
-                    event_provenance=event_provenance,
                     acquisition_slots=acquisition_slots,
-                    acquisition_provenance=acquisition_provenance,
                     occurrence_scope=occurrence_scope,
                 )
                 for child in node.operations
@@ -1035,9 +594,7 @@ def _lower_node(
                     child,
                     source_program_id=source_program_id,
                     bindings=bindings,
-                    event_provenance=event_provenance,
                     acquisition_slots=acquisition_slots,
-                    acquisition_provenance=acquisition_provenance,
                     occurrence_scope=occurrence_scope,
                 )
                 for child in node.branches
@@ -1050,25 +607,17 @@ def _lower_node(
                     node.operation,
                     source_program_id=source_program_id,
                     bindings=bindings,
-                    event_provenance=event_provenance,
                     acquisition_slots=acquisition_slots,
-                    acquisition_provenance=acquisition_provenance,
                     occurrence_scope=(*occurrence_scope, f"repeat[{index}]"),
                 )
                 for index in range(node.count)
             )
         )
-    if isinstance(node, Conditional):
-        raise RealtimeControlFlowUnsupportedError(
-            "measurement-conditioned programs require a realtime target backend"
-        )
     return _lower_leaf(
         node,
         source_program_id=source_program_id,
         bindings=bindings,
-        event_provenance=event_provenance,
         acquisition_slots=acquisition_slots,
-        acquisition_provenance=acquisition_provenance,
         occurrence_scope=occurrence_scope,
     )
 
@@ -1078,9 +627,7 @@ def _lower_leaf(
     *,
     source_program_id: QuantumProgramId,
     bindings: PulseImplementationBindings,
-    event_provenance: list[QuantumPulseEventProvenance],
     acquisition_slots: list[AcquisitionSlot],
-    acquisition_provenance: list[QuantumPulseAcquisitionProvenance],
     occurrence_scope: tuple[str, ...],
 ) -> PulseInstruction:
     source_id = _operation_id(node)
@@ -1104,74 +651,18 @@ def _lower_leaf(
             slot_substitutions=substitutions,
         )
         acquisition_slots.extend(instantiated.acquisition_slots)
-        event_provenance.extend(
-            AuthoredPulseEventProvenance(
-                event_id=event.event_id,
-                source_id=node.id,
-                template_program_id=node.pulse_template.id,
-                template_event_id=event.template_event_id,
-                template_path=event.template_path,
-            )
-            for event in instantiated.events
-        )
-        for slot in instantiated.slots:
-            acquire_events = tuple(
-                event
-                for event in instantiated.events
-                if isinstance(event.instruction, Acquire)
-                and event.instruction.slot_id == slot.acquisition_slot_id
-            )
-            if len(acquire_events) != 1:
-                raise AssertionError(
-                    "verified authored pulse slots must have exactly one Acquire"
-                )
-            acquisition_provenance.append(
-                AuthoredPulseAcquisitionProvenance(
-                    acquisition_slot_id=slot.acquisition_slot_id,
-                    source_id=node.id,
-                    template_program_id=node.pulse_template.id,
-                    template_acquisition_slot_id=(slot.template_acquisition_slot_id),
-                    acquire_event_id=acquire_events[0].event_id,
-                )
-            )
         return instantiated.body
 
     if isinstance(node, ImplementedGate):
-        instantiated = _instantiate_template(node.pulse_template, prefix=prefix)
-        event_provenance.extend(
-            ImplementedGatePulseEventProvenance(
-                event_id=event.event_id,
-                operation_id=node.call.id,
-                gate_id=node.call.gate_id,
-                candidate_id=node.candidate_id,
-                template_program_id=node.pulse_template.id,
-                template_event_id=event.template_event_id,
-                template_path=event.template_path,
-            )
-            for event in instantiated.events
-        )
-        return instantiated.body
+        return _instantiate_template(node.pulse_template, prefix=prefix).body
 
     binding = bindings.binding_for(node.id)
     if isinstance(node, GateCall):
-        assert isinstance(binding, GatePulseImplementationBinding)  # noqa: S101
-        instantiated = _instantiate_template(binding.pulse_template, prefix=prefix)
-        event_provenance.extend(
-            CircuitPulseEventProvenance(
-                event_id=event.event_id,
-                operation_id=node.id,
-                implementation_id=binding.implementation_id,
-                implementation_fingerprint=binding.implementation_fingerprint,
-                template_program_id=binding.pulse_template.id,
-                template_event_id=event.template_event_id,
-                template_path=event.template_path,
-            )
-            for event in instantiated.events
-        )
-        return instantiated.body
+        assert isinstance(binding, GatePulseImplementationBinding)
+        return _instantiate_template(binding.pulse_template, prefix=prefix).body
 
-    assert isinstance(node, Measure)  # noqa: S101
-    assert isinstance(binding, MeasurementPulseImplementationBinding)  # noqa: S101
+    assert isinstance(node, Measure)
+    assert isinstance(binding, MeasurementPulseImplementationBinding)
     template_slot = binding.pulse_template.acquisition_slots[0]
     output_slot_id = (
         node.acquisition_slot_id.prefixed(*occurrence_scope)
@@ -1185,34 +676,6 @@ def _lower_leaf(
     )
     [output_slot] = instantiated.acquisition_slots
     acquisition_slots.append(output_slot)
-    event_provenance.extend(
-        CircuitPulseEventProvenance(
-            event_id=event.event_id,
-            operation_id=node.id,
-            implementation_id=binding.implementation_id,
-            implementation_fingerprint=binding.implementation_fingerprint,
-            template_program_id=binding.pulse_template.id,
-            template_event_id=event.template_event_id,
-            template_path=event.template_path,
-        )
-        for event in instantiated.events
-    )
-    acquire_events = tuple(
-        event for event in instantiated.events if isinstance(event.instruction, Acquire)
-    )
-    if len(acquire_events) != 1:
-        raise AssertionError("verified measurement templates have exactly one Acquire")
-    acquisition_provenance.append(
-        CircuitPulseAcquisitionProvenance(
-            acquisition_slot_id=output_slot_id,
-            measurement_id=node.id,
-            implementation_id=binding.implementation_id,
-            implementation_fingerprint=binding.implementation_fingerprint,
-            template_program_id=binding.pulse_template.id,
-            template_acquisition_slot_id=template_slot.id,
-            acquire_event_id=acquire_events[0].event_id,
-        )
-    )
     return instantiated.body
 
 
@@ -1227,53 +690,26 @@ def _instantiate_template(
         slot.id: substitutions.get(slot.id, slot.id.prefixed(*prefix))
         for slot in template.acquisition_slots
     }
-    events: list[_EventInstantiation] = []
 
-    def instantiate(
-        instruction: PulseInstruction,
-        path: tuple[int, ...],
-    ) -> PulseInstruction:
+    def instantiate(instruction: PulseInstruction) -> PulseInstruction:
         if isinstance(instruction, PulseSequence):
             return PulseSequence(
-                tuple(
-                    instantiate(child, (*path, index))
-                    for index, child in enumerate(instruction.instructions)
-                )
+                tuple(instantiate(child) for child in instruction.instructions)
             )
         if isinstance(instruction, PulseParallel):
             return PulseParallel(
-                tuple(
-                    instantiate(child, (*path, index))
-                    for index, child in enumerate(instruction.branches)
-                )
+                tuple(instantiate(child) for child in instruction.branches)
             )
         event_id = instruction.id.prefixed(*prefix)
         selected = replace(instruction, id=event_id)
         if isinstance(selected, Acquire):
             selected = replace(selected, slot_id=slot_ids[selected.slot_id])
-        events.append(
-            _EventInstantiation(
-                event_id=event_id,
-                template_event_id=instruction.id,
-                template_path=path,
-                instruction=selected,
-            )
-        )
         return selected
 
-    body = instantiate(template.body, ())
-    slots = tuple(
-        _SlotInstantiation(
-            acquisition_slot_id=slot_ids[slot.id],
-            template_acquisition_slot_id=slot.id,
-        )
-        for slot in template.acquisition_slots
-    )
+    body = instantiate(template.body)
     return _InstantiatedTemplate(
         body=body,
         acquisition_slots=tuple(
             replace(slot, id=slot_ids[slot.id]) for slot in template.acquisition_slots
         ),
-        events=tuple(events),
-        slots=slots,
     )

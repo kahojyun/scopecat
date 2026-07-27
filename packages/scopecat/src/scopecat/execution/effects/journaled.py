@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping, Sequence
 
 from pydantic import JsonValue
 
-from scopecat.execution.events import TransitionRecorder
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.records.execution_journal import (
     ExecutionEffect,
@@ -14,7 +13,7 @@ from scopecat.records.execution_journal import (
     ExecutionTransition,
     JournalEntryState,
 )
-from scopecat.sdk.journal import ExecutionJournal
+from scopecat.sdk.journal import ExecutionJournal, commit_transition
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
     problem_from_exception,
@@ -25,16 +24,16 @@ from scopecat.sdk.runtime_problems import (
 class JournaledEffectBoundary:
     """Own problem, certainty, and interruption state around external effects."""
 
-    def __init__(self, *, run_id: str, recorder: TransitionRecorder) -> None:
+    def __init__(self, *, run_id: str, journal: ExecutionJournal) -> None:
         self.run_id = run_id
-        self.recorder = recorder
+        self.journal = journal
         self.problems: list[Problem] = []
         self.indeterminate = False
         self.interruption: BaseException | None = None
 
     @property
     def execution_journal(self) -> ExecutionJournal:
-        return self.recorder.journal
+        return self.journal
 
     def entry(
         self,
@@ -58,9 +57,6 @@ class JournaledEffectBoundary:
             evidence=dict(evidence or {}),
         )
 
-    def observe(self, entry: ExecutionTransition) -> None:
-        self.recorder.observe(entry)
-
     def invoke[ReceiptT](
         self,
         entry: ExecutionTransition,
@@ -70,10 +66,11 @@ class JournaledEffectBoundary:
         unknown_message: str,
         unknown_evidence: Mapping[str, JsonValue] | None = None,
         after_intent: Callable[[], None] | None = None,
+        phase: ProblemPhase = ProblemPhase.EXECUTION,
     ) -> ReceiptT | None:
         """Persist an effect intent, invoke it once, and close unknown outcomes."""
 
-        self.recorder.commit(entry)
+        commit_transition(self.journal, entry)
         if after_intent is not None:
             after_intent()
         try:
@@ -87,6 +84,7 @@ class JournaledEffectBoundary:
                 operation_id=entry.operation_id,
                 point_index=entry.point_index,
                 instrument_id=entry.instrument_id,
+                phase=phase,
             )
             self.problems.append(problem)
         except BaseException as error:
@@ -96,6 +94,7 @@ class JournaledEffectBoundary:
                 operation_id=entry.operation_id,
                 point_index=entry.point_index,
                 instrument_id=entry.instrument_id,
+                phase=phase,
             )
         self.commit_best_effort(
             entry.model_copy(
@@ -144,7 +143,7 @@ class JournaledEffectBoundary:
 
     def commit_after_effect(self, entry: ExecutionTransition) -> None:
         try:
-            self.recorder.commit(entry)
+            commit_transition(self.journal, entry)
         except Exception:
             self.indeterminate = True
             raise
@@ -153,7 +152,7 @@ class JournaledEffectBoundary:
         """Record a transition without allowing evidence failure to block safety."""
 
         try:
-            self.recorder.commit(entry)
+            commit_transition(self.journal, entry)
         except Exception as error:
             self.indeterminate = True
             self.problems.append(
@@ -178,6 +177,7 @@ class JournaledEffectBoundary:
         operation_id: str | None = None,
         point_index: int | None = None,
         instrument_id: str | None = None,
+        phase: ProblemPhase = ProblemPhase.EXECUTION,
     ) -> Problem:
         if self.interruption is None:
             self.interruption = error
@@ -187,6 +187,7 @@ class JournaledEffectBoundary:
             operation_id=operation_id,
             point_index=point_index,
             instrument_id=instrument_id,
+            phase=phase,
             details={
                 "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
             },

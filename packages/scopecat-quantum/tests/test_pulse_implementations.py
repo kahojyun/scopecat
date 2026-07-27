@@ -7,7 +7,6 @@ from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CircuitId,
     CircuitOperationId,
     CouplerId,
     GateId,
@@ -15,15 +14,12 @@ from scopecat_quantum._ids import (
     PulseImplementationId,
     PulseProgramId,
     QubitId,
-    RealtimeValueId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import (
-    CircuitProgram,
     Measure,
-    Sequence,
-    VerifiedCircuitProgram,
-    verify_circuit_program,
+    VerifiedCircuitOperations,
+    verify_circuit_operations,
 )
 from scopecat_quantum.gates import (
     GateArgument,
@@ -59,9 +55,6 @@ from scopecat_quantum.pulses import (
     ReadoutSignal,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
-from scopecat_quantum.pulses import (
-    Sequence as PulseSequence,
-)
 
 X = GateDefinition(
     id=GateId("x"),
@@ -140,12 +133,9 @@ def _call(
     )
 
 
-def _verified(*calls: GateCall) -> VerifiedCircuitProgram:
-    return verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId("circuit"),
-            body=Sequence(operations=calls),
-        ),
+def _verified(*calls: GateCall) -> VerifiedCircuitOperations:
+    return verify_circuit_operations(
+        calls,
         gate_definitions=(X, Y, ROTATE),
     )
 
@@ -318,11 +308,8 @@ def test_measurement_without_implementation_prevents_aggregate_binding() -> None
         acquisition_slot_id=AcquisitionSlotId("readout"),
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
     )
-    program = verify_circuit_program(
-        CircuitProgram(
-            id=CircuitId("measured-circuit"),
-            body=Sequence(operations=(call, measurement)),
-        ),
+    program = verify_circuit_operations(
+        (call, measurement),
         gate_definitions=(X,),
     )
 
@@ -363,35 +350,6 @@ def test_resolved_measurement_implementation_keys_must_be_unique() -> None:
     for ordered_entries in (entries, tuple(reversed(entries))):
         with pytest.raises(ValueError, match=r"measurement.*keys must be unique"):
             ResolvedPulseImplementations(measurements=ordered_entries)
-
-
-def test_feedback_measurement_requires_a_discriminator_implementation() -> None:
-    measurement = Measure(
-        id=CircuitOperationId("measure"),
-        qubit=Q0,
-        acquisition_slot_id=AcquisitionSlotId("result"),
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-        realtime_bit_id=RealtimeValueId("bit", scope=("measure",)),
-    )
-    program = verify_circuit_program(
-        CircuitProgram(CircuitId("feedback"), measurement),
-        (),
-    )
-    implementation = MeasurementPulseImplementation(
-        PulseImplementationId("readout"),
-        MeasurementPulseImplementationKey.from_measurement(measurement),
-        _measurement_template(),
-    )
-
-    with pytest.raises(PulseImplementationBindingError) as caught:
-        bind_pulse_implementations(
-            program,
-            ResolvedPulseImplementations(measurements=(implementation,)),
-        )
-
-    assert caught.value.issues[0].code is (
-        PulseImplementationBindingIssueCode.DISCRIMINATOR_MISSING
-    )
 
 
 def test_missing_implementations_are_aggregated_deterministically() -> None:
@@ -458,12 +416,6 @@ def test_implementation_argument_rejects_invalid_values(
         GatePulseImplementationArgument(id="angle", value=value)
 
 
-def test_implementation_argument_accepts_arbitrarily_large_integers() -> None:
-    argument = GatePulseImplementationArgument(id="count", value=10**1000)
-
-    assert argument.value == 10**1000
-
-
 @pytest.mark.parametrize("operands", [(), (Q0, Q0)])
 def test_implementation_key_requires_nonempty_unique_operands(
     operands: tuple[QubitId, ...],
@@ -502,49 +454,11 @@ def test_gate_implementations_cannot_produce_acquisition_results() -> None:
         ),
         acquisition_slots=(slot,),
     )
-    acquire_program = PulseProgram(
-        id=PulseProgramId("contains-acquire"),
-        body=PulseSequence(
-            instructions=(
-                Acquire(
-                    id=PulseEventId("acquire"),
-                    signal=acquire_signal,
-                    slot_id=slot.id,
-                    duration=Quantity(20, "ns"),
-                ),
-            )
-        ),
-    )
-
-    for pulse_template in (declared_slot_program, acquire_program):
-        with pytest.raises(ValueError, match="cannot declare acquisition slots"):
-            GatePulseImplementation(
-                id=PulseImplementationId("implementation"),
-                key=key,
-                pulse_template=pulse_template,
-            )
-
-
-def test_gate_implementation_rejects_duplicate_template_event_identities_early() -> (
-    None
-):
-    call = _call("call")
-    duplicate = PulseEventId("delay", scope=("relative",))
-    pulse_template = PulseProgram(
-        id=PulseProgramId("duplicate-events"),
-        body=PulseSequence(
-            (
-                Delay(duplicate, DriveSignal(Q0), Quantity(10, "ns")),
-                Delay(duplicate, DriveSignal(Q0), Quantity(10, "ns")),
-            )
-        ),
-    )
-
-    with pytest.raises(ValueError, match="template event ids must be unique"):
+    with pytest.raises(ValueError, match="cannot declare acquisition slots"):
         GatePulseImplementation(
             id=PulseImplementationId("implementation"),
-            key=GatePulseImplementationKey.from_call(call),
-            pulse_template=pulse_template,
+            key=key,
+            pulse_template=declared_slot_program,
         )
 
 

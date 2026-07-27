@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from scopecat.application import LabApplication
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.daemon.endpoint import DaemonEndpointRecord
 from scopecat.project import Project
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -19,7 +19,7 @@ _CONFIG_FIXTURE = (
     / "fixtures"
     / "core"
     / "simple_scan"
-    / "config-profile.json"
+    / "config-snapshot.json"
 )
 
 
@@ -28,7 +28,7 @@ def test_config_check_resolves_lazy_bootstrap_factory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _write_manifest(tmp_path)
-    config = load_config_profile(_CONFIG_FIXTURE)
+    config = load_config_snapshot_document(_CONFIG_FIXTURE)
     bootstrap_calls = 0
 
     def bootstrap_config() -> ConfigProfileSnapshot:
@@ -70,7 +70,7 @@ def test_config_check_reports_invalid_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _write_manifest(tmp_path)
-    config = load_config_profile(_CONFIG_FIXTURE)
+    config = load_config_snapshot_document(_CONFIG_FIXTURE)
     invalid_binding = config.routing.bindings[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
@@ -107,7 +107,7 @@ def test_config_check_reports_bootstrap_source_loader_failure(
     _write_manifest(tmp_path)
 
     def bootstrap_config() -> ConfigProfileSnapshot:
-        return load_config_profile(tmp_path / "missing-config.json")
+        return load_config_snapshot_document(tmp_path / "missing-config.json")
 
     application = LabApplication(bootstrap_config=bootstrap_config)
     monkeypatch.setattr(
@@ -120,7 +120,7 @@ def test_config_check_reports_bootstrap_source_loader_failure(
 
     assert result.exit_code == 1
     assert "error:" in result.output
-    assert "config.profile.not_found" in result.output
+    assert "missing-config.json" in result.output
     assert not (tmp_path / ".scopecat").exists()
 
 

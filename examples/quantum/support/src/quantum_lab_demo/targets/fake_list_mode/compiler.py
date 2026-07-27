@@ -2,8 +2,8 @@
 
 This laboratory-owned compiler translates canonical scheduled pulse programs
 into physical list entries and acquisition windows. It validates sample-grid
-alignment, signal bindings, overlap, amplitude, memory, list, shot, and frame
-limits before producing an artifact; no instrument effect occurs here.
+alignment, signal bindings, overlap, amplitude, list, and shot limits before
+producing an artifact; no instrument effect occurs here.
 
 Physical list and segment positions are artifact layout, never logical result
 identity. Entry-qualified event and acquisition addresses survive compilation
@@ -21,21 +21,15 @@ from scopecat_quantum._ids import (
     TargetArtifactId,
     TargetCompileEntryId,
     TargetCompilerId,
-    TargetId,
 )
 from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
     AcquireSignal,
-    Barrier,
     Constant,
-    Delay,
     DriveSignal,
-    FrameSignal,
-    Gaussian,
     Play,
     ReadoutSignal,
-    ShiftPhase,
 )
 from scopecat_quantum.targets import (
     TargetCompilationError,
@@ -84,14 +78,6 @@ class _EntryPlan:
     def waveform_channels(self) -> tuple[FakeAwgChannelId, ...]:
         return tuple(sorted({play.channel_id for play in self.plays}))
 
-    @property
-    def waveform_memory_samples(self) -> int:
-        return self.sample_count * len(self.waveform_channels)
-
-    @property
-    def capture_samples_per_repetition(self) -> int:
-        return sum(window.sample_count for window in self.acquisitions)
-
 
 @dataclass(frozen=True, slots=True)
 class FakeListTargetCompiler:
@@ -99,14 +85,6 @@ class FakeListTargetCompiler:
 
     id: TargetCompilerId
     target: FakeListTarget
-
-    @property
-    def target_id(self) -> TargetId:
-        return self.target.id
-
-    @property
-    def capability_fingerprint(self) -> str:
-        return self.target.capability_fingerprint
 
     def compile(self, request: TargetCompileRequest) -> FakeListArtifact:
         """Compile one checked finite request without performing hardware effects."""
@@ -145,47 +123,6 @@ class FakeListTargetCompiler:
             )
             is not None
         )
-        waveform_memory_samples = sum(plan.waveform_memory_samples for plan in plans)
-        capture_samples_per_repetition = sum(
-            plan.capture_samples_per_repetition for plan in plans
-        )
-        capture_memory_samples = capture_samples_per_repetition * request.repetitions
-        frame_count = (
-            sum(len(plan.acquisitions) for plan in plans) * request.repetitions
-        )
-
-        if waveform_memory_samples > self.target.max_waveform_memory_samples:
-            _issue(
-                issues,
-                dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="fake_list_waveform_memory_limit_exceeded",
-                message=(
-                    f"compiled list requires {waveform_memory_samples} AWG samples; "
-                    f"target memory limit is "
-                    f"{self.target.max_waveform_memory_samples}"
-                ),
-            )
-        if capture_memory_samples > self.target.max_capture_memory_samples:
-            _issue(
-                issues,
-                dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="fake_list_capture_memory_limit_exceeded",
-                message=(
-                    f"compiled list requires {capture_memory_samples} capture "
-                    f"samples; target memory limit is "
-                    f"{self.target.max_capture_memory_samples}"
-                ),
-            )
-        if frame_count > self.target.max_frames:
-            _issue(
-                issues,
-                dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="fake_list_frame_limit_exceeded",
-                message=(
-                    f"compiled list produces {frame_count} frames; target limit is "
-                    f"{self.target.max_frames}"
-                ),
-            )
         if issues:
             raise TargetCompilationError(tuple(issues))
 
@@ -203,7 +140,7 @@ class FakeListTargetCompiler:
             id=TargetArtifactId(f"fake-list-artifact-{digest}"),
             target_id=self.target.id,
             compiler_id=self.id,
-            capability_fingerprint=self.capability_fingerprint,
+            capability_fingerprint=self.target.capability_fingerprint,
             artifact_fingerprint=artifact_fingerprint,
             source_entry_ids=tuple(entry.id for entry in request.entries),
             repetitions=request.repetitions,
@@ -249,11 +186,9 @@ class FakeListTargetCompiler:
                 ),
             )
 
-        slots_by_id = {slot.id: slot for slot in program.acquisition_slots}
         plays: list[_PlaySpan] = []
         acquisitions: list[FakeAcquisitionWindow] = []
         output_intervals: dict[FakeAwgChannelId, list[tuple[int, int, str]]] = {}
-        frame_phases: dict[FrameSignal, float] = {}
         acquisition_intervals: dict[
             FakeDigitizerChannelId, list[tuple[int, int, str]]
         ] = {}
@@ -294,13 +229,6 @@ class FakeListTargetCompiler:
                         sample_count=duration_sample_count,
                         intervals=output_intervals,
                         plays=plays,
-                        phase_offset=(
-                            frame_phases.get(instruction.signal, 0.0)
-                            if isinstance(
-                                instruction.signal, DriveSignal | ReadoutSignal
-                            )
-                            else 0.0
-                        ),
                         issues=issues,
                     )
                 case Acquire():
@@ -314,17 +242,6 @@ class FakeListTargetCompiler:
                                 "acquisition signal "
                                 f"{_signal_label(instruction.signal)} "
                                 "has no digitizer binding"
-                            ),
-                        )
-                    slot = slots_by_id.get(instruction.slot_id)
-                    if slot is None:
-                        _entry_issue(
-                            issues,
-                            entry.id,
-                            code="fake_list_acquisition_slot_missing",
-                            message=(
-                                f"event {event.id.value!r} references undeclared "
-                                f"acquisition slot {instruction.slot_id.value!r}"
                             ),
                         )
                     if (
@@ -344,41 +261,18 @@ class FakeListTargetCompiler:
                             resource_label="digitizer channel",
                             issues=issues,
                         )
-                        if slot is not None:
-                            acquisitions.append(
-                                FakeAcquisitionWindow(
-                                    event_id=event.id,
-                                    slot_id=instruction.slot_id,
-                                    signal=instruction.signal,
-                                    channel_id=channel_id,
-                                    start_sample=start_sample,
-                                    sample_count=duration_sample_count,
-                                )
+                        acquisitions.append(
+                            FakeAcquisitionWindow(
+                                event_id=event.id,
+                                slot_id=instruction.slot_id,
+                                signal=instruction.signal,
+                                channel_id=channel_id,
+                                start_sample=start_sample,
+                                sample_count=duration_sample_count,
                             )
-                case Delay():
-                    self._validate_signal_binding(
-                        entry_id=entry.id,
-                        signal=instruction.signal,
-                        issues=issues,
-                    )
-                case ShiftPhase():
-                    self._validate_signal_binding(
-                        entry_id=entry.id,
-                        signal=instruction.signal,
-                        issues=issues,
-                    )
-                    frame_phases[instruction.signal] = _wrapped_phase(
-                        frame_phases.get(instruction.signal, 0.0)
-                        + _wrapped_phase(float(instruction.phase.value))
-                    )
-                case Barrier():
-                    for signal in instruction.signals:
-                        self._validate_signal_binding(
-                            entry_id=entry.id,
-                            signal=signal,
-                            issues=issues,
                         )
-
+                case _:
+                    _unsupported_issue(issues, entry.id, event.id.value)
         if duration_samples is None or duration_samples <= 0:
             return None
         return _EntryPlan(
@@ -399,19 +293,22 @@ class FakeListTargetCompiler:
         sample_count: int | None,
         intervals: dict[FakeAwgChannelId, list[tuple[int, int, str]]],
         plays: list[_PlaySpan],
-        phase_offset: float,
         issues: list[TargetCompilationIssue],
     ) -> None:
-        channel_id = self.target.output_channel(instruction.signal)
+        signal = instruction.signal
+        envelope = instruction.envelope
+        if not isinstance(signal, DriveSignal | ReadoutSignal) or not isinstance(
+            envelope, Constant | DRAG
+        ):
+            _unsupported_issue(issues, entry_id, event_id)
+            return
+        channel_id = self.target.output_channel(signal)
         if channel_id is None:
             _entry_issue(
                 issues,
                 entry_id,
                 code="fake_list_output_signal_unbound",
-                message=(
-                    f"output signal {_signal_label(instruction.signal)} has no AWG "
-                    "binding"
-                ),
+                message=(f"output signal {_signal_label(signal)} has no AWG binding"),
             )
         if (
             channel_id is not None
@@ -430,19 +327,6 @@ class FakeListTargetCompiler:
                 resource_label="AWG channel",
                 issues=issues,
             )
-
-        envelope = instruction.envelope
-        if isinstance(envelope, Gaussian):
-            _entry_capability_issue(
-                issues,
-                entry_id,
-                code="fake_list_envelope_unsupported",
-                message=(
-                    f"event {event_id!r} uses unsupported Gaussian envelope; "
-                    "fake list mode supports Constant and DRAG"
-                ),
-            )
-            return
         if envelope.amplitude.unit not in {"arb", "ratio"}:
             _entry_capability_issue(
                 issues,
@@ -462,7 +346,6 @@ class FakeListTargetCompiler:
             envelope,
             sample_count=sample_count,
             sample_rate_hz=self.target.sample_rate_hz,
-            phase_offset=phase_offset,
         )
         peak_magnitude = max(abs(sample) for sample in samples)
         if peak_magnitude > self.target.max_abs_amplitude:
@@ -485,33 +368,6 @@ class FakeListTargetCompiler:
                 samples=samples,
             )
         )
-
-    def _validate_signal_binding(
-        self,
-        *,
-        entry_id: TargetCompileEntryId,
-        signal: FakeOutputSignal | AcquireSignal,
-        issues: list[TargetCompilationIssue],
-    ) -> None:
-        if isinstance(signal, AcquireSignal):
-            if self.target.acquisition_channel(signal) is None:
-                _entry_issue(
-                    issues,
-                    entry_id,
-                    code="fake_list_acquisition_signal_unbound",
-                    message=(
-                        f"acquisition signal {_signal_label(signal)} has no "
-                        "digitizer binding"
-                    ),
-                )
-            return
-        if self.target.output_channel(signal) is None:
-            _entry_issue(
-                issues,
-                entry_id,
-                code="fake_list_output_signal_unbound",
-                message=(f"output signal {_signal_label(signal)} has no AWG binding"),
-            )
 
     @staticmethod
     def _render_entry(plan: _EntryPlan) -> FakeListEntry:
@@ -549,15 +405,9 @@ def _render_envelope_samples(
     *,
     sample_count: int,
     sample_rate_hz: int,
-    phase_offset: float = 0.0,
 ) -> tuple[complex, ...]:
     amplitude = float(envelope.amplitude.value)
-    phase_rotation = cmath.rect(
-        1.0,
-        _wrapped_phase(
-            _wrapped_phase(float(envelope.phase.value)) + _wrapped_phase(phase_offset)
-        ),
-    )
+    phase_rotation = cmath.rect(1.0, float(envelope.phase.value))
     if isinstance(envelope, Constant):
         return (phase_rotation * amplitude,) * sample_count
 
@@ -576,10 +426,6 @@ def _render_envelope_samples(
         )
         for sample_index in range(sample_count)
     )
-
-
-def _wrapped_phase(value: float) -> float:
-    return math.remainder(value, math.tau)
 
 
 def _drag_sample(
@@ -662,6 +508,19 @@ def _entry_capability_issue(
     )
 
 
+def _unsupported_issue(
+    issues: list[TargetCompilationIssue],
+    entry_id: TargetCompileEntryId,
+    event_id: str,
+) -> None:
+    _entry_capability_issue(
+        issues,
+        entry_id,
+        code="fake_list_operation_unsupported",
+        message=f"event {event_id!r} is unsupported by fake list mode",
+    )
+
+
 def _issue(
     issues: list[TargetCompilationIssue],
     *,
@@ -688,33 +547,10 @@ def _artifact_payload(
     entries: tuple[FakeListEntry, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "quantum_lab_demo.fake_list_artifact.v1",
+        "schema": "quantum_lab_demo.fake_list_artifact.v2",
         "target": {
             "id": target.id.value,
             "capability_fingerprint": target.capability_fingerprint,
-            "sample_rate_hz": target.sample_rate_hz,
-            "max_list_entries": target.max_list_entries,
-            "max_samples_per_entry": target.max_samples_per_entry,
-            "max_waveform_memory_samples": target.max_waveform_memory_samples,
-            "max_capture_memory_samples": target.max_capture_memory_samples,
-            "max_repetitions": target.max_repetitions,
-            "max_frames": target.max_frames,
-            "max_abs_amplitude": float(target.max_abs_amplitude).hex(),
-            "supported_envelopes": list(target.supported_envelopes),
-            "output_bindings": [
-                {
-                    "signal": signal_key(binding.signal),
-                    "channel_id": binding.channel_id.value,
-                }
-                for binding in target.output_bindings
-            ],
-            "acquisition_bindings": [
-                {
-                    "signal": signal_key(binding.signal),
-                    "channel_id": binding.channel_id.value,
-                }
-                for binding in target.acquisition_bindings
-            ],
         },
         "compiler_id": compiler_id.value,
         "repetitions": request.repetitions,

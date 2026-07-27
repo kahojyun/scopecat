@@ -21,7 +21,6 @@ from scopecat.kernel.content_identity import (
 from scopecat.kernel.problems import Problem
 
 type ExecutionEffect = Literal[
-    "pure",
     "read",
     "state_write",
     "acquisition",
@@ -33,7 +32,6 @@ type JournalEntryState = Literal[
     "completed",
     "failed",
     "unknown",
-    "skipped",
 ]
 type ExecutionStage = Literal[
     "provide_instruments",
@@ -55,12 +53,11 @@ type ExecutionStage = Literal[
 
 
 class ExecutionTransition(BaseModel):
-    """Immutable carrier shared by effect evidence and live observation."""
+    """Immutable transition committed to the execution journal."""
 
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     sequence: int | None = Field(default=None, ge=0)

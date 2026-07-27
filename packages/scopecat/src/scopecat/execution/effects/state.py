@@ -73,20 +73,6 @@ class StateEffectExecutor:
             },
         )
         if not fields:
-            self.journal.observe(
-                entry.model_copy(
-                    update={
-                        "state": "skipped",
-                        "evidence": _state_event_summary(
-                            frame,
-                            entry.evidence,
-                            changed_field_count=0,
-                            state_command_count=0,
-                            payload_count=0,
-                        ),
-                    }
-                )
-            )
             return True
         command = InstrumentStateCommand(
             operation_id=operation.operation_id,
@@ -110,8 +96,7 @@ class StateEffectExecutor:
             unknown_message=(
                 f"instrument apply outcome is unknown for {operation.instrument_id}"
             ),
-            unknown_evidence=_state_event_summary(
-                frame,
+            unknown_evidence=_state_evidence(
                 entry.evidence,
                 changed_field_count=0,
                 state_command_count=0,
@@ -149,8 +134,7 @@ class StateEffectExecutor:
             success_status="applied",
             problems=receipt.problems,
             evidence={
-                **_state_event_summary(
-                    frame,
+                **_state_evidence(
                     entry.evidence,
                     changed_field_count=0,
                     state_command_count=0,
@@ -179,8 +163,7 @@ class StateEffectExecutor:
                         "state": "unknown",
                         "problems": (problem,),
                         "evidence": {
-                            **_state_event_summary(
-                                frame,
+                            **_state_evidence(
                                 entry.evidence,
                                 changed_field_count=0,
                                 state_command_count=0,
@@ -199,8 +182,7 @@ class StateEffectExecutor:
                     "state": "completed",
                     "problems": receipt_problems,
                     "evidence": {
-                        **_state_event_summary(
-                            frame,
+                        **_state_evidence(
                             entry.evidence,
                             changed_field_count=len(fields),
                             state_command_count=1,
@@ -215,8 +197,7 @@ class StateEffectExecutor:
         return True
 
 
-def _state_event_summary(
-    frame: PointEffectState,
+def _state_evidence(
     base: Mapping[str, JsonValue],
     *,
     changed_field_count: int,
@@ -225,8 +206,6 @@ def _state_event_summary(
 ) -> dict[str, JsonValue]:
     return {
         **base,
-        "compute_evaluated_node_count": frame.stats.compute_evaluated_node_count,
-        "compute_payload_count": frame.stats.compute_payload_count,
         "changed_field_count": changed_field_count,
         "skipped_field_count": base.get("skipped_field_count", 0),
         "state_command_count": state_command_count,
@@ -279,9 +258,7 @@ def _execution_state_target_identity(
             (
                 binding.entity_id,
                 binding.channel_id,
-                binding.line_id,
                 binding.capability,
-                tuple(sorted(binding.group_ids)),
             )
             for binding in channel_bindings
         ),

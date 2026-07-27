@@ -14,9 +14,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
@@ -34,12 +31,10 @@ from scopecat.execution.local.program import (
 )
 from scopecat.graph.relations.model import (
     CellValue,
-    RelationExpr,
     lit,
-    literal_rows,
     point_col,
 )
-from scopecat.graph.relations.point_domain import POINT_UNIT, point_axis_values
+from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.graph.values import (
     ComputeOutput,
     OperationId,
@@ -72,11 +67,7 @@ from tests.testkit.local_materialization import (
     operations_of_type,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
-    table_value_expr,
-    value_expr,
-)
+from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import compute_result, link_program, typed_program
 
 
@@ -139,13 +130,15 @@ def _point_domain(
     value_type: Table,
 ) -> PointDomain:
     if not value_type.columns:
-        return PointDomain(root=POINT_UNIT)
+        return PointDomain(axes=())
     [column] = value_type.columns
     return PointDomain(
-        root=point_axis_values(
-            column.id,
-            column.value_type,
-            tuple(row[0] for row in rows),
+        axes=(
+            point_axis_values(
+                column.id,
+                column.value_type,
+                tuple(row[0] for row in rows),
+            ),
         )
     )
 
@@ -183,7 +176,7 @@ def test_bound_state_preserves_primitive_field_types(
         kind="compiler_test",
         point_domain=_point_domain(
             ((),),
-            Table(columns=(), min_rows=1, max_rows=1),
+            Table(columns=()),
         ),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -219,17 +212,13 @@ def test_bound_state_preserves_primitive_field_types(
     ) is type(value)
 
 
-def test_effects_use_logical_point_and_content_addressed_payload_identity() -> None:
+def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
     producer_id = _operation_id("produce")
     consumer_id = _operation_id("consume")
     unused_id = _operation_id("a-unused-payload")
     producer_output_id = operation_result_id(producer_id)
     consumer_output_id = operation_result_id(consumer_id)
-    point_type = Table(
-        columns=(TableColumn("value", Scalar(Float())),),
-        min_rows=3,
-        max_rows=3,
-    )
+    point_type = Table(columns=(TableColumn("value", Scalar(Float())),))
     program = typed_program(
         id="bound-identity",
         kind="compiler_test",
@@ -240,7 +229,6 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
         compute_nodes=(
             TypedComputeNode(
                 id=unused_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(
                     unused_id,
                     lambda: {"unused": True},
@@ -249,11 +237,10 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
             ),
             TypedComputeNode(
                 id=producer_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(producer_id, _identity_value),
                 inputs={
                     "value": ValueInput(
-                        value=value_expr(
+                        value=scalar_value_expr(
                             point_col("value"),
                             expected_type=Scalar(Float()),
                             bindings=_point_bindings(point_type),
@@ -264,7 +251,6 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
             ),
             TypedComputeNode(
                 id=consumer_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(consumer_id, _wrap_value),
                 inputs={
                     "value": ComputeEdge(
@@ -310,7 +296,7 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
     payload_ids: list[str] = []
     [unused] = [
         call
-        for call in plan.preamble_operations
+        for call in operations_of_type(plan, ComputeOperation, point_index=0)
         if call.semantic_operation_id == unused_id.qualified_name
     ]
     assert unused.payload_slot is None
@@ -343,42 +329,21 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
         assert isinstance(state_value, PayloadRef)
         assert state_value.payload_id == consumer.payload_slot.id
 
-    assert payload_ids[0] == payload_ids[1]
-    assert payload_ids[2] != payload_ids[0]
-
-
-@pytest.mark.parametrize(
-    ("expression", "value_type"),
-    (
-        (
-            literal_rows([{}]),
-            Table(columns=(TableColumn("required", Scalar(String())),)),
-        ),
-        (
-            literal_rows([{"declared": "ok", "extra": "no"}]),
-            Table(
-                columns=(TableColumn("declared", Scalar(String())),),
-                allow_extra_columns=False,
-            ),
-        ),
-        (
-            literal_rows([{"id": "same"}, {"id": "same"}]),
-            Table(
-                columns=(TableColumn("id", Scalar(String())),),
-                primary_key=("id",),
-            ),
-        ),
-        (literal_rows([]), Table(columns=(), min_rows=1)),
-    ),
-)
-def test_point_domain_rejects_invalid_table_contract_before_binding(
-    expression: RelationExpr,
-    value_type: Table,
-) -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        table_value_expr(expression, expected_type=value_type)
-
-    assert caught.value.code == "invalid_literal"
+    assert len(set(payload_ids)) == 3
+    repeated_payload_ids: list[str] = []
+    for point in repeated.points:
+        repeated_consumer = next(
+            call
+            for call in operations_of_type(
+                repeated,
+                ComputeOperation,
+                point_index=point.ordinal,
+            )
+            if call.semantic_operation_id == consumer_id.qualified_name
+        )
+        assert repeated_consumer.payload_slot is not None
+        repeated_payload_ids.append(repeated_consumer.payload_slot.id)
+    assert payload_ids == repeated_payload_ids
 
 
 def test_compute_inputs_are_normalized_before_binding() -> None:
@@ -404,11 +369,10 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
         compute_nodes=(
             TypedComputeNode(
                 id=node_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(node_id, _quantity_value),
                 inputs={
                     "frequency": ValueInput(
-                        value=value_expr(
+                        value=scalar_value_expr(
                             point_col("frequency"),
                             expected_type=Scalar(QuantityType(unit="GHz")),
                             bindings=_point_bindings(point_type),
@@ -440,7 +404,7 @@ def test_compute_payload_input_rejects_mismatched_schema_before_binding() -> Non
     )
 
     with pytest.raises(RelationPlanVerificationError) as caught:
-        value_expr(
+        scalar_value_expr(
             point_col("payload"),
             expected_type=Scalar(Payload("expected-payload")),
             bindings=_point_bindings(point_type),
@@ -477,11 +441,10 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
         compute_nodes=(
             TypedComputeNode(
                 id=node_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(node_id, _mapping_size),
                 inputs={
                     "payload": ValueInput(
-                        value=value_expr(
+                        value=scalar_value_expr(
                             point_col("payload"),
                             expected_type=Scalar(Payload("mapping")),
                             bindings=_point_bindings(point_type),

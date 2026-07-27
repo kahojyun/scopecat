@@ -1,11 +1,9 @@
-"""SQLite execution persistence backed by the shared run object store."""
+"""SQLite execution persistence backed by the shared project store."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Generator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -13,27 +11,19 @@ from typing import cast
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
-from scopecat.adapters.sqlite.connection import immediate_transaction
 from scopecat.adapters.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
-from scopecat.measurements.datasets import (
-    MEASUREMENT_DATASET_KIND,
-    RAW_MEASUREMENTS_DATASET_ID,
-)
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
 )
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
+    CANONICAL_MEASUREMENT_DATASET_REF,
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
-)
-from scopecat.runs.refs import (
-    EXECUTION_JOURNAL_DIR,
-    dataset_content_ref,
 )
 from scopecat.sdk.journal import ExecutionJournalError
 
@@ -52,23 +42,13 @@ class PreparedExecutionRecord[TModel: BaseModel]:
 
 
 class SQLiteExecutionJournal:
-    """Append transitions with a transactionally assigned per-run sequence."""
+    """Append effect transitions to the canonical durable-event stream."""
+
+    _EVENT_KIND = "execution_transition_committed"
 
     def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
         self._runs = runs
         self._run_id = run_id
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        try:
-            with _transaction(self._runs) as connection:
-                committed, _created = self.append_in_transaction(connection, entry)
-                return committed
-        except ExecutionJournalError:
-            raise
-        except Exception as error:
-            raise ExecutionJournalError(
-                f"failed to commit execution journal entry: {error}"
-            ) from error
 
     def append_in_transaction(
         self,
@@ -86,32 +66,29 @@ class SQLiteExecutionJournal:
             existing = _one(
                 connection.execute(
                     """
-                    SELECT digest FROM execution_journal_entries
-                    WHERE run_id = ? AND content_hash = ?
+                    SELECT run_sequence, payload_json, occurred_at
+                    FROM durable_events
+                    WHERE run_id = ? AND kind = ? AND deduplication_key = ?
                     """,
-                    (self._run_id, content_hash),
+                    (self._run_id, self._EVENT_KIND, content_hash),
                 )
             )
             if existing is not None:
                 return (
-                    _read_stored_model(
-                        self._runs,
-                        _text(existing, "digest"),
-                        ExecutionTransition,
-                    ),
+                    _execution_transition(self._run_id, existing),
                     False,
                 )
             row = _one(
                 connection.execute(
                     """
-                    SELECT COALESCE(MAX(sequence), -1) + 1 AS sequence
-                    FROM execution_journal_entries
-                    WHERE run_id = ?
+                    SELECT COALESCE(MAX(run_sequence), -1) + 1 AS sequence
+                    FROM durable_events
+                    WHERE run_id = ? AND kind = ?
                     """,
-                    (self._run_id,),
+                    (self._run_id, self._EVENT_KIND),
                 )
             )
-            assert row is not None  # noqa: S101
+            assert row is not None
             committed = self._commit_transition(
                 connection,
                 entry,
@@ -141,17 +118,35 @@ class SQLiteExecutionJournal:
                 "timestamp": datetime.now(tz=UTC),
             }
         )
-        ref = f"{EXECUTION_JOURNAL_DIR}/{sequence:08d}.json"
-        stored = _store_model(self._runs, committed)
-        _publish_ref(connection, self._run_id, ref, stored)
+        payload = committed.model_dump(
+            mode="json",
+            exclude={"run_id", "timestamp"},
+        )
         connection.execute(
             """
-            INSERT INTO execution_journal_entries(
-                run_id, sequence, content_hash, digest
+            INSERT INTO durable_events(
+                run_id,
+                kind,
+                payload_json,
+                occurred_at,
+                run_sequence,
+                deduplication_key
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (self._run_id, sequence, content_hash, stored.digest),
+            (
+                self._run_id,
+                self._EVENT_KIND,
+                json.dumps(
+                    payload,
+                    allow_nan=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+                committed.timestamp.isoformat(timespec="microseconds"),
+                sequence,
+                content_hash,
+            ),
         )
         return committed
 
@@ -163,36 +158,21 @@ class SQLiteMeasurementDatasetRepository:
         self._runs = runs
         self._run_id = run_id
 
-    def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
-        prepared = self.prepare_append(append)
-        try:
-            with _transaction(self._runs) as connection:
-                receipt, _created = self.append_prepared_in_transaction(
-                    connection,
-                    prepared,
-                )
-                return receipt
-        except ExecutionJournalError:
-            raise
-        except Exception as error:
-            raise ExecutionJournalError(
-                f"failed to append measurement dataset: {error}"
-            ) from error
-
     def prepare_append(
         self,
         append: MeasurementDatasetAppend,
     ) -> PreparedExecutionRecord[MeasurementDatasetAppend]:
         """Publish immutable append content before entering the write transaction."""
 
-        durable = MeasurementDatasetAppend.model_validate(
-            append.model_dump(mode="python")
-        )
+        durable = append.model_copy(deep=True)
         if durable.run_id != self._run_id:
             raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"
             )
-        ref = f"{_dataset_ref()}/chunks/{durable.start_index:020d}.json"
+        ref = (
+            f"{CANONICAL_MEASUREMENT_DATASET_REF}/chunks/"
+            f"{durable.start_index:020d}.json"
+        )
         return PreparedExecutionRecord(
             durable=durable,
             ref=ref,
@@ -231,7 +211,6 @@ class SQLiteMeasurementDatasetRepository:
                     MeasurementDatasetReceipt(
                         operation_id=_text(existing, "operation_id"),
                         dataset_content_hash=_text(existing, "content_hash"),
-                        dataset_ref=_text(existing, "ref"),
                     ),
                     False,
                 )
@@ -275,28 +254,12 @@ class SQLiteMeasurementDatasetRepository:
                     ref,
                 ),
             )
-            return _append_receipt(durable, ref), True
+            return _append_receipt(durable), True
         except ExecutionJournalError:
             raise
         except Exception as error:
             raise ExecutionJournalError(
                 f"failed to append measurement dataset: {error}"
-            ) from error
-
-    def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
-        prepared = self.prepare_seal(seal)
-        try:
-            with _transaction(self._runs) as connection:
-                receipt, _created = self.seal_prepared_in_transaction(
-                    connection,
-                    prepared,
-                )
-                return receipt
-        except ExecutionJournalError:
-            raise
-        except Exception as error:
-            raise ExecutionJournalError(
-                f"failed to seal measurement dataset: {error}"
             ) from error
 
     def prepare_seal(
@@ -305,7 +268,7 @@ class SQLiteMeasurementDatasetRepository:
     ) -> MeasurementDatasetSeal:
         """Validate seal content before entering the write transaction."""
 
-        durable = MeasurementDatasetSeal.model_validate(seal.model_dump(mode="python"))
+        durable = seal
         if durable.run_id != self._run_id:
             raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"
@@ -351,7 +314,6 @@ class SQLiteMeasurementDatasetRepository:
                                 existing,
                                 "dataset_content_hash",
                             ),
-                            dataset_ref=_dataset_ref(),
                         ),
                         False,
                     )
@@ -417,7 +379,7 @@ class SQLiteMeasurementDatasetRepository:
             return tuple(
                 self._runs.read_measurement_records(
                     self._run_id,
-                    _dataset_ref(),
+                    CANONICAL_MEASUREMENT_DATASET_REF,
                 )
             )
         except Exception as error:
@@ -426,21 +388,12 @@ class SQLiteMeasurementDatasetRepository:
             ) from error
 
 
-def _dataset_ref() -> str:
-    return dataset_content_ref(
-        dataset_id=RAW_MEASUREMENTS_DATASET_ID,
-        kind=MEASUREMENT_DATASET_KIND,
-    )
-
-
 def _append_receipt(
     append: MeasurementDatasetAppend,
-    ref: str,
 ) -> MeasurementDatasetReceipt:
     return MeasurementDatasetReceipt(
         operation_id=append.operation_id,
         dataset_content_hash=append.content_hash,
-        dataset_ref=ref,
     )
 
 
@@ -450,7 +403,6 @@ def _seal_receipt(
     return MeasurementDatasetReceipt(
         operation_id=seal.operation_id,
         dataset_content_hash=seal.dataset_content_hash,
-        dataset_ref=_dataset_ref(),
     )
 
 
@@ -510,12 +462,22 @@ def _store_model(runs: SQLiteRunRepository, model: BaseModel) -> StoredObject:
         ) from error
 
 
-def _read_stored_model[TModel: BaseModel](
-    runs: SQLiteRunRepository,
-    digest: str,
-    model_type: type[TModel],
-) -> TModel:
-    return model_type.model_validate_json(runs.objects.read(digest))
+def _execution_transition(
+    run_id: str,
+    row: sqlite3.Row,
+) -> ExecutionTransition:
+    payload = cast(
+        "dict[str, object]",
+        json.loads(_text(row, "payload_json")),
+    )
+    return ExecutionTransition.model_validate(
+        {
+            **payload,
+            "run_id": run_id,
+            "sequence": _integer(row, "run_sequence"),
+            "timestamp": _text(row, "occurred_at"),
+        }
+    )
 
 
 def _publish_ref(
@@ -533,17 +495,6 @@ def _publish_ref(
         """,
         (run_id, ref, stored.digest),
     )
-
-
-@contextmanager
-def _transaction(
-    runs: SQLiteRunRepository,
-) -> Generator[sqlite3.Connection]:
-    with immediate_transaction(
-        runs.database,
-        busy_timeout_seconds=runs.busy_timeout_seconds,
-    ) as connection:
-        yield connection
 
 
 def _one(cursor: sqlite3.Cursor) -> sqlite3.Row | None:

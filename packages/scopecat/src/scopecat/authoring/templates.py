@@ -14,22 +14,15 @@ from scopecat.authoring._validation import (
     validate_experiment_inputs,
 )
 from scopecat.authoring._value_refs import (
-    ValueRef,
     capture_runtime_inputs,
     empty_frozen_mapping,
 )
-from scopecat.authoring.scans import (
-    Scan,
-    ScanCenter,
-    ScanValue,
-    build_scan,
-)
+from scopecat.authoring.scans import Scan
 from scopecat.authoring.values import (
     MetadataValue,
     RuntimeInput,
 )
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
-from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import ValueType
 
 
@@ -88,7 +81,7 @@ class ExperimentTemplate[**P]:
         return self._signature
 
     def bind(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        """Bind any supplied inputs; scans may provide omitted inputs later."""
+        """Bind any supplied inputs; completeness is checked at compilation."""
 
         bound = self._signature.bind_partial(*args, **kwargs)
         inputs = cast("dict[str, RuntimeInput]", dict(bound.arguments))
@@ -131,32 +124,18 @@ class ExperimentInvocation:
 
     def scan(
         self,
-        target: ValueRef | Scan,
-        values: Sequence[ScanValue] = (),
-        *,
-        unit: str | None = None,
-        center: ScanCenter | None = None,
-        span: Quantity | str | None = None,
-        points: int | None = None,
+        *scans: Scan,
     ) -> ExperimentInvocation:
-        selected = build_scan(
-            target,
-            values,
-            unit=unit,
-            center=center,
-            span=span,
-            points=points,
-        )
         return ExperimentInvocation(
             definition=self.definition,
             inputs=self.inputs,
-            scans=(*self.scans, selected),
+            scans=(*self.scans, *scans),
         )
 
 
 def create_experiment_definition_internal(
     *,
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     module: ModuleIR,
     record_selections: Sequence[RecordSelection] = (),

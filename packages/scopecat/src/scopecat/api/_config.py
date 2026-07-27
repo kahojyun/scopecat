@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast, overload
+from typing import cast
 
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api.analysis import Analysis
@@ -19,34 +19,29 @@ from scopecat.config.resolution import config_revision_entry_id
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
     ParameterProposalListView,
 )
 from scopecat.daemon.wire import (
-    CandidateConfigActivationCommand,
-    CandidateConfigActivationReceipt,
+    CandidateConfigRevisionSource,
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
     ConfigDraftCommand,
-    ConfigDraftDefaultCommand,
-    ConfigDraftDefaultReceipt,
-    ConfigDraftRegistrationCommand,
-    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
-    ParameterProposalDecisionCommand,
-    ParameterProposalReviewCommand,
+    DirectConfigRevisionSource,
+    ManualConfigDraftRevisionSource,
+    ParameterProposalApprovalCommand,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import (
-    HumanDecisionAuthority,
-    ParameterChangeDecisionAuthority,
-    ParameterChangeDecisionRecord,
-    ParameterChangeReviewState,
+    ParameterChangeApprovalRecord,
 )
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
@@ -68,6 +63,9 @@ class LabConfigOperations:
 
     def registry(self) -> ConfigRegistryView:
         return self.client.config_registry()
+
+    def history(self) -> ConfigActivationHistoryView:
+        return self.client.config_activation_history()
 
     def active(self) -> ActiveConfigView:
         return self.client.active_config()
@@ -101,7 +99,7 @@ class LabConfigOperations:
                     entry_id=active.entry.id,
                     config_ref=active.entry.config_ref,
                     content_hash=active.entry.content_hash,
-                    registry_generation=active.active_state.generation,
+                    registry_generation=active.activation.generation,
                 ),
             )
         if isinstance(selected, str):
@@ -113,32 +111,24 @@ class LabConfigOperations:
                     selected.source_run_id
                 ).items
             }
-            if any(
-                proposals.get(proposal.id) != proposal
-                for proposal in selected.parameter_proposals
-            ):
+            proposal = selected.parameter_proposal
+            if proposals.get(proposal.id) != proposal:
                 raise ValueError(
                     "save the producing analysis before using its candidate config"
                 )
-            analyses = {
-                analysis_record_id: self.runs.analysis(
-                    selected.source_run_id,
-                    analysis_record_id,
-                )
-                for analysis_record_id in selected.analysis_record_ids
-            }
-            if any(
-                not any(
-                    output.kind == "parameter_change_proposal"
-                    and isinstance(output.content, dict)
-                    and cast("dict[str, object]", output.content).get("proposal_id")
-                    == proposal.id
-                    for output in analyses[proposal.analysis_record_id].analysis.outputs
-                )
-                for proposal in selected.parameter_proposals
+            analysis = self.runs.analysis(
+                selected.source_run_id,
+                selected.analysis_record_id,
+            )
+            if not any(
+                output.kind == "parameter_change_proposal"
+                and isinstance(output.content, dict)
+                and cast("dict[str, object]", output.content).get("proposal_id")
+                == proposal.id
+                for output in analysis.analysis.outputs
             ):
                 raise ValueError(
-                    "candidate proposals do not belong to their producing analyses"
+                    "candidate proposal does not belong to its producing analysis"
                 )
             resolved = resolve_candidate_config_from_snapshot(
                 selected,
@@ -148,8 +138,8 @@ class LabConfigOperations:
                 resolved,
                 AnalysisCandidateRunConfigSource(
                     source_run_id=selected.source_run_id,
-                    analysis_record_ids=selected.analysis_record_ids,
-                    proposal_ids=selected.proposal_ids,
+                    analysis_record_id=selected.analysis_record_id,
+                    proposal_id=selected.proposal_id,
                     base_config_content_hash=selected.base_config_content_hash,
                     content_hash=config_content_hash(resolved),
                 ),
@@ -169,7 +159,7 @@ class LabConfigOperations:
             ConfigDraftCommand(
                 base_entry_id=active.entry.id,
                 base_content_hash=active.entry.content_hash,
-                base_generation=active.active_state.generation,
+                base_generation=active.activation.generation,
                 candidate_id=candidate_id or f"{active.config.id}.draft",
                 updates=draft.updates,
             )
@@ -183,7 +173,7 @@ class LabConfigOperations:
         entry_id: str,
         registered_by: str | None = None,
         note: str = "",
-    ) -> ConfigDraftRegistrationReceipt:
+    ) -> ConfigRevisionRegistrationReceipt:
         if (
             not preview.valid
             or preview.config is None
@@ -192,10 +182,12 @@ class LabConfigOperations:
             raise ValueError("only a valid config draft preview can be registered")
         if draft.base_content_hash != preview.base_content_hash:
             raise ValueError("config draft does not match its reviewed preview base")
-        return self.client.register_config_draft(
-            ConfigDraftRegistrationCommand(
-                draft=_reviewed_draft_command(draft, preview),
-                expected_result_content_hash=preview.result_content_hash,
+        return self.client.register_config_revision(
+            ConfigRevisionRegistrationCommand(
+                source=ManualConfigDraftRevisionSource(
+                    draft=_reviewed_draft_command(draft, preview),
+                    expected_result_content_hash=preview.result_content_hash,
+                ),
                 entry_id=entry_id,
                 registered_by=registered_by or self.operator,
                 note=note,
@@ -210,36 +202,14 @@ class LabConfigOperations:
         registered_by: str | None = None,
         note: str = "",
     ) -> ConfigRegistryEntry:
-        return self.client.import_direct_config(
-            DirectConfigImportCommand(
+        return self.client.register_config_revision(
+            ConfigRevisionRegistrationCommand(
+                source=DirectConfigRevisionSource(config=config),
                 entry_id=entry_id,
-                config=config,
                 registered_by=registered_by or self.operator,
                 note=note,
             )
-        )
-
-    @overload
-    def set_default(
-        self,
-        config: ConfigProfileSnapshot,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDefaultReceipt: ...
-
-    @overload
-    def set_default(
-        self,
-        config: ConfigDraft,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDraftDefaultReceipt: ...
+        ).entry
 
     def set_default(
         self,
@@ -249,7 +219,7 @@ class LabConfigOperations:
         registered_by: str | None = None,
         operator: str | None = None,
         note: str = "",
-    ) -> ConfigDefaultReceipt | ConfigDraftDefaultReceipt:
+    ) -> ConfigRevisionDefaultReceipt:
         """Save one immutable revision and atomically make it the default."""
 
         selected_registered_by = registered_by or self.operator
@@ -262,26 +232,31 @@ class LabConfigOperations:
                 or preview.result_content_hash is None
             ):
                 raise ValueError("only a valid config draft can become the default")
-            return self.client.set_config_draft_default(
-                ConfigDraftDefaultCommand(
-                    registration=ConfigDraftRegistrationCommand(
-                        draft=_reviewed_draft_command(config, preview),
-                        expected_result_content_hash=preview.result_content_hash,
+            return self.client.set_config_default(
+                ConfigRevisionDefaultCommand(
+                    registration=ConfigRevisionRegistrationCommand(
+                        source=ManualConfigDraftRevisionSource(
+                            draft=_reviewed_draft_command(config, preview),
+                            expected_result_content_hash=preview.result_content_hash,
+                        ),
                         entry_id=entry_id or config_revision_entry_id(preview.config),
                         registered_by=selected_registered_by,
                         note=note,
                     ),
                     operator=selected_operator,
+                    expected_generation=preview.base_generation,
                 )
             )
-        return self.client.set_direct_config_default(
-            DirectConfigDefaultCommand(
-                entry_id=entry_id or config_revision_entry_id(config),
-                config=config,
-                registered_by=selected_registered_by,
+        return self.client.set_config_default(
+            ConfigRevisionDefaultCommand(
+                registration=ConfigRevisionRegistrationCommand(
+                    source=DirectConfigRevisionSource(config=config),
+                    entry_id=entry_id or config_revision_entry_id(config),
+                    registered_by=selected_registered_by,
+                    note=note,
+                ),
                 operator=selected_operator,
                 expected_generation=self._generation(),
-                note=note,
             )
         )
 
@@ -316,20 +291,24 @@ class LabConfigOperations:
         note: str = "",
         activation_note: str | None = None,
         expected_generation: int | None = None,
-    ) -> CandidateConfigActivationReceipt:
-        return self.client.activate_candidate_config(
-            CandidateConfigActivationCommand(
-                run_id=candidate.source_run_id,
-                proposal_ids=candidate.proposal_ids,
-                entry_id=entry_id,
-                registered_by=registered_by or self.operator,
+    ) -> ConfigRevisionDefaultReceipt:
+        return self.client.set_config_default(
+            ConfigRevisionDefaultCommand(
+                registration=ConfigRevisionRegistrationCommand(
+                    source=CandidateConfigRevisionSource(
+                        run_id=candidate.source_run_id,
+                        proposal_id=candidate.proposal_id,
+                    ),
+                    entry_id=entry_id,
+                    registered_by=registered_by or self.operator,
+                    note=note,
+                ),
                 operator=operator or self.operator,
                 expected_generation=(
                     self._generation()
                     if expected_generation is None
                     else expected_generation
                 ),
-                note=note,
                 activation_note=activation_note,
             )
         )
@@ -340,21 +319,21 @@ class LabConfigOperations:
     ) -> ParameterProposalListView:
         return self.client.parameter_proposals(run_handle_id(run))
 
-    def review(
+    def approve(
         self,
         run: RunSelector | RunHandle,
         selector: str,
         *,
         reviewer: str | None = None,
-        decision: ParameterChangeReviewState = "approved",
         note: str = "",
-    ) -> ParameterChangeDecisionRecord:
-        return self.client.review_parameter_proposal(
+    ) -> ParameterChangeApprovalRecord:
+        """Record the proposal's immutable operator approval."""
+
+        return self.client.approve_parameter_proposal(
             run_handle_id(run),
             selector,
-            ParameterProposalReviewCommand(
-                decision=decision,
-                reviewer=reviewer or self.reviewer,
+            ParameterProposalApprovalCommand(
+                actor=reviewer or self.reviewer,
                 note=note,
             ),
         )
@@ -364,13 +343,12 @@ class LabConfigOperations:
         candidate: CandidateConfig | Analysis,
         *,
         selection: CandidateSelection = None,
-        authority: ParameterChangeDecisionAuthority | None = None,
         entry_id: str | None = None,
         registered_by: str | None = None,
         operator: str | None = None,
         note: str = "",
-    ) -> CandidateConfigActivationReceipt:
-        """Persist an analysis if supplied, accept its proposals, and publish."""
+    ) -> ConfigRevisionDefaultReceipt:
+        """Persist an analysis if supplied, accept its proposal, and publish."""
 
         if isinstance(candidate, Analysis):
             candidate.save()
@@ -379,31 +357,15 @@ class LabConfigOperations:
             if selection is not None:
                 raise ValueError("proposal selection belongs on an Analysis")
             selected = candidate
-        self.resolve(selected)
-        selected_authority = authority or HumanDecisionAuthority(
-            actor=operator or self.operator
+        proposal_id = selected.proposal_id
+        self.client.approve_parameter_proposal(
+            selected.source_run_id,
+            proposal_id,
+            ParameterProposalApprovalCommand(
+                actor=operator or self.operator,
+                note=note,
+            ),
         )
-        proposal_views = {
-            item.proposal.id: item
-            for item in self.client.parameter_proposals(selected.source_run_id).items
-        }
-        for proposal_id in selected.proposal_ids:
-            decisions = proposal_views[proposal_id].decisions
-            if (
-                decisions
-                and decisions[-1].decision == "approved"
-                and (authority is None or decisions[-1].authority == selected_authority)
-            ):
-                continue
-            self.client.decide_parameter_proposal(
-                selected.source_run_id,
-                proposal_id,
-                ParameterProposalDecisionCommand(
-                    decision="approved",
-                    authority=selected_authority,
-                    note=note,
-                ),
-            )
         return self.activate_candidate(
             selected,
             entry_id=entry_id,
@@ -440,8 +402,8 @@ class LabConfigOperations:
         )
 
     def _generation(self) -> int:
-        state = self.registry().active_state
-        return 0 if state is None else state.generation
+        activation = self.registry().activation
+        return 0 if activation is None else activation.generation
 
 
 def _reviewed_draft_command(

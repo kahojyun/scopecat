@@ -55,15 +55,12 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_operation_id,
 )
 from scopecat.authoring.domain import DomainExecution
-from scopecat.authoring.measurements import MeasurementTransform
+from scopecat.authoring.measurements import MeasurementPostprocessor
 from scopecat.authoring.value_types import (
     Entity as EntityType,
 )
 from scopecat.authoring.value_types import (
     Scalar as ScalarType,
-)
-from scopecat.authoring.value_types import (
-    Series as SeriesType,
 )
 from scopecat.authoring.value_types import ValueType
 from scopecat.authoring.values import (
@@ -103,17 +100,19 @@ def _empty_resource_bindings() -> FrozenMapping[
 
 
 def _is_entity_input_type(value_type: ValueType) -> bool:
-    if isinstance(value_type, ScalarType):
-        return isinstance(value_type.atom, EntityType)
-    if isinstance(value_type, SeriesType):
-        return isinstance(value_type.item_type.atom, EntityType)
-    return False
+    return isinstance(value_type, ScalarType) and isinstance(
+        value_type.atom, EntityType
+    )
 
 
 def _is_public_binding_input(value: object) -> bool:
-    return value is None or isinstance(
-        value,
-        ValueRef | Quantity | EntityRef | PayloadValue | str | int | float | bool,
+    return (
+        (isinstance(value, ValueRef) and isinstance(value.value_type, ScalarType))
+        or value is None
+        or isinstance(
+            value,
+            Quantity | EntityRef | PayloadValue | str | int | float | bool,
+        )
     )
 
 
@@ -141,7 +140,7 @@ class ModuleBuilder:
     procedure: tuple[ModuleInvocation | ModuleEffectIR, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
-    measurement_transform_intents: tuple[MeasurementTransform, ...] = ()
+    measurement_postprocessor_intents: tuple[MeasurementPostprocessor, ...] = ()
     product_declarations: tuple[ModuleProductDecl, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
@@ -240,7 +239,7 @@ class ModuleBuilder:
 
     def resource(
         self,
-        id: str,  # noqa: A002
+        id: str,
         *,
         requires: tuple[str, ...] = (),
         for_entities: Sequence[ValueRef] = (),
@@ -276,7 +275,7 @@ class ModuleBuilder:
         """Bind state through structured resource/capability/field identities."""
 
         if not _is_public_binding_input(value):
-            msg = "module bindings require a typed value or scalar literal"
+            msg = "module bindings require a scalar typed value or scalar literal"
             raise TypeError(msg)
         return replace(
             self,
@@ -303,7 +302,7 @@ class ModuleBuilder:
 
     def acquire(
         self,
-        id: str,  # noqa: A002
+        id: str,
         *products: str | ProductRef,
         resource: str,
         capability: str,
@@ -407,17 +406,17 @@ class ModuleBuilder:
             ),
         )
 
-    def measurement_transforms(
+    def measurement_postprocessors(
         self,
-        *transforms: MeasurementTransform,
+        *postprocessors: MeasurementPostprocessor,
     ) -> ModuleBuilder:
-        """Register pure product transforms independently of implementations."""
+        """Register point-local measurement calculations."""
 
         return replace(
             self,
-            measurement_transform_intents=(
-                *self.measurement_transform_intents,
-                *transforms,
+            measurement_postprocessor_intents=(
+                *self.measurement_postprocessor_intents,
+                *postprocessors,
             ),
         )
 
@@ -457,7 +456,7 @@ class ModuleBuilder:
     def build(
         self,
         *,
-        id: str | None = None,  # noqa: A002
+        id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ExperimentModule[...]:
         return build_module_from_builder(
@@ -846,7 +845,7 @@ def _capture_state_literal(value: object) -> object:
 
 def build_module_ir(
     builder: ModuleBuilder,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     *,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ModuleIR:
@@ -872,7 +871,7 @@ def build_module_ir(
         body=ModuleBodyIR(
             procedure=closed_procedure,
             operations=builder.operations,
-            measurement_transforms=builder.measurement_transform_intents,
+            measurement_postprocessors=builder.measurement_postprocessor_intents,
             products=builder.product_declarations,
         ),
         python_implementations=builder.python_implementations,
@@ -901,7 +900,7 @@ def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
 
 def build_module_from_builder(
     builder: ModuleBuilder,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     *,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentModule[...]:

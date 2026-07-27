@@ -16,11 +16,15 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
 )
 from scopecat.application.lab import BootstrapConfigFactory
-from scopecat.config.resolution import ConfigProfileInput, validate_config_profile
-from scopecat.daemon.wire import DirectConfigDefaultCommand
+from scopecat.config.resolution import validate_config_profile
+from scopecat.daemon.wire import (
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionRegistrationCommand,
+    DirectConfigRevisionSource,
+)
 from scopecat.project import LabApplicationFactory
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.config import config_content_hash
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
 from .services import (
     AdmissionService,
@@ -40,7 +44,7 @@ class LocalDaemonRuntime:
         self,
         project_root: str | Path,
         *,
-        bootstrap_config: ConfigProfileInput | None = None,
+        bootstrap_config: ConfigProfileSnapshot | None = None,
         application_factory: LabApplicationFactory | None = None,
         lease_ttl: timedelta | None = None,
     ) -> None:
@@ -158,7 +162,7 @@ class LocalDaemonRuntime:
 
 def _bootstrap_config_registry(
     config_service: ConfigService,
-    config: ConfigProfileInput | BootstrapConfigFactory,
+    config: ConfigProfileSnapshot | BootstrapConfigFactory,
 ) -> None:
     if config_service.get_config_registry().entries:
         return
@@ -166,14 +170,16 @@ def _bootstrap_config_registry(
     selected = config() if callable(config) else config
     validated = validate_config_profile(selected)
     digest = config_content_hash(validated).removeprefix("sha256:")
-    config_service.set_direct_config_default(
-        DirectConfigDefaultCommand(
-            entry_id=f"daemon-{digest}",
-            config=validated,
-            registered_by="scopecat",
+    config_service.set_config_default(
+        ConfigRevisionDefaultCommand(
+            registration=ConfigRevisionRegistrationCommand(
+                source=DirectConfigRevisionSource(config=validated),
+                entry_id=f"daemon-{digest}",
+                registered_by="scopecat",
+                note="imported while bootstrapping a new lab instance",
+            ),
             operator="scopecat",
             expected_generation=0,
-            note="imported while bootstrapping a new lab instance",
         )
     )
 

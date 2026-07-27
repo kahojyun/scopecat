@@ -1,14 +1,14 @@
 import pytest
 from pydantic import ValidationError
 
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.profile_validation import validate_config_profile
-from scopecat.config.profiles import load_config_profile
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
 
 def load_config() -> ConfigProfileSnapshot:
-    return load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    return load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
 
 
 def _problem_codes(config: ConfigProfileSnapshot) -> set[str]:
@@ -177,10 +177,10 @@ def test_parameter_table_rows_are_validated_against_catalog() -> None:
     problems = validate_config_profile(config)
 
     assert bool(problems)
-    assert problems[0].code == "incompatible_parameter_quantity_unit"
+    assert problems[0].code == "invalid_parameter_value"
 
 
-def test_quantity_primary_keys_are_normalized_before_duplicate_detection() -> None:
+def test_equivalent_quantity_primary_keys_are_rejected() -> None:
     config_data = load_config().model_dump(mode="json")
     config_data["system"]["parameter_catalog"]["definitions"].append(
         {
@@ -214,6 +214,5 @@ def test_quantity_primary_keys_are_normalized_before_duplicate_detection() -> No
 
     problems = validate_config_profile(config)
 
-    assert "duplicate_parameter_table_primary_key" in {
-        problem.code for problem in problems
-    }
+    assert bool(problems)
+    assert problems[0].code == "invalid_parameter_value"

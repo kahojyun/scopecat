@@ -66,7 +66,7 @@ def requires(
 
 
 def resource_port(
-    id: str,  # noqa: A002
+    id: str,
     selector: ResourceSelector,
 ) -> ResourcePort:
     return ResourcePort(symbol_id=logical_resource_port_id(id), selector=selector)

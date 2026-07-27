@@ -7,23 +7,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
 
-from scopecat.authoring._intents import ParameterScanOverlayIntent
 from scopecat.authoring._parameter_contracts import merge_parameter_contracts
-from scopecat.authoring._point_domain_intents import point_domain_intent_output_types
 from scopecat.authoring._scan_intents import (
-    CenteredParameterScanIntent,
-    ExplicitParameterScanIntent,
-    ParameterScanIntent,
-    ScanLeafIntent,
-    inherit_default_scan_fields,
-    iter_scan_leaves,
-    parameter_scan_lookup,
+    AxisSpec,
     scan_parameter_contracts,
-    scan_point_id,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_point_value_ref,
 )
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation
@@ -48,10 +35,10 @@ from scopecat.compiler.frontend.scan_lowering import (
 )
 from scopecat.compiler.frontend.scan_validation import (
     ScanValidationError,
-    VerifiedScans,
     verify_scans,
 )
 from scopecat.compiler.linking.linked import LinkedPlan, link_program
+from scopecat.graph.relations.point_domain import analyze_point_domain
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.value_type_compatibility import (
@@ -89,20 +76,18 @@ def compile_invocation(
     scans = _effective_scans(invocation)
     inputs = _merged_inputs(invocation)
     compiled = _compile_invocation_definition(invocation, inputs)
-    verified_scans = _verified_scans(
-        compiled,
+    scan_axes = _verified_scans(
         scans,
         inputs=inputs,
     )
     _validate_required_invocation_inputs(
         invocation,
         inputs,
-        verified_scans=verified_scans,
     )
     request = _materialized_request(
         invocation,
         inputs=inputs,
-        verified_scans=verified_scans,
+        scan_axes=scan_axes,
         metadata=metadata,
         operator=operator,
     )
@@ -111,10 +96,10 @@ def compile_invocation(
         compiled,
         inputs=merged_inputs,
     )
-    _validate_point_dependencies(assembly, verified_scans)
+    _validate_point_dependencies(assembly, scan_axes)
     assembly = _apply_scans(
         assembly,
-        verified_scans,
+        scan_axes,
         inputs=inputs,
     )
     return CompiledInvocation(
@@ -152,16 +137,11 @@ def _compile_invocation_definition(
 def _validate_required_invocation_inputs(
     invocation: ExperimentInvocation,
     inputs: Mapping[str, object],
-    *,
-    verified_scans: VerifiedScans,
 ) -> None:
-    scan_axis_ids = {axis.id for axis in verified_scans.axes}
     missing = [
         definition.id
         for definition in invocation.definition.inputs
-        if definition.required
-        and definition.id not in inputs
-        and definition.id not in scan_axis_ids
+        if definition.required and definition.id not in inputs
     ]
     if missing:
         raise CheckFailed(
@@ -176,16 +156,12 @@ def _validate_required_invocation_inputs(
         )
 
 
-def _effective_scans(invocation: ExperimentInvocation) -> tuple[ScanLeafIntent, ...]:
+def _effective_scans(invocation: ExperimentInvocation) -> tuple[AxisSpec, ...]:
     defaults = tuple(
-        leaf
-        for scan in invocation.definition.default_scans
-        for leaf in iter_scan_leaves(scan)
+        cast("AxisSpec", scan) for scan in invocation.definition.default_scans
     )
-    overrides = tuple(
-        leaf for scan in invocation.scans for leaf in iter_scan_leaves(scan)
-    )
-    override_axis_ids = [scan_point_id(scan) for scan in overrides]
+    overrides = tuple(cast("AxisSpec", scan) for scan in invocation.scans)
+    override_axis_ids = [axis.id for axis in overrides]
     # Validate before indexing so repeated overrides cannot silently collapse.
     duplicate_overrides = sorted(
         axis_id for axis_id, count in Counter(override_axis_ids).items() if count > 1
@@ -200,17 +176,10 @@ def _effective_scans(invocation: ExperimentInvocation) -> tuple[ScanLeafIntent, 
                 )
             ]
         )
-    default_axis_ids = {scan_point_id(scan) for scan in defaults}
-    override_by_id = {scan_point_id(scan): scan for scan in overrides}
-    replaced = tuple(
-        inherit_default_scan_fields(default, override_by_id[scan_point_id(default)])
-        if scan_point_id(default) in override_by_id
-        else default
-        for default in defaults
-    )
-    additions = tuple(
-        scan for scan in overrides if scan_point_id(scan) not in default_axis_ids
-    )
+    default_axis_ids = {axis.id for axis in defaults}
+    override_by_id = {axis.id: axis for axis in overrides}
+    replaced = tuple(override_by_id.get(default.id, default) for default in defaults)
+    additions = tuple(axis for axis in overrides if axis.id not in default_axis_ids)
     return (*replaced, *additions)
 
 
@@ -230,14 +199,12 @@ def _materialized_request(
     invocation: ExperimentInvocation,
     *,
     inputs: Mapping[str, object],
-    verified_scans: VerifiedScans,
+    scan_axes: Sequence[AxisSpec],
     metadata: Mapping[str, object] | None,
     operator: str | None,
 ) -> RunRequest:
     request_inputs = project_run_request_inputs(inputs)
-    request_scans = [
-        project_scan_record(axis.leaf, inputs=inputs) for axis in verified_scans.axes
-    ]
+    request_scans = [project_scan_record(axis, inputs=inputs) for axis in scan_axes]
     return RunRequest.model_validate(
         {
             "experiment_id": invocation.definition.id,
@@ -250,16 +217,14 @@ def _materialized_request(
 
 
 def _verified_scans(
-    assembly: SemanticExperimentIR,
     scans: Sequence[Scan],
     *,
     inputs: Mapping[str, object],
-) -> VerifiedScans:
+) -> tuple[AxisSpec, ...]:
     try:
         return verify_scans(
             scans,
             inputs=inputs,
-            input_types={port.id: port.value_type for port in assembly.input_ports},
         )
     except ScanValidationError as error:
         raise CheckFailed(
@@ -277,61 +242,36 @@ def _verified_scans(
 
 def _apply_scans(
     assembly: SemanticExperimentIR,
-    verified_scans: VerifiedScans,
+    scan_axes: Sequence[AxisSpec],
     *,
     inputs: Mapping[str, object],
 ) -> SemanticExperimentIR:
-    scan_leaves = tuple(axis.leaf for axis in verified_scans.axes)
     point_domain = lower_scans_point_domain(
-        scan_leaves,
+        scan_axes,
         inputs=inputs,
     )
-    consumed_point_input_ids = {port.id for port in assembly.input_ports}
-    point_inputs = {
-        input_id: target
-        for input_id, target in _point_provider_inputs(verified_scans).items()
-        if input_id in consumed_point_input_ids and input_id not in assembly.inputs
-    }
     return replace(
         assembly,
-        inputs={**assembly.inputs, **point_inputs},
         point_domain=point_domain,
         parameter_contracts=merge_parameter_contracts(
             assembly.parameter_contracts,
-            *(scan_parameter_contracts(axis.leaf) for axis in verified_scans.axes),
+            *(scan_parameter_contracts(axis) for axis in scan_axes),
         ),
         parameter_overlays=(
             *assembly.parameter_overlays,
-            *tuple(
-                _runtime_parameter_overlay_intent(axis.leaf)
-                for axis in verified_scans.axes
-                if isinstance(
-                    axis.leaf,
-                    ExplicitParameterScanIntent | CenteredParameterScanIntent,
-                )
-            ),
+            *(axis for axis in scan_axes if axis.parameter_lookup is not None),
         ),
     )
-
-
-def _point_provider_inputs(
-    verified_scans: VerifiedScans,
-) -> dict[str, ValueRef]:
-    """Map every scan coordinate to one explicit point-value handle."""
-
-    return {
-        axis.id: internal_point_value_ref(axis.id, axis.value_type)
-        for axis in verified_scans.axes
-    }
 
 
 def _validate_point_dependencies(
     assembly: SemanticExperimentIR,
-    verified_scans: VerifiedScans,
+    scan_axes: Sequence[AxisSpec],
 ) -> None:
+    domain_type = analyze_point_domain(assembly.point_domain).value_type
     point_types = {
-        **point_domain_intent_output_types(assembly.point_domain),
-        **{axis.id: axis.value_type for axis in verified_scans.axes},
+        **{column.id: column.value_type for column in domain_type.columns},
+        **{axis.id: axis.value_type for axis in scan_axes},
     }
     problems: list[Problem] = []
     for dependency in assembly.point_dependencies:
@@ -361,15 +301,3 @@ def _validate_point_dependencies(
         )
     if problems:
         raise CheckFailed(problems)
-
-
-def _runtime_parameter_overlay_intent(
-    scan: ParameterScanIntent,
-) -> ParameterScanOverlayIntent:
-    lookup, key = parameter_scan_lookup(scan)
-    return ParameterScanOverlayIntent(
-        table_id=lookup.table_id,
-        key=key,
-        column_id=lookup.column_id,
-        point_id=scan_point_id(scan),
-    )

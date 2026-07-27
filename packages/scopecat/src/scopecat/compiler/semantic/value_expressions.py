@@ -1,97 +1,43 @@
-"""Proof-carrying compiler envelopes for relation-plan values."""
+"""Compiler carriers for scalar expressions and direct whole-table values."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Self, cast, overload
 
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     VerifiedRelationPlan,
     verify_relation_plan,
 )
-from scopecat.graph.relations.model import RelationExpr, ScalarExpr, SeriesExpr
-from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
-
-
-class _FrozenProofEnvelope:
-    __slots__ = ()
-
-    def __copy__(self) -> Self:
-        return self
-
-    def __deepcopy__(self, _memo: dict[int, object]) -> Self:
-        return self
+from scopecat.graph.relations.model import ScalarExpr
+from scopecat.graph.table_values import TableSource
+from scopecat.kernel.value_types import Scalar, Table
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class ScalarValueExpr(_FrozenProofEnvelope):
+class ScalarValueExpr:
     """A scalar plan together with its backend-neutral static proof."""
 
-    _plan: VerifiedRelationPlan[ScalarExpr]
-
-    shape: ClassVar[Literal["scalar"]] = "scalar"
-
-    def __post_init__(self) -> None:
-        if not isinstance(self._plan.certified_type, Scalar):
-            msg = "scalar value expressions require a scalar plan proof"
-            raise TypeError(msg)
+    _plan: VerifiedRelationPlan
 
     @property
-    def plan(self) -> VerifiedRelationPlan[ScalarExpr]:
+    def plan(self) -> VerifiedRelationPlan:
         return self._plan
 
     @property
     def value_type(self) -> Scalar:
-        return cast("Scalar", self._plan.certified_type)
+        return self._plan.certified_type
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
-class SeriesValueExpr(_FrozenProofEnvelope):
-    """A series plan together with its backend-neutral static proof."""
+@dataclass(frozen=True, slots=True)
+class TableValue:
+    """A typed whole table passed directly to a domain compiler."""
 
-    _plan: VerifiedRelationPlan[SeriesExpr]
-
-    shape: ClassVar[Literal["series"]] = "series"
-
-    def __post_init__(self) -> None:
-        if not isinstance(self._plan.certified_type, Series):
-            msg = "series value expressions require a series plan proof"
-            raise TypeError(msg)
-
-    @property
-    def plan(self) -> VerifiedRelationPlan[SeriesExpr]:
-        return self._plan
-
-    @property
-    def value_type(self) -> Series:
-        return cast("Series", self._plan.certified_type)
+    source: TableSource
+    value_type: Table
 
 
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
-class TableValueExpr(_FrozenProofEnvelope):
-    """A relation plan together with its backend-neutral static proof."""
-
-    _plan: VerifiedRelationPlan[RelationExpr]
-
-    shape: ClassVar[Literal["table"]] = "table"
-
-    def __post_init__(self) -> None:
-        if not isinstance(self._plan.certified_type, Table):
-            msg = "table value expressions require a relation plan proof"
-            raise TypeError(msg)
-
-    @property
-    def plan(self) -> VerifiedRelationPlan[RelationExpr]:
-        return self._plan
-
-    @property
-    def value_type(self) -> Table:
-        return cast("Table", self._plan.certified_type)
-
-
-type ScalarOrSeriesValueExpr = ScalarValueExpr | SeriesValueExpr
-type ValueExpr = ScalarValueExpr | SeriesValueExpr | TableValueExpr
+type CompilerValue = ScalarValueExpr | TableValue
 
 
 def verify_scalar_value_expr(
@@ -109,106 +55,3 @@ def verify_scalar_value_expr(
             expected_type=expected_type,
         )
     )
-
-
-def verify_series_value_expr(
-    expression: SeriesExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: Series | None = None,
-) -> SeriesValueExpr:
-    """Verify one transformed series expression before it enters compiler IR."""
-
-    return SeriesValueExpr(
-        _plan=verify_relation_plan(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
-    )
-
-
-def verify_table_value_expr(
-    expression: RelationExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: Table | None = None,
-) -> TableValueExpr:
-    """Verify one transformed relation before it enters compiler IR."""
-
-    return TableValueExpr(
-        _plan=verify_relation_plan(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
-    )
-
-
-@overload
-def verify_value_expr(
-    expression: ScalarExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: Scalar,
-) -> ScalarValueExpr: ...
-
-
-@overload
-def verify_value_expr(
-    expression: SeriesExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: Series,
-) -> SeriesValueExpr: ...
-
-
-@overload
-def verify_value_expr(
-    expression: RelationExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: Table,
-) -> TableValueExpr: ...
-
-
-@overload
-def verify_value_expr(
-    expression: ScalarExpr | SeriesExpr | RelationExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: ValueType,
-) -> ValueExpr: ...
-
-
-def verify_value_expr(
-    expression: ScalarExpr | SeriesExpr | RelationExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: ValueType,
-) -> ValueExpr:
-    """Verify and shape-pack one transformed plan for compiler ownership."""
-
-    if isinstance(expression, ScalarExpr) and isinstance(expected_type, Scalar):
-        return verify_scalar_value_expr(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
-    if isinstance(expression, SeriesExpr) and isinstance(expected_type, Series):
-        return verify_series_value_expr(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
-    if isinstance(expression, RelationExpr) and isinstance(expected_type, Table):
-        return verify_table_value_expr(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
-    msg = (
-        f"expression shape {type(expression).__name__} does not match "
-        f"declared type {expected_type!r}"
-    )
-    raise TypeError(msg)

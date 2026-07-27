@@ -138,7 +138,7 @@ def test_check_compiles_authoring_before_config_source_io(
 
     monkeypatch.setattr(
         run_workflows,
-        "resolve_experiment_config",
+        "resolve_test_config",
         unexpected_config_read,
     )
     invalid = simple_template().bind()

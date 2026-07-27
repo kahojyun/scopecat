@@ -7,11 +7,9 @@ from typing import cast
 
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
-    InputScalarExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
-    PointColumnScalarExpr,
     ScalarExpr,
     ScalarExpression,
 )
@@ -76,10 +74,6 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
     scalar = cast("ScalarExpression", expression)
     if isinstance(scalar, LiteralScalarExpr):
         return project_run_request_value(scalar.value, path="expression.literal")
-    if isinstance(scalar, PointColumnScalarExpr):
-        return {"kind": "axis", "axis_id": scalar.name}
-    if isinstance(scalar, InputScalarExpr):
-        return {"kind": "input", "input_id": scalar.name}
     if isinstance(scalar, ParameterScalarExpr):
         return {"kind": "parameter", "parameter_id": scalar.name}
     if isinstance(scalar, ParameterLookupScalarExpr):
@@ -92,11 +86,10 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
             },
             "column": scalar.use.column_id,
         }
-    if isinstance(scalar, BinaryScalarExpr):
-        return {
-            "kind": "binary",
-            "operator": scalar.op,
-            "left": project_run_request_scalar(scalar.left),
-            "right": project_run_request_scalar(scalar.right),
-        }
-    raise AssertionError(f"unsupported request scalar expression: {scalar!r}")
+    binary = cast("BinaryScalarExpr", scalar)
+    return {
+        "kind": "binary",
+        "operator": binary.op,
+        "left": project_run_request_scalar(binary.left),
+        "right": project_run_request_scalar(binary.right),
+    }

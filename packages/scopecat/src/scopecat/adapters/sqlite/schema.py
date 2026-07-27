@@ -4,7 +4,7 @@ from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 10
+PROJECT_SCHEMA_VERSION = 11
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (
@@ -43,14 +43,24 @@ CREATE TABLE IF NOT EXISTS run_resource_requirements (
 
 CREATE TABLE IF NOT EXISTS durable_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    run_id TEXT,
     kind TEXT NOT NULL,
     payload_json TEXT NOT NULL,
-    occurred_at TEXT NOT NULL
+    occurred_at TEXT NOT NULL,
+    run_sequence INTEGER CHECK (run_sequence IS NULL OR run_sequence >= 0),
+    deduplication_key TEXT
 );
 
 CREATE INDEX IF NOT EXISTS durable_events_run_id_event_id
 ON durable_events(run_id, event_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS durable_events_run_kind_sequence
+ON durable_events(run_id, kind, run_sequence)
+WHERE run_sequence IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS durable_events_run_kind_deduplication
+ON durable_events(run_id, kind, deduplication_key)
+WHERE deduplication_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS executor_leases (
     run_id TEXT PRIMARY KEY REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
@@ -85,7 +95,7 @@ CREATE TABLE IF NOT EXISTS resource_leases (
 );
 
 CREATE INDEX IF NOT EXISTS resource_leases_run_id ON resource_leases(run_id);
-"""  # noqa: S608 - interpolates an internal integer constant.
+"""  # noqa: S608 - interpolates an internal integer constant
 
 PROJECT_SCHEMA_SQL = "\n".join(
     (

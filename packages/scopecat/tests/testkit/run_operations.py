@@ -2,23 +2,11 @@
 
 from __future__ import annotations
 
-from scopecat.execution.program import (
-    RunCoverageBlock,
-    RunOperation,
-)
+from scopecat.execution.program import RunCoveredOperation
 from tests.testkit.local_materialization import LocalEffectInspection
 
 
 def complete_coverage_operations(
     execution: LocalEffectInspection,
-) -> tuple[RunOperation, ...]:
-    return (
-        (
-            RunCoverageBlock(
-                points=execution.points,
-                operations=execution.effects,
-            ),
-        )
-        if execution.points
-        else ()
-    )
+) -> tuple[RunCoveredOperation, ...]:
+    return execution.effects

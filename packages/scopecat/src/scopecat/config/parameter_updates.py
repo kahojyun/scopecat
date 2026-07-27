@@ -23,13 +23,12 @@ from scopecat.config.validation import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Scalar, Series, Table
+from scopecat.kernel.value_types import Scalar, Table
 from scopecat.records.parameter import (
     ParameterAtomValue,
     ParameterCatalog,
     ParameterSnapshot,
     ScalarParameterValue,
-    SeriesParameterValue,
     StoredParameterValue,
     TableParameterValue,
 )
@@ -67,7 +66,6 @@ class _ParameterUpdateModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
         allow_inf_nan=False,
     )
 
@@ -172,17 +170,6 @@ def replace_scalar_parameter(
     """Build a scalar replacement update from a closed durable atom."""
 
     return ReplaceParameter(value=ScalarParameterValue(id=parameter_id, value=value))
-
-
-def replace_series_parameter(
-    parameter_id: str,
-    items: Sequence[ParameterAtomValue],
-) -> ReplaceParameter:
-    """Build a complete series replacement update."""
-
-    return ReplaceParameter(
-        value=SeriesParameterValue(id=parameter_id, items=tuple(items))
-    )
 
 
 def replace_table_parameter(
@@ -290,7 +277,7 @@ def materialize_parameter_updates(
 
     for parameter_id in touched:
         definition = catalog.get(parameter_id)
-        assert definition is not None  # noqa: S101
+        assert definition is not None
         selected[parameter_id] = coerce_stored_parameter_value(
             definition,
             selected[parameter_id],
@@ -315,46 +302,37 @@ def materialize_parameter_updates(
     return candidate, deltas
 
 
-def merge_parameter_change_deltas(
+def apply_parameter_change_deltas(
     *,
     base: ParameterSnapshot,
-    proposals: Sequence[Sequence[ParameterValueDelta]],
+    deltas: Sequence[ParameterValueDelta],
     candidate_id: str,
 ) -> ParameterSnapshot:
-    """Resolve non-overlapping proposed deltas against one base snapshot."""
+    """Apply one proposal's durable deltas against its base snapshot."""
 
     base_values = {value.id: value for value in base.values}
     selected = dict(base_values)
     order = [value.id for value in base.values]
-    touched: set[str] = set()
-    for deltas in proposals:
-        delta_by_id = {delta.parameter_id: delta for delta in deltas}
-        if len(delta_by_id) != len(deltas):
-            msg = "candidate proposal contains duplicate parameter deltas"
-            raise ValueError(msg)
-        changed = set(delta_by_id)
-        unknown = changed - set(base_values)
-        if unknown:
-            msg = "candidate proposal references unknown parameters: " + ", ".join(
-                sorted(unknown)
+    delta_by_id = {delta.parameter_id: delta for delta in deltas}
+    if len(delta_by_id) != len(deltas):
+        msg = "candidate proposal contains duplicate parameter deltas"
+        raise ValueError(msg)
+    changed = set(delta_by_id)
+    unknown = changed - set(base_values)
+    if unknown:
+        msg = "candidate proposal references unknown parameters: " + ", ".join(
+            sorted(unknown)
+        )
+        raise ValueError(msg)
+    for parameter_id in changed:
+        delta = delta_by_id[parameter_id]
+        if delta.before != base_values[parameter_id]:
+            msg = (
+                "candidate proposal delta before value does not match source "
+                f"snapshot: {parameter_id}"
             )
             raise ValueError(msg)
-        overlap = touched & changed
-        if overlap:
-            msg = "candidate config proposals overlap on parameters: " + ", ".join(
-                sorted(overlap)
-            )
-            raise ValueError(msg)
-        for parameter_id in changed:
-            delta = delta_by_id[parameter_id]
-            if delta.before != base_values[parameter_id]:
-                msg = (
-                    "candidate proposal delta before value does not match source "
-                    f"snapshot: {parameter_id}"
-                )
-                raise ValueError(msg)
-            selected[parameter_id] = delta.after
-        touched.update(changed)
+        selected[parameter_id] = delta.after
     return ParameterSnapshot(
         id=candidate_id,
         values=tuple(selected[value_id] for value_id in order),
@@ -364,14 +342,12 @@ def merge_parameter_change_deltas(
 def _require_matching_shape(
     *,
     parameter_id: str,
-    expected: Scalar | Series | Table,
+    expected: Scalar | Table,
     value: StoredParameterValue,
 ) -> None:
     matches = (
-        (isinstance(expected, Scalar) and isinstance(value, ScalarParameterValue))
-        or (isinstance(expected, Series) and isinstance(value, SeriesParameterValue))
-        or (isinstance(expected, Table) and isinstance(value, TableParameterValue))
-    )
+        isinstance(expected, Scalar) and isinstance(value, ScalarParameterValue)
+    ) or (isinstance(expected, Table) and isinstance(value, TableParameterValue))
     if not matches:
         msg = (
             f"parameter {parameter_id!r} replacement shape does not match "

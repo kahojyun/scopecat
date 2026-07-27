@@ -21,10 +21,9 @@ from scopecat_quantum.authoring import (
     materialize_pulse_recipe_body,
     qubit,
 )
-from scopecat_quantum.circuits import Measure, VerifiedCircuitProgram
+from scopecat_quantum.circuits import Measure, VerifiedCircuitOperations
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.measurement_implementations import (
-    MeasurementDiscriminator,
     MeasurementPulseImplementation,
     MeasurementPulseImplementationKey,
 )
@@ -36,9 +35,6 @@ from scopecat_quantum.pulse_implementations import (
 )
 
 type _GateRecipeTarget = GateDefinition | Gate
-type _MeasurementDiscriminatorProvider[RowT] = (
-    MeasurementDiscriminator | Callable[[RowT, Qubit], MeasurementDiscriminator] | None
-)
 
 
 def _gate_definition(target: _GateRecipeTarget) -> GateDefinition:
@@ -212,11 +208,6 @@ class MeasurementPulseRecipe[RowT]:
         repr=False,
         compare=False,
     )
-    discriminator: _MeasurementDiscriminatorProvider[RowT] = field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -240,9 +231,6 @@ class MeasurementPulseRecipe[RowT]:
         implementation_id = self.implementation_id(measurement.qubit)
         target = qubit(measurement.qubit.value)
         body = self.build(row, target)
-        discriminator = self.discriminator
-        if callable(discriminator):
-            discriminator = discriminator(row, target)
         return MeasurementPulseImplementation(
             id=implementation_id,
             key=MeasurementPulseImplementationKey.from_measurement(measurement),
@@ -251,7 +239,6 @@ class MeasurementPulseRecipe[RowT]:
                 body,
                 measurement=(measurement.qubit, self.acquisition_kind),
             ),
-            discriminator=discriminator,
         )
 
 
@@ -274,7 +261,7 @@ class _GatePulseRecipeDecorator:
 def gate_pulse_recipe(
     *,
     of: _GateRecipeTarget,
-    id: str,  # noqa: A002
+    id: str,
 ) -> _GatePulseRecipeDecorator:
     """Declare a compiler-owned gate recipe without global registration."""
 
@@ -285,9 +272,6 @@ def gate_pulse_recipe(
 class _MeasurementPulseRecipeDecorator:
     id: str
     acquisition_kind: AcquisitionKind
-    discriminator: (
-        MeasurementDiscriminator | Callable[..., MeasurementDiscriminator] | None
-    )
 
     def __call__[RowT](
         self,
@@ -297,27 +281,19 @@ class _MeasurementPulseRecipeDecorator:
             id=self.id,
             acquisition_kind=self.acquisition_kind,
             build=build,
-            discriminator=cast(
-                "_MeasurementDiscriminatorProvider[RowT]",
-                self.discriminator,
-            ),
         )
 
 
 def measurement_pulse_recipe(
     *,
     kind: AcquisitionKind,
-    id: str,  # noqa: A002
-    discriminator: (
-        MeasurementDiscriminator | Callable[..., MeasurementDiscriminator] | None
-    ) = None,
+    id: str,
 ) -> _MeasurementPulseRecipeDecorator:
     """Declare a compiler-owned measurement recipe without global registration."""
 
     return _MeasurementPulseRecipeDecorator(
         id=id,
         acquisition_kind=kind,
-        discriminator=discriminator,
     )
 
 
@@ -349,7 +325,7 @@ class PulseRecipeMap[ParametersT, RowT]:
     def materialize(
         self,
         parameters: ParametersT,
-        circuit: VerifiedCircuitProgram,
+        circuit: VerifiedCircuitOperations,
     ) -> ResolvedPulseImplementations:
         """Map only operations present in the bound circuit onto matching rows."""
 
@@ -439,13 +415,13 @@ class _PulseRecipeMapping[ParametersT](Protocol):
     def materialize(
         self,
         parameters: ParametersT,
-        circuit: VerifiedCircuitProgram,
+        circuit: VerifiedCircuitOperations,
     ) -> ResolvedPulseImplementations: ...
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class PulseRecipeProfile[ParametersT]:
-    """Static recipe configuration interpreted against point-bound operations."""
+    """Static recipes joined only to operations used by the point-bound circuit."""
 
     _mappings: tuple[_PulseRecipeMapping[ParametersT], ...]
 
@@ -460,7 +436,7 @@ class PulseRecipeProfile[ParametersT]:
     def materialize(
         self,
         parameters: ParametersT,
-        circuit: VerifiedCircuitProgram,
+        circuit: VerifiedCircuitOperations,
     ) -> ResolvedPulseImplementations:
         """Join every configured row map to one point-bound circuit."""
 

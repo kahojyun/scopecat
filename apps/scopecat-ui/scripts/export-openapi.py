@@ -6,17 +6,17 @@ import json
 from pathlib import Path
 from typing import cast
 
-from scopecat_server.transport import DaemonApplicationContract, create_app
+from scopecat_server.application import DaemonApplication
+from scopecat_server.transport import create_app
 
 OUTPUT = Path(__file__).parent.parent / ".generated" / "ui-api.openapi.json"
 
 _OPERATIONS = {
     ("/api/v1/config-registry", "get"),
+    ("/api/v1/config-registry/activations", "get"),
     ("/api/v1/config-registry/active", "post"),
-    ("/api/v1/config-registry/candidates/activate", "post"),
+    ("/api/v1/config-registry/default", "post"),
     ("/api/v1/config-registry/drafts/preview", "post"),
-    ("/api/v1/config-registry/drafts/register", "post"),
-    ("/api/v1/config-registry/drafts/set-default", "post"),
     ("/api/v1/config-registry/entries", "post"),
     ("/api/v1/config-registry/entries/{entry_id}", "get"),
     ("/api/v1/config-registry/rollback", "post"),
@@ -32,7 +32,7 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/measurements", "get"),
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
     (
-        "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/review",
+        "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval",
         "post",
     ),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),
@@ -41,7 +41,7 @@ _OPERATIONS = {
 
 def main() -> None:
     # Route registration only closes over the backend; schema generation never calls it.
-    app = create_app(cast("DaemonApplicationContract", object()))
+    app = create_app(cast("DaemonApplication", object()))
     openapi = app.openapi()
     paths: dict[str, dict[str, object]] = {}
     for path, method in sorted(_OPERATIONS):

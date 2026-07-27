@@ -10,12 +10,12 @@ from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
 )
-from scopecat.config.candidates import CandidateConfig
-from scopecat.config.environment import build_config_environment
-from scopecat.config.resolution import (
-    ConfigProfileInput,
-    resolve_experiment_config,
+from scopecat.config.candidates import (
+    CandidateConfig,
+    resolve_candidate_config_snapshot,
 )
+from scopecat.config.environment import build_config_environment
+from scopecat.config.registry import service as config_registry_service
 from scopecat.kernel.errors import CheckFailed, ProblemFailure
 from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.planning.check_results import ExperimentCheckResult
@@ -24,7 +24,8 @@ from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.run import AnalysisCandidateRunConfigSource, RunConfigSource
 
 
 def plan_experiment(
@@ -32,7 +33,6 @@ def plan_experiment(
     *,
     services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
-    config_profile: ConfigProfileInput | None = None,
     system: ExperimentSystem | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
@@ -44,18 +44,17 @@ def plan_experiment(
         metadata=metadata,
         operator=operator,
     )
-    resolved = resolve_experiment_config(
+    selected_config, config_source = resolve_test_config(
         services=services,
         config=config,
-        config_profile=config_profile,
     )
-    environment = build_config_environment(resolved.config)
+    environment = build_config_environment(selected_config)
     linked = resolve_compiled_invocation(compiled, environment=environment)
     return PlannedRun(
-        config=resolved.config,
+        config=selected_config,
         request=compiled.request,
         program=compile_run_program(system, linked=linked),
-        config_source=resolved.config_source,
+        config_source=config_source,
         system=system,
     )
 
@@ -65,7 +64,6 @@ def check_experiment(
     *,
     services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
-    config_profile: ConfigProfileInput | None = None,
     system: ExperimentSystem | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
@@ -84,7 +82,6 @@ def check_experiment(
         compiled,
         services=services,
         config=config,
-        config_profile=config_profile,
         system=system,
     )
 
@@ -94,16 +91,14 @@ def _check_compiled_experiment(
     *,
     services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig,
-    config_profile: ConfigProfileInput | None,
     system: ExperimentSystem | None,
 ) -> ExperimentCheckResult:
     try:
-        resolved = resolve_experiment_config(
+        selected_config, _config_source = resolve_test_config(
             services=services,
             config=config,
-            config_profile=config_profile,
         )
-        environment = build_config_environment(resolved.config)
+        environment = build_config_environment(selected_config)
     except ProblemFailure as error:
         if not _problems_match_phase(error.problems, ProblemPhase.CONFIGURATION):
             raise
@@ -119,6 +114,31 @@ def _check_compiled_experiment(
         problems = error.problems
         preview = None
     return ExperimentCheckResult(problems=problems, preview=preview)
+
+
+def resolve_test_config(
+    *,
+    services: ProjectStateServices,
+    config: str | ConfigProfileSnapshot | CandidateConfig,
+) -> tuple[ConfigProfileSnapshot, RunConfigSource | None]:
+    if isinstance(config, CandidateConfig):
+        selected = resolve_candidate_config_snapshot(config, services=services)
+        return (
+            selected,
+            AnalysisCandidateRunConfigSource(
+                source_run_id=config.source_run_id,
+                analysis_record_id=config.analysis_record_id,
+                proposal_id=config.proposal_id,
+                base_config_content_hash=config.base_config_content_hash,
+                content_hash=config_content_hash(selected),
+            ),
+        )
+    if isinstance(config, ConfigProfileSnapshot):
+        return config, None
+    return config_registry_service.resolve_config_registry_config_source(
+        selector=config,
+        unit_of_work=services.config_registry,
+    )
 
 
 def _problems_match_phase(

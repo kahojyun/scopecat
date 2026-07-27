@@ -29,7 +29,6 @@ def test_manifest_entry_helpers_list_by_role_kind_and_metadata() -> None:
                 role="dataset",
                 id="raw-measurements",
                 kind="measurement_dataset",
-                dataset_role="raw",
             )
         ],
         records=[

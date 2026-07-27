@@ -13,9 +13,6 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.authoring._binding_intents import ResourcePort
-from scopecat.authoring._point_domain_intents import (
-    point_domain_intent_value_type,
-)
 from scopecat.authoring._products import (
     ModuleProductDecl,
     ProductAxis,
@@ -23,7 +20,6 @@ from scopecat.authoring._products import (
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_value_ref,
-    internal_value_ref_is_row_dependent,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
 )
@@ -36,8 +32,11 @@ from scopecat.compiler.semantic.verification import (
     VerifiedSemanticGraph,
     verify_semantic_graph,
 )
-from scopecat.graph.relations.model import ScalarExpr, SeriesExpr
-from scopecat.graph.relations.point_domain import is_point_coordinate_type
+from scopecat.graph.relations.model import ScalarExpr
+from scopecat.graph.relations.point_domain import (
+    analyze_point_domain,
+    is_point_coordinate_type,
+)
 from scopecat.graph.values import (
     OperationId,
 )
@@ -54,7 +53,7 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Entity, Payload, Scalar, Series
+from scopecat.kernel.value_types import Entity, Payload, Scalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,20 +229,9 @@ def _verify_binding_compute_values(
         for index, binding in enumerate(assembly.bindings)
     ]
     for location, value in values:
-        if not isinstance(value, ValueRef):
-            continue
-        if not internal_value_ref_requires_execution(value):
-            lowered = internal_lower_value_ref(value)
-            if not (
-                isinstance(value.value_type, Scalar) and isinstance(lowered, ScalarExpr)
-            ):
-                problems.append(
-                    _problem(
-                        "state_binding_value_shape_invalid",
-                        "state binding value must be scalar-shaped",
-                        location,
-                    )
-                )
+        if not isinstance(value, ValueRef) or not internal_value_ref_requires_execution(
+            value
+        ):
             continue
         value_id = semantic_value_id(value)
         operation = graph.operation_results.get(value_id)
@@ -337,14 +325,6 @@ def _verify_static_value_dependencies(
                         location,
                     )
                 )
-            elif internal_value_ref_is_row_dependent(axis.size):
-                problems.append(
-                    _problem(
-                        "product_axis_value_depends_on_row",
-                        "product axis size cannot depend on a row scope",
-                        location,
-                    )
-                )
 
 
 def _verify_resource_entity_input(
@@ -359,17 +339,13 @@ def _verify_resource_entity_input(
         isinstance(value_type, Scalar)
         and isinstance(value_type.atom, Entity)
         and isinstance(lowered, ScalarExpr)
-    ) or (
-        isinstance(value_type, Series)
-        and isinstance(value_type.item_type.atom, Entity)
-        and isinstance(lowered, SeriesExpr)
     )
     if valid:
         return
     problems.append(
         _problem(
             "module_resource_entity_input_invalid",
-            "resource entity source must be a scalar or series entity value",
+            "resource entity source must be a scalar entity value",
             location,
         )
     )
@@ -387,15 +363,6 @@ def _require_plan_value(
             _problem(
                 "value_requires_execution",
                 f"{context} cannot depend on an external operation",
-                location,
-            )
-        )
-        return False
-    if internal_value_ref_is_row_dependent(value):
-        problems.append(
-            _problem(
-                "value_row_scope_unavailable",
-                f"{context} cannot depend on a row scope",
                 location,
             )
         )
@@ -506,7 +473,7 @@ def _verify_product_schema(
 
     point_columns = {
         column.id
-        for column in point_domain_intent_value_type(assembly.point_domain).columns
+        for column in analyze_point_domain(assembly.point_domain).value_type.columns
         if is_point_coordinate_type(column.value_type)
     }
     for record_id in sorted(set(record_ids) & point_columns):

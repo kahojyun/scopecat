@@ -1,26 +1,20 @@
 from __future__ import annotations
 
-from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.specialization import BindingTime
+from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.semantic.value_expressions import (
-    SeriesValueExpr,
-    TableValueExpr,
+    TableValue,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     CoreProgram,
-    LogicalResourceRequirement,
     TypedComputeNode,
     TypedDomainExecution,
     ValueInput,
@@ -28,31 +22,22 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.compiler.typed.specialization import (
     specialize_core_program,
-    specialize_value_expression,
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
 from scopecat.graph.relations.model import (
-    LiteralRowsRelationExpr,
     LiteralScalarExpr,
     PointColumnScalarExpr,
-    ValuesSeriesExpr,
     param,
     parameter_lookup,
-    parameter_series,
-    point_col,
-    table,
 )
 from scopecat.graph.relations.point_domain import (
-    POINT_UNIT,
     PointAxis,
     PointAxisLinear,
-    PointProduct,
-    PointUnit,
     point_axis_linear,
     point_axis_values,
-    point_product,
 )
+from scopecat.graph.table_values import ParameterTableSource
 from scopecat.graph.values import (
     ComputeOutput,
     ComputeResultRef,
@@ -67,20 +52,15 @@ from scopecat.kernel.value_types import (
     Int,
     Quantity,
     Scalar,
-    Series,
-    String,
     Table,
     TableColumn,
 )
 from tests.testkit.parameter_fixtures import (
-    PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,
     parameters,
 )
 from tests.testkit.relation_plans import (
     scalar_value_expr,
-    series_value_expr,
-    table_value_expr,
 )
 
 
@@ -112,7 +92,7 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
         CoreProgram(
             id="specialized",
             kind="test",
-            point_domain=PointDomain(POINT_UNIT),
+            point_domain=PointDomain(axes=()),
             effects=(state, domain),
         ),
         parameters=ParameterRelationData(scalars={"gain": 2.5}),
@@ -129,81 +109,38 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     assert isinstance(domain_input.value.plan.root, LiteralScalarExpr)
 
 
-def test_value_specialization_folds_series_and_table_parameters() -> None:
+def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
     integer = Scalar(Int())
-    series_type = Series(integer, min_length=2, max_length=2)
-    table_type = Table(
-        (TableColumn("x", integer),),
-        min_rows=0,
-        max_rows=2,
-    )
-    bindings = RelationTypeBindings(
-        parameters={"values": series_type, "rows": table_type}
-    )
-    parameters = ParameterRelationData(
-        series={"values": [1, 2]},
-        tables={"rows": [{"x": 3}, {"x": 4}]},
-    )
-    specialized_series, series_binding_time = specialize_value_expression(
-        series_value_expr(
-            parameter_series("values"),
-            bindings=bindings,
-            expected_type=series_type,
+    table_type = Table((TableColumn("x", integer),))
+    source = ParameterTableSource("rows")
+    value = TableValue(source, table_type)
+    domain = TypedDomainExecution(
+        id="domain",
+        program=DomainProgramDef(
+            id="program",
+            dialect_id="tests.specialization",
+            dialect_version="1",
+            body=(),
+            compiler_input_ports=(DomainInputPort("rows", table_type),),
         ),
-        known=EvalContext(params=parameters),
-        parameter_cells=(),
+        compiler_inputs={"rows": ValueInput(value)},
     )
-    specialized_table, table_binding_time = specialize_value_expression(
-        table_value_expr(
-            table("rows").select("x"),
-            bindings=bindings,
-            expected_type=table_type,
-        ),
-        known=EvalContext(params=parameters),
-        parameter_cells=(),
-    )
-
-    assert isinstance(specialized_series, SeriesValueExpr)
-    assert isinstance(specialized_series.plan.root, ValuesSeriesExpr)
-    assert specialized_series.plan.root.items == [1, 2]
-    assert specialized_series.value_type.min_length == 2
-    assert specialized_series.value_type.max_length == 2
-    assert series_binding_time is BindingTime.CONFIGURATION_STATIC
-    assert isinstance(specialized_table, TableValueExpr)
-    assert isinstance(specialized_table.plan.root, LiteralRowsRelationExpr)
-    assert specialized_table.plan.root.rows == [{"x": 3}, {"x": 4}]
-    assert specialized_table.value_type.min_rows == 2
-    assert specialized_table.value_type.max_rows == 2
-    assert table_binding_time is BindingTime.CONFIGURATION_STATIC
-
-
-def test_core_specialization_folds_series_target_entities() -> None:
-    integer = Scalar(Int())
-    series_type = Series(integer, min_length=2, max_length=2)
-    target_entities = series_value_expr(
-        parameter_series("entities"),
-        bindings=RelationTypeBindings(parameters={"entities": series_type}),
-        expected_type=series_type,
-    )
-
     specialized = specialize_core_program(
         CoreProgram(
-            id="resource-selection-specialized",
+            id="table-source",
             kind="test",
-            point_domain=PointDomain(POINT_UNIT),
-            resource_requirements=(
-                LogicalResourceRequirement(
-                    port_id=logical_resource_port_id("drive"),
-                    entity_uses=(relation_use(target_entities),),
-                ),
-            ),
+            point_domain=PointDomain(axes=()),
+            effects=(domain,),
         ),
-        parameters=ParameterRelationData(series={"entities": [1, 2]}),
+        parameters=ParameterRelationData(tables={"rows": [{"x": 3}, {"x": 4}]}),
     )
 
-    root = specialized.resource_requirements[0].entity_uses[0].value.plan.root
-    assert isinstance(root, ValuesSeriesExpr)
-    assert root.items == [1, 2]
+    [specialized_domain] = specialized.effects
+    assert isinstance(specialized_domain, TypedDomainExecution)
+    specialized_value = specialized_domain.compiler_inputs["rows"].value
+    assert isinstance(specialized_value, TableValue)
+    assert specialized_value.source is source
+    assert specialized_value.value_type == table_type
 
 
 def test_core_specialization_prunes_dead_compute_nodes() -> None:
@@ -215,7 +152,6 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
         operation_id = OperationId(SymbolId(local_id=name))
         return TypedComputeNode(
             id=operation_id,
-            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
             implementation=LocalPythonImplementation(
                 id=ImplementationId(f"python.{name}"),
                 kernel=lambda: None,
@@ -250,7 +186,7 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
         CoreProgram(
             id="dce",
             kind="test",
-            point_domain=PointDomain(POINT_UNIT),
+            point_domain=PointDomain(axes=()),
             compute_nodes=(upstream, live, dead),
             effects=(state,),
         ),
@@ -263,19 +199,6 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
     )
 
 
-def test_core_specialization_preserves_structural_point_unit() -> None:
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="unit-specialized",
-            kind="test",
-            point_domain=PointDomain(POINT_UNIT),
-        ),
-        parameters=ParameterRelationData(),
-    )
-
-    assert isinstance(specialized.point_domain.root, PointUnit)
-
-
 def test_core_specialization_preserves_exact_empty_point_composition() -> None:
     integer = Scalar(Int())
 
@@ -284,29 +207,25 @@ def test_core_specialization_preserves_exact_empty_point_composition() -> None:
             id="empty-specialized",
             kind="test",
             point_domain=PointDomain(
-                point_product(
+                axes=(
                     point_axis_values("x", integer, (1,)),
                     point_axis_values("y", integer, ()),
-                )
+                ),
             ),
         ),
         parameters=ParameterRelationData(),
     )
 
-    root = specialized.point_domain.root
-    assert isinstance(root, PointProduct)
     column_ids = tuple(
         column.id for column in specialized.point_domain.value_type.columns
     )
     assert column_ids == ("x", "y")
-    assert specialized.point_domain.value_type.max_rows == 0
 
 
 def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None:
     frequency = Scalar(Quantity(unit="GHz"))
     point_row = RowType((TableColumn("frequency", frequency),))
     point_bindings = RelationTypeBindings(
-        parameters=PARAMETER_TYPES,
         point_row=point_row,
     )
     center = scalar_value_expr(
@@ -314,7 +233,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
             READOUT_FREQUENCY_LOOKUP,
             key={"device_id": "r0"},
         ),
-        bindings=RelationTypeBindings(parameters=PARAMETER_TYPES),
+        bindings=RelationTypeBindings(),
         expected_type=frequency,
     )
     overlaid_lookup = scalar_value_expr(
@@ -327,23 +246,10 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     )
     overlay = PointParameterOverlay(
         table_id="readout_devices",
-        key_uses={
-            "device_id": relation_use(
-                scalar_value_expr(
-                    "r0",
-                    bindings=point_bindings,
-                    expected_type=Scalar(String()),
-                )
-            )
-        },
+        row_index=0,
+        key={"device_id": "r0"},
         column_id="frequency",
-        value_use=relation_use(
-            scalar_value_expr(
-                point_col("frequency"),
-                bindings=point_bindings,
-                expected_type=frequency,
-            )
-        ),
+        axis_id="frequency",
     )
     domain = TypedDomainExecution(
         id="domain",
@@ -362,12 +268,14 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
             id="parameter-centered-axis",
             kind="test",
             point_domain=PointDomain(
-                point_axis_linear(
-                    "frequency",
-                    frequency,
-                    relation_use(center),
-                    QuantityValue(value=0.2, unit="GHz"),
-                    3,
+                axes=(
+                    point_axis_linear(
+                        "frequency",
+                        frequency,
+                        relation_use(center),
+                        QuantityValue(value=0.2, unit="GHz"),
+                        3,
+                    ),
                 )
             ),
             parameter_overlays=(overlay,),
@@ -376,7 +284,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
         parameters=parameters(),
     )
 
-    axis = specialized.point_domain.root
+    [axis] = specialized.point_domain.axes
     assert isinstance(axis, PointAxis)
     assert isinstance(axis.source, PointAxisLinear)
     center_root = axis.source.center.value.plan.root
@@ -388,42 +296,3 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     input_root = specialized_domain.inputs["frequency"].value.plan.root
     assert isinstance(input_root, PointColumnScalarExpr)
     assert input_root.name == "frequency"
-
-
-def test_core_specialization_folds_parameter_overlay_keys() -> None:
-    integer = Scalar(Int())
-    key = scalar_value_expr(
-        param("selected"),
-        bindings=RelationTypeBindings(parameters={"selected": integer}),
-        expected_type=integer,
-    )
-    value = scalar_value_expr(
-        point_col("scan"),
-        bindings=RelationTypeBindings(
-            point_row=RowType((TableColumn("scan", integer),))
-        ),
-        expected_type=integer,
-    )
-    overlay = PointParameterOverlay(
-        table_id="devices",
-        key_uses={"id": relation_use(key)},
-        column_id="value",
-        value_use=relation_use(value),
-    )
-
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="overlay-specialized",
-            kind="test",
-            point_domain=PointDomain(POINT_UNIT),
-            parameter_overlays=(overlay,),
-        ),
-        parameters=ParameterRelationData(
-            scalars={"selected": 1},
-            tables={"devices": [{"id": 1, "value": 0}]},
-        ),
-    )
-
-    key_root = specialized.parameter_overlays[0].key_uses["id"].value.plan.root
-    assert isinstance(key_root, LiteralScalarExpr)
-    assert key_root.value == 1

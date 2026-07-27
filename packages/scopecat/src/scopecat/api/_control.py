@@ -30,17 +30,13 @@ class LabControlOperations:
         self,
         *,
         limit: int = 50,
-        after: int | None = None,
         before: int | None = None,
         state: ControlRunState | None = None,
-        latest: bool | None = None,
     ) -> RunSummaryPage:
         return self.client.list_runs(
             limit=limit,
-            after=after,
             before=before,
             state=state,
-            latest=(after is None and before is None if latest is None else latest),
         )
 
     def run_detail(self, run_id: str) -> RunDetail:

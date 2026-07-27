@@ -7,19 +7,12 @@ import pytest
 import scopecat as sc
 from scopecat.authoring import ValueValidationError
 from scopecat.authoring._parameter_contracts import ParameterValueContract
-from scopecat.authoring._value_refs import (
-    internal_value_ref_scalar_operation,
-)
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.semantic.model import (
-    LiteralValueSource,
-    PlanExpressionSource,
-)
-from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
+from scopecat.compiler.semantic.model import PlanExpressionSource
 from scopecat.compiler.typed.program import ComputeEdge, CoreProgram
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import ScalarExpr
@@ -317,10 +310,6 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         definition.id: definition for definition in flattened.semantic_graph.value_defs
     }
     passthrough = definitions[capture_inputs["passthrough"].value_id]
-    results = {
-        operation.result_id: operation
-        for operation in flattened.semantic_graph.operations
-    }
     assert isinstance(passthrough.source, PlanExpressionSource)
     assert isinstance(passthrough.source.expression, ScalarExpr)
     assert (
@@ -331,24 +320,17 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         )
         == 1.25
     )
-    shift_operation = results[capture_inputs["shifted"].value_id]
-    assert isinstance(shift_operation.contract, ScalarBinarySemantics)
-    assert shift_operation.contract.operator == "+"
-    operands = {
-        name: definitions[value.value_id].source
-        for name, value in shift_operation.inputs
-    }
-    assert isinstance(operands["left"], PlanExpressionSource)
-    assert isinstance(operands["left"].expression, ScalarExpr)
+    shifted = definitions[capture_inputs["shifted"].value_id]
+    assert isinstance(shifted.source, PlanExpressionSource)
+    assert isinstance(shifted.source.expression, ScalarExpr)
     assert (
         evaluate_scalar(
-            operands["left"].expression,
+            shifted.source.expression,
             EvalContext(),
-            bindings=operands["left"].verified_plan.bindings,
+            bindings=shifted.source.verified_plan.bindings,
         )
-        == 1.25
+        == 1.75
     )
-    assert operands["right"] == LiteralValueSource(0.5)
     assert set(invocation.outputs) == {"passthrough", "shifted"}
 
 
@@ -381,7 +363,7 @@ def test_module_products_remain_reusable_across_instances() -> None:
     assert child.products["signal"].id == "child/signal"
 
 
-def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
+def test_module_export_arithmetic_resolves_during_elaboration() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     value = sc.input("value", value_type)
     source = (
@@ -393,10 +375,6 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     source_instance = source.instantiate("source", value=1.0)
     exported = source_instance.outputs.value
     shifted = exported + 1.0
-
-    operation = internal_value_ref_scalar_operation(shifted)
-    assert operation is not None
-    assert operation.left is exported
 
     consumed = sc.input("consumed", value_type)
     capture = sc.compute(
@@ -428,28 +406,17 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     definitions = {
         definition.id: definition for definition in flattened.semantic_graph.value_defs
     }
-    results = {
-        operation.result_id: operation
-        for operation in flattened.semantic_graph.operations
-    }
-    semantic_operation = results[captured.value_id]
-    assert isinstance(semantic_operation.contract, ScalarBinarySemantics)
-    assert semantic_operation.contract.operator == "+"
-    operands = {
-        name: definitions[value.value_id].source
-        for name, value in semantic_operation.inputs
-    }
-    assert isinstance(operands["left"], PlanExpressionSource)
-    assert isinstance(operands["left"].expression, ScalarExpr)
+    shifted_definition = definitions[captured.value_id]
+    assert isinstance(shifted_definition.source, PlanExpressionSource)
+    assert isinstance(shifted_definition.source.expression, ScalarExpr)
     assert (
         evaluate_scalar(
-            operands["left"].expression,
+            shifted_definition.source.expression,
             EvalContext(),
-            bindings=operands["left"].verified_plan.bindings,
+            bindings=shifted_definition.source.verified_plan.bindings,
         )
-        == 1.0
+        == 2.0
     )
-    assert operands["right"] == LiteralValueSource(1.0)
 
 
 def test_module_build_rejects_undeclared_export_inputs() -> None:

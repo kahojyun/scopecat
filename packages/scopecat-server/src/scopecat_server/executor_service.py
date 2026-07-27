@@ -106,30 +106,10 @@ class ExecutorService:
             run_id,
             token=command.lease_id,
         ) as connection:
-            transition, created = journal.append_in_transaction(
+            transition, _created = journal.append_in_transaction(
                 connection,
                 command.transition,
             )
-            if created:
-                # The effect ledger owns HTTP retry identity; this is its UI projection.
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        run_id=run_id,
-                        kind="execution_transition_committed",
-                        payload={
-                            "sequence": transition.sequence,
-                            "operation_id": transition.operation_id,
-                            "stage": transition.stage,
-                            "effect": transition.effect,
-                            "state": transition.state,
-                            "point_index": transition.point_index,
-                            "instrument_id": transition.instrument_id,
-                            "evidence": transition.evidence,
-                        },
-                        occurred_at=transition.timestamp,
-                    ),
-                )
         return transition
 
     def append_measurements(

@@ -6,9 +6,10 @@ from typing import Literal, Never
 import pytest
 
 import scopecat as sc
-import scopecat.config.resolution as config_resolution
 import scopecat.planning.system as planning_system
+import tests.testkit.planning as test_planning
 from scopecat.config.candidates import CandidateConfig
+from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
@@ -17,13 +18,9 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.records.config import ConfigProfileSnapshot, DomainTargetBinding
-from scopecat.sdk.domain.compiler import (
-    DomainCompilation,
-    DomainCompiledJob,
-    DomainCompileRequest,
-    compiled_jobs,
+from scopecat.sdk.domain.batch import (
+    DomainBatchRequest,
 )
-from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from tests.testkit.authoring import simple_template, template_fixture
 from tests.testkit.in_process_lab import (
@@ -78,10 +75,8 @@ def _assert_terminal_problem(
 
 
 class _RejectingDomainCompiler:
-    def __init__(self, stage: Literal["compile", "prepare"]) -> None:
-        self.stage = stage
+    def __init__(self) -> None:
         self.compile_calls = 0
-        self.prepare_calls = 0
 
     @property
     def target_id(self) -> str:
@@ -91,20 +86,17 @@ class _RejectingDomainCompiler:
     def target_kind(self) -> str:
         return "tests.domain"
 
-    def compile(self, request: DomainCompileRequest) -> DomainCompilation:
-        self.compile_calls += 1
-        if self.stage == "compile":
-            raise _planning_failure("injected_domain_compile_failure")
-        return compiled_jobs(request, max_points=100)
+    @property
+    def max_points_per_batch(self) -> int:
+        return 100
 
-    def prepare(
+    def compile_batch(
         self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
+        request: DomainBatchRequest,
     ) -> PreparedDomainExecution:
-        del job, context
-        self.prepare_calls += 1
-        raise _planning_failure("injected_domain_prepare_failure")
+        del request
+        self.compile_calls += 1
+        raise _planning_failure("injected_domain_compile_batch_failure")
 
 
 def _domain_invocation() -> sc.ExperimentInvocation:
@@ -163,13 +155,11 @@ def test_check_and_preview_surface_local_materialization_errors(
 
 
 @pytest.mark.parametrize("terminal", ["check", "preview"])
-@pytest.mark.parametrize("stage", ["compile", "prepare"])
 def test_check_and_preview_surface_domain_compilation_errors(
     terminal: Literal["check", "preview"],
-    stage: Literal["compile", "prepare"],
     tmp_path: Path,
 ) -> None:
-    compiler = _RejectingDomainCompiler(stage)
+    compiler = _RejectingDomainCompiler()
     config = load_config()
     config = config.model_copy(
         update={
@@ -187,11 +177,12 @@ def test_check_and_preview_surface_domain_compilation_errors(
         _domain_invocation(),
         system=sc.ExperimentSystem(domain_compiler=compiler),
     )
-    code = f"injected_domain_{stage}_failure"
-
-    _assert_terminal_problem(prepared, terminal=terminal, code=code)
+    _assert_terminal_problem(
+        prepared,
+        terminal=terminal,
+        code="injected_domain_compile_batch_failure",
+    )
     assert compiler.compile_calls == 1
-    assert compiler.prepare_calls == (stage == "prepare")
 
 
 def test_prepared_check_returns_configuration_problems_without_preview(
@@ -254,14 +245,29 @@ def test_session_candidate_config_is_not_read_before_authoring(
         raise AssertionError("candidate config must not be read for invalid authoring")
 
     monkeypatch.setattr(
-        config_resolution,
+        test_planning,
         "resolve_candidate_config_snapshot",
         unexpected_candidate_read,
     )
+    config = load_config()
     candidate = CandidateConfig(
-        parameter_proposals=(),
+        parameter_proposal=parameter_change_proposal_from_updates(
+            source_run_id="not-read",
+            source_config=config,
+            analysis_title="not read",
+            analysis_record_id="analysis-not-read",
+            proposal_id="not-read",
+            updates=(
+                sc.replace_scalar_parameter(
+                    "drive_frequency",
+                    sc.Quantity(5.1, "GHz"),
+                ),
+            ),
+            reason="must not be resolved",
+            confidence=None,
+        ),
     )
-    lab = _lab(tmp_path)
+    lab = _lab(tmp_path, config=config)
     prepared = lab.prepare(simple_template().bind(), config=candidate)
 
     if terminal == "check":

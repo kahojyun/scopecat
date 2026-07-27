@@ -6,25 +6,19 @@ import scopecat as sc
 import scopecat.sdk.domain as domain
 
 _NEW_ADAPTER_VALUES = {
-    "DomainFetchRequest",
-    "DomainCompiledInputs",
-    "DomainHostTransformBinding",
-    "DomainHostTransformCall",
-    "DomainHostTransformImplementation",
+    "DomainBatchInputs",
+    "DomainBatchRequest",
+    "DomainFetchReceipt",
+    "DomainFetchResult",
     "DomainInvocationSpec",
     "DomainMappedResult",
-    "DomainMeasurementTransform",
     "DomainResultValue",
-    "DomainSubmitRequest",
-    "DomainTargetArtifactIdentity",
-    "DomainTransformInputPort",
-    "DomainTransformOutputPort",
+    "DomainSubmitReceipt",
 }
 
 
 def test_domain_facade_exports_curated_adapter_contracts() -> None:
     assert set(domain.__all__) >= _NEW_ADAPTER_VALUES
-    assert "DomainIterationLayout" in domain.__all__
 
 
 def test_root_facade_does_not_duplicate_the_adapter_sdk() -> None:

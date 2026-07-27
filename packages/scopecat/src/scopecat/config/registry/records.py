@@ -10,17 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.config import ConfigContentHash
 
-type EvidenceContentHash = Annotated[
-    str,
-    Field(pattern=r"^sha256:[0-9a-f]{64}$"),
-]
-
 
 class _FrozenRegistryModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
 
@@ -43,42 +37,19 @@ class ManualConfigDraftRegistrySource(_FrozenRegistryModel):
         return self
 
 
-class CandidateProposalRegistryEvidence(_FrozenRegistryModel):
-    proposal_id: str
-    proposal_record_content_hash: EvidenceContentHash
-    approval_event_id: str
-    approval_record_content_hash: EvidenceContentHash
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> CandidateProposalRegistryEvidence:
-        if not self.proposal_id or not self.approval_event_id:
-            msg = "candidate proposal evidence identity fields must be non-empty"
-            raise ValueError(msg)
-        return self
-
-
 class CandidateConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: str
-    proposal_evidence: tuple[CandidateProposalRegistryEvidence, ...] = Field(
-        min_length=1
-    )
+    proposal_id: str
+    approval_record_id: str
     base_config_content_hash: ConfigContentHash
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CandidateConfigRegistrySource:
-        proposal_ids = [evidence.proposal_id for evidence in self.proposal_evidence]
-        if len(set(proposal_ids)) != len(proposal_ids):
-            msg = "candidate registry source proposal evidence must be unique"
-            raise ValueError(msg)
-        if not self.run_id:
+        if not self.run_id or not self.proposal_id or not self.approval_record_id:
             msg = "candidate registry source identity fields must be non-empty"
             raise ValueError(msg)
         return self
-
-    @property
-    def proposal_ids(self) -> list[str]:
-        return [evidence.proposal_id for evidence in self.proposal_evidence]
 
 
 ConfigRegistryEntrySource = Annotated[
@@ -93,7 +64,6 @@ class ConfigRegistryEntry(_FrozenRegistryModel):
     id: str
     config_ref: str
     content_hash: ConfigContentHash
-    status: Literal["registered"] = "registered"
     source: ConfigRegistryEntrySource
     registered_by: str
     note: str = ""
@@ -129,56 +99,4 @@ class ConfigRegistryActivationRecord(_FrozenRegistryModel):
         ):
             msg = "previous registry entry id and content hash must be paired"
             raise ValueError(msg)
-        return self
-
-
-class ConfigRegistryActiveState(_FrozenRegistryModel):
-    generation: int = Field(ge=1)
-    active_entry_id: str
-    active_entry_content_hash: ConfigContentHash
-    history: tuple[ConfigRegistryActivationRecord, ...] = Field(default_factory=tuple)
-    updated_at: datetime = Field(default_factory=utc_now)
-
-    @model_validator(mode="after")
-    def validate_history_head(self) -> ConfigRegistryActiveState:
-        if not self.active_entry_id:
-            msg = "config registry active entry id must be non-empty"
-            raise ValueError(msg)
-        if not self.history:
-            msg = "config registry active state requires activation history"
-            raise ValueError(msg)
-        latest = self.history[-1]
-        if latest.generation != self.generation:
-            msg = "active generation does not match activation history"
-            raise ValueError(msg)
-        if latest.entry_id != self.active_entry_id:
-            msg = "active entry does not match activation history"
-            raise ValueError(msg)
-        if latest.entry_content_hash != self.active_entry_content_hash:
-            msg = "active content hash does not match activation history"
-            raise ValueError(msg)
-        if len(self.history) != self.generation or any(
-            record.generation != index
-            for index, record in enumerate(self.history, start=1)
-        ):
-            msg = "activation history generations must be contiguous"
-            raise ValueError(msg)
-        record_ids = [record.id for record in self.history]
-        if len(set(record_ids)) != len(record_ids):
-            msg = "activation history record ids must be unique"
-            raise ValueError(msg)
-        first = self.history[0]
-        if (
-            first.previous_entry_id is not None
-            or first.previous_entry_content_hash is not None
-        ):
-            msg = "initial activation must not have a previous entry"
-            raise ValueError(msg)
-        for previous, current in zip(self.history, self.history[1:], strict=False):
-            if (
-                current.previous_entry_id != previous.entry_id
-                or current.previous_entry_content_hash != previous.entry_content_hash
-            ):
-                msg = "activation history entry chain is inconsistent"
-                raise ValueError(msg)
         return self

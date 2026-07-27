@@ -5,7 +5,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import (
     Concatenate,
     NoReturn,
@@ -15,14 +14,11 @@ from typing import (
     overload,
 )
 
-from pydantic import BaseModel
-
 from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
     AnalysisOutputKind,
     SavedAnalysis,
-    prepare_analysis_artifact,
 )
 from scopecat.api.data import Data
 from scopecat.config.candidates import (
@@ -88,21 +84,6 @@ class Analysis:
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
-    def note(
-        self,
-        content: str,
-        *,
-        title: str = "note",
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        if not content.strip():
-            _raise_analysis_problem(
-                "analysis_note_invalid",
-                "analysis note content must be a non-empty string",
-                "content",
-            )
-        return self._with_output("note", title, content, metadata)
-
     def table(
         self,
         content: object,
@@ -111,15 +92,6 @@ class Analysis:
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
         return self._with_output("table", title, content, metadata)
-
-    def array(
-        self,
-        content: object,
-        *,
-        title: str = "array",
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        return self._with_output("array", title, content, metadata)
 
     def figure(
         self,
@@ -136,12 +108,10 @@ class Analysis:
 
     def input(
         self,
-        selector: str | None = None,
+        selector: str,
         *,
-        uri: str | None = None,
         role: str = "data",
         title: str | None = None,
-        expected_kind: str | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
         if not role.strip():
@@ -150,78 +120,18 @@ class Analysis:
                 "analysis input role must be a non-empty string",
                 "role",
             )
-        selected_sources = [selector is not None, uri is not None].count(True)
-        if selected_sources != 1:
-            _raise_analysis_problem(
-                "analysis_input_source_invalid",
-                "analysis input requires exactly one of selector or uri",
-                "input",
-            )
-        if uri is not None:
-            if not uri.strip():
-                _raise_analysis_problem(
-                    "analysis_input_uri_invalid",
-                    "analysis input URI must be non-empty",
-                    "uri",
-                )
-            analysis_input = AnalysisInput(
-                target=uri,
-                kind="uri",
-                role=role,
-                title=title,
-                metadata=metadata,
-            )
-            return replace(self, inputs=(*self.inputs, analysis_input))
-        assert selector is not None  # noqa: S101
-        if expected_kind == "measurement_dataset":
-            dataset = self.run.data().dataset(selector, expected_kind=expected_kind)
-            analysis_input = AnalysisInput(
-                target=dataset.id,
-                kind="dataset",
-                role=role,
-                title=title or dataset.id,
-                metadata=metadata,
-            )
-        else:
-            artifact = self.run.data().artifact(selector, expected_kind=expected_kind)
-            analysis_input = AnalysisInput(
-                target=artifact.id,
-                kind="artifact",
-                role=role,
-                title=title or artifact.id,
-                metadata=metadata,
-            )
-        return replace(self, inputs=(*self.inputs, analysis_input))
-
-    def artifact(
-        self,
-        *,
-        title: str,
-        kind: str,
-        artifact_id: str | None = None,
-        filename: str | None = None,
-        model: BaseModel | None = None,
-        json_content: object | None = None,
-        text: str | None = None,
-        content: bytes | None = None,
-        path: str | Path | None = None,
-        media_type: str | None = None,
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        artifact_spec = prepare_analysis_artifact(
-            title=title,
-            kind=kind,
-            artifact_id=artifact_id,
-            filename=filename,
-            model=model,
-            json_content=json_content,
-            text=text,
-            content=content,
-            path=path,
-            media_type=media_type,
+        dataset = self.run.data().dataset(
+            selector,
+            expected_kind="measurement_dataset",
+        )
+        analysis_input = AnalysisInput(
+            target=dataset.id,
+            kind="measurement_dataset",
+            role=role,
+            title=title or dataset.id,
             metadata=metadata,
         )
-        return self._with_output("artifact", title, artifact_spec, {})
+        return replace(self, inputs=(*self.inputs, analysis_input))
 
     def propose(
         self,
@@ -288,12 +198,12 @@ class Analysis:
         self,
         selection: CandidateSelection = None,
     ) -> CandidateConfig:
-        proposals = _select_candidate_proposals(
+        proposal = _select_candidate_proposal(
             self.parameter_proposals,
             selection=selection,
         )
         return CandidateConfig(
-            parameter_proposals=proposals,
+            parameter_proposal=proposal,
         )
 
     def save(self) -> SavedAnalysis:
@@ -426,7 +336,7 @@ def analysis_step[**P](
     definition: Callable[Concatenate[AnalysisContext, P], Analysis] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> (
     AnalysisDefinition[P]
     | Callable[
@@ -447,7 +357,7 @@ def analysis_step[**P](
 def _analysis_definition[**P](
     fn: Callable[Concatenate[AnalysisContext, P], Analysis],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> AnalysisDefinition[P]:
     signature = inspect.signature(fn)
     parameters = tuple(signature.parameters.values())
@@ -489,11 +399,11 @@ def _analysis_definition[**P](
     )
 
 
-def _select_candidate_proposals(
+def _select_candidate_proposal(
     proposals: Sequence[ParameterChangeProposal],
     *,
     selection: CandidateSelection,
-) -> tuple[ParameterChangeProposal, ...]:
+) -> ParameterChangeProposal:
     if not proposals:
         _raise_analysis_problem(
             "candidate_config_no_parameter_proposals",
@@ -502,7 +412,7 @@ def _select_candidate_proposals(
         )
     if selection is None:
         if len(proposals) == 1:
-            return (proposals[0],)
+            return proposals[0]
         _raise_analysis_problem(
             "candidate_config_selection_required",
             (
@@ -511,34 +421,16 @@ def _select_candidate_proposals(
             ),
             "selection",
         )
-    selected_ids = (selection,) if isinstance(selection, str) else tuple(selection)
-    if not selected_ids:
+    by_id = {proposal.id: proposal for proposal in proposals}
+    proposal_id = artifact_slug(selection, fallback="analysis")
+    try:
+        return by_id[proposal_id]
+    except KeyError:
         _raise_analysis_problem(
-            "candidate_config_selection_empty",
-            "candidate config selection must include at least one parameter proposal",
+            "candidate_config_selection_not_found",
+            f"candidate config selection was not found: {proposal_id}",
             "selection",
         )
-    by_id = {proposal.id: proposal for proposal in proposals}
-    selected: list[ParameterChangeProposal] = []
-    seen: set[str] = set()
-    for selected_id in selected_ids:
-        proposal_id = artifact_slug(selected_id, fallback="analysis")
-        if proposal_id in seen:
-            _raise_analysis_problem(
-                "candidate_config_selection_duplicated",
-                f"candidate config selection is duplicated: {proposal_id}",
-                "selection",
-            )
-        try:
-            selected.append(by_id[proposal_id])
-        except KeyError:
-            _raise_analysis_problem(
-                "candidate_config_selection_not_found",
-                f"candidate config selection was not found: {proposal_id}",
-                "selection",
-            )
-        seen.add(proposal_id)
-    return tuple(selected)
 
 
 def _analysis_key(key: str | None, title: str) -> str:

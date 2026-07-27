@@ -22,7 +22,7 @@ export function useConfigRegistry(daemonUnavailable: boolean) {
     const selectionExists = overview.entries.some((entry) => entry.id === selectedId);
     if (selectionExists) return;
     const preferred =
-      overview.entries.find((entry) => entry.id === overview.active_state?.active_entry_id) ??
+      overview.entries.find((entry) => entry.id === overview.activation?.entry_id) ??
       overview.entries[0];
     setSelectedId(preferred?.id);
   }, [overview, selectedId]);
@@ -32,9 +32,7 @@ export function useConfigRegistry(daemonUnavailable: boolean) {
     [overview?.entries, registrySearch],
   );
   const selectedEntry = overview?.entries.find((entry) => entry.id === selectedId);
-  const activeEntry = overview?.entries.find(
-    (entry) => entry.id === overview.active_state?.active_entry_id,
-  );
+  const activeEntry = overview?.entries.find((entry) => entry.id === overview.activation?.entry_id);
   const entryDetailQuery = useQuery({
     queryKey: ["config", "entry", selectedEntry?.id, selectedEntry?.content_hash],
     queryFn: ({ signal }) => getConfigRegistryEntry(selectedEntry!.id, signal),

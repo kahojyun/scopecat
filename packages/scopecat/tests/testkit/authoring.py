@@ -7,7 +7,7 @@ from typing import Annotated, cast
 import scopecat.authoring as authoring
 from scopecat.authoring import ExperimentInvocation, ExperimentTemplate
 from scopecat.authoring._products import RecordSelection
-from scopecat.authoring.scans import Scan
+from scopecat.authoring.scans import Scan, axis
 from scopecat.authoring.templates import create_experiment_definition_internal
 from scopecat.authoring.values import MetadataValue
 from scopecat.compiler.frontend.resolution import (
@@ -15,9 +15,9 @@ from scopecat.compiler.frontend.resolution import (
     resolve_compiled_invocation,
 )
 from scopecat.compiler.linking.linked import LinkedPlan
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.config.parameter_resolution import resolve_config_parameters
-from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import ConfigProfileSnapshot
@@ -25,7 +25,7 @@ from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
 
 def load_config() -> ConfigProfileSnapshot:
-    return load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    return load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
 
 
 def parameters():
@@ -48,7 +48,7 @@ def link_invocation(
 def template_fixture(
     module: authoring.ExperimentModule[...],
     *,
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     required_inputs: Sequence[str] = (),
     defaults: Mapping[str, authoring.RuntimeInput] | None = None,
@@ -128,23 +128,20 @@ def simple_template() -> ExperimentTemplate[...]:
             authoring.Input[EntityRef | str],
             _SIMPLE_SUBJECT.value_type,
         ],
-        drive_frequency: Annotated[
-            authoring.Input[Quantity],
-            authoring.QuantityType(),
-        ],
     ) -> authoring.ExperimentBody:
-        del drive_frequency
         module_call = SIMPLE_MODULE(subject=subject)
         return (
             authoring.experiment(module_call)
             .scan(
-                DRIVE_FREQUENCY_POINT,
-                center=authoring.parameter(
-                    "drive_frequency",
-                    authoring.ScalarType(authoring.QuantityType()),
+                axis(
+                    DRIVE_FREQUENCY_POINT,
+                    center=authoring.parameter(
+                        "drive_frequency",
+                        authoring.ScalarType(authoring.QuantityType()),
+                    ),
+                    span=Quantity(value=200.0, unit="MHz"),
+                    points=5,
                 ),
-                span=Quantity(value=200.0, unit="MHz"),
-                points=5,
             )
             .record_product(module_call.products.signal, record_id="signal")
         )

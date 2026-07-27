@@ -11,7 +11,6 @@ import type {
   ConfigProfileSnapshot,
   ParameterAtom,
   ParameterDefinition,
-  SeriesParameterValue,
   StoredParameterValue,
   TableParameterType,
   TableParameterValue,
@@ -180,12 +179,6 @@ function ParameterDetail({ diff, comparing }: { diff: ParameterDiff; comparing: 
             />
           </>
         )}
-        {definition.value_type.shape === "series" && (
-          <ParameterFact
-            label="Items"
-            value={String(value.shape === "series" ? (value.items?.length ?? 0) : 0)}
-          />
-        )}
       </div>
       {diff.status === "schema-changed" && (
         <div className="parameter-diff-note warning">
@@ -219,10 +212,6 @@ function ParameterValueView({
       </div>
     );
   }
-  if (value.shape === "series") {
-    const before = diff.before?.shape === "series" ? diff.before : undefined;
-    return <SeriesValueView value={value} before={before} />;
-  }
   const valueType = definition.value_type.shape === "table" ? definition.value_type : undefined;
   if (!valueType) {
     return (
@@ -247,54 +236,6 @@ function ValueComparison({ before, after }: { before: ParameterAtom; after: Para
         <small>Selected</small>
         <ParameterAtomView value={after} />
       </span>
-    </div>
-  );
-}
-
-function SeriesValueView({
-  value,
-  before,
-}: {
-  value: SeriesParameterValue;
-  before?: SeriesParameterValue;
-}) {
-  return (
-    <div className="series-parameter-view">
-      <div className="parameter-table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Index</th>
-              <th>Value</th>
-              {before && <th>Default</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {(value.items ?? []).map((item, index) => {
-              const active = before?.items?.[index];
-              const changed =
-                active !== undefined && parameterAtomLabel(active) !== parameterAtomLabel(item);
-              return (
-                <tr key={index} className={changed ? "changed" : undefined}>
-                  <th scope="row">{index}</th>
-                  <td>
-                    <ParameterAtomView value={item} />
-                  </td>
-                  {before && (
-                    <td>
-                      {changed ? (
-                        <ParameterAtomView value={active!} />
-                      ) : (
-                        <span className="muted-value">—</span>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
@@ -360,7 +301,7 @@ function TableValueView({
                         cell && cell.status !== "unchanged" ? `cell-${cell.status}` : undefined
                       }
                     >
-                      <ParameterAtomView value={displayed ?? null} />
+                      <ParameterAtomView value={displayed!} />
                       {cell?.status === "changed" && (
                         <small className="previous-cell-value">
                           was {parameterAtomLabel(cell.before)}

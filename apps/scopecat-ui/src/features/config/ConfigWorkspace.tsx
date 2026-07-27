@@ -94,12 +94,12 @@ export function ConfigWorkspace({
   const commandDisabled = workflow.commandDisabled;
   const editableDraftSeed =
     selectedEntry &&
-    overview.active_state &&
+    overview.activation &&
     registry.entryDetailQuery.data?.config &&
-    overview.active_state.active_entry_id === selectedEntry.id
+    overview.activation.entry_id === selectedEntry.id
       ? {
           entry: selectedEntry,
-          active: overview.active_state,
+          active: overview.activation,
           config: registry.entryDetailQuery.data.config,
         }
       : undefined;
@@ -166,8 +166,8 @@ export function ConfigWorkspace({
         overview={overview}
         rollbackDisabled={
           commandDisabled ||
-          (overview.active_state?.history?.length ?? 0) < 2 ||
-          overview.active_state === undefined
+          overview.activation_history.length < 2 ||
+          overview.activation === undefined
         }
         rollbackPending={
           workflow.mutation.isPending && workflow.mutation.variables?.kind === "rollback"
@@ -176,7 +176,7 @@ export function ConfigWorkspace({
           workflow.runAction(
             { kind: "rollback" },
             `Restore ${
-              overview.active_state?.history?.[1]?.entry_id ?? "the previous version"
+              overview.activation_history[1]?.entry_id ?? "the previous version"
             } as the default configuration?`,
           )
         }
@@ -197,7 +197,7 @@ export function ConfigWorkspace({
           {selectedEntry ? (
             <ConfigEntryInspector
               entry={selectedEntry}
-              active={overview.active_state?.active_entry_id === selectedEntry.id}
+              active={overview.activation?.entry_id === selectedEntry.id}
               snapshot={registry.entryDetailQuery.data?.summary}
               config={registry.entryDetailQuery.data?.config}
               activeConfig={registry.activeDetailQuery.data?.config}
@@ -234,7 +234,7 @@ export function ConfigWorkspace({
       {configDraft && (
         <ConfigDraftEditor
           seed={configDraft}
-          currentActive={overview.active_state ?? undefined}
+          currentActive={overview.activation ?? undefined}
           operator={workflow.operator}
           onCancel={() => setConfigDraft(undefined)}
           onRegistered={async (receipt) => {
@@ -248,7 +248,7 @@ export function ConfigWorkspace({
         />
       )}
 
-      <ActivationHistory history={overview.active_state?.history ?? []} />
+      <ActivationHistory history={overview.activation_history} />
 
       {workflow.importDraft && (
         <ConfigImportDialog

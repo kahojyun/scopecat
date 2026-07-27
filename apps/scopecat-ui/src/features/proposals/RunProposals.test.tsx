@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getConfigRegistry } from "../config/config-api";
 import {
   activateProposalCandidate,
+  approveParameterProposal,
   getRunParameterProposals,
-  reviewParameterProposal,
 } from "../../data/parameter-proposals/api";
 import type {
   ParameterProposal,
@@ -25,8 +25,8 @@ vi.mock("../../data/parameter-proposals/api", async (importOriginal) => {
   return {
     ...original,
     activateProposalCandidate: vi.fn(),
+    approveParameterProposal: vi.fn(),
     getRunParameterProposals: vi.fn(),
-    reviewParameterProposal: vi.fn(),
   };
 });
 
@@ -37,9 +37,9 @@ afterEach(() => {
 });
 
 describe("RunProposals", () => {
-  it("keeps approve-only as an advanced action", async () => {
+  it("records approval without changing the default", async () => {
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
-    vi.mocked(reviewParameterProposal).mockResolvedValue();
+    vi.mocked(approveParameterProposal).mockResolvedValue();
     renderProposals();
 
     expect(await screen.findByText("q0.drive.frequency")).toBeInTheDocument();
@@ -49,16 +49,14 @@ describe("RunProposals", () => {
     fireEvent.change(screen.getByPlaceholderText("Evidence or rationale"), {
       target: { value: "Peak is clean" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Approve only/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve only" }));
     const approvalDialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(approvalDialog).getByRole("button", { name: "Approve proposal" }));
 
     await waitFor(() =>
-      expect(reviewParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
+      expect(approveParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
         reviewer: "local-operator",
         note: "Peak is clean",
-        decision: "approved",
       }),
     );
   });
@@ -74,11 +72,8 @@ describe("RunProposals", () => {
     });
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(older, latest));
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 3,
-        active_entry_id: "baseline",
-        active_entry_content_hash: "sha256:base",
-      },
+      activation: configActivation(),
+      activation_history: [],
       entries: [],
     });
     vi.mocked(activateProposalCandidate).mockResolvedValue();
@@ -100,7 +95,7 @@ describe("RunProposals", () => {
     await waitFor(() =>
       expect(activateProposalCandidate).toHaveBeenCalledWith({
         runId: "run-1",
-        proposalIds: ["latest-proposal"],
+        proposalId: "latest-proposal",
         registeredBy: "local-operator",
         operator: "local-operator",
         expectedGeneration: 3,
@@ -111,13 +106,10 @@ describe("RunProposals", () => {
 
   it("accepts a pending proposal in one action and reports publish failure", async () => {
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
-    vi.mocked(reviewParameterProposal).mockResolvedValue();
+    vi.mocked(approveParameterProposal).mockResolvedValue();
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active_state: {
-        generation: 3,
-        active_entry_id: "baseline",
-        active_entry_content_hash: "sha256:base",
-      },
+      activation: configActivation(),
+      activation_history: [],
       entries: [],
     });
     vi.mocked(activateProposalCandidate).mockRejectedValue(new Error("generation conflict"));
@@ -136,13 +128,25 @@ describe("RunProposals", () => {
         "The proposal is accepted, but the default was not changed: generation conflict",
       ),
     ).toBeInTheDocument();
-    expect(reviewParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
+    expect(approveParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
       reviewer: "local-operator",
       note: "",
-      decision: "approved",
     });
   });
 });
+
+function configActivation() {
+  return {
+    id: "activation-3",
+    generation: 3,
+    action: "activation" as const,
+    entry_id: "baseline",
+    entry_content_hash: "sha256:base",
+    operator: "Ada",
+    note: "",
+    recorded_at: "2026-07-24T08:00:00Z",
+  };
+}
 
 function renderProposals() {
   const queryClient = new QueryClient({
@@ -179,7 +183,6 @@ function pendingProposal(overrides: Partial<ParameterProposal> = {}): ParameterP
         after: { value: 5.1, unit: "GHz" },
       },
     ],
-    decisions: [],
     ...overrides,
   };
 }
@@ -188,15 +191,10 @@ function approvedProposal(overrides: Partial<ParameterProposal> = {}): Parameter
   const proposal = pendingProposal(overrides);
   return {
     ...proposal,
-    decisions: [
-      {
-        eventId: `decision-${proposal.id}`,
-        decision: "approved",
-        actor: "Ada",
-        authorityKind: "human",
-        note: "Verified",
-        decidedAt: proposal.proposedAt,
-      },
-    ],
+    approval: {
+      actor: "Ada",
+      note: "Verified",
+      approvedAt: proposal.proposedAt,
+    },
   };
 }

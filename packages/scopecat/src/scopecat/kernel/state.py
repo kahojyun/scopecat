@@ -16,7 +16,6 @@ class PayloadRef(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        revalidate_instances="always",
     )
 
     payload_id: str = Field(min_length=1)
@@ -28,7 +27,7 @@ type StateLiteral = bool | int | float | str | Quantity | PayloadRef
 class StateValue(RootModel[StateLiteral]):
     """A concrete primitive, finite quantity, or command-local payload reference."""
 
-    model_config = ConfigDict(frozen=True, revalidate_instances="always")
+    model_config = ConfigDict(frozen=True)
 
     @model_validator(mode="before")
     @classmethod

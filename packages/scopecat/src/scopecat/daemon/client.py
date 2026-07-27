@@ -9,13 +9,13 @@ from urllib.parse import quote
 import httpx2
 from pydantic import BaseModel, ValidationError
 
-from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
@@ -34,27 +34,21 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AttentionResolutionReceipt,
-    CandidateConfigActivationCommand,
-    CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
-    ConfigDefaultReceipt,
     ConfigDraftCommand,
-    ConfigDraftDefaultCommand,
-    ConfigDraftDefaultReceipt,
-    ConfigDraftRegistrationCommand,
-    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
+    ConfigRevisionDefaultCommand,
+    ConfigRevisionDefaultReceipt,
+    ConfigRevisionRegistrationCommand,
+    ConfigRevisionRegistrationReceipt,
     ConfigRollbackCommand,
-    DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
     ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
     MeasurementSealCommand,
-    ParameterProposalDecisionCommand,
-    ParameterProposalReviewCommand,
+    ParameterProposalApprovalCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -63,7 +57,7 @@ from scopecat.daemon.wire import (
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
-from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -131,6 +125,12 @@ class DaemonClient:
             ConfigRegistryView,
         )
 
+    def config_activation_history(self) -> ConfigActivationHistoryView:
+        return self._get_model(
+            f"{_API_PREFIX}/config-registry/activations",
+            ConfigActivationHistoryView,
+        )
+
     def active_config(self) -> ActiveConfigView:
         return self._get_model(
             f"{_API_PREFIX}/config-registry/active",
@@ -143,24 +143,24 @@ class DaemonClient:
             ConfigEntryView,
         )
 
-    def import_direct_config(
+    def register_config_revision(
         self,
-        command: DirectConfigImportCommand,
-    ) -> ConfigRegistryEntry:
+        command: ConfigRevisionRegistrationCommand,
+    ) -> ConfigRevisionRegistrationReceipt:
         return self._post_model(
             f"{_API_PREFIX}/config-registry/entries",
             command,
-            ConfigRegistryEntry,
+            ConfigRevisionRegistrationReceipt,
         )
 
-    def set_direct_config_default(
+    def set_config_default(
         self,
-        command: DirectConfigDefaultCommand,
-    ) -> ConfigDefaultReceipt:
+        command: ConfigRevisionDefaultCommand,
+    ) -> ConfigRevisionDefaultReceipt:
         return self._post_model(
             f"{_API_PREFIX}/config-registry/default",
             command,
-            ConfigDefaultReceipt,
+            ConfigRevisionDefaultReceipt,
         )
 
     def preview_config_draft(
@@ -171,26 +171,6 @@ class DaemonClient:
             f"{_API_PREFIX}/config-registry/drafts/preview",
             command,
             ConfigDraftPreview,
-        )
-
-    def register_config_draft(
-        self,
-        command: ConfigDraftRegistrationCommand,
-    ) -> ConfigDraftRegistrationReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/drafts/register",
-            command,
-            ConfigDraftRegistrationReceipt,
-        )
-
-    def set_config_draft_default(
-        self,
-        command: ConfigDraftDefaultCommand,
-    ) -> ConfigDraftDefaultReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/drafts/set-default",
-            command,
-            ConfigDraftDefaultReceipt,
         )
 
     def activate_config_entry(
@@ -213,34 +193,18 @@ class DaemonClient:
             ConfigActivationReceipt,
         )
 
-    def activate_candidate_config(
-        self,
-        command: CandidateConfigActivationCommand,
-    ) -> CandidateConfigActivationReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/candidates/activate",
-            command,
-            CandidateConfigActivationReceipt,
-        )
-
     def list_runs(
         self,
         *,
         limit: int = 50,
-        after: int | None = None,
         before: int | None = None,
         state: ControlRunState | None = None,
-        latest: bool = False,
     ) -> RunSummaryPage:
         params: dict[str, str | int] = {"limit": limit}
-        if after is not None:
-            params["after"] = after
         if before is not None:
             params["before"] = before
         if state is not None:
             params["state"] = state
-        if latest:
-            params["latest"] = "true"
         return self._get_model(f"{_API_PREFIX}/runs", RunSummaryPage, params=params)
 
     def get_run(self, run_id: str) -> RunDetail:
@@ -398,38 +362,21 @@ class DaemonClient:
             ParameterProposalListView,
         )
 
-    def review_parameter_proposal(
+    def approve_parameter_proposal(
         self,
         run_id: str,
         proposal_id: str,
-        command: ParameterProposalReviewCommand,
-    ) -> ParameterChangeDecisionRecord:
+        command: ParameterProposalApprovalCommand,
+    ) -> ParameterChangeApprovalRecord:
         selected_run = quote(run_id, safe="")
         selected_proposal = quote(proposal_id, safe="")
         return self._post_model(
             (
                 f"{_API_PREFIX}/runs/{selected_run}/parameter-proposals/"
-                f"{selected_proposal}/review"
+                f"{selected_proposal}/approval"
             ),
             command,
-            ParameterChangeDecisionRecord,
-        )
-
-    def decide_parameter_proposal(
-        self,
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalDecisionCommand,
-    ) -> ParameterChangeDecisionRecord:
-        selected_run = quote(run_id, safe="")
-        selected_proposal = quote(proposal_id, safe="")
-        return self._post_model(
-            (
-                f"{_API_PREFIX}/runs/{selected_run}/parameter-proposals/"
-                f"{selected_proposal}/decision"
-            ),
-            command,
-            ParameterChangeDecisionRecord,
+            ParameterChangeApprovalRecord,
         )
 
     def resolve_attention(

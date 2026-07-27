@@ -5,17 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat_quantum._ids import CouplerId, QubitId
+from scopecat_quantum._ids import QubitId
 from scopecat_quantum.pulses import (
     AcquireSignal,
     DriveSignal,
-    FluxSignal,
-    PlaySignal,
     ReadoutSignal,
 )
 
 FAKE_LIST_TARGET_KIND = "quantum_lab_demo.fake-list-mode"
-FAKE_REALTIME_TARGET_KIND = "quantum_lab_demo.fake-realtime"
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +72,9 @@ def configured_quantum_routes(
     return target.id, tuple(routes)
 
 
-def configured_output_signal(route: ConfiguredQuantumRoute) -> PlaySignal | None:
+def configured_output_signal(
+    route: ConfiguredQuantumRoute,
+) -> DriveSignal | ReadoutSignal | None:
     """Project one configured route into a logical pulse-output signal."""
 
     if route.entity_kind == "logical_qubit":
@@ -84,13 +83,6 @@ def configured_output_signal(route: ConfiguredQuantumRoute) -> PlaySignal | None
             return DriveSignal(qubit)
         if route.capability == "readout_pulse":
             return ReadoutSignal(qubit)
-        if route.capability == "set_flux_bias":
-            return FluxSignal(qubit)
-    if (
-        route.entity_kind == "logical_coupler"
-        and route.capability == "play_coupler_pulse"
-    ):
-        return FluxSignal(CouplerId(route.entity_id))
     return None
 
 
@@ -106,7 +98,6 @@ def configured_acquisition_signal(
 
 __all__ = [
     "FAKE_LIST_TARGET_KIND",
-    "FAKE_REALTIME_TARGET_KIND",
     "ConfiguredQuantumRoute",
     "configured_acquisition_signal",
     "configured_output_signal",

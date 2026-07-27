@@ -11,12 +11,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.measurements.results import (
-    MeasurementDatasetRole,
-    MeasurementDatasetSchema,
-    MeasurementRecord,
-    validate_measurement_records_against_schema,
-)
+from scopecat.measurements.results import MeasurementRecord
 
 
 def validate_run_measurements(
@@ -58,23 +53,6 @@ def validate_run_measurements(
                 )
             )
     return problems
-
-
-def validate_raw_measurement_dataset(
-    *,
-    records: Sequence[MeasurementRecord],
-    expected_schema: MeasurementDatasetSchema | None,
-    dataset_id: str,
-    dataset_role: MeasurementDatasetRole = "raw",
-) -> list[Problem]:
-    if expected_schema is None:
-        return []
-    return validate_measurement_records_against_schema(
-        records=records,
-        schema=expected_schema,
-        dataset_id=dataset_id,
-        dataset_role=dataset_role,
-    )
 
 
 def _problem(

@@ -49,10 +49,10 @@ Products created by domain execution or pure transforms retain those explicit
 producers and do not create instrument acquisitions. Provider product lookup
 never searches globally for a unique capability or product key.
 
-A domain program owns opaque dialect data with typed inputs, result products,
-and logical resource roles. Scopecat owns the surrounding identities, typed
-bindings, capability requirements, effect order, resource correlation, and
-result correlation. Templates own invocation policy: defaults, scans, durable
+A domain program owns opaque dialect data with typed inputs and result products.
+Scopecat owns the surrounding identities, typed bindings, effect order, and
+result correlation; the accepted system configuration owns the domain target's
+physical footprint. Templates own invocation policy: defaults, scans, durable
 record selection, labels, and metadata.
 
 ## Semantic Invariants
@@ -88,9 +88,8 @@ behavior, or incidental batch counts.
 ## Symbolic Specialization
 
 Point composition remains symbolic through verification and specialization.
-One compiler-owned iteration model is shared by host lowering, parameter
-overlays, entity selection, and domain projection so consumers cannot disagree
-about point variation or nesting.
+Linking materializes one ordered point sequence; host lowering, parameter
+overlays, entity selection, and domain projection consume those same point rows.
 
 Partial evaluation binds accepted inputs and configuration values, applies
 lexical scan overrides, folds pure subgraphs, removes undemanded work, and
@@ -112,25 +111,18 @@ An experiment definition is independent of the `ExperimentSystem` that runs
 it. The accepted system configuration statically selects one domain target and
 its complete physical footprint. Planning verifies the configured compiler's
 target identity once, and the run claims that footprint once. The compiler
-participates through two boundaries:
-
-1. `compile` is total for the selected target and performs pure, bounded
-   lowering over symbolic inputs and exact logical coverage into immutable
-   artifacts.
-2. `prepare` binds one selected job to runtime context and returns its
-   single-use invocation.
-
-Compilation may absorb supported constants, finite axes, pure computation, and
-product transforms. Unsupported work remains residual host work. Lowering must
-preserve logical points, lexical parameters, effect barriers, and complete
-result correlation.
+participates through one `compile_batch` boundary. Planning first partitions
+the logical point space by the compiler's declared capacity, then resolves all
+program and compiler inputs for each contiguous batch. `compile_batch` closes
+the target artifact, exact point/product mapping, runtime invocation, and
+result realization into one prepared execution.
 
 A domain program has two typed input namespaces. Program inputs are part of
-its runtime semantics and may remain residual until `prepare`. Compiler inputs
-configure lowering itself, are resolved from the same snapshot-plus-overlay
-parameter model, and must be fully captured by every compiled target artifact.
-This lets experiments scan compiler parameter collections without disguising
-them as a small set of program arguments or injecting mutable compiler state.
+its runtime semantics. Compiler inputs configure lowering itself. Both are
+resolved from the same snapshot-plus-overlay parameter model before the domain
+compiler is called. This lets experiments scan compiler parameter collections
+without disguising them as a small set of program arguments or injecting
+mutable compiler state.
 
 A domain compiler may call a lower-level target compiler after inputs have been
 resolved and a program has been lowered to target IR. That is an internal

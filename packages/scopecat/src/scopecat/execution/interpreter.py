@@ -7,32 +7,23 @@ from scopecat.execution.effects.domain import (
     domain_runtime_terminal_problem,
     measurement_recording_terminal_problem,
 )
-from scopecat.execution.events import (
-    RuntimeTransitionProjector,
-    TransitionRecorder,
-    emit_run_finished,
-    emit_run_started,
-)
 from scopecat.execution.evidence import (
     build_instrument_state_evidence,
     build_terminal_contents,
     instrument_state_evidence_ref,
-    raw_measurement_schema,
 )
 from scopecat.execution.local.executor import execute_run_operations
+from scopecat.execution.measurement_postprocessors import (
+    execute_measurement_postprocessors,
+)
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
     seal_measurement_dataset,
 )
-from scopecat.execution.observation import (
-    RuntimeEventSink,
-    RuntimePayloadObserver,
-)
 from scopecat.execution.persistence import (
-    validate_raw_measurement_dataset,
     validate_run_measurements,
 )
-from scopecat.execution.program import RunCoverageBlock, RunDomainJob, RunProgram
+from scopecat.execution.program import RunDomainJob, RunProgram
 from scopecat.execution.services import (
     ExecutionSession,
 )
@@ -49,7 +40,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.projection import project_measurement_records
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
@@ -74,8 +65,6 @@ def execute_admitted_run(
     program: RunProgram,
     session: ExecutionSession,
     instrument_provider: InstrumentProvider | None = None,
-    event_sink: RuntimeEventSink | None = None,
-    payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
     """Execute a transient program against its authoritative accepted snapshot."""
 
@@ -92,8 +81,6 @@ def execute_admitted_run(
         program=program,
         session=session,
         instrument_provider=instrument_provider,
-        event_sink=event_sink,
-        payload_observer=payload_observer,
     )
 
 
@@ -103,63 +90,42 @@ def _execute_run(
     program: RunProgram,
     session: ExecutionSession,
     instrument_provider: InstrumentProvider | None,
-    event_sink: RuntimeEventSink | None,
-    payload_observer: RuntimePayloadObserver | None,
 ) -> RunManifest:
     host = program.host
     projection = program.measurements
     point_count = len(program.points.points)
-    experiment_id = program.experiment_id
     run_id = session.run_id
-
-    instrument_ids = [] if host is None else list(host.resource_order)
-    emit_run_started(
-        event_sink=event_sink,
-        run_id=run_id,
-        experiment_id=experiment_id,
-        point_count=point_count,
-        instrument_ids=instrument_ids,
-        output_ids=[record.id for record in projection.records],
-    )
-
-    transition_projector = RuntimeTransitionProjector(
-        event_sink=event_sink,
-        experiment_id=experiment_id,
-        point_count=point_count,
-    )
-    recorder = TransitionRecorder(
-        journal=session.journal,
-        projector=transition_projector,
-    )
+    journal = session.journal
     measurements = session.measurements
     committed_measurement_count = 0
     append_content_hashes: list[str] = []
 
     def commit_coverage(
-        block: RunCoverageBlock,
+        points: tuple[RunPoint, ...],
         candidates: tuple[MeasurementValueCandidate, ...],
     ) -> None:
         nonlocal committed_measurement_count
+        completed_candidates = execute_measurement_postprocessors(
+            program.measurement_postprocessors,
+            candidates,
+            points=points,
+            catalog=program.measurements.catalog,
+        )
         values = seal_measurement_values(
             program.measurements.catalog,
-            candidates,
-            points=block.points,
+            completed_candidates,
+            points=points,
         )
         projected = project_measurement_records(
             program.measurements,
             values,
             run_id=run_id,
-            points=block.points,
+            points=points,
         )
         block_problems = (
             *validate_run_measurements(
                 measurements=projected.records,
-                expected_indices=set(block.point_indices),
-            ),
-            *validate_raw_measurement_dataset(
-                records=projected.records,
-                expected_schema=raw_measurement_schema(projected.schema),
-                dataset_id=RAW_MEASUREMENTS_DATASET_ID,
+                expected_indices={point.ordinal for point in points},
             ),
         )
         if block_problems:
@@ -167,7 +133,7 @@ def _execute_run(
         receipt = append_measurement_dataset(
             projected,
             measurements,
-            recorder,
+            journal,
         )
         if receipt is not None:
             committed_measurement_count += len(projected.records)
@@ -177,8 +143,7 @@ def _execute_run(
         config=config,
         program=program,
         run_id=run_id,
-        recorder=recorder,
-        payload_observer=payload_observer,
+        journal=journal,
         instrument_provider=instrument_provider,
         coverage_observer=commit_coverage,
     )
@@ -215,7 +180,7 @@ def _execute_run(
                 point_count=committed_measurement_count,
                 append_content_hashes=tuple(append_content_hashes),
                 writer=measurements,
-                recorder=recorder,
+                journal=journal,
             )
     except MeasurementRecordingError as error:
         problems.extend(
@@ -260,8 +225,7 @@ def _execute_run(
         )
 
     admitted_points = effect_result.admitted_points
-    admitted_point_count = len(admitted_points)
-    dataset_schema = raw_measurement_schema(projection.schema_for(admitted_points))
+    dataset_schema = projection.schema_for(admitted_points)
 
     failed = bool(problems)
     outcome = RunOutcome(
@@ -304,24 +268,6 @@ def _execute_run(
             contents=contents,
             models=tuple(models),
         )
-    )
-    emit_run_finished(
-        event_sink=event_sink,
-        run_id=run_id,
-        experiment_id=experiment_id,
-        outcome=outcome,
-        completed_point_count=(
-            admitted_point_count
-            if outcome.result == "succeeded"
-            else transition_projector.completed_point_count
-        ),
-        point_count=admitted_point_count,
-        measurement_count=(committed_measurement_count if seal_receipt else 0),
-        problem_count=len(problems),
-        compute_evaluated_node_count=(
-            transition_projector.compute_evaluated_node_count
-        ),
-        compute_payload_count=transition_projector.compute_payload_count,
     )
     if interruption is not None:
         interruption.add_note(f"Scopecat run_id: {run_id}")

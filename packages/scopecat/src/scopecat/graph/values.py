@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import ValueType
+from scopecat.kernel.value_types import Scalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +68,7 @@ class ComputeOutput:
     """One explicitly typed value produced by a compute operation."""
 
     id: ValueId
-    value_type: ValueType
+    value_type: Scalar
 
 
 @dataclass(frozen=True, slots=True)

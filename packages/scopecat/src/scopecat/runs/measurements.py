@@ -66,11 +66,10 @@ def read_measurement_dataset(
         schema = MeasurementDatasetSchema.model_validate(dataset.data_schema)
     except ValidationError as error:
         raise _invalid_schema(ref) from error
-    if schema.dataset_id != dataset.id or validate_measurement_records_against_schema(
+    if validate_measurement_records_against_schema(
         records,
         schema,
         dataset.id,
-        schema.dataset_role,
     ):
         raise _invalid_schema(ref)
     return MeasurementDataset(

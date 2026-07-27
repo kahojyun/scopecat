@@ -1,46 +1,16 @@
-"""Nominal identity for executable relation occurrences in transient IR.
-
-Relation-use identity answers only "is this the same executable occurrence?".
-It deliberately carries no structural path, semantic role, backend choice, or
-plan fingerprint; those are independent compiler facts.
-"""
+"""Executable relation occurrences in transient compiler IR."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import override
-from uuid import uuid4
-
-
-@dataclass(frozen=True, slots=True)
-class RelationUseId:
-    """Opaque identity of one executable relation occurrence."""
-
-    value: str
-
-    def __post_init__(self) -> None:
-        if not self.value:
-            msg = "relation-use identity must be non-empty"
-            raise ValueError(msg)
-
-    @classmethod
-    def fresh(cls) -> RelationUseId:
-        return cls(uuid4().hex)
-
-    @override
-    def __str__(self) -> str:
-        return self.value
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
 class RelationUse[ValueT]:
-    """A value paired with the identity of this particular use occurrence."""
+    """A relation value at one executable use site."""
 
     value: ValueT
-    id: RelationUseId = field(default_factory=RelationUseId.fresh)
 
 
 def relation_use[ValueT](value: ValueT) -> RelationUse[ValueT]:
-    """Create a fresh executable occurrence for ``value``."""
-
     return RelationUse(value)

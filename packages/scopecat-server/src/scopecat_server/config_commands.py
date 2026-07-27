@@ -14,7 +14,7 @@ from scopecat.daemon.endpoint import (
     DaemonEndpointError,
     read_daemon_endpoint_record,
 )
-from scopecat.daemon.wire import ConfigDefaultReceipt
+from scopecat.daemon.wire import ConfigRevisionDefaultReceipt
 from scopecat.project import Project
 from scopecat.records.config import (
     ConfigContentHash,
@@ -58,7 +58,7 @@ class ProjectConfigApplyResult:
 
     source: ConfigProfileSnapshot
     previous: ConfigProfileSnapshot
-    receipt: ConfigDefaultReceipt
+    receipt: ConfigRevisionDefaultReceipt
     source_content_hash: ConfigContentHash
     previous_content_hash: ConfigContentHash
 

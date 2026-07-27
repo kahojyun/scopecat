@@ -8,7 +8,6 @@ from typing import TypeGuard, cast
 from scopecat.graph.relations.model import CellValue, is_cell_value
 from scopecat.graph.relations.operators import (
     ScalarOperator,
-    compare_ordered_values,
     require_finite_arithmetic_result,
     require_runtime_operator,
     runtime_values_equal,
@@ -43,32 +42,14 @@ def eval_binary(op: ScalarOperator, left: CellValue, right: CellValue) -> CellVa
     require_runtime_operator(op, left, right)
     if op == "+":
         result = _add(left, right)
-        require_finite_arithmetic_result(op, result)
-        return result
-    if op == "-":
+    elif op == "-":
         result = _sub(left, right)
-        require_finite_arithmetic_result(op, result)
-        return result
-    if op == "*":
+    elif op == "*":
         result = _mul(left, right)
-        require_finite_arithmetic_result(op, result)
-        return result
-    if op == "/":
+    else:
         result = _div(left, right)
-        require_finite_arithmetic_result(op, result)
-        return result
-    if op == "==":
-        return runtime_values_equal(left, right)
-    if op == "!=":
-        return not runtime_values_equal(left, right)
-    if op in {"<", "<=", ">", ">="}:
-        return _compare(op, left, right)
-    if op == "and":
-        return _bool(left) and _bool(right)
-    if op == "or":
-        return _bool(left) or _bool(right)
-    msg = f"unsupported binary operator: {op}"
-    raise ValueError(msg)
+    require_finite_arithmetic_result(op, result)
+    return result
 
 
 def cell_matches(left: CellValue | None, right: CellValue) -> bool:
@@ -125,27 +106,6 @@ def _div(left: CellValue, right: CellValue) -> CellValue:
     if _is_number(left) and _is_number(right):
         return left / right
     msg = f"cannot divide {left!r} by {right!r}"
-    raise TypeError(msg)
-
-
-def _compare(op: ScalarOperator, left: CellValue, right: CellValue) -> bool:
-    ordering = compare_ordered_values(left, right)
-    if op == "<":
-        return ordering < 0
-    if op == "<=":
-        return ordering <= 0
-    if op == ">":
-        return ordering > 0
-    if op == ">=":
-        return ordering >= 0
-    msg = f"unsupported comparison operator: {op}"
-    raise ValueError(msg)
-
-
-def _bool(value: CellValue) -> bool:
-    if isinstance(value, bool):
-        return value
-    msg = f"boolean operator requires bool values, got {value!r}"
     raise TypeError(msg)
 
 

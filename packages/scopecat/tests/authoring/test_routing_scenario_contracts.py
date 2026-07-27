@@ -79,13 +79,12 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         ),
         extra_entities=(EntityRef(id="q1", kind="logical_device"),),
     )
-    qubit = authoring.input(
+    qubit = authoring.coordinate(
         "qubit",
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module_body(id="test.resource-binding-scenarios.entity-shards")
-        .inputs(qubit)
+        authoring.module_body(id="test.resource-binding-scenarios.entity-routing")
         .resource(
             "drive",
             requires=("drive.frequency",),
@@ -101,16 +100,11 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
     )
     invocation = template_fixture(
         module,
-        id="test.resource-binding-scenarios.entity-shards",
+        id="test.resource-binding-scenarios.entity-routing",
         kind="resource_binding_contract",
         scans=(
             axis(
-                authoring.coordinate(
-                    "qubit",
-                    authoring.ScalarType(
-                        authoring.EntityType(entity_kind="logical_device")
-                    ),
-                ),
+                qubit,
                 ("q1", "q0", "q1"),
             ),
         ),
@@ -174,13 +168,12 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         ),
         extra_entities=(EntityRef(id="q1", kind="logical_device"),),
     )
-    qubit = authoring.input(
+    qubit = authoring.coordinate(
         "qubit",
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
         authoring.module_body(id="test.resource-binding-scenarios.channel-selection")
-        .inputs(qubit)
         .resource(
             "digitizer",
             requires=("readout.acquire",),
@@ -201,12 +194,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         kind="resource_binding_contract",
         scans=(
             axis(
-                authoring.coordinate(
-                    "qubit",
-                    authoring.ScalarType(
-                        authoring.EntityType(entity_kind="logical_device")
-                    ),
-                ),
+                qubit,
                 ("q0", "q1", "q0"),
             ),
         ),

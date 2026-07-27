@@ -6,13 +6,9 @@ from pathlib import Path
 
 from quantum_lab_demo.virtual_lab.models import VirtualLabProfile
 
-VirtualLabProfileInput = str | Path | VirtualLabProfile
 
-
-def load_virtual_lab_profile(profile: VirtualLabProfileInput) -> VirtualLabProfile:
-    if isinstance(profile, VirtualLabProfile):
-        return profile
+def load_virtual_lab_profile(profile: str | Path) -> VirtualLabProfile:
     return VirtualLabProfile.model_validate_json(Path(profile).read_text())
 
 
-__all__ = ["VirtualLabProfileInput", "load_virtual_lab_profile"]
+__all__ = ["load_virtual_lab_profile"]

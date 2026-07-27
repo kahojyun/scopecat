@@ -11,7 +11,8 @@ from quantum_lab_demo import (
     quantum_lab_bootstrap_config,
 )
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
-from quantum_lab_demo.workflows.readout_frequency import readout_frequency_template
+from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
+from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 
 
 class _DemoDaemon(Protocol):
@@ -54,46 +55,45 @@ def test_demo_application_loads_selected_project_system(tmp_path: Path) -> None:
     assert provider.profile.id == "selected-project-virtual-lab"
 
 
-def test_demo_execution_round_trips_through_shared_daemon(
+def test_drag_beta_candidate_accept_and_undo_round_trip_through_shared_daemon(
     demo_daemon: _DemoDaemon,
 ) -> None:
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as lab:
-        run = lab.prepare(readout_frequency_template(qubit="q0")).run(
-            name="daemon client round trip"
+        run = lab.prepare(drag_beta_template()).run(name="DRAG beta daemon round trip")
+        analysis = run.analyze(drag_beta_analysis())
+        saved = analysis.save()
+        candidate = analysis.candidate_config()
+        accepted = lab.config.accept(
+            candidate,
+            note="accept the DRAG beta golden candidate",
         )
-        attachment = run.attach(
-            key="notebook-note",
-            text="reviewed in notebook",
-            filename="review.md",
-        )
-        saved = (
-            run.analysis("fit review")
-            .artifact(
-                title="fit result",
-                kind="fit_result",
-                artifact_id="fit-result",
-                json_content={"accepted": True},
-            )
-            .save()
+        restored = lab.config.undo(
+            note="restore the default after the DRAG beta golden candidate",
         )
 
         assert run.request is not None
-        assert run.request.metadata["name"] == "daemon client round trip"
-        assert attachment.filename == "review.md"
-        assert run.data().text("notebook-note").content == "reviewed in notebook\n"
-        assert run.data().json("fit-result").content == {"accepted": True}
+        assert run.request.metadata["name"] == "DRAG beta daemon round trip"
         assert (
             lab.run_operations.analysis(run.id, saved.record.id).analysis.title
-            == "fit review"
+            == "DRAG beta calibration"
         )
         assert [
             item.analysis.title for item in lab.run_operations.analyses(run.id).items
-        ] == ["fit review"]
+        ] == ["DRAG beta calibration"]
 
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as observer:
         detail = observer.control.run_detail(run.id)
         measurements = observer.control.measurements(run.id)
+        proposals = observer.config.proposals(run.id)
+        registry = observer.config.registry()
 
     assert detail.control.state == "closed"
     assert detail.manifest.status == "completed"
-    assert len(measurements.items) == 5
+    assert len(measurements.items) == 15
+    [proposal] = analysis.parameter_proposals
+    assert candidate.parameter_proposal == proposal
+    assert proposals.items[0].approval is not None
+    assert proposals.items[0].approval.actor == "operator"
+    assert registry.activation == restored.activation
+    assert registry.activation is not None
+    assert registry.activation.entry_id != accepted.entry.id

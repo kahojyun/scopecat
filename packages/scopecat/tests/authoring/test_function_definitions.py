@@ -120,7 +120,9 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
     ) -> sc.Analysis:
         nonlocal evaluations
         evaluations += 1
-        return context.result(f"readout fit for {qubit}").note(str(attempts))
+        return context.result(f"readout fit for {qubit}").table(
+            [{"attempts": attempts}]
+        )
 
     assert evaluations == 0
     assert readout_fit.id == "readout.fit"
@@ -166,7 +168,7 @@ def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
 
     def body() -> sc.ExperimentBody:
         call = count_source(value=count)
-        return sc.experiment(call).scan(count, (1, 2, 3))
+        return sc.experiment(call).scan(sc.axis(count, (1, 2, 3)))
 
     template = sc.template(id="test.function.template", kind="count")(body)
     scratch = sc.scratch(id="test.function.scratch", kind="count")(body)

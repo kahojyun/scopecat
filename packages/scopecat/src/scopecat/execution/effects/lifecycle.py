@@ -6,7 +6,6 @@ from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from scopecat.execution.effects.journaled import JournaledEffectBoundary
-from scopecat.records.execution_journal import ExecutionStage
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import InstrumentDriver
 
@@ -33,17 +32,6 @@ class DriverLifecycle:
         states: list[InstrumentStateSnapshot] = []
         for instrument_id in self.resource_order:
             operation_id = f"lifecycle.{phase}-read-state.{instrument_id}"
-            transition_stage: ExecutionStage = (
-                "terminal_readback" if phase == "terminal" else "initial_readback"
-            )
-            entry = self.journal.entry(
-                operation_id=operation_id,
-                stage=transition_stage,
-                effect="read",
-                state="started",
-                instrument_id=instrument_id,
-            )
-            self.journal.observe(entry)
             try:
                 state = self.drivers[instrument_id].read_state().model_copy(deep=True)
                 if state.instrument_id != instrument_id:
@@ -57,9 +45,6 @@ class DriverLifecycle:
                     instrument_id=instrument_id,
                 )
                 self.journal.problems.append(problem)
-                self.journal.observe(
-                    entry.model_copy(update={"state": "failed", "problems": (problem,)})
-                )
                 continue
             except BaseException as error:
                 problem = self.journal.record_interruption(
@@ -67,12 +52,8 @@ class DriverLifecycle:
                     operation_id=operation_id,
                     instrument_id=instrument_id,
                 )
-                self.journal.observe(
-                    entry.model_copy(update={"state": "failed", "problems": (problem,)})
-                )
                 continue
             states.append(state)
-            self.journal.observe(entry.model_copy(update={"state": "completed"}))
         return states
 
     def finalize(self) -> None:

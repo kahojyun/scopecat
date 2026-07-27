@@ -19,14 +19,12 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
-from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
     StateTarget,
 )
 from scopecat.graph.relations.model import lit
-from scopecat.graph.relations.point_domain import POINT_UNIT
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
@@ -99,7 +97,7 @@ def _unit_program(
     return typed_program(
         id=experiment_id,
         kind="resource_effect_regression",
-        point_domain=PointDomain(root=POINT_UNIT),
+        point_domain=PointDomain(axes=()),
         resource_requirements=resource_requirements,
         state=state,
         product_defs=products,
@@ -226,7 +224,6 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
                 capability_id="A",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"),),
             ),
         ),
         products=(a_product, b_product),
@@ -276,14 +273,13 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
 
 
 def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
-    config = _shared_group_config()
+    config = _split_instrument_config()
     source = _port("source")
     first_state = set_state_field(
         resource_port_id=source,
         capability_id="set.level",
         field_path="level",
         value=_number(1.0),
-        target_entities=(_entity("q0"),),
     )
 
     single_plan = _bind(
@@ -312,6 +308,39 @@ def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
     ]
 
 
+def test_logical_state_does_not_broadcast_across_instruments() -> None:
+    config = _split_instrument_config()
+    source = _port("source")
+    program = _unit_program(
+        experiment_id="ambiguous-logical-state-claim",
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=source,
+                capabilities=("set.level",),
+                entity_uses=(
+                    relation_use(_entity("q0")),
+                    relation_use(_entity("q1")),
+                ),
+            ),
+        ),
+        state=(
+            set_state_field(
+                resource_port_id=source,
+                capability_id="set.level",
+                field_path="level",
+                value=_number(1.0),
+            ),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as failure:
+        _bind(program, config=config)
+
+    assert [problem.code for problem in failure.value.problems] == [
+        "module_resource_port_ambiguous"
+    ]
+
+
 def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     config = _entity_only_config()
     signal = _port("signal")
@@ -331,7 +360,6 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"),),
             ),
         ),
         products=(product,),
@@ -391,14 +419,12 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"),),
             ),
             set_state_field(
                 resource_port_id=right,
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"),),
             ),
         ),
     )
@@ -471,8 +497,8 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
-        recorder=TransitionRecorder(FakeExecutionJournal()),
-    ).run(complete_coverage_operations(program))
+        journal=FakeExecutionJournal(),
+    ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     assert len(driver.applied) == 1
@@ -526,7 +552,7 @@ def _same_instrument_record_config() -> ConfigProfileSnapshot:
     )
 
 
-def _shared_group_config() -> ConfigProfileSnapshot:
+def _split_instrument_config() -> ConfigProfileSnapshot:
     config = load_config()
     source = config.instrument_registry.instruments[0]
     topology = config.topology.model_copy(
@@ -544,14 +570,12 @@ def _shared_group_config() -> ConfigProfileSnapshot:
                 capability="set.level",
                 entity_id="q0",
                 channel_id="drive-q0",
-                group_ids=["shared.lo"],
             ),
             RoutingEndpointBinding(
                 instrument_id="source-1",
                 capability="set.level",
                 entity_id="q1",
                 channel_id="readout-q0",
-                group_ids=["shared.lo"],
             ),
         ],
     )

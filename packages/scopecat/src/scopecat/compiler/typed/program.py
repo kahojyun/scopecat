@@ -8,24 +8,19 @@ semantics, not intermediate compiler shape, form the durable boundary.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Generic, TypeVar
 
-from scopecat.compiler.relations.uses import (
-    RelationUse,
-    RelationUseId,
-    relation_use,
-)
+from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     LocalPythonImplementation,
-    MeasurementTransformId,
+    MeasurementPostprocessorId,
 )
-from scopecat.compiler.semantic.operation_contract import OperationContract
 from scopecat.compiler.semantic.value_expressions import (
-    ScalarOrSeriesValueExpr,
+    CompilerValue,
     ScalarValueExpr,
-    ValueExpr,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -50,29 +45,29 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.kernel.value_types import ValueType
+from scopecat.kernel.value_types import Scalar, ValueType
+from scopecat.measurements.postprocessor_contract import (
+    MeasurementPostprocessorKernel,
+)
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
 from scopecat.measurements.records import RecordUse
-from scopecat.measurements.semantics import (
-    MeasurementTransformSemanticContract,
+
+ValueT_co = TypeVar(
+    "ValueT_co",
+    bound=CompilerValue,
+    covariant=True,
+    default=CompilerValue,
 )
 
 
 @dataclass(frozen=True, slots=True)
-class ValueInput:
-    """Proof-carrying value evaluated for one compute invocation.
+class ValueInput(Generic[ValueT_co]):
+    """One typed value materialized for a point-local consumer."""
 
-    ``origin_input_ids`` is pre-rewrite provenance. The enclosed proof imports
-    describe the final materialized local semantics and are deliberately not used
-    as a substitute for that provenance.
-    """
-
-    value: ValueExpr
-    relation_use_id: RelationUseId = field(default_factory=RelationUseId.fresh)
-    origin_input_ids: tuple[str, ...] = ()
+    value: ValueT_co
 
     @property
     def value_type(self) -> ValueType:
@@ -84,21 +79,22 @@ class ComputeEdge:
     """Explicit dependency on the result of another compute node."""
 
     value_id: ValueId
-    expected_type: ValueType
+    expected_type: Scalar
 
     @property
-    def value_type(self) -> ValueType:
+    def value_type(self) -> Scalar:
         return self.expected_type
 
 
-type ComputeInput = ValueInput | ComputeEdge
+type ScalarValueInput = ValueInput[ScalarValueExpr]
+type ComputeInput = ScalarValueInput | ComputeEdge
 
 
-def _empty_value_inputs() -> dict[str, ValueInput]:
+def _empty_scalar_value_inputs() -> dict[str, ScalarValueInput]:
     return {}
 
 
-def _empty_resource_inputs() -> dict[str, LogicalResourcePortId]:
+def _empty_value_inputs() -> dict[str, ValueInput]:
     return {}
 
 
@@ -126,44 +122,28 @@ class TypedDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: Mapping[str, ValueInput] = field(default_factory=_empty_value_inputs)
+    inputs: Mapping[str, ScalarValueInput] = field(
+        default_factory=_empty_scalar_value_inputs
+    )
     compiler_inputs: Mapping[str, ValueInput] = field(
         default_factory=_empty_value_inputs
     )
     results: tuple[TypedDomainResultBinding, ...] = ()
-    resources: Mapping[str, LogicalResourcePortId] = field(
-        default_factory=_empty_resource_inputs
-    )
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("typed domain execution id must be non-empty")
-        selected_inputs: dict[str, ValueInput] = dict(self.inputs)
+        selected_inputs: dict[str, ScalarValueInput] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
-        object.__setattr__(self, "resources", dict(self.resources))
 
 
 type CoreEffect = SetStateSpec | TypedDomainExecution | AcquireEffect
 
 
 @dataclass(frozen=True, slots=True)
-class TypedMeasurementTransformInput:
-    """One exact product-use occurrence consumed by a pure transform role."""
-
-    id: str
-    product_id: ProductId
-    product_use_id: ProductUseId
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "measurement transform input id must be non-empty"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class TypedMeasurementTransformOutput:
-    """One transform-produced product and all of its downstream use slots."""
+class TypedMeasurementPostprocessorOutput:
+    """One calculated product and all of its downstream use slots."""
 
     id: str
     product_id: ProductId
@@ -171,18 +151,19 @@ class TypedMeasurementTransformOutput:
 
     def __post_init__(self) -> None:
         if not self.id:
-            msg = "measurement transform output id must be non-empty"
+            msg = "measurement postprocessor output id must be non-empty"
             raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
-class TypedMeasurementTransform:
-    """One live authored pure transform in the demand-closed product graph."""
+class TypedMeasurementPostprocessor:
+    """One live point-local postprocessor retained by record demand."""
 
-    id: MeasurementTransformId
-    semantic: MeasurementTransformSemanticContract
-    inputs: tuple[TypedMeasurementTransformInput, ...] = ()
-    outputs: tuple[TypedMeasurementTransformOutput, ...] = ()
+    id: MeasurementPostprocessorId
+    input_product_id: ProductId
+    input_product_use_id: ProductUseId
+    outputs: tuple[TypedMeasurementPostprocessorOutput, ...]
+    kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +171,6 @@ class TypedComputeNode:
     """One typed pure-code node in the expanded compute graph."""
 
     id: OperationId
-    contract: OperationContract
     implementation: LocalPythonImplementation
     result: ComputeOutput
     inputs: Mapping[str, ComputeInput] = field(default_factory=_empty_compute_inputs)
@@ -211,7 +191,7 @@ class LogicalResourceRequirement:
 
     port_id: LogicalResourcePortId
     capabilities: tuple[str, ...] = ()
-    entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
+    entity_uses: tuple[RelationUse[ScalarValueExpr], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +210,7 @@ class CoreProgram:
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
     effects: tuple[CoreEffect, ...] = ()
-    measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
+    measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
@@ -265,7 +245,6 @@ def set_state_field(
     capability_id: str,
     field_path: str,
     value: ScalarValueExpr | ComputeResultRef,
-    target_entities: Sequence[ScalarOrSeriesValueExpr] = (),
 ) -> SetStateSpec:
     """Build desired state from orthogonal capability and field identities."""
 
@@ -274,14 +253,11 @@ def set_state_field(
         capability_id=capability_id,
         field_path=field_path,
         value_use=value if isinstance(value, ComputeResultRef) else relation_use(value),
-        target_entity_uses=tuple(
-            relation_use(expression) for expression in target_entities
-        ),
     )
 
 
 def product_axis(
-    id: str,  # noqa: A002
+    id: str,
     *,
     size: int,
     kind: str | None = None,

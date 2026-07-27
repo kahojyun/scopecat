@@ -7,9 +7,7 @@ from dataclasses import dataclass
 
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
-    evaluate_relation,
     evaluate_scalar,
-    evaluate_series,
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -17,16 +15,13 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.graph.relations.model import (
     CellValue,
-    RelationExpr,
-    Row,
     ScalarExpr,
-    SeriesExpr,
 )
-from scopecat.kernel.value_types import Scalar, Series, Table
+from scopecat.kernel.value_types import Scalar
 
 
 def _static_bindings(bindings: RelationTypeBindings) -> RelationTypeBindings:
-    """Exclude lexical rows that do not exist during host-side evaluation."""
+    """Exclude the point row, which does not exist during host evaluation."""
 
     return RelationTypeBindings(
         inputs=bindings.inputs,
@@ -54,42 +49,6 @@ class StaticRelationEvaluator:
             expected_type=expected_type,
         )
         return evaluate_scalar(
-            verified,
-            EvalContext(params=self.parameters, inputs=dict(inputs)),
-        )
-
-    def series(
-        self,
-        expression: SeriesExpr,
-        *,
-        bindings: RelationTypeBindings,
-        inputs: Mapping[str, object],
-        expected_type: Series | None = None,
-    ) -> list[CellValue]:
-        verified = verify_relation_plan(
-            expression,
-            bindings=_static_bindings(bindings),
-            expected_type=expected_type,
-        )
-        return evaluate_series(
-            verified,
-            EvalContext(params=self.parameters, inputs=dict(inputs)),
-        )
-
-    def relation(
-        self,
-        expression: RelationExpr,
-        *,
-        bindings: RelationTypeBindings,
-        inputs: Mapping[str, object],
-        expected_type: Table | None = None,
-    ) -> list[Row]:
-        verified = verify_relation_plan(
-            expression,
-            bindings=_static_bindings(bindings),
-            expected_type=expected_type,
-        )
-        return evaluate_relation(
             verified,
             EvalContext(params=self.parameters, inputs=dict(inputs)),
         )

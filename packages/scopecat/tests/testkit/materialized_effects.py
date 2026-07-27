@@ -107,9 +107,8 @@ def materialized_state_fields(
     """Flatten exact state coverage for focused assertions."""
 
     return tuple(
-        (point_index, operation, target)
+        (effect.point_index, operation, target)
         for effect in plan.effects
         if isinstance(operation := effect.operation, ApplyStateOperation)
-        for point_index in effect.point_indices
         for target in operation.targets
     )

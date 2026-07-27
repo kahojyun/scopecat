@@ -3,25 +3,25 @@ import { Popover } from "@base-ui/react/popover";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, Save, X } from "lucide-react";
 import { ApiError } from "../../api";
-import { previewConfigDraft, registerConfigDraft, setConfigDraftDefault } from "./config-api";
+import { previewConfigDraft, registerConfigRevision, setConfigDefault } from "./config-api";
 import { deriveConfigDraftUpdates } from "./config-draft";
 import { ConfigParameters } from "./ConfigParameters";
 import { ParameterEditor } from "./ConfigValueEditors";
 import type {
   ConfigDraftCommand,
-  ConfigDraftDefaultReceipt,
   ConfigDraftPreview,
-  ConfigDraftRegistrationReceipt,
   ConfigProfileSnapshot,
-  ConfigRegistryActiveState,
+  ConfigActivationRecord,
   ConfigRegistryEntry,
+  ConfigRevisionDefaultReceipt,
+  ConfigRevisionRegistrationReceipt,
   ParameterUpdate,
   StoredParameterValue,
 } from "../../api-contract";
 
 export interface ConfigDraftSeed {
   entry: ConfigRegistryEntry;
-  active: ConfigRegistryActiveState;
+  active: ConfigActivationRecord;
   config: ConfigProfileSnapshot;
 }
 
@@ -37,11 +37,11 @@ export function ConfigDraftEditor({
   onRegistered,
 }: {
   seed: ConfigDraftSeed;
-  currentActive?: ConfigRegistryActiveState;
+  currentActive?: ConfigActivationRecord;
   operator: string;
   onCancel: () => void;
   onRegistered: (
-    receipt: ConfigDraftRegistrationReceipt | ConfigDraftDefaultReceipt,
+    receipt: ConfigRevisionRegistrationReceipt | ConfigRevisionDefaultReceipt,
   ) => void | Promise<void>;
 }) {
   const definitions = seed.config.system.parameter_catalog.definitions ?? [];
@@ -64,7 +64,7 @@ export function ConfigDraftEditor({
   const draft = useMemo<PendingConfigDraft>(
     () => ({
       base_entry_id: seed.entry.id,
-      base_content_hash: seed.active.active_entry_content_hash,
+      base_content_hash: seed.active.entry_content_hash,
       base_generation: seed.active.generation,
       candidate_id: `${seed.config.id}-edit`,
       updates,
@@ -77,8 +77,8 @@ export function ConfigDraftEditor({
     : undefined;
   const stale =
     !currentActive ||
-    currentActive.active_entry_id !== seed.active.active_entry_id ||
-    currentActive.active_entry_content_hash !== seed.active.active_entry_content_hash ||
+    currentActive.entry_id !== seed.active.entry_id ||
+    currentActive.entry_content_hash !== seed.active.entry_content_hash ||
     currentActive.generation !== seed.active.generation;
 
   const previewMutation = useMutation({
@@ -89,7 +89,7 @@ export function ConfigDraftEditor({
     },
   });
   const registrationMutation = useMutation({
-    mutationFn: registerConfigDraft,
+    mutationFn: registerConfigRevision,
     onSuccess: async (receipt) => {
       await onRegistered(receipt);
     },
@@ -117,16 +117,20 @@ export function ConfigDraftEditor({
       if (!checked.valid || !checked.result_content_hash) {
         return { preview: checked, revision };
       }
-      const receipt = await setConfigDraftDefault({
+      const receipt = await setConfigDefault({
         registration: {
-          draft: command,
-          expected_result_content_hash: checked.result_content_hash,
+          source: {
+            kind: "manual_parameter_updates",
+            draft: command,
+            expected_result_content_hash: checked.result_content_hash,
+          },
           entry_id:
             customEntryId || defaultDraftEntryId(command.candidate_id, checked.result_content_hash),
           registered_by: operatorName,
           note: auditNote,
         },
         operator: operatorName,
+        expected_generation: command.base_generation,
         activation_note: auditNote || undefined,
       });
       return { preview: checked, receipt, revision };
@@ -198,8 +202,11 @@ export function ConfigDraftEditor({
     if (!preview?.valid || !preview.result_content_hash) return;
     const command = draftCommand(draft);
     registrationMutation.mutate({
-      draft: command,
-      expected_result_content_hash: preview.result_content_hash,
+      source: {
+        kind: "manual_parameter_updates",
+        draft: command,
+        expected_result_content_hash: preview.result_content_hash,
+      },
       entry_id:
         entryId.trim() || defaultDraftEntryId(command.candidate_id, preview.result_content_hash),
       registered_by: operator.trim(),

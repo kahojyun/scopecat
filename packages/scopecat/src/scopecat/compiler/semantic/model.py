@@ -3,28 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import cast
+from typing import cast, override
 
 import scopecat.graph.values as graph_values
 from scopecat.compiler.relations.verification import (
-    ExternalRowInterface,
+    PlanImportNamespace,
+    PointRequirement,
     TypedPlanImport,
     VerifiedRelationPlan,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    OperationContract,
-)
 from scopecat.domain.program import DomainProgramDef
-from scopecat.graph.relations.analysis import (
-    PlanReferenceKind,
-)
 from scopecat.graph.relations.model import (
-    RelationExpr,
     ScalarExpr,
-    SeriesExpr,
 )
+from scopecat.graph.table_values import TableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
@@ -33,14 +26,17 @@ from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import ValueType
-from scopecat.measurements.semantics import (
-    MeasurementTransformSemanticContract,
+from scopecat.kernel.value_types import Scalar, ValueType
+from scopecat.measurements.postprocessor_contract import (
+    MeasurementPostprocessorKernel,
 )
 
-type PlanExpression = ScalarExpr | SeriesExpr | RelationExpr
-type VerifiedPlanExpression = VerifiedRelationPlan[PlanExpression]
-type SemanticValueType = ValueType
+type _PlanExpressionSemanticKey = tuple[
+    ScalarExpr,
+    Scalar,
+    tuple[TypedPlanImport, ...],
+    PointRequirement | None,
+]
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:
@@ -62,8 +58,8 @@ class AcquireId:
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementTransformId:
-    """Nominal identity in the authored measurement-transform symbol space."""
+class MeasurementPostprocessorId:
+    """Nominal identity in the authored measurement-postprocessor symbol space."""
 
     symbol: SymbolId
 
@@ -79,61 +75,55 @@ class MeasurementTransformId:
     def local_id(self) -> str:
         return self.symbol.local_id
 
-    def prefixed(self, *scope: str) -> MeasurementTransformId:
-        return MeasurementTransformId(self.symbol.prefixed(*scope))
+    def prefixed(self, *scope: str) -> MeasurementPostprocessorId:
+        return MeasurementPostprocessorId(self.symbol.prefixed(*scope))
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, eq=False)
 class PlanExpressionSource:
-    _expression: PlanExpression = field(hash=False, repr=False)
-    _certified_type: ValueType
-    _imports: tuple[TypedPlanImport, ...] = field(hash=False, repr=False)
-    # The verified plan is excluded from comparison, so retain its row interface
-    # to distinguish sources with different external requirements.
-    _row_interface: ExternalRowInterface = field(hash=False, repr=False)
-    _verified_plan: VerifiedPlanExpression = field(
-        hash=False,
-        repr=False,
-        compare=False,
-    )
-
-    def __init__(
-        self,
-        verified_plan: VerifiedPlanExpression,
-    ) -> None:
-        object.__setattr__(self, "_expression", verified_plan.root)
-        object.__setattr__(self, "_certified_type", verified_plan.certified_type)
-        object.__setattr__(self, "_imports", verified_plan.imports)
-        object.__setattr__(self, "_row_interface", verified_plan.external_row_interface)
-        object.__setattr__(self, "_verified_plan", verified_plan)
+    _verified_plan: VerifiedRelationPlan = field(repr=False)
 
     @property
-    def expression(self) -> PlanExpression:
-        """Return a defensive copy of the retained plan semantics."""
-
-        return deepcopy(self._expression)
+    def expression(self) -> ScalarExpr:
+        return self._verified_plan.root
 
     @property
     def source_inputs(self) -> tuple[str, ...]:
         """Return input dependencies derived from the retained expression."""
 
-        return self._verified_plan.references.ids(
-            PlanReferenceKind.INPUT_SCALAR,
-            PlanReferenceKind.INPUT_SERIES,
-            PlanReferenceKind.INPUT_TABLE,
-        )
+        return self._verified_plan.import_ids(PlanImportNamespace.INPUT)
 
     @property
-    def certified_type(self) -> ValueType:
-        return self._certified_type
+    def certified_type(self) -> Scalar:
+        return self._verified_plan.certified_type
 
     @property
     def imports(self) -> tuple[TypedPlanImport, ...]:
-        return self._imports
+        return self._verified_plan.imports
 
     @property
-    def verified_plan(self) -> VerifiedPlanExpression:
+    def verified_plan(self) -> VerifiedRelationPlan:
         return self._verified_plan
+
+    def _semantic_key(self) -> _PlanExpressionSemanticKey:
+        plan = self._verified_plan
+        return (
+            plan.root,
+            plan.certified_type,
+            plan.imports,
+            plan.external_point_requirement,
+        )
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, PlanExpressionSource) and (
+            self._semantic_key() == other._semantic_key()
+        )
+
+    @override
+    def __hash__(self) -> int:
+        # Scalar literals may contain unhashable record cells.
+        return hash(self.certified_type)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -152,7 +142,7 @@ class LiteralValueSource:
         return _snapshot_literal(self._value)
 
 
-type ValueSource = PlanExpressionSource | LiteralValueSource
+type ValueSource = PlanExpressionSource | LiteralValueSource | TableSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +150,7 @@ class ValueDef:
     """One plan-available value; operation results live on their operation."""
 
     id: graph_values.ValueId
-    value_type: SemanticValueType
+    value_type: ValueType
     source: ValueSource
 
 
@@ -174,10 +164,9 @@ class ValueUse:
 @dataclass(frozen=True, slots=True)
 class SemanticOperation:
     id: graph_values.OperationId
-    contract: OperationContract
     inputs: tuple[tuple[str, ValueUse], ...]
     result_id: graph_values.ValueId
-    result_type: SemanticValueType
+    result_type: Scalar
 
     def __post_init__(self) -> None:
         _require_unique_names("operation input", self.inputs)
@@ -192,7 +181,6 @@ class SemanticDomainExecution:
     inputs: tuple[tuple[str, ValueUse], ...] = ()
     compiler_inputs: tuple[tuple[str, ValueUse], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
-    resources: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -200,23 +188,21 @@ class SemanticDomainExecution:
         _require_unique_names("domain execution input", self.inputs)
         _require_unique_names("domain execution compiler input", self.compiler_inputs)
         _require_unique_names("domain execution result", self.results)
-        _require_unique_names("domain execution resource", self.resources)
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticMeasurementTransform:
-    """One pure authored transform with explicit logical-product edges."""
+class SemanticMeasurementPostprocessor:
+    """One point-local Python calculation with explicit product edges."""
 
-    id: MeasurementTransformId
-    semantic: MeasurementTransformSemanticContract
-    inputs: tuple[tuple[str, ProductId], ...] = ()
-    outputs: tuple[tuple[str, ProductId], ...] = ()
+    id: MeasurementPostprocessorId
+    input: ProductId
+    outputs: tuple[tuple[str, ProductId], ...]
+    kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        _require_unique_names("measurement transform input", self.inputs)
-        _require_unique_names("measurement transform output", self.outputs)
+        _require_unique_names("measurement postprocessor output", self.outputs)
         if not self.outputs:
-            msg = "semantic measurement transforms require at least one output"
+            msg = "semantic measurement postprocessors require at least one output"
             raise ValueError(msg)
 
 
@@ -270,7 +256,7 @@ class AcquireEffect:
 class SemanticGraphIR:
     value_defs: tuple[ValueDef, ...] = ()
     operations: tuple[SemanticOperation, ...] = ()
-    measurement_transforms: tuple[SemanticMeasurementTransform, ...] = ()
+    measurement_postprocessors: tuple[SemanticMeasurementPostprocessor, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

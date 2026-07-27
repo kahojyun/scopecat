@@ -19,9 +19,7 @@ _OWNER_ONLY_ROOT_NAMES = {
     "AnalysisStep",
     "DomainExecution",
     "DomainInputPort",
-    "DomainResourcePort",
     "DomainResultPort",
-    "HumanDecisionAuthority",
     "MetadataValue",
     "ModuleInput",
     "PreparedLabExperiment",
@@ -32,8 +30,8 @@ _OWNER_ONLY_ROOT_NAMES = {
 }
 
 
-def _tuple_entities(qubits: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(qubits)
+def _identity_entity(qubit: str) -> str:
+    return qubit
 
 
 def test_root_lazy_exports_are_complete_visible_and_resolvable() -> None:
@@ -76,9 +74,7 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.coordinate)
     assert callable(sc.parameter)
     assert callable(sc.parameter_lookup)
-    assert sc.TableRow
     assert sc.ScalarType(sc.IntType())
-    assert sc.SeriesType(sc.ScalarType(sc.EntityType()))
     assert sc.TableType(columns=())
     assert sc.Scan
     assert hasattr(results, "MeasurementRecord")
@@ -103,24 +99,24 @@ def test_module_invocations_are_closed_by_their_definition_handles() -> None:
 
 
 def test_typed_values_are_the_public_module_wiring_surface() -> None:
-    qubits = sc.input(
-        "qubits",
-        sc.SeriesType(sc.ScalarType(sc.EntityType())),
+    qubit_type = sc.ScalarType(sc.EntityType())
+    qubit = sc.input(
+        "qubit",
+        qubit_type,
     )
-    program_type = sc.ScalarType(sc.PayloadType("test.program"))
     build = sc.compute(
-        "build-program",
-        fn=_tuple_entities,
-        inputs={"qubits": qubits},
-        output_type=program_type,
+        "select-qubit",
+        fn=_identity_entity,
+        inputs={"qubit": qubit},
+        output_type=qubit_type,
     )
 
     module = (
-        sc.module_body(id="test.typed_values").inputs(qubits).computes(build).build()
+        sc.module_body(id="test.typed_values").inputs(qubit).computes(build).build()
     )
 
     assert isinstance(module, sc.ExperimentModule)
-    assert build.output.value_type == program_type
+    assert build.output.value_type == qubit_type
 
     rows = sc.input(
         "rows",
@@ -128,18 +124,7 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
             columns=(sc.TableColumn("qubit", sc.ScalarType(sc.EntityType())),)
         ),
     )
-    callback_rows: list[sc.TableRow] = []
-
-    def add_target(row: sc.TableRow) -> dict[str, sc.ValueRef]:
-        callback_rows.append(row)
-        return {"target": row["qubit"]}
-
-    projected = rows.with_columns(add_target)
-    assert isinstance(projected.value_type, sc.TableType)
-    assert [column.id for column in projected.value_type.columns] == [
-        "qubit",
-        "target",
-    ]
+    assert isinstance(rows.value_type, sc.TableType)
 
 
 def test_experiment_inputs_reject_non_finite_numbers() -> None:

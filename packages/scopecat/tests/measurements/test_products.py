@@ -13,7 +13,6 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
-from scopecat.graph.relations.point_domain import POINT_UNIT
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductUse,
@@ -66,7 +65,7 @@ def _program(
     return CoreProgram(
         id="product-ir",
         kind="compiler_test",
-        point_domain=PointDomain(root=POINT_UNIT),
+        point_domain=PointDomain(axes=()),
         resource_requirements=tuple(
             LogicalResourceRequirement(
                 port_id=port_id,
@@ -205,11 +204,14 @@ def test_one_provider_result_fans_out_to_every_use_of_the_product() -> None:
         provider_key="raw-signal",
     )
     direct_use = ProductUse(product_id=product.id, id=ProductUseId("direct"))
-    transform_use = ProductUse(product_id=product.id, id=ProductUseId("transform"))
+    postprocessor_use = ProductUse(
+        product_id=product.id,
+        id=ProductUseId("postprocessor"),
+    )
     program = _program(
         products=(product,),
         acquisitions=(acquisition,),
-        uses=(direct_use, transform_use),
+        uses=(direct_use, postprocessor_use),
         records=(RecordUse(id="direct", product_use_id=direct_use.id),),
     )
 
@@ -221,7 +223,7 @@ def test_one_provider_result_fans_out_to_every_use_of_the_product() -> None:
     assert [request.id for request in operation.command.requests] == ["raw-signal"]
     assert operation.result_bindings[0].product_use_ids == (
         direct_use.id,
-        transform_use.id,
+        postprocessor_use.id,
     )
 
 

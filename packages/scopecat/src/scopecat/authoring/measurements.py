@@ -1,4 +1,4 @@
-"""Authored pure measurement transforms over module-local products."""
+"""Authored point-local measurement postprocessors."""
 
 from __future__ import annotations
 
@@ -8,21 +8,23 @@ from dataclasses import dataclass, field
 from scopecat.authoring._products import ProductRef
 from scopecat.kernel.product_identity import ProductId, product_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from scopecat.measurements.postprocessor_contract import (
+    MeasurementPostprocessorKernel,
+)
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementTransform:
-    """One pure point-local product transform in an authored module."""
+class MeasurementPostprocessor:
+    """One direct Python calculation from one measured product."""
 
     id: str
-    semantic: MeasurementTransformSemanticContract
-    input_bindings: tuple[tuple[str, ProductId], ...] = ()
-    output_bindings: tuple[tuple[str, ProductId], ...] = ()
+    input_binding: ProductId
+    output_bindings: tuple[tuple[str, ProductId], ...]
+    kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
     scope: tuple[str, ...] = ()
     # Origins are authoring-only; compiler bindings remain plain ProductIds.
-    input_product_origins: tuple[tuple[str, tuple[object, ...]], ...] = field(
-        default=(),
+    input_product_origin: tuple[object, ...] | None = field(
+        default=None,
         repr=False,
         compare=False,
     )
@@ -34,23 +36,23 @@ class MeasurementTransform:
 
     def __post_init__(self) -> None:
         if not self.id:
-            raise ValueError("measurement transform ids must be non-empty")
-        if any(not role for role, _product in self.input_bindings):
-            raise ValueError("measurement transform input roles must be non-empty")
+            raise ValueError("measurement postprocessor ids must be non-empty")
         if any(not role for role, _product in self.output_bindings):
-            raise ValueError("measurement transform output roles must be non-empty")
+            raise ValueError("measurement postprocessor output roles must be non-empty")
         if not self.output_bindings:
-            raise ValueError("measurement transforms require at least one output")
+            raise ValueError("measurement postprocessors require at least one output")
         if any(not segment for segment in self.scope):
             raise ValueError(
-                "measurement transform scope must contain non-empty strings"
+                "measurement postprocessor scope must contain non-empty strings"
+            )
+        if self.input_binding in {
+            product_id for _role, product_id in self.output_bindings
+        }:
+            raise ValueError(
+                "measurement postprocessor input and outputs must be distinct"
             )
         _require_unique(
-            "measurement transform input",
-            tuple(role for role, _product in self.input_bindings),
-        )
-        _require_unique(
-            "measurement transform output",
+            "measurement postprocessor output",
             tuple(role for role, _product in self.output_bindings),
         )
 
@@ -59,40 +61,32 @@ class MeasurementTransform:
         return SymbolId(scope=self.scope, local_id=self.id)
 
 
-def measurement_transform(
-    id: str,  # noqa: A002
+def measurement_postprocessor(
+    id: str,
     *,
-    semantic: MeasurementTransformSemanticContract,
-    inputs: Mapping[str, str | ProductRef] | None = None,
+    input: str | ProductRef,
     outputs: Mapping[str, str | ProductRef],
-) -> MeasurementTransform:
-    """Declare one ordered pure transform over products visible to a module."""
+    kernel: MeasurementPostprocessorKernel,
+) -> MeasurementPostprocessor:
+    """Declare a point-local calculation from one measured value."""
 
-    selected_inputs = inputs or {}
-    for label, bindings in (("inputs", selected_inputs), ("outputs", outputs)):
-        if any(
-            not role or (isinstance(product, str) and not product)
-            for role, product in bindings.items()
-        ):
-            msg = (
-                f"measurement transform {label} require non-empty role and product ids"
-            )
-            raise ValueError(msg)
-    return MeasurementTransform(
+    if isinstance(input, str) and not input:
+        raise ValueError("measurement postprocessor input product id must be non-empty")
+    if any(
+        not role or (isinstance(product, str) and not product)
+        for role, product in outputs.items()
+    ):
+        raise ValueError(
+            "measurement postprocessor outputs require non-empty role and product ids"
+        )
+    return MeasurementPostprocessor(
         id=id,
-        semantic=semantic,
-        input_bindings=tuple(
-            (role, _binding_product_id(product))
-            for role, product in selected_inputs.items()
-        ),
+        input_binding=_binding_product_id(input),
         output_bindings=tuple(
             (role, _binding_product_id(product)) for role, product in outputs.items()
         ),
-        input_product_origins=tuple(
-            (role, product.origin)
-            for role, product in selected_inputs.items()
-            if isinstance(product, ProductRef)
-        ),
+        kernel=kernel,
+        input_product_origin=(input.origin if isinstance(input, ProductRef) else None),
         output_product_origins=tuple(
             (role, product.origin)
             for role, product in outputs.items()

@@ -3,20 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from typing import cast
 
-from scopecat.authoring._point_domain_intents import PointDomainIntent
 from scopecat.authoring._scan_intents import (
-    CenteredParameterScanIntent,
-    CenteredPointScanIntent,
-    ExplicitParameterScanIntent,
-    ExplicitPointScanIntent,
-    ImplicitScanCenter,
-    ScanLeafIntent,
-    parameter_scan_lookup,
+    AroundScanSource,
+    AxisSpec,
+    ValuesScanSource,
+    parameter_cell_lookup,
     scan_parameter_contracts,
-    scan_point_id,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -28,21 +22,13 @@ from scopecat.compiler.frontend.request_values import (
     project_run_request_value,
 )
 from scopecat.compiler.frontend.value_binding import bind_scalar_input_refs
-from scopecat.graph.relations.model import (
-    CellValue,
-    ScalarExpr,
-    as_scalar_expr,
-    param,
-)
+from scopecat.graph.relations.model import ScalarExpr, as_scalar_expr
 from scopecat.graph.relations.point_domain import (
-    POINT_UNIT,
+    PointAxes,
     PointAxis,
     point_axis_linear,
     point_axis_values,
-    point_product,
 )
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.records.run_request import (
     AroundScanRecord,
@@ -53,213 +39,136 @@ from scopecat.records.run_request import (
 )
 
 
-def lower_scan_points(
-    scan: ScanLeafIntent,
+def _lower_scan_axis(
+    axis: AxisSpec,
     *,
     inputs: Mapping[str, object] | None = None,
 ) -> PointAxis[ValueRef]:
     """Build one structural point-domain axis from a scalar scan intent."""
 
-    match scan:
-        case ExplicitPointScanIntent() | ExplicitParameterScanIntent():
-            return point_axis_values(
-                scan_point_id(scan),
-                _scan_point_value_type(scan),
-                _scan_axis_values(scan.values, unit=scan.unit),
-            )
-        case CenteredPointScanIntent():
-            return point_axis_linear(
-                scan_point_id(scan),
-                _scan_point_value_type(scan),
-                _lower_scan_center_value_ref(scan, inputs=inputs),
-                scan.span,
-                scan.points,
-            )
-        case CenteredParameterScanIntent():
-            return point_axis_linear(
-                scan_point_id(scan),
-                _scan_point_value_type(scan),
-                _lower_parameter_scan_center_value_ref(scan, inputs=inputs),
-                scan.span,
-                scan.points,
-            )
+    source = axis.source
+    if isinstance(source, ValuesScanSource):
+        return point_axis_values(
+            axis.id,
+            axis.value_type,
+            source.values,
+        )
+    return point_axis_linear(
+        axis.id,
+        axis.value_type,
+        _lower_scan_center_value_ref(axis, inputs=inputs),
+        source.span,
+        source.points,
+    )
 
 
 def lower_scans_point_domain(
-    scans: Sequence[ScanLeafIntent],
+    scans: Sequence[AxisSpec],
     *,
     inputs: Mapping[str, object] | None = None,
-) -> PointDomainIntent:
-    """Lower flat scan axes as one declaration-ordered Cartesian product."""
+) -> PointAxes[ValueRef]:
+    """Lower scans to declaration-ordered axes."""
 
-    domain: PointDomainIntent = POINT_UNIT
-    for scan in scans:
-        domain = point_product(
-            domain,
-            lower_scan_points(scan, inputs=inputs),
-        )
-    return domain
+    return tuple(_lower_scan_axis(scan, inputs=inputs) for scan in scans)
 
 
 def project_scan_record(
-    scan: ScanLeafIntent,
+    axis: AxisSpec,
     *,
     inputs: Mapping[str, object] | None = None,
 ) -> ScanRecord:
     """Project scan intent into the closed durable request value domain."""
 
-    match scan:
-        case ExplicitPointScanIntent():
+    source = axis.source
+    if axis.parameter_lookup is None:
+        if isinstance(source, ValuesScanSource):
             return PointScanRecord.model_validate(
                 {
-                    "target_id": scan_point_id(scan),
-                    "axis_id": scan_point_id(scan),
+                    "axis_id": axis.id,
                     "values": [
                         _request_scalar_value(value, inputs=inputs)
-                        for value in scan.values
+                        for value in source.values
                     ],
-                    "unit": scan.unit,
                 }
             )
-        case CenteredPointScanIntent():
-            return AroundScanRecord.model_validate(
-                {
-                    "target_id": scan_point_id(scan),
-                    "axis_id": scan_point_id(scan),
-                    "center": project_run_request_scalar(
-                        _lower_scan_center(scan, inputs=inputs)
-                    ),
-                    "span": _request_scalar_value(scan.span, inputs=inputs),
-                    "points": scan.points,
-                }
-            )
-        case ExplicitParameterScanIntent():
-            common = _parameter_scan_record_fields(scan, inputs=inputs)
-            return ParameterScanRecord.model_validate(
-                {
-                    **common,
-                    "values": [
-                        _request_scalar_value(value, inputs=inputs)
-                        for value in scan.values
-                    ],
-                    "unit": scan.unit,
-                }
-            )
-        case CenteredParameterScanIntent():
-            common = _parameter_scan_record_fields(scan, inputs=inputs)
-            return ParameterAroundScanRecord.model_validate(
-                {
-                    **common,
-                    "span": _request_scalar_value(scan.span, inputs=inputs),
-                    "points": scan.points,
-                }
-            )
+        return AroundScanRecord.model_validate(
+            {
+                "axis_id": axis.id,
+                "center": project_run_request_scalar(
+                    _lower_scan_center(axis, inputs=inputs)
+                ),
+                "span": _request_scalar_value(source.span, inputs=inputs),
+                "points": source.points,
+            }
+        )
+    common = _parameter_scan_record_fields(axis, inputs=inputs)
+    if isinstance(source, ValuesScanSource):
+        return ParameterScanRecord.model_validate(
+            {
+                **common,
+                "values": [
+                    _request_scalar_value(value, inputs=inputs)
+                    for value in source.values
+                ],
+            }
+        )
+    return ParameterAroundScanRecord.model_validate(
+        {
+            **common,
+            "span": _request_scalar_value(source.span, inputs=inputs),
+            "points": source.points,
+        }
+    )
 
 
 def _parameter_scan_record_fields(
-    scan: ExplicitParameterScanIntent | CenteredParameterScanIntent,
+    axis: AxisSpec,
     *,
     inputs: Mapping[str, object] | None,
 ) -> dict[str, object]:
-    lookup, key = parameter_scan_lookup(scan)
+    lookup, key = parameter_cell_lookup(axis)
     return {
         "table_id": lookup.table_id,
         "key": {
             name: _request_scalar_value(value, inputs=inputs) for name, value in key
         },
         "column": lookup.column_id,
-        "axis_id": scan_point_id(scan),
+        "axis_id": axis.id,
     }
 
 
-def _scan_point_value_type(scan: ScanLeafIntent) -> Scalar:
-    value_type = cast("Scalar", scan.target.value_type)
-    unit = (
-        scan.unit
-        if isinstance(
-            scan,
-            ExplicitPointScanIntent | ExplicitParameterScanIntent,
-        )
-        else None
-    )
-    if (
-        unit is not None
-        and isinstance(value_type.atom, QuantityType)
-        and value_type.atom.unit is None
-    ):
-        return Scalar(
-            replace(value_type.atom, unit=unit),
-            nullable=value_type.nullable,
-        )
-    return value_type
-
-
-def _scan_axis_values(
-    values: tuple[CellValue, ...],
-    *,
-    unit: str | None,
-) -> tuple[CellValue, ...]:
-    if unit is None:
-        return values
-    return tuple(
-        Quantity(value=float(cast("int | float", value)), unit=unit) for value in values
-    )
-
-
 def _lower_scan_center(
-    scan: CenteredPointScanIntent,
+    axis: AxisSpec,
     *,
     inputs: Mapping[str, object] | None,
 ) -> ScalarExpr:
-    if isinstance(scan.center, ValueRef):
-        expression = internal_lower_scalar_value_ref(scan.center)
-    elif isinstance(scan.center, ImplicitScanCenter):
-        expression = param(scan_point_id(scan))
+    source = axis.source
+    assert isinstance(source, AroundScanSource)
+    if isinstance(source.center, ValueRef):
+        expression = internal_lower_scalar_value_ref(source.center)
     else:
-        expression = as_scalar_expr(scan.center)
+        expression = as_scalar_expr(source.center)
     if inputs is None:
         return expression
     return bind_scalar_input_refs(expression, inputs)
 
 
 def _lower_scan_center_value_ref(
-    scan: CenteredPointScanIntent,
+    axis: AxisSpec,
     *,
     inputs: Mapping[str, object] | None,
 ) -> ValueRef:
-    center = scan.center if isinstance(scan.center, ValueRef) else None
+    source = axis.source
+    assert isinstance(source, AroundScanSource)
     center_type = (
-        cast("Scalar", center.value_type)
-        if center is not None
-        else cast("Scalar", scan.target.value_type)
+        cast("Scalar", source.center.value_type)
+        if isinstance(source.center, ValueRef)
+        else axis.value_type
     )
     return internal_value_ref_from_expression(
-        _lower_scan_center(scan, inputs=inputs),
+        _lower_scan_center(axis, inputs=inputs),
         center_type,
-        parameter_contracts=scan_parameter_contracts(scan),
-    )
-
-
-def _lower_parameter_scan_center_value_ref(
-    scan: CenteredParameterScanIntent,
-    *,
-    inputs: Mapping[str, object] | None,
-) -> ValueRef:
-    """Lower an around-axis center through the ordinary parameter lookup path.
-
-    Reusing the same lookup contract as authored program inputs keeps cell
-    identity, input binding, and specialization semantics aligned; a parameter
-    scan does not introduce a second configuration access mechanism.
-    """
-
-    center = scan.lookup
-    expression = internal_lower_scalar_value_ref(center)
-    if inputs is not None:
-        expression = bind_scalar_input_refs(expression, inputs)
-    return internal_value_ref_from_expression(
-        expression,
-        cast("Scalar", scan.target.value_type),
-        parameter_contracts=scan_parameter_contracts(scan),
+        parameter_contracts=scan_parameter_contracts(axis),
     )
 
 

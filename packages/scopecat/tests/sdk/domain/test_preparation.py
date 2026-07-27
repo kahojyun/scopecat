@@ -13,32 +13,25 @@ from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.domain import (
-    DomainBatchContext,
+    DomainBatchRequest,
+    DomainPreparationBuilder,
     DomainResultBinding,
     DomainResultMapping,
 )
 from scopecat.sdk.domain._bridge import (
-    make_domain_batch_context,
-    make_domain_compile_template,
+    make_domain_batch_request,
+    make_domain_call_view,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output_values
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
-    DomainTargetArtifactIdentity,
-)
-from scopecat.sdk.domain.measurements import (
-    DomainHostTransformBinding,
-    DomainHostTransformImplementation,
-    MeasurementTransformSemanticContract,
 )
 from scopecat.sdk.domain.runtime import (
-    CorrelatedDomainFetch,
-    DomainFetchCandidate,
-    DomainFetchRequest,
+    DomainFetchReceipt,
+    DomainFetchResult,
     DomainSubmitReceipt,
-    DomainSubmitRequest,
 )
 from tests.testkit.authoring import link_invocation, load_config
 
@@ -48,16 +41,18 @@ type _ResultBinding = DomainResultBinding[str]
 class _NoEffectsRuntime:
     def submit(
         self,
-        request: DomainSubmitRequest[dict[str, str]],
+        submission_key: str,
+        payload: dict[str, str],
     ) -> DomainSubmitReceipt:
-        del request
+        del submission_key, payload
         raise AssertionError("preparation must not submit")
 
     def fetch(
         self,
-        request: DomainFetchRequest,
-    ) -> DomainFetchCandidate[dict[str, str]]:
-        del request
+        submission_key: str,
+        job_id: str,
+    ) -> DomainFetchReceipt | DomainFetchResult[dict[str, str]]:
+        del submission_key, job_id
         raise AssertionError("preparation must not fetch")
 
 
@@ -66,7 +61,7 @@ def _preparation_context(
     *,
     namespace: str,
     shared_product_uses: bool = False,
-) -> DomainBatchContext:
+) -> DomainBatchRequest:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.coordinate(f"{namespace}_count", count_type)
     program = sc.domain_program(
@@ -79,19 +74,10 @@ def _preparation_context(
             "raw": ("raw", "v1"),
         },
     )
-    transform = sc.measurement_transform(
-        "summarize",
-        semantic=MeasurementTransformSemanticContract(
-            id="test.summarize",
-            version="1",
-        ),
-        inputs={"raw": "raw"},
-        outputs={"summary": "summary"},
-    )
-    module = (
-        sc.module_body(id=f"test.sdk.preparation.{namespace}")
-        .product("raw", "summary", unit="count", dtype="int64")
-        .measurement_transforms(transform)
+    module = sc.module_body(id=f"test.sdk.preparation.{namespace}").product(
+        "raw",
+        unit="count",
+        dtype="int64",
     )
     execution = sc.domain_execution(
         program,
@@ -99,7 +85,7 @@ def _preparation_context(
         results={"raw": module.products["raw"]},
     )
     module_call = module.domain(execution).build()()
-    body = sc.experiment(module_call).scan(count, (1, 3))
+    body = sc.experiment(module_call).scan(sc.axis(count, (1, 3)))
     if shared_product_uses:
         body = body.record_product(
             module_call.products.raw,
@@ -112,9 +98,6 @@ def _preparation_context(
         body = body.record_product(
             module_call.products.raw,
             record_id="raw",
-        ).record_product(
-            module_call.products.summary,
-            record_id="summary",
         )
     selected = sc.template(
         id=f"test.sdk.preparation.{namespace}",
@@ -128,29 +111,13 @@ def _preparation_context(
     linked_points = materialize_linked_points(linked)
     execution_id = core_domain_executions(linked.program)[0].id
     closure = domain_result_closure(linked.program, execution_id)
-    request = make_domain_compile_template(
+    call = make_domain_call_view(
         linked,
         execution_id,
         closure,
-    ).bind_coverage(
-        ((0, 1),),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution_id,
-            "program",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution_id,
-            "compiler",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
     )
-    return make_domain_batch_context(
-        request,
+    return make_domain_batch_request(
+        call,
         linked_points,
         (0, 1),
         batch_ordinal=0,
@@ -158,7 +125,7 @@ def _preparation_context(
 
 
 def _valid_mapping_inputs(
-    context: DomainBatchContext,
+    context: DomainBatchRequest,
 ) -> tuple[_ResultBinding, ...]:
     return tuple(
         DomainResultBinding(
@@ -167,23 +134,22 @@ def _valid_mapping_inputs(
             product_use,
         )
         for point in context.points
-        for product_use in context.direct_product_uses
+        for product_use in context.product_uses
     )
 
 
-def test_map_measurements_closes_exact_direct_product_cover(
+def test_map_measurements_closes_exact_product_cover(
     tmp_path: Path,
 ) -> None:
     context = _preparation_context(tmp_path, namespace="direct")
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
 
     mapping = preparation.map_measurements(results=results)
 
     assert isinstance(mapping, DomainResultMapping)
     assert mapping.context is context
-    assert len(context.product_uses) == 3
-    assert len(context.direct_product_uses) == 2
+    assert len(context.product_uses) == 1
     assert tuple(result.point for result in mapping.results) == context.points
     assert tuple(result.result_address for result in mapping.results) == (
         "result-0",
@@ -191,37 +157,21 @@ def test_map_measurements_closes_exact_direct_product_cover(
     )
     for result, point in zip(mapping.results, context.points, strict=True):
         assert result.point is point
-        assert result.product_uses == context.direct_product_uses
+        assert result.product_uses == context.product_uses
         assert all(
             actual is expected
             for actual, expected in zip(
                 result.product_uses,
-                context.direct_product_uses,
+                context.product_uses,
                 strict=True,
             )
         )
-
-    non_direct_use = next(
-        product_use
-        for product_use in context.product_uses
-        if all(product_use is not direct for direct in context.direct_product_uses)
-    )
-    invalid_results = (
-        DomainResultBinding(
-            results[0].result_address,
-            results[0].point,
-            non_direct_use,
-        ),
-        *results[1:],
-    )
-    with pytest.raises(ValueError, match="non-direct or foreign product use"):
-        preparation.map_measurements(results=invalid_results)
 
 
 def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) -> None:
     context = _preparation_context(tmp_path, namespace="values")
     results = _valid_mapping_inputs(context)
-    mapping = context.new_preparation().map_measurements(results=results)
+    mapping = DomainPreparationBuilder(context).map_measurements(results=results)
     values = tuple(
         DomainOutputValue(
             result.result_address,
@@ -252,7 +202,7 @@ def test_map_measurements_rejects_foreign_point_and_product_use(
 ) -> None:
     context = _preparation_context(tmp_path, namespace="owned")
     foreign = _preparation_context(tmp_path, namespace="foreign")
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
 
     foreign_point_bindings = (
@@ -270,11 +220,11 @@ def test_map_measurements_rejects_foreign_point_and_product_use(
         DomainResultBinding(
             results[0].result_address,
             results[0].point,
-            foreign.direct_product_uses[0],
+            foreign.product_uses[0],
         ),
         *results[1:],
     )
-    with pytest.raises(ValueError, match="non-direct or foreign product use"):
+    with pytest.raises(ValueError, match="foreign product use"):
         preparation.map_measurements(results=foreign_results)
 
 
@@ -282,7 +232,7 @@ def test_map_measurements_rejects_missing_and_duplicate_logical_output(
     tmp_path: Path,
 ) -> None:
     context = _preparation_context(tmp_path, namespace="exact-cover")
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
 
     with pytest.raises(ValueError, match="exactly cover every logical"):
@@ -300,14 +250,12 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
         namespace="fanout",
         shared_product_uses=True,
     )
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
 
-    assert len(context.direct_product_uses) == 2
-    assert context.direct_product_uses[0].id != context.direct_product_uses[1].id
-    assert (
-        context.direct_product_uses[0].product is context.direct_product_uses[1].product
-    )
+    assert len(context.product_uses) == 2
+    assert context.product_uses[0].id != context.product_uses[1].id
+    assert context.product_uses[0].product is context.product_uses[1].product
     assert len(results) == 2 * len(context.points)
     for point in context.points:
         selected = tuple(binding for binding in results if binding.point is point)
@@ -326,9 +274,7 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
         preparation.map_measurements(results=split_results)
 
     incomplete_results = tuple(
-        binding
-        for binding in results
-        if binding.product_use is context.direct_product_uses[0]
+        binding for binding in results if binding.product_use is context.product_uses[0]
     )
     with pytest.raises(ValueError, match="exactly cover every logical"):
         preparation.map_measurements(results=incomplete_results)
@@ -341,7 +287,7 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
             actual is expected
             for actual, expected in zip(
                 result.product_uses,
-                context.direct_product_uses,
+                context.product_uses,
                 strict=True,
             )
         )
@@ -351,78 +297,32 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     tmp_path: Path,
 ) -> None:
     context = _preparation_context(tmp_path, namespace="complete-sdk")
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
     mapping = preparation.map_measurements(results=results)
-    [transform] = context.measurement_transforms
-    binding = DomainHostTransformBinding(
-        transform,
-        DomainHostTransformImplementation(
-            id="test.summarize.python",
-            semantic_id=transform.semantic.id,
-            semantic_version=transform.semantic.version,
-            validate_transform=lambda _candidate: None,
-            kernel=lambda call: {
-                "summary": tuple(
-                    Quantity(point.ordinal, "count") for point in call.points
-                )
-            },
-        ),
-    )
 
     invocation = DomainInvocationSpec(
         invocation_id="test.complete-sdk.invocation",
-        target=DomainTargetArtifactIdentity(
-            target_id="test.target",
-            compiler_id="test.compiler",
-            capability_fingerprint="test.capabilities.v1",
-            artifact_id="test.artifact",
-            artifact_fingerprint="test.artifact.v1",
-        ),
+        target_id="test.target",
+        compiler_id="test.compiler",
+        capability_fingerprint="test.capabilities.v1",
+        artifact_id="test.artifact",
+        artifact_fingerprint="test.artifact.v1",
         target_intent={"mode": "test"},
         payload={"job": "test"},
     )
 
     def reject_realization(
-        fetched: CorrelatedDomainFetch[dict[str, str]],
+        fetched: DomainFetchResult[dict[str, str]],
     ) -> tuple[DomainResultValue[str], ...]:
         del fetched
         raise AssertionError("preparation must not realize")
 
     prepared = preparation.build(
         mapping=mapping,
-        host_transforms=(binding,),
         invocation=invocation,
         runtime=_NoEffectsRuntime(),
         realize=reject_realization,
     )
 
     assert isinstance(prepared, PreparedDomainExecution)
-
-
-def test_measurement_plan_requires_exact_derived_output_coverage(
-    tmp_path: Path,
-) -> None:
-    context = _preparation_context(tmp_path, namespace="derived-cover")
-    preparation = context.new_preparation()
-    results = _valid_mapping_inputs(context)
-    mapping = preparation.map_measurements(results=results)
-
-    with pytest.raises(ValueError, match="exactly cover residual transforms"):
-        preparation.build(
-            mapping=mapping,
-            invocation=DomainInvocationSpec(
-                invocation_id="test.missing-transform.invocation",
-                target=DomainTargetArtifactIdentity(
-                    target_id="test.target",
-                    compiler_id="test.compiler",
-                    capability_fingerprint="test.capabilities.v1",
-                    artifact_id="test.artifact",
-                    artifact_fingerprint="test.artifact.v1",
-                ),
-                target_intent={"mode": "test"},
-                payload={"job": "test"},
-            ),
-            runtime=_NoEffectsRuntime(),
-            realize=lambda _fetched: (),
-        )

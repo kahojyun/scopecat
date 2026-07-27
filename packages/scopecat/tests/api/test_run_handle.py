@@ -9,14 +9,12 @@ from scopecat.authoring import (
     ExperimentInvocation,
     ExperimentTemplate,
 )
-from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
 from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_invocation
+from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 SIMPLE_FREQUENCY_SCAN = (
     authoring.module_body(id="test.session.simple_frequency_scan")
@@ -54,13 +52,15 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
         return (
             authoring.experiment(module_call)
             .scan(
-                DRIVE_FREQUENCY_POINT,
-                center=authoring.parameter(
-                    "drive_frequency",
-                    authoring.ScalarType(authoring.QuantityType()),
+                sc.axis(
+                    DRIVE_FREQUENCY_POINT,
+                    center=authoring.parameter(
+                        "drive_frequency",
+                        authoring.ScalarType(authoring.QuantityType()),
+                    ),
+                    span=Quantity(value=200.0, unit="MHz"),
+                    points=3,
                 ),
-                span=Quantity(value=200.0, unit="MHz"),
-                points=3,
             )
             .record_product(module_call.products.signal, record_id="signal")
         )
@@ -74,7 +74,7 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
 def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
     lab = in_process_lab(
         tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
+        config=load_config(),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
 
@@ -89,7 +89,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
 ) -> None:
     lab = in_process_lab(
         tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
+        config=load_config(),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
     experiment = load_invocation()
@@ -98,7 +98,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     raw = baseline.measurements()
     analysis = (
         baseline.analysis("manual best signal")
-        .input("raw-measurements", expected_kind="measurement_dataset")
+        .input("raw-measurements")
         .propose(
             "drive_frequency",
             sc.replace_scalar_parameter(
@@ -122,37 +122,8 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     source = candidate.manifest.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
     assert source.source_run_id == baseline.id
-    assert source.analysis_record_ids == (saved.record.id,)
-    assert source.proposal_ids == candidate_config.proposal_ids
-
-
-def test_in_process_run_can_observe_transient_runtime_events(tmp_path: Path) -> None:
-    lab = in_process_lab(
-        tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
-    )
-    events: list[RuntimeEvent] = []
-
-    run = lab.prepare(load_invocation()).run(
-        event_sink=events.append,
-    )
-
-    assert run.manifest.status == "completed"
-    assert events[0].kind == "run_started"
-    assert events[-1].kind == "run_finished"
-    assert (
-        len(
-            [
-                event
-                for event in events
-                if isinstance(event, RuntimeTransitionEvent)
-                and event.stage == "seal_measurement"
-                and event.state == "completed"
-            ]
-        )
-        == 1
-    )
+    assert source.analysis_record_id == saved.record.id
+    assert source.proposal_id == candidate_config.proposal_id
 
 
 def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
@@ -160,7 +131,7 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
 ) -> None:
     lab = in_process_lab(
         tmp_path,
-        config_profile=EXAMPLE_DIR / "config-profile.json",
+        config=load_config(),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
     experiment = load_invocation()
@@ -183,10 +154,9 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     assert len(raw.dataset.records) == 3
     assert raw.dataset_entry.id == "raw-measurements"
     assert (
-        candidate_config.parameter_proposals[0].deltas[0].parameter_id
-        == "drive_frequency"
+        candidate_config.parameter_proposal.deltas[0].parameter_id == "drive_frequency"
     )
     assert candidate.manifest.status == "completed"
     source = candidate.manifest.config_source
     assert isinstance(source, AnalysisCandidateRunConfigSource)
-    assert source.analysis_record_ids == (saved.record.id,)
+    assert source.analysis_record_id == saved.record.id

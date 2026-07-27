@@ -489,29 +489,6 @@ def test_rejects_refs_outside_run_namespace(tmp_path: Path, ref: str) -> None:
     assert captured.value.problems[0].code == "run.ref_path_escape"
 
 
-def test_control_plane_and_run_index_share_one_database(tmp_path: Path) -> None:
-    database = tmp_path / "control.sqlite3"
-    SQLiteProjectStore(database, tmp_path / "objects").bootstrap()
-    repository = SQLiteTestRunRepository(database, tmp_path / "objects")
-
-    repository.write_manifest(_manifest("run-shared"))
-
-    assert repository.read_manifest("run-shared").run_id == "run-shared"
-    with sqlite3.connect(database) as connection:
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_schema WHERE type = 'table'"
-            )
-        }
-    assert {
-        "scheduler_runs",
-        "durable_events",
-        "run_repository_refs",
-    } <= tables
-    assert "run_repository_manifests" not in tables
-
-
 def test_equal_content_reuses_one_immutable_object(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
 

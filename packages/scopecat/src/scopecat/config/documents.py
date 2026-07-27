@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import ConfigDict
@@ -43,8 +44,15 @@ def config_snapshot_document_json(
     return document.model_dump_json(indent=indent)
 
 
+def load_config_snapshot_document(path: str | Path) -> ConfigProfileSnapshot:
+    """Load one complete exported configuration snapshot."""
+
+    return parse_config_snapshot_document(Path(path).read_text(encoding="utf-8"))
+
+
 __all__ = [
     "CONFIG_SNAPSHOT_FORMAT_VERSION",
     "config_snapshot_document_json",
+    "load_config_snapshot_document",
     "parse_config_snapshot_document",
 ]

@@ -113,18 +113,6 @@
   background: var(--accent-soft);
 }
 
-.proposal-state.rejected {
-  color: var(--red);
-  border-color: rgb(255 140 136 / 25%);
-  background: var(--red-soft);
-}
-
-.proposal-state.invalidated {
-  color: var(--purple);
-  border-color: rgb(182 156 255 / 25%);
-  background: rgb(182 156 255 / 10%);
-}
-
 .proposal h4 {
   overflow: hidden;
   font-family: "SFMono-Regular", Consolas, monospace;
@@ -220,7 +208,7 @@
   color: var(--text-dim);
 }
 
-.proposal-decisions {
+.proposal-approval {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
   gap: 10px;
@@ -231,7 +219,7 @@
   background: var(--panel-soft);
 }
 
-.proposal-decisions > div {
+.proposal-approval > div {
   display: flex;
   gap: 6px;
   align-items: center;
@@ -240,7 +228,7 @@
   font-weight: 750;
 }
 
-.proposal-decisions ol {
+.proposal-approval ol {
   display: grid;
   gap: 6px;
   margin: 0;
@@ -248,7 +236,7 @@
   list-style: none;
 }
 
-.proposal-decisions li {
+.proposal-approval li {
   display: grid;
   grid-template-columns: 7px auto minmax(0, 1fr) auto;
   gap: 7px;
@@ -257,39 +245,27 @@
   font-size: 0.58rem;
 }
 
-.proposal-decisions li strong {
+.proposal-approval li strong {
   color: var(--text-soft);
   font-size: 0.6rem;
 }
 
-.proposal-decisions li p {
+.proposal-approval li p {
   grid-column: 2 / -1;
   margin: 0;
   color: var(--text-soft);
   line-height: 1.45;
 }
 
-.proposal-decisions time {
+.proposal-approval time {
   font-size: 0.54rem;
 }
 
-.decision-dot {
+.approval-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--yellow);
-}
-
-.decision-dot.approved {
   background: var(--accent);
-}
-
-.decision-dot.rejected {
-  background: var(--red);
-}
-
-.decision-dot.invalidated {
-  background: var(--purple);
 }
 
 .proposal-actions {

@@ -15,19 +15,12 @@ from scopecat_quantum._ids import (
     PulseImplementationId,
     PulseProgramId,
     QubitId,
-    RealtimeValueId,
 )
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.programs import (
-    AuthoredPulseAcquisitionProvenance,
-    AuthoredPulseEventProvenance,
-    Conditional,
     ImplementedGate,
-    ImplementedGatePulseEventProvenance,
     PulseBlock,
-    QuantumProgramVerificationError,
-    RealtimeBitRef,
     Repeat,
     lower_quantum_program_to_pulses,
 )
@@ -116,7 +109,7 @@ def test_sequence_composes_baseline_gate_candidate_pulse_and_measurement() -> No
         Measure,
     ]
     unresolved_types = [
-        type(operation) for operation in bound.verified.unresolved_circuit.operations
+        type(operation) for operation in bound.verified.unresolved.operations
     ]
     assert unresolved_types == [
         GateCall,
@@ -161,75 +154,11 @@ def test_repeat_preserves_one_candidate_call_until_pulse_lowering() -> None:
         output_id=PulseProgramId("repeated-drag-pulses"),
     )
     assert len(tuple(iter_pulse_leaves(lowered.program.body))) == 3
-    assert len({item.event_id for item in lowered.event_provenance}) == 3
-    assert {
-        item.operation_id
-        for item in lowered.event_provenance
-        if isinstance(item, ImplementedGatePulseEventProvenance)
-    } == {implementation.call.id}
     assert implementation.candidate_id == "x90.drag"
     [pulse] = tuple(iter_pulse_leaves(implementation.pulse_template.body))
     assert isinstance(pulse, Play)
     assert isinstance(pulse.envelope, DRAG)
     assert pulse.envelope.beta == Quantity(0.75, "ns")
-
-
-def test_measurement_condition_is_retained_inside_a_bounded_round_loop() -> None:
-    q0 = authoring.qubit("q0")
-    x = authoring.single_qubit_gate("x")
-    measured = authoring.measure(q0, result="reset_iq", bit="reset_bit")
-    declaration = authoring._close_program(
-        "bounded-active-reset",
-        authoring.repeat(
-            authoring.sequence(
-                measured,
-                authoring.when(measured.bit, x(q0)),
-            ),
-            2,
-            axis="round",
-        ),
-    )
-
-    bound = authoring.bind(declaration)
-
-    assert isinstance(bound.program.body, Repeat)
-    assert bound.program.body.axis_id == "round"
-    assert isinstance(bound.program.body.operation, QuantumSequence)
-    condition = bound.program.body.operation.operations[1]
-    assert isinstance(condition, Conditional)
-    assert condition.condition == RealtimeBitRef(
-        RealtimeValueId(
-            "reset_bit",
-            scope=("body", "repeat-body", "sequence[0]"),
-        )
-    )
-    assert [type(operation) for operation in bound.verified.operations] == [
-        Measure,
-        GateCall,
-    ]
-
-
-def test_measurement_condition_must_follow_its_acquisition() -> None:
-    q0 = authoring.qubit("q0")
-    x = authoring.single_qubit_gate("x")
-    measured = authoring.measure(q0, result="reset_iq", bit="reset_bit")
-    declaration = authoring._close_program(
-        "invalid-active-reset",
-        authoring.sequence(
-            authoring.when(measured.bit, x(q0)),
-            measured,
-        ),
-    )
-
-    with pytest.raises(QuantumProgramVerificationError, match="preceding control path"):
-        authoring.bind(declaration)
-
-
-def test_measurement_bit_must_be_requested_explicitly() -> None:
-    measured = authoring.measure(authoring.qubit("q0"), result="readout_iq")
-
-    with pytest.raises(ValueError, match="pass bit="):
-        _ = measured.bit
 
 
 def test_gate_and_pulse_can_bind_in_parallel_before_final_signal_check() -> None:
@@ -343,7 +272,7 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     )
 
     bound = authoring.bind(declaration, {"amplitude": Quantity(0.24, "arb")})
-    [logical_call] = bound.verified.logical_circuit.operations
+    [logical_call] = bound.verified.logical_operations
     [implementation] = bound.verified.operations
     assert isinstance(logical_call, GateCall)
     assert logical_call.qubits == (QubitId("q0"), QubitId("q1"))
@@ -358,11 +287,8 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     [leaf] = iter_pulse_leaves(lowered.program.body)
     assert isinstance(leaf, Play)
     assert leaf.signal == FluxSignal(CouplerId("coupler-q0-q1"))
-    [provenance] = lowered.event_provenance
-    assert isinstance(provenance, ImplementedGatePulseEventProvenance)
-    assert provenance.gate_id.value == "cz"
-    assert provenance.candidate_id == "cz.conditional-phase"
-    assert provenance.template_program_id == PulseProgramId("cz.flux")
+    assert implementation.candidate_id == "cz.conditional-phase"
+    assert implementation.pulse_template.id == PulseProgramId("cz.flux")
 
 
 def test_gate_implementation_maps_named_semantic_parameters() -> None:
@@ -389,7 +315,7 @@ def test_gate_implementation_maps_named_semantic_parameters() -> None:
     )
 
     bound = authoring.bind(declaration, {"theta": Quantity(90, "deg")})
-    [logical_call] = bound.verified.logical_circuit.operations
+    [logical_call] = bound.verified.logical_operations
     [implemented] = bound.verified.operations
 
     assert isinstance(logical_call, GateCall)
@@ -537,9 +463,6 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
     assert scheduled.duration_seconds == Decimal("1.2e-8")
     assert {type(event.instruction) for event in scheduled.events} == {Play, Acquire}
     assert {event.start_seconds for event in scheduled.events} == {0}
-    [provenance] = lowered.acquisition_provenance
-    assert isinstance(provenance, AuthoredPulseAcquisitionProvenance)
-    assert provenance.acquisition_slot_id == capture.result.acquisition_slot_id
 
 
 def test_domain_execution_requires_the_exact_measurement_result_handle() -> None:
@@ -567,7 +490,7 @@ def test_domain_execution_requires_the_exact_measurement_result_handle() -> None
         )
 
 
-def test_explicit_acquire_results_require_an_axis_or_a_unique_id() -> None:
+def test_explicit_acquire_results_cannot_repeat_or_reuse_an_id() -> None:
     q0 = authoring.qubit("q0")
     first = authoring.acquire(
         q0,
@@ -580,7 +503,7 @@ def test_explicit_acquire_results_require_an_axis_or_a_unique_id() -> None:
         result="iq_shots",
     )
 
-    with pytest.raises(ValueError, match="require an axis"):
+    with pytest.raises(ValueError, match="result-free"):
         authoring.repeat(first, 2)
     with pytest.raises(ValueError, match="duplicate result ids"):
         authoring._close_program(
@@ -644,13 +567,6 @@ def test_pulse_template_substitutes_qubit_and_outer_input_hygienically() -> None
         output_id=PulseProgramId("two-template-calls-pulses"),
     )
     assert len({leaf.id for leaf in iter_pulse_leaves(lowered.program.body)}) == 4
-    assert {
-        provenance.template_program_id for provenance in lowered.event_provenance
-    } == {PulseProgramId("x90-with-frame")}
-    assert all(
-        isinstance(provenance, AuthoredPulseEventProvenance)
-        for provenance in lowered.event_provenance
-    )
     scheduled = schedule(lowered.program)
     shifts = tuple(
         event.instruction

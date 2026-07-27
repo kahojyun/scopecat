@@ -48,7 +48,7 @@ function snapshot(driveFrequency: number, readoutFrequency: number): ConfigProfi
             id: "drive.frequency",
             value_type: {
               shape: "scalar",
-              atom: { type: "quantity", unit: "GHz" },
+              atom: { type: "quantity", finite: true, unit: "GHz" },
             },
             description: "Drive frequency",
           },
@@ -66,7 +66,7 @@ function snapshot(driveFrequency: number, readoutFrequency: number): ConfigProfi
                 },
                 {
                   id: "readout_frequency",
-                  value_type: { type: "quantity", unit: "GHz" },
+                  value_type: { type: "quantity", finite: true, unit: "GHz" },
                 },
               ],
               primary_key: ["qubit"],

@@ -6,12 +6,7 @@ from dataclasses import replace
 
 from scopecat.authoring._binding_intents import ExperimentBindingIntent
 from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
     ParameterValueContract,
-    merge_parameter_contracts,
-)
-from scopecat.authoring._point_domain_intents import (
-    point_domain_intent_parameter_contracts,
 )
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_lowering import (
@@ -20,17 +15,16 @@ from scopecat.compiler.frontend.assembly_lowering import (
     lower_point_domain,
     lower_semantic_compute_graph,
     lower_semantic_domain_graph,
-    state_spec,
     validate_entity_inputs,
 )
 from scopecat.compiler.frontend.binding_lowering import (
     build_resource_requirements,
-    lower_binding_intent,
+    lower_state_binding,
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
-from scopecat.compiler.frontend.measurement_transform_lowering import (
-    lower_semantic_measurement_transform_graph,
+from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
+    lower_semantic_measurement_postprocessor_graph,
 )
 from scopecat.compiler.frontend.parameter_contract_validation import (
     validate_parameter_contracts,
@@ -38,10 +32,6 @@ from scopecat.compiler.frontend.parameter_contract_validation import (
 from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.compiler.frontend.product_lowering import lower_products
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
-from scopecat.compiler.frontend.value_binding import (
-    bind_relation_input_refs,
-    bind_series_input_refs,
-)
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -49,7 +39,7 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.kernel.value_types import ValueType
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.parameter import ParameterCatalog
 
 
@@ -89,7 +79,7 @@ def _bind_verified_assembly(
     inputs = assembly.inputs
     validate_parameter_contracts(
         parameter_catalog,
-        _assembly_parameter_contracts(assembly),
+        assembly.parameter_contracts,
     )
     validate_entity_inputs(topology, assembly.entity_inputs, inputs)
     root_type_bindings = _relation_type_bindings(assembly, parameter_catalog)
@@ -118,8 +108,6 @@ def _bind_verified_assembly(
         verified_graph.product_declarations,
         inputs,
         type_bindings=type_bindings,
-        bind_series_input_refs=bind_series_input_refs,
-        bind_relation_input_refs=bind_relation_input_refs,
         input_row=input_row,
     )
     compute_nodes = lower_semantic_compute_graph(
@@ -129,13 +117,13 @@ def _bind_verified_assembly(
         type_bindings=type_bindings,
     )
     record_product_uses = products.product_uses
-    measurement_transforms = lower_semantic_measurement_transform_graph(
+    measurement_postprocessors = lower_semantic_measurement_postprocessor_graph(
         verified_graph.semantic_graph,
         record_product_uses,
     )
     product_uses = (
         *record_product_uses,
-        *measurement_transforms.input_product_uses,
+        *measurement_postprocessors.input_product_uses,
     )
     domain_executions = lower_semantic_domain_graph(
         verified_graph.semantic_graph,
@@ -146,8 +134,8 @@ def _bind_verified_assembly(
     )
     domain_effects = {execution.id: execution for execution in domain_executions}
     ordered_effects = tuple(
-        state_spec(
-            lower_binding_intent(effect),
+        lower_state_binding(
+            effect,
             inputs=inputs,
             type_bindings=type_bindings,
         )
@@ -164,10 +152,11 @@ def _bind_verified_assembly(
         resource_requirements=tuple(resource_requirements),
         compute_nodes=compute_nodes,
         effects=ordered_effects,
-        measurement_transforms=measurement_transforms.transforms,
+        measurement_postprocessors=measurement_postprocessors.postprocessors,
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(
                 parameter_catalog,
+                static_evaluator,
                 intent,
                 inputs,
                 type_bindings=type_bindings,
@@ -186,36 +175,21 @@ def _relation_type_bindings(
 ) -> RelationTypeBindings:
     """Project assembly contracts into the final plan-verification environment."""
 
-    contracts = _assembly_parameter_contracts(assembly)
+    parameter_types: dict[str, Scalar] = {}
+    for contract in assembly.parameter_contracts:
+        if not isinstance(contract, ParameterValueContract):
+            continue
+        definition = parameter_catalog.get(contract.parameter_id)
+        value_type = (
+            definition.value_type if definition is not None else contract.value_type
+        )
+        if isinstance(value_type, Scalar):
+            parameter_types[contract.parameter_id] = value_type
     return RelationTypeBindings(
-        inputs={port.id: port.value_type for port in assembly.input_ports},
-        parameters={
-            contract.parameter_id: _catalog_parameter_type(
-                parameter_catalog,
-                contract.parameter_id,
-                contract.value_type,
-            )
-            for contract in contracts
-            if isinstance(contract, ParameterValueContract)
+        inputs={
+            port.id: port.value_type
+            for port in assembly.input_ports
+            if isinstance(port.value_type, Scalar)
         },
+        parameters=parameter_types,
     )
-
-
-def _assembly_parameter_contracts(
-    assembly: SemanticExperimentIR,
-) -> tuple[ParameterContract, ...]:
-    """Return every config contract consumed while linking the assembly."""
-
-    return merge_parameter_contracts(
-        assembly.parameter_contracts,
-        point_domain_intent_parameter_contracts(assembly.point_domain),
-    )
-
-
-def _catalog_parameter_type(
-    parameter_catalog: ParameterCatalog,
-    parameter_id: str,
-    fallback: ValueType,
-) -> ValueType:
-    definition = parameter_catalog.get(parameter_id)
-    return definition.value_type if definition is not None else fallback

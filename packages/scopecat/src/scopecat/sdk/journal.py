@@ -1,6 +1,6 @@
 """Effect intent and evidence ledger persistence contract for SDK runtimes."""
 
-from typing import Protocol, cast
+from typing import Protocol
 
 from scopecat.records.execution_journal import ExecutionTransition
 
@@ -19,15 +19,12 @@ def commit_transition(
 
     expected = transition.model_dump(mode="json", exclude={"sequence", "timestamp"})
     committed = journal.append(transition)
-    if not isinstance(cast("object", committed), ExecutionTransition):
-        raise TypeError("execution journal returned no committed transition")
-    normalized = ExecutionTransition.model_validate(committed.model_dump(mode="json"))
-    if normalized.sequence is None:
+    if committed.sequence is None:
         raise ValueError("execution journal did not assign a durable sequence")
-    actual = normalized.model_dump(mode="json", exclude={"sequence", "timestamp"})
+    actual = committed.model_dump(mode="json", exclude={"sequence", "timestamp"})
     if actual != expected:
         raise ValueError("execution journal changed transition identity or evidence")
-    return normalized
+    return committed.model_copy(deep=True)
 
 
 class ExecutionJournalError(RuntimeError):

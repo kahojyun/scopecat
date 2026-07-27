@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
 from pydantic import (
@@ -10,6 +10,7 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -26,11 +27,10 @@ from scopecat.records._schema_utils import (
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v1"
 MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v1"
-MeasurementDatasetRole = Literal["raw", "derived"]
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
-MeasurementArrayData = list[object]
+MeasurementArrayData = Sequence[object]
 
 
 class MeasurementDimension(BaseModel):
@@ -84,7 +84,6 @@ class MeasurementDatasetSchema(BaseModel):
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str
-    dataset_role: MeasurementDatasetRole
     record_schema: str = MEASUREMENT_RECORD_SCHEMA_VERSION
     dimensions: list[MeasurementDimension] = Field(default_factory=list)
     variables: list[MeasurementVariable] = Field(default_factory=list)
@@ -139,7 +138,7 @@ class MeasurementDatasetSchema(BaseModel):
 
 
 class ComplexQuantity(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     real: float
     imag: float
@@ -149,7 +148,7 @@ class ComplexQuantity(BaseModel):
     @classmethod
     def validate_unit(cls, value: str) -> str:
         validated = validate_supported_unit(value)
-        assert validated is not None  # noqa: S101
+        assert validated is not None
         return validated
 
 
@@ -158,11 +157,11 @@ def _restore_measurement_array_leaves(
     *,
     dtype: object,
 ) -> object:
-    if isinstance(value, list):
-        selected = cast("list[object]", value)
-        return [
+    if isinstance(value, list | tuple):
+        selected = cast("list[object] | tuple[object, ...]", value)
+        return tuple(
             _restore_measurement_array_leaves(item, dtype=dtype) for item in selected
-        ]
+        )
     if isinstance(value, Mapping):
         selected_mapping = cast("Mapping[str, object]", value)
         try:
@@ -179,33 +178,41 @@ def _restore_measurement_array_leaves(
 
 
 class MeasurementArray(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     dtype: MeasurementDType = "float64"
     unit: str | None = None
-    shape: list[int] = Field(min_length=1)
+    shape: Sequence[int] = Field(min_length=1)
     values: MeasurementArrayData
     metadata: JsonMetadata = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def restore_typed_leaves(cls, data: object) -> object:
-        """Restore numeric leaf models lost by an ``Any``-typed wire decode."""
-
-        if not isinstance(data, Mapping):
-            return data
-        selected = dict(cast("Mapping[str, object]", data))
-        if "values" in selected:
-            selected["values"] = _restore_measurement_array_leaves(
-                selected["values"],
-                dtype=selected.get("dtype", "float64"),
-            )
-        return selected
 
     @field_validator("unit")
     @classmethod
     def validate_unit(cls, value: str | None) -> str | None:
         return validate_supported_unit(value)
+
+    @field_validator("shape")
+    @classmethod
+    def freeze_shape(cls, value: Sequence[int]) -> Sequence[int]:
+        return tuple(value)
+
+    @field_validator("values")
+    @classmethod
+    def restore_and_freeze_values(
+        cls,
+        value: MeasurementArrayData,
+        info: ValidationInfo,
+    ) -> MeasurementArrayData:
+        """Restore typed leaves and freeze nested sequences in one pass."""
+
+        dtype = info.data.get("dtype")
+        return cast(
+            "MeasurementArrayData",
+            _restore_measurement_array_leaves(
+                value,
+                dtype=dtype if isinstance(dtype, str) else "float64",
+            ),
+        )
 
     @model_validator(mode="after")
     def validate_values_shape(self) -> MeasurementArray:
@@ -217,7 +224,7 @@ class MeasurementArray(BaseModel):
 
 
 type MeasurementValue = Quantity | ComplexQuantity | MeasurementArray
-type CoordinateValue = Quantity | EntityRef | str | int | float | bool | None
+type CoordinateValue = Quantity | EntityRef | str | int | float | bool
 
 
 class MeasurementRecord(BaseModel):
@@ -240,15 +247,15 @@ class MeasurementDataset(BaseModel):
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
-def _array_shape(values: object) -> list[int]:
-    if not isinstance(values, list):
-        return []
-    items = cast("list[object]", values)
+def _array_shape(values: object) -> tuple[int, ...]:
+    if not isinstance(values, tuple):
+        return ()
+    items = cast("tuple[object, ...]", values)
     if not items:
-        return [0]
+        return (0,)
     first_shape = _array_shape(items[0])
     for value in items[1:]:
         if _array_shape(value) != first_shape:
             msg = "measurement array values must be rectangular"
             raise ValueError(msg)
-    return [len(items), *first_shape]
+    return (len(items), *first_shape)

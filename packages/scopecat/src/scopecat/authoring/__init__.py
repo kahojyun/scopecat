@@ -34,8 +34,8 @@ from scopecat.authoring.domain import (
     domain_program,
 )
 from scopecat.authoring.measurements import (
-    MeasurementTransform,
-    measurement_transform,
+    MeasurementPostprocessor,
+    measurement_postprocessor,
 )
 from scopecat.authoring.templates import (
     ExperimentInvocation,
@@ -60,25 +60,18 @@ from scopecat.authoring.value_types import (
     Quantity as QuantityType,
 )
 from scopecat.authoring.value_types import (
-    Record as RecordType,
-)
-from scopecat.authoring.value_types import (
-    RecordField,
-    TableColumn,
-    ValueType,
-    ValueValidationError,
-)
-from scopecat.authoring.value_types import (
     Scalar as ScalarType,
-)
-from scopecat.authoring.value_types import (
-    Series as SeriesType,
 )
 from scopecat.authoring.value_types import (
     String as StringType,
 )
 from scopecat.authoring.value_types import (
     Table as TableType,
+)
+from scopecat.authoring.value_types import (
+    TableColumn,
+    ValueType,
+    ValueValidationError,
 )
 from scopecat.authoring.values import (
     Compute,
@@ -88,18 +81,16 @@ from scopecat.authoring.values import (
     ParameterKeyInput,
     RuntimeInput,
     ScalarInput,
-    TableRow,
     ValueRef,
     compute,
     coordinate,
     parameter,
     parameter_lookup,
 )
-from scopecat.authoring.values import input as input  # noqa: A004
+from scopecat.authoring.values import input as input
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,
-    DomainResourcePort,
     DomainResultPort,
 )
 
@@ -110,7 +101,6 @@ __all__ = [
     "DomainExecution",
     "DomainInputPort",
     "DomainProgramDef",
-    "DomainResourcePort",
     "DomainResultPort",
     "EntityType",
     "ExperimentBody",
@@ -120,7 +110,7 @@ __all__ = [
     "FloatType",
     "Input",
     "IntType",
-    "MeasurementTransform",
+    "MeasurementPostprocessor",
     "MetadataValue",
     "ModuleBuilder",
     "ModuleInput",
@@ -132,17 +122,13 @@ __all__ = [
     "ProductOutputs",
     "ProductRef",
     "QuantityType",
-    "RecordField",
     "RecordSelection",
-    "RecordType",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
     "ScratchDefinition",
-    "SeriesType",
     "StringType",
     "TableColumn",
-    "TableRow",
     "TableType",
     "ValueRef",
     "ValueType",
@@ -155,7 +141,7 @@ __all__ = [
     "experiment",
     "input",
     "input_ref",
-    "measurement_transform",
+    "measurement_postprocessor",
     "module",
     "module_body",
     "parameter",

@@ -6,31 +6,31 @@ from scopecat.compiler.relations.context import (
 )
 from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
 from scopecat.compiler.relations.specialization import (
-    BindingTime,
     KnownScalar,
     ParameterCellBinding,
     ResidualScalar,
-    specialize_relation,
     specialize_scalar,
-    specialize_series,
 )
 from scopecat.graph.relations.model import (
-    LiteralRowsRelationExpr,
     ParameterLookupUse,
-    TableRelationExpr,
-    ValuesSeriesExpr,
     input_ref,
     param,
     parameter_lookup,
-    parameter_series,
     point_col,
-    table,
 )
-from scopecat.kernel.value_types import Float, Scalar, String
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.value_types import Entity, Float, Scalar, String
 
 _DEVICE_FREQUENCY_LOOKUP = ParameterLookupUse(
     table_id="devices",
     key_input_types=(("id", Scalar(String())),),
+    literal_key_columns=frozenset(),
+    column_id="frequency",
+    result_type=Scalar(Float()),
+)
+_ENTITY_DEVICE_FREQUENCY_LOOKUP = ParameterLookupUse(
+    table_id="devices",
+    key_input_types=(("id", Scalar(Entity(entity_kind="qubit"))),),
     literal_key_columns=frozenset(),
     column_id="frequency",
     result_type=Scalar(Float()),
@@ -40,7 +40,6 @@ _DEVICE_FREQUENCY_LOOKUP = ParameterLookupUse(
 def _parameters() -> ParameterRelationData:
     return ParameterRelationData(
         scalars={"gain": 2},
-        series={"offsets": [1, 3, 5]},
         tables={
             "devices": [
                 {"id": "q0", "frequency": 5.0},
@@ -48,45 +47,6 @@ def _parameters() -> ParameterRelationData:
             ]
         },
     )
-
-
-def test_specialization_materializes_configuration_static_series() -> None:
-    result = specialize_series(
-        parameter_series("offsets"),
-        known=EvalContext(params=_parameters()),
-    )
-
-    assert result == ValuesSeriesExpr(items=[1, 3, 5])
-
-
-def test_specialization_materializes_closed_relation_pipeline() -> None:
-    expression = table("devices").select("id", "frequency")
-
-    result = specialize_relation(expression, known=EvalContext(params=_parameters()))
-
-    assert result == LiteralRowsRelationExpr(
-        rows=[
-            {"id": "q0", "frequency": 5.0},
-            {"id": "q1", "frequency": 6.0},
-        ]
-    )
-
-
-def test_specialization_does_not_freeze_scanned_parameter_table() -> None:
-    binding = ParameterCellBinding(
-        table_id="devices",
-        key=(("id", "q0"),),
-        column_id="frequency",
-        replacement=point_col("frequency"),
-    )
-
-    result = specialize_relation(
-        table("devices"),
-        known=EvalContext(params=_parameters()),
-        parameter_cells=(binding,),
-    )
-
-    assert isinstance(result, TableRelationExpr)
 
 
 def test_specialization_folds_request_and_configuration_values() -> None:
@@ -106,8 +66,6 @@ def test_specialization_retains_point_expression_and_folds_static_branch() -> No
     result = specialize_scalar(expression, known=EvalContext(params=_parameters()))
 
     assert isinstance(result, ResidualScalar)
-    assert result.binding_time is BindingTime.POINT
-    assert {reference.id for reference in result.references} == {"frequency"}
     assert (
         evaluate_scalar_expression(
             result.expression,
@@ -134,11 +92,6 @@ def test_specialization_retains_lookup_with_point_varying_key() -> None:
     result = specialize_scalar(expression, known=EvalContext(params=_parameters()))
 
     assert isinstance(result, ResidualScalar)
-    assert result.binding_time is BindingTime.POINT
-    assert {reference.id for reference in result.references} == {
-        "devices",
-        "device",
-    }
     assert (
         evaluate_scalar_expression(
             result.expression,
@@ -168,7 +121,24 @@ def test_specialization_substitutes_scanned_parameter_cell() -> None:
 
     assert isinstance(result, ResidualScalar)
     assert result.expression == point_col("frequency")
-    assert result.binding_time is BindingTime.POINT
+
+
+def test_specialization_matches_entity_overlay_to_literal_id() -> None:
+    binding = ParameterCellBinding(
+        table_id="devices",
+        key=(("id", EntityRef(id="q0", kind="qubit")),),
+        column_id="frequency",
+        replacement=point_col("frequency"),
+    )
+
+    result = specialize_scalar(
+        parameter_lookup(_ENTITY_DEVICE_FREQUENCY_LOOKUP, key={"id": "q0"}),
+        known=EvalContext(params=_parameters()),
+        parameter_cells=(binding,),
+    )
+
+    assert isinstance(result, ResidualScalar)
+    assert result.expression == point_col("frequency")
 
 
 def test_specialized_residual_is_equivalent_for_remaining_point_bindings() -> None:

@@ -4,26 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from itertools import chain
 from typing import cast
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import JsonValue
 
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.effect_result import (
     CoverageMeasurementObserver,
     RunEffectResult,
 )
-from scopecat.execution.events import (
-    TransitionRecorder,
-    observe_payload,
-)
 from scopecat.execution.local.drivers import (
     cleanup_after_setup_failure,
     describe_instruments,
     validate_instruments,
 )
-from scopecat.execution.observation import RuntimePayloadObserver
 from scopecat.execution.program import RunProgram
 from scopecat.kernel.errors import (
     ProviderContractError,
@@ -44,13 +38,12 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderContext,
     InstrumentProviderResult,
 )
+from scopecat.sdk.journal import ExecutionJournal, commit_transition
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
     problem_from_exception,
     runtime_problem,
 )
-
-_PROVIDER_METADATA_ADAPTER = TypeAdapter(dict[str, JsonValue])
 
 
 def execute_run_operations(
@@ -58,9 +51,8 @@ def execute_run_operations(
     config: ConfigProfileSnapshot,
     program: RunProgram,
     run_id: str,
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
     instrument_provider: InstrumentProvider | None = None,
-    payload_observer: RuntimePayloadObserver | None = None,
     coverage_observer: CoverageMeasurementObserver | None = None,
 ) -> RunEffectResult:
     """Provision optional host drivers and interpret one operation sequence."""
@@ -73,18 +65,20 @@ def execute_run_operations(
             coordinate_ids=point_catalog.coordinate_ids,
             resource_order=program.resource_order,
             drivers={},
-            recorder=recorder,
+            journal=journal,
             coverage_observer=coverage_observer,
         )
-        return engine.run(chain(program.preamble, program.coverage))
+        return engine.run(
+            program.coverage,
+            points=program.points.points,
+        )
 
     return _execute_run_host_operations(
         config=config,
         program=program,
         instrument_provider=instrument_provider,
         run_id=run_id,
-        recorder=recorder,
-        payload_observer=payload_observer,
+        journal=journal,
         coverage_observer=coverage_observer,
     )
 
@@ -95,8 +89,7 @@ def _execute_run_host_operations(
     program: RunProgram,
     instrument_provider: InstrumentProvider | None,
     run_id: str,
-    recorder: TransitionRecorder,
-    payload_observer: RuntimePayloadObserver | None = None,
+    journal: ExecutionJournal,
     coverage_observer: CoverageMeasurementObserver | None,
 ) -> RunEffectResult:
     """Provision host resources and interpret the complete operation sequence."""
@@ -122,9 +115,8 @@ def _execute_run_host_operations(
         provider=instrument_provider,
         program=program,
         setup_problems=setup_problems,
-        recorder=recorder,
+        journal=journal,
         coverage_observer=coverage_observer,
-        payload_observer=payload_observer,
     )
     if not setup_problems:
         return result
@@ -144,8 +136,7 @@ def _provision_and_execute(
     provider: InstrumentProvider,
     program: RunProgram,
     setup_problems: list[Problem],
-    recorder: TransitionRecorder,
-    payload_observer: RuntimePayloadObserver | None,
+    journal: ExecutionJournal,
     coverage_observer: CoverageMeasurementObserver | None,
 ) -> RunEffectResult:
     """Provision, verify, execute, and finalize the admitted run."""
@@ -165,7 +156,7 @@ def _provision_and_execute(
         },
     )
     provider_intent_committed, journal_interruption = _commit_provider_transition(
-        recorder,
+        journal,
         provider_entry,
         setup_problems,
     )
@@ -187,7 +178,7 @@ def _provision_and_execute(
         )
         setup_problems.append(problem)
         _, journal_interruption = _commit_provider_transition(
-            recorder,
+            journal,
             provider_entry.model_copy(
                 update={"state": "unknown", "problems": (problem,)}
             ),
@@ -206,7 +197,7 @@ def _provision_and_execute(
         )
         setup_problems.append(problem)
         _, journal_interruption = _commit_provider_transition(
-            recorder,
+            journal,
             provider_entry.model_copy(
                 update={"state": "unknown", "problems": (problem,)}
             ),
@@ -225,8 +216,7 @@ def _provision_and_execute(
         provider_entry=provider_entry,
         program=program,
         setup_problems=setup_problems,
-        recorder=recorder,
-        payload_observer=payload_observer,
+        journal=journal,
         coverage_observer=coverage_observer,
     )
 
@@ -239,8 +229,7 @@ def _execute_provider_result(
     provider_entry: ExecutionTransition,
     program: RunProgram,
     setup_problems: list[Problem],
-    recorder: TransitionRecorder,
-    payload_observer: RuntimePayloadObserver | None,
+    journal: ExecutionJournal,
     coverage_observer: CoverageMeasurementObserver | None,
 ) -> RunEffectResult:
     """Own every returned driver until a fully constructed engine takes over."""
@@ -248,17 +237,12 @@ def _execute_provider_result(
     host = program.host
     if host is None:
         raise AssertionError("provided drivers require a host binding")
-    instruments: list[InstrumentDriver] = []
+    instruments = list(provider_result.drivers)
     provider_transition_attempted = False
     engine: RunEffectInterpreter | None = None
     indeterminate = False
     interruption: BaseException | None = None
     try:
-        # Ownership is acquired one driver at a time before touching any driver
-        # property or provider completion metadata.  A non-conforming iterable
-        # that fails part-way through cannot orphan already yielded drivers.
-        for instrument in provider_result.drivers:
-            instruments.append(instrument)  # noqa: PERF402
         provider_problems = list(
             contextualize_problems(
                 provider_result.problems,
@@ -278,7 +262,7 @@ def _execute_provider_result(
         }
         provider_transition_attempted = True
         transition_committed, journal_interruption = _commit_provider_transition(
-            recorder,
+            journal,
             provider_entry.model_copy(
                 update={
                     "state": ("failed" if bool(provider_problems) else "completed"),
@@ -317,13 +301,7 @@ def _execute_provider_result(
                         instrument.instrument_id: instrument
                         for instrument in instruments
                     },
-                    recorder=recorder,
-                    payload_observer=lambda payload: observe_payload(
-                        observer=payload_observer,
-                        run_id=run_id,
-                        experiment_id=program.experiment_id,
-                        payload=payload,
-                    ),
+                    journal=journal,
                     coverage_observer=coverage_observer,
                 )
     except Exception as error:
@@ -337,7 +315,7 @@ def _execute_provider_result(
         setup_problems.append(problem)
         if not provider_transition_attempted:
             _commit_provider_transition(
-                recorder,
+                journal,
                 provider_entry.model_copy(
                     update={"state": "failed", "problems": (problem,)}
                 ),
@@ -352,7 +330,7 @@ def _execute_provider_result(
         setup_problems.append(problem)
         if not provider_transition_attempted:
             _commit_provider_transition(
-                recorder,
+                journal,
                 provider_entry.model_copy(
                     update={"state": "unknown", "problems": (problem,)}
                 ),
@@ -364,12 +342,15 @@ def _execute_provider_result(
     if engine is not None:
         # Engine construction is the ownership hand-off.  Its run boundary is
         # responsible for abort/cleanup and terminal state capture after effects.
-        return engine.run(chain(program.preamble, program.coverage))
+        return engine.run(
+            program.coverage,
+            points=program.points.points,
+        )
     return _finalize_owned_setup(
         run_id=run_id,
         instruments=instruments,
         problems=setup_problems,
-        recorder=recorder,
+        journal=journal,
         indeterminate=indeterminate,
         interruption=interruption,
     )
@@ -380,7 +361,7 @@ def _finalize_owned_setup(
     run_id: str,
     instruments: list[InstrumentDriver],
     problems: list[Problem],
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
     indeterminate: bool = False,
     interruption: BaseException | None = None,
 ) -> RunEffectResult:
@@ -388,7 +369,7 @@ def _finalize_owned_setup(
         instruments,
         problems,
         run_id=run_id,
-        recorder=recorder,
+        journal=journal,
     )
     return _setup_result(
         problems=problems,
@@ -476,12 +457,12 @@ def _interruption_problem(
 
 
 def _commit_provider_transition(
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
     entry: ExecutionTransition,
     problems: list[Problem],
 ) -> tuple[bool, BaseException | None]:
     try:
-        recorder.commit(entry)
+        commit_transition(journal, entry)
     except Exception as error:
         problems.append(
             problem_from_exception(
@@ -514,21 +495,11 @@ def _provider_result_evidence(
     problems: list[Problem],
 ) -> dict[str, JsonValue]:
     instrument_ids = sorted(instrument.instrument_id for instrument in instruments)
-    validated_metadata = _PROVIDER_METADATA_ADAPTER.validate_python(
-        provider_result.metadata
-    )
-    metadata = cast(
-        "dict[str, JsonValue]",
-        _PROVIDER_METADATA_ADAPTER.dump_python(
-            validated_metadata,
-            mode="json",
-        ),
-    )
     receipt = {
         "provider_id": provider_id,
         "instrument_ids": instrument_ids,
         "problems": [item.model_dump(mode="json") for item in problems],
-        "metadata": metadata,
+        "metadata": provider_result.metadata,
     }
     evidence = {
         "instrument_ids": instrument_ids,

@@ -6,7 +6,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import replace
 from typing import (
     Literal,
     cast,
@@ -50,7 +49,6 @@ from ._analysis import (
     _program_input_type,
     _pulse_envelope,
     _require_quantity_expression,
-    _result_axis_input_ids,
     _summarize_fragment,
     _unique_gate_definitions,
 )
@@ -77,7 +75,6 @@ from ._ir import (
     ProgramFunction,
     ProgramInput,
     ProgramPort,
-    ProgramResult,
     ProgramResults,
     PulseElement,
     PulseEnvelope,
@@ -85,17 +82,12 @@ from ._ir import (
     PulseTemplateFunction,
     QuantumFragment,
     QuantumQuantity,
-    QuantumResultAxis,
     QuantumResultContract,
     Qubit,
-    RealtimeBit,
     RepeatCount,
-    _BarrierFragment,
     _DelayFragment,
-    _ExpandedFragment,
     _ParallelFragment,
     _PlayFragment,
-    _QuantumConditionalFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
     _QuantumSequenceFragment,
@@ -109,19 +101,19 @@ from ._programs import (
 )
 
 
-def qubit(id: str) -> Qubit:  # noqa: A002
+def qubit(id: str) -> Qubit:
     """Declare one logical qubit handle."""
 
     return Qubit(ir_id=QubitId(id))
 
 
-def coupler(id: str) -> Coupler:  # noqa: A002
+def coupler(id: str) -> Coupler:
     """Declare one logical coupler handle."""
 
     return Coupler(ir_id=CouplerId(id))
 
 
-def scalar_input(id: str, kind: GateParameterKind) -> ProgramInput:  # noqa: A002
+def scalar_input(id: str, kind: GateParameterKind) -> ProgramInput:
     """Declare one typed scalar input port for a symbolic circuit."""
 
     if not id.strip():
@@ -130,14 +122,11 @@ def scalar_input(id: str, kind: GateParameterKind) -> ProgramInput:  # noqa: A00
     return ProgramInput(_id=id, value_type=_core_input_type(kind))
 
 
-def input(id: str, value_type: ScalarType) -> ProgramInput:  # noqa: A001, A002
+def input(id: str, value_type: ScalarType) -> ProgramInput:
     """Declare one core-typed scalar input for gate-and-pulse authoring."""
 
     if not id.strip():
         msg = "quantum input id must be a non-empty string"
-        raise ValueError(msg)
-    if value_type.nullable:
-        msg = "quantum program inputs cannot be nullable"
         raise ValueError(msg)
     return ProgramInput(
         _id=id,
@@ -146,26 +135,26 @@ def input(id: str, value_type: ScalarType) -> ProgramInput:  # noqa: A001, A002
 
 
 def single_qubit_gate(
-    id: str,  # noqa: A002
+    id: str,
     *,
     parameters: Mapping[str, GateParameterKind] | None = None,
 ) -> SingleQubitGate:
     """Declare one hardware-independent single-qubit gate semantic."""
 
     selected = gate(id, arity=1, parameters=parameters)
-    assert isinstance(selected, SingleQubitGate)  # noqa: S101
+    assert isinstance(selected, SingleQubitGate)
     return selected
 
 
 def two_qubit_gate(
-    id: str,  # noqa: A002
+    id: str,
     *,
     parameters: Mapping[str, GateParameterKind] | None = None,
 ) -> TwoQubitGate:
     """Declare one hardware-independent two-qubit gate semantic."""
 
     selected = gate(id, arity=2, parameters=parameters)
-    assert isinstance(selected, TwoQubitGate)  # noqa: S101
+    assert isinstance(selected, TwoQubitGate)
     return selected
 
 
@@ -188,7 +177,7 @@ def gate(
 
 
 def gate(
-    id: str,  # noqa: A002
+    id: str,
     *,
     arity: Literal[1, 2],
     parameters: Mapping[str, GateParameterKind] | None = None,
@@ -215,26 +204,19 @@ def measure(
     /,
     *,
     result: str,
-    bit: str | None = None,
     contract: QuantumResultContract = INTEGRATED_IQ_RESULT,
 ) -> Measurement:
-    """Author one measurement and optionally request a realtime bit output."""
+    """Author one measurement and its acquisition result."""
 
     if not result.strip():
         msg = "measurement result id must be a non-empty string"
-        raise ValueError(msg)
-    if bit is not None and not bit.strip():
-        msg = "measurement bit id must be a non-empty string"
         raise ValueError(msg)
     result_handle = MeasurementResult(
         _id=result,
         _qubit=qubit,
         contract=contract,
     )
-    return Measurement(
-        result=result_handle,
-        _bit=None if bit is None else RealtimeBit(bit),
-    )
+    return Measurement(result=result_handle)
 
 
 def acquire(
@@ -292,7 +274,7 @@ def shift_phase(signal: FrameSignal, phase: QuantumQuantity, /) -> PulseFragment
 
 
 def _close_pulse_template(
-    id: str,  # noqa: A002
+    id: str,
     body: QuantumFragment,
     /,
     *,
@@ -438,175 +420,64 @@ def delay(signal: PlaySignal, duration: QuantumQuantity, /) -> PulseFragment:
     return _DelayFragment(signal=signal, duration=duration)
 
 
-def barrier(*signals: PlaySignal) -> PulseFragment:
-    """Synchronize one or more logical signals without advancing time."""
-
-    if not signals:
-        msg = "barrier requires at least one logical signal"
-        raise ValueError(msg)
-    return _BarrierFragment(signals=signals)
-
-
 @overload
 def sequence(
     *operations: CircuitFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> CircuitFragment: ...
 
 
 @overload
 def sequence(
     *operations: QuantumFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> QuantumFragment: ...
 
 
 def sequence(
     *operations: QuantumFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> QuantumFragment:
     """Compose gate, measurement, and pulse fragments in order."""
 
     if not operations:
         msg = "sequence requires at least one quantum fragment"
         raise ValueError(msg)
-    selected, result_axis = _collect_result_axis(
-        operations,
-        axis=axis,
-        axis_kind=axis_kind,
-    )
-    if all(isinstance(operation, CircuitFragment) for operation in selected):
+    if all(isinstance(operation, CircuitFragment) for operation in operations):
         return _SequenceFragment(
-            operations=cast("tuple[CircuitFragment, ...]", selected),
-            result_axis=result_axis,
+            operations=cast("tuple[CircuitFragment, ...]", operations),
         )
-    return _QuantumSequenceFragment(operations=selected, result_axis=result_axis)
+    return _QuantumSequenceFragment(operations=operations)
 
 
 @overload
 def parallel(
     *branches: CircuitFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> CircuitFragment: ...
 
 
 @overload
 def parallel(
     *branches: QuantumFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> QuantumFragment: ...
 
 
 def parallel(
     *branches: QuantumFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> QuantumFragment:
     """Compose two or more gate, measurement, or pulse branches concurrently."""
 
     if len(branches) < 2:
         msg = "parallel requires at least two quantum branches"
         raise ValueError(msg)
-    selected, result_axis = _collect_result_axis(
-        branches,
-        axis=axis,
-        axis_kind=axis_kind,
-    )
-    if all(isinstance(branch, CircuitFragment) for branch in selected):
+    if all(isinstance(branch, CircuitFragment) for branch in branches):
         return _ParallelFragment(
-            branches=cast("tuple[CircuitFragment, ...]", selected),
-            result_axis=result_axis,
+            branches=cast("tuple[CircuitFragment, ...]", branches),
         )
-    return _QuantumParallelFragment(branches=selected, result_axis=result_axis)
-
-
-def _collect_result_axis(
-    children: tuple[QuantumFragment, ...],
-    *,
-    axis: str | None,
-    axis_kind: str,
-) -> tuple[tuple[QuantumFragment, ...], QuantumResultAxis | None]:
-    if axis is None:
-        return children, None
-    summaries = tuple(_summarize_fragment(child) for child in children)
-    signatures = tuple(
-        tuple((result.id, result.contract) for result in summary.results)
-        for summary in summaries
-    )
-    if not signatures[0] or any(signature != signatures[0] for signature in signatures):
-        raise ValueError(
-            "result-axis children must produce the same ordered result contracts"
-        )
-    result_axis = QuantumResultAxis(axis, len(children), axis_kind)
-    return (
-        tuple(_prepend_result_axis(child, result_axis) for child in children),
-        result_axis,
-    )
-
-
-def _prepend_result_axis(
-    fragment: QuantumFragment,
-    axis: QuantumResultAxis,
-) -> QuantumFragment:
-    if isinstance(fragment, Measurement):
-        return replace(fragment, result=_result_with_axis(fragment.result, axis))
-    if isinstance(fragment, Acquisition):
-        return replace(fragment, result=_result_with_axis(fragment.result, axis))
-    if isinstance(fragment, _ExpandedFragment):
-        return replace(fragment, body=_prepend_result_axis(fragment.body, axis))
-    if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
-        return replace(
-            fragment,
-            operations=tuple(
-                _prepend_result_axis(operation, axis)
-                for operation in fragment.operations
-            ),
-        )
-    if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
-        return replace(
-            fragment,
-            branches=tuple(
-                _prepend_result_axis(branch, axis) for branch in fragment.branches
-            ),
-        )
-    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
-        return replace(
-            fragment,
-            operation=_prepend_result_axis(fragment.operation, axis),
-        )
-    if isinstance(fragment, _QuantumConditionalFragment):
-        return replace(
-            fragment,
-            when_true=_prepend_result_axis(fragment.when_true, axis),
-            when_false=_prepend_result_axis(fragment.when_false, axis),
-        )
-    return fragment
-
-
-def _result_with_axis(
-    result: ProgramResult,
-    axis: QuantumResultAxis,
-) -> ProgramResult:
-    return replace(
-        result,
-        contract=replace(
-            result.contract,
-            axes=(axis, *result.contract.axes),
-        ),
-    )
+    return _QuantumParallelFragment(branches=branches)
 
 
 @overload
 def repeat(
     operation: CircuitFragment,
     count: int | ProgramInput,
-    *,
-    axis: str | None = None,
 ) -> CircuitFragment: ...
 
 
@@ -614,24 +485,18 @@ def repeat(
 def repeat(
     operation: QuantumFragment,
     count: RepeatCount,
-    *,
-    axis: str | None = None,
 ) -> QuantumFragment: ...
 
 
 def repeat(
     operation: QuantumFragment,
     count: RepeatCount,
-    *,
-    axis: str | None = None,
 ) -> QuantumFragment:
-    """Repeat a fragment, collecting repeated results along a named axis."""
+    """Repeat a result-free fragment."""
 
     results = _summarize_fragment(operation).results
-    if results and axis is None:
-        raise ValueError("result-producing repeats require an axis")
-    if not results and axis is not None:
-        raise ValueError("result-free repeats cannot declare a result axis")
+    if results:
+        raise ValueError("repeat requires a result-free fragment")
     if isinstance(count, ProgramInput):
         if not _is_integer_input(count):
             msg = "repeat count inputs must have integer kind"
@@ -639,51 +504,14 @@ def repeat(
     elif isinstance(count, bool) or count < 0:
         msg = "repeat count must be a non-negative integer or integer input"
         raise ValueError(msg)
-    if results and count == 0:
-        raise ValueError("result-producing repeat counts must be positive")
-    result_axis = None if axis is None else QuantumResultAxis(axis, count, "repeat")
-    selected = (
-        operation
-        if result_axis is None
-        else _prepend_result_axis(operation, result_axis)
-    )
     if isinstance(operation, CircuitFragment):
         return _RepeatFragment(
-            operation=cast("CircuitFragment", selected),
+            operation=operation,
             count=count,
-            result_axis=result_axis,
         )
     return _QuantumRepeatFragment(
-        operation=selected,
+        operation=operation,
         count=count,
-        result_axis=result_axis,
-    )
-
-
-def when(
-    condition: RealtimeBit,
-    when_true: QuantumFragment,
-    /,
-    *,
-    otherwise: QuantumFragment | None = None,
-    equals: Literal[0, 1] = 1,
-) -> QuantumFragment:
-    """Execute one result-free branch from a preceding discriminated result."""
-
-    when_false = _QuantumSequenceFragment(()) if otherwise is None else otherwise
-    for branch_name, branch in (
-        ("when_true", when_true),
-        ("otherwise", when_false),
-    ):
-        if _summarize_fragment(branch).results:
-            raise ValueError(
-                f"realtime {branch_name} branches cannot produce host results"
-            )
-    return _QuantumConditionalFragment(
-        condition=condition,
-        equals=equals,
-        when_true=when_true,
-        when_false=when_false,
     )
 
 
@@ -709,7 +537,7 @@ def fragment[**P](
     definition: Callable[P, QuantumFragment] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> (
     FragmentDefinition[P]
     | Callable[[Callable[P, QuantumFragment]], FragmentDefinition[P]]
@@ -744,7 +572,7 @@ def pulse_template[**P](
     definition: Callable[P, QuantumFragment] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> (
     PulseTemplateDefinition[P]
     | Callable[[Callable[P, QuantumFragment]], PulseTemplateDefinition[P]]
@@ -761,7 +589,7 @@ def implementation[**P](
     *,
     of: Gate,
     candidate: str | None = None,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> Callable[
     [Callable[P, QuantumFragment]],
     GateImplementationDefinition[P],
@@ -803,7 +631,7 @@ def program(
     definition: ProgramFunction | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> ProgramDefinition | Callable[[ProgramFunction], ProgramDefinition]:
     """Define a quantum program from a symbolic Python function."""
 
@@ -814,7 +642,7 @@ def program(
 
 
 def _close_program(
-    id: str,  # noqa: A002
+    id: str,
     body: QuantumFragment,
     *,
     elements: SequenceCollection[PulseElement] = (),
@@ -859,7 +687,6 @@ def _close_program(
     inputs_by_id: dict[str, ProgramInput] = {}
     contracts_by_id: dict[str, ScalarType] = {}
     repeat_input_ids = {input_handle.id for input_handle in facts.repeat_inputs}
-    result_axis_input_ids = _result_axis_input_ids(facts.results)
     for input_handle in collected_inputs:
         existing_handle = inputs_by_id.get(input_handle.id)
         if existing_handle is not None and existing_handle is not input_handle:
@@ -871,7 +698,6 @@ def _close_program(
         contract = _program_input_type(
             input_handle,
             non_negative=input_handle.id in repeat_input_ids,
-            positive=input_handle.id in result_axis_input_ids,
         )
         existing_contract = contracts_by_id.get(input_handle.id)
         if existing_contract is not None and existing_contract != contract:
@@ -966,7 +792,7 @@ def _quantum_function_contract(
 def _fragment_from_function[**P](
     fn: Callable[P, QuantumFragment],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> FragmentDefinition[P]:
     contract = _quantum_function_contract(fn, kind="quantum fragment")
     selected_id = id or f"{fn.__module__}.{fn.__qualname__}"
@@ -982,7 +808,7 @@ def _fragment_from_function[**P](
 def _pulse_template_from_function[**P](
     fn: Callable[P, QuantumFragment],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> PulseTemplateDefinition[P]:
     contract = _quantum_function_contract(fn, kind="pulse template")
     arguments = contract.arguments
@@ -1006,7 +832,7 @@ def _gate_implementation_from_function[**P](
     *,
     gate: Gate,
     candidate: str | None,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> GateImplementationDefinition[P]:
     if candidate is not None and not candidate.strip():
         raise ValueError("implementation candidate must be a non-empty string")
@@ -1071,7 +897,7 @@ def _gate_implementation_contract[**P](
 def _program_from_function(
     fn: ProgramFunction,
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> ProgramDefinition:
     contract = _quantum_function_contract(fn, kind="quantum program")
     arguments = contract.arguments

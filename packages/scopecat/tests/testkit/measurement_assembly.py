@@ -16,7 +16,7 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
 )
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.relations.point_domain import point_axis_values, point_product
+from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
 from scopecat.kernel.quantity import Quantity
@@ -106,7 +106,7 @@ def measurement_assembly_scenario(
         id=f"measurement-assembly-{len(point_values)}-{use_count}",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_product(
+            axes=(
                 point_axis_values("x", Scalar(Float()), point_values),
                 point_axis_values(
                     "opaque",
@@ -118,7 +118,7 @@ def measurement_assembly_scenario(
                         ),
                     ),
                 ),
-            )
+            ),
         ),
         resource_requirements=(
             (

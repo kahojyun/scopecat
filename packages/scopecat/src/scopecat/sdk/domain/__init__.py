@@ -1,30 +1,14 @@
 """Public contracts for execution-domain compilers and runtimes."""
 
-from scopecat.sdk.domain.compiler import (
-    DomainCompilation,
-    DomainCompiledInputs,
-    DomainCompiledJob,
-    DomainCompiler,
-    DomainCompileRequest,
-    DomainInput,
-    DomainInputBinder,
-    DomainIterationLayout,
-    DomainResolvedInputs,
-    compiled_jobs,
-    validate_domain_compilation,
+from scopecat.sdk.domain.batch import (
+    DomainBatchInputs,
+    DomainBatchRequest,
 )
-from scopecat.sdk.domain.context import DomainBatchContext
+from scopecat.sdk.domain.compiler import DomainCompiler
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
-    DomainTargetArtifactIdentity,
-)
-from scopecat.sdk.domain.measurements import (
-    DomainHostTransformBinding,
-    DomainHostTransformCall,
-    DomainHostTransformImplementation,
-    MeasurementTransformSemanticContract,
 )
 from scopecat.sdk.domain.preparation import DomainPreparationBuilder
 from scopecat.sdk.domain.result_mapping import (
@@ -33,65 +17,40 @@ from scopecat.sdk.domain.result_mapping import (
     DomainResultMapping,
 )
 from scopecat.sdk.domain.runtime import (
-    CorrelatedDomainFetch,
-    DomainFetchCandidate,
     DomainFetchReceipt,
-    DomainFetchRequest,
+    DomainFetchResult,
     DomainRuntime,
     DomainSubmissionId,
     DomainSubmitReceipt,
-    DomainSubmitRequest,
 )
 from scopecat.sdk.domain.view import (
     DomainCallView,
-    DomainExecutionPointView,
-    DomainExecutionView,
     DomainInputPortView,
-    DomainMeasurementTransform,
     DomainPointRef,
     DomainProductAxisView,
     DomainProductContractView,
     DomainProductUseRef,
     DomainProgramView,
-    DomainResourceBindingView,
     DomainResultBindingView,
     DomainResultPortView,
-    DomainTransformInputPort,
-    DomainTransformOutputPort,
 )
 
 __all__ = [
-    "CorrelatedDomainFetch",
-    "DomainBatchContext",
+    "DomainBatchInputs",
+    "DomainBatchRequest",
     "DomainCallView",
-    "DomainCompilation",
-    "DomainCompileRequest",
-    "DomainCompiledInputs",
-    "DomainCompiledJob",
     "DomainCompiler",
-    "DomainExecutionPointView",
-    "DomainExecutionView",
-    "DomainFetchCandidate",
     "DomainFetchReceipt",
-    "DomainFetchRequest",
-    "DomainHostTransformBinding",
-    "DomainHostTransformCall",
-    "DomainHostTransformImplementation",
-    "DomainInput",
-    "DomainInputBinder",
+    "DomainFetchResult",
     "DomainInputPortView",
     "DomainInvocationSpec",
-    "DomainIterationLayout",
     "DomainMappedResult",
-    "DomainMeasurementTransform",
     "DomainPointRef",
     "DomainPreparationBuilder",
     "DomainProductAxisView",
     "DomainProductContractView",
     "DomainProductUseRef",
     "DomainProgramView",
-    "DomainResolvedInputs",
-    "DomainResourceBindingView",
     "DomainResultBinding",
     "DomainResultBindingView",
     "DomainResultMapping",
@@ -100,12 +59,5 @@ __all__ = [
     "DomainRuntime",
     "DomainSubmissionId",
     "DomainSubmitReceipt",
-    "DomainSubmitRequest",
-    "DomainTargetArtifactIdentity",
-    "DomainTransformInputPort",
-    "DomainTransformOutputPort",
-    "MeasurementTransformSemanticContract",
     "PreparedDomainExecution",
-    "compiled_jobs",
-    "validate_domain_compilation",
 ]

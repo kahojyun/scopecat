@@ -6,23 +6,23 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigDraftEditor, type ConfigDraftSeed } from "./ConfigDraftEditor";
 import type {
-  ConfigDraftDefaultReceipt,
+  ConfigRevisionDefaultReceipt,
   ConfigDraftPreview,
-  ConfigDraftRegistrationReceipt,
+  ConfigRevisionRegistrationReceipt,
   ConfigProfileSnapshot,
 } from "../../api-contract";
 
 const apiMocks = vi.hoisted(() => ({
   previewConfigDraft: vi.fn(),
-  registerConfigDraft: vi.fn(),
-  setConfigDraftDefault: vi.fn(),
+  registerConfigRevision: vi.fn(),
+  setConfigDefault: vi.fn(),
 }));
 
 vi.mock("./config-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./config-api")>()),
   previewConfigDraft: apiMocks.previewConfigDraft,
-  registerConfigDraft: apiMocks.registerConfigDraft,
-  setConfigDraftDefault: apiMocks.setConfigDraftDefault,
+  registerConfigRevision: apiMocks.registerConfigRevision,
+  setConfigDefault: apiMocks.setConfigDefault,
 }));
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
@@ -32,8 +32,8 @@ afterEach(cleanup);
 
 beforeEach(() => {
   apiMocks.previewConfigDraft.mockReset();
-  apiMocks.registerConfigDraft.mockReset();
-  apiMocks.setConfigDraftDefault.mockReset();
+  apiMocks.registerConfigRevision.mockReset();
+  apiMocks.setConfigDefault.mockReset();
 });
 
 describe("ConfigDraftEditor", () => {
@@ -43,7 +43,7 @@ describe("ConfigDraftEditor", () => {
     const preview = validPreview(seed, candidate);
     const receipt = defaultReceipt();
     apiMocks.previewConfigDraft.mockResolvedValue(preview);
-    apiMocks.setConfigDraftDefault.mockResolvedValue(receipt);
+    apiMocks.setConfigDefault.mockResolvedValue(receipt);
     const registered = vi.fn();
 
     renderEditor(seed, registered);
@@ -74,19 +74,23 @@ describe("ConfigDraftEditor", () => {
         },
       ],
     });
-    await waitFor(() => expect(apiMocks.setConfigDraftDefault).toHaveBeenCalled());
-    expect(apiMocks.setConfigDraftDefault.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => expect(apiMocks.setConfigDefault).toHaveBeenCalled());
+    expect(apiMocks.setConfigDefault.mock.calls[0]?.[0]).toEqual({
       registration: {
-        draft: expect.objectContaining({
-          base_entry_id: "config-a",
-          updates: expect.any(Array),
-        }),
-        expected_result_content_hash: HASH_B,
+        source: {
+          kind: "manual_parameter_updates",
+          draft: expect.objectContaining({
+            base_entry_id: "config-a",
+            updates: expect.any(Array),
+          }),
+          expected_result_content_hash: HASH_B,
+        },
         entry_id: "profile-edit-bbbbbbbbbbbb",
         registered_by: "Ada",
         note: "fresh calibration",
       },
       operator: "Ada",
+      expected_generation: 3,
       activation_note: "fresh calibration",
     });
     expect(screen.getByText("Candidate is valid")).toBeInTheDocument();
@@ -100,7 +104,7 @@ describe("ConfigDraftEditor", () => {
     const seed = draftSeed();
     const receipt = registrationReceipt();
     apiMocks.previewConfigDraft.mockResolvedValue(validPreview(seed, snapshot(5.2, 6.5)));
-    apiMocks.registerConfigDraft.mockResolvedValue(receipt);
+    apiMocks.registerConfigRevision.mockResolvedValue(receipt);
 
     renderEditor(seed);
     fireEvent.change(screen.getByLabelText("drive.frequency value"), {
@@ -114,15 +118,18 @@ describe("ConfigDraftEditor", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Register only" }));
 
-    await waitFor(() => expect(apiMocks.registerConfigDraft).toHaveBeenCalled());
-    expect(apiMocks.registerConfigDraft.mock.calls[0]?.[0]).toEqual({
-      draft: expect.objectContaining({ candidate_id: "profile-edit" }),
-      expected_result_content_hash: HASH_B,
+    await waitFor(() => expect(apiMocks.registerConfigRevision).toHaveBeenCalled());
+    expect(apiMocks.registerConfigRevision.mock.calls[0]?.[0]).toEqual({
+      source: {
+        kind: "manual_parameter_updates",
+        draft: expect.objectContaining({ candidate_id: "profile-edit" }),
+        expected_result_content_hash: HASH_B,
+      },
       entry_id: "calibration-candidate",
       registered_by: "Ada",
       note: "",
     });
-    expect(apiMocks.setConfigDraftDefault).not.toHaveBeenCalled();
+    expect(apiMocks.setConfigDefault).not.toHaveBeenCalled();
   });
 
   it("turns keyed table cell changes into row updates", async () => {
@@ -197,9 +204,14 @@ describe("ConfigDraftEditor", () => {
     const seed = draftSeed();
 
     renderEditor(seed, undefined, {
+      id: "activation-4",
       generation: 4,
-      active_entry_id: "config-b",
-      active_entry_content_hash: HASH_B,
+      action: "activation",
+      entry_id: "config-b",
+      entry_content_hash: HASH_B,
+      operator: "Ada",
+      note: "",
+      recorded_at: "2026-07-24T08:10:00Z",
     });
 
     expect(screen.getByText(/default configuration changed/i)).toBeInTheDocument();
@@ -235,12 +247,16 @@ function draftSeed(): ConfigDraftSeed {
       registered_at: "2026-07-24T08:00:00Z",
       source: { kind: "direct_config_profile" },
       note: "",
-      status: "registered",
     },
     active: {
+      id: "activation-3",
       generation: 3,
-      active_entry_id: "config-a",
-      active_entry_content_hash: HASH_A,
+      action: "activation",
+      entry_id: "config-a",
+      entry_content_hash: HASH_A,
+      operator: "Ada",
+      note: "",
+      recorded_at: "2026-07-24T08:00:00Z",
     },
     config: snapshot(5, 6.5),
   };
@@ -257,7 +273,7 @@ function validPreview(
     valid: true,
     base_entry: seed.entry,
     base_generation: seed.active.generation,
-    base_content_hash: seed.active.active_entry_content_hash,
+    base_content_hash: seed.active.entry_content_hash,
     config,
     result_content_hash: HASH_B,
     deltas: [
@@ -271,7 +287,7 @@ function validPreview(
   };
 }
 
-function registrationReceipt(): ConfigDraftRegistrationReceipt {
+function registrationReceipt(): ConfigRevisionRegistrationReceipt {
   return {
     entry: {
       id: "config-a-edit",
@@ -286,25 +302,17 @@ function registrationReceipt(): ConfigDraftRegistrationReceipt {
         base_registry_generation: 3,
       },
       note: "",
-      status: "registered",
     },
-    result_content_hash: HASH_B,
     deltas: [],
   };
 }
 
-function defaultReceipt(): ConfigDraftDefaultReceipt {
+function defaultReceipt(): ConfigRevisionDefaultReceipt {
   const registered = registrationReceipt();
   const entryId = "profile-edit-bbbbbbbbbbbb";
   return {
     ...registered,
     entry: { ...registered.entry, id: entryId },
-    active_state: {
-      generation: 4,
-      active_entry_id: entryId,
-      active_entry_content_hash: HASH_B,
-      updated_at: "2026-07-24T08:10:00Z",
-    },
     activation: {
       id: "activation-4",
       generation: 4,
@@ -341,7 +349,7 @@ function snapshot(driveFrequency: number, readoutFrequency: number): ConfigProfi
             id: "drive.frequency",
             value_type: {
               shape: "scalar",
-              atom: { type: "quantity", unit: "GHz" },
+              atom: { type: "quantity", finite: true, unit: "GHz" },
             },
             description: "Drive frequency",
           },
@@ -359,7 +367,7 @@ function snapshot(driveFrequency: number, readoutFrequency: number): ConfigProfi
                 },
                 {
                   id: "frequency",
-                  value_type: { type: "float", minimum: 4, maximum: 8 },
+                  value_type: { type: "float", finite: true, minimum: 4, maximum: 8 },
                 },
               ],
               primary_key: ["entity"],

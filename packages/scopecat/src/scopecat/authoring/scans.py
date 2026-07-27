@@ -9,25 +9,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import cast, overload
 
 from scopecat.authoring._scan_intents import (
-    CartesianScanIntent as _CartesianScanIntent,
+    AroundScanSource as _AroundScanSource,
 )
 from scopecat.authoring._scan_intents import (
-    CenteredParameterScanIntent as _CenteredParameterScanIntent,
-)
-from scopecat.authoring._scan_intents import (
-    CenteredPointScanIntent as _CenteredPointScanIntent,
-)
-from scopecat.authoring._scan_intents import (
-    ExplicitParameterScanIntent as _ExplicitParameterScanIntent,
-)
-from scopecat.authoring._scan_intents import (
-    ExplicitPointScanIntent as _ExplicitPointScanIntent,
-)
-from scopecat.authoring._scan_intents import (
-    ImplicitScanCenter as _ImplicitScanCenter,
+    AxisSpec as _AxisSpec,
 )
 from scopecat.authoring._scan_intents import (
     Scan as Scan,
@@ -38,7 +27,9 @@ from scopecat.authoring._scan_intents import (
 from scopecat.authoring._scan_intents import (
     ScanValue as ScanValue,
 )
-from scopecat.authoring._scan_intents import iter_scan_leaves
+from scopecat.authoring._scan_intents import (
+    ValuesScanSource as _ValuesScanSource,
+)
 from scopecat.authoring._value_refs import (
     ValueRef,
     capture_runtime_input,
@@ -63,21 +54,22 @@ def axis(
 ) -> Scan:
     """Scan one typed point value over explicit values or around a center."""
 
-    _point_target_id(target)
+    axis_id, value_type = _point_target(target)
     selected_values = tuple(values)
     if selected_values and any(item is not None for item in (center, span, points)):
         msg = "scan axis accepts either values or center/span/points, not both"
         raise ValueError(msg)
     if selected_values:
-        _validate_scan_values(target, selected_values, unit=unit)
-        return _ExplicitPointScanIntent(
-            target=target,
-            values=tuple(
-                cast("ScanValue", capture_runtime_input(value))
-                for value in selected_values
+        return _AxisSpec(
+            id=axis_id,
+            value_type=_explicit_value_type(value_type, unit=unit),
+            source=_ValuesScanSource(
+                values=_capture_scan_values(target, selected_values, unit=unit),
             ),
-            unit=unit,
         )
+    if unit is not None:
+        msg = "scan axis unit is only valid with explicit values"
+        raise ValueError(msg)
     if center is None or span is None or points is None:
         if any(item is not None for item in (center, span, points)):
             msg = "scan axis around form requires center, span, and points"
@@ -95,38 +87,15 @@ def axis(
         if isinstance(center, ValueRef)
         else cast("Quantity", capture_runtime_input(center))
     )
-    return _CenteredPointScanIntent(
-        target=target,
-        center=captured_center,
-        span=captured_span,
-        points=points,
+    return _AxisSpec(
+        id=axis_id,
+        value_type=value_type,
+        source=_AroundScanSource(
+            center=captured_center,
+            span=captured_span,
+            points=points,
+        ),
     )
-
-
-def build_scan(
-    target: ValueRef | Scan,
-    values: Sequence[ScanValue] = (),
-    *,
-    unit: str | None = None,
-    center: ScanCenter | None = None,
-    span: Quantity | str | None = None,
-    points: int | None = None,
-) -> Scan:
-    """Normalize the shared fluent ``scan(...)`` call surface."""
-
-    if isinstance(target, Scan):
-        if values or any(item is not None for item in (unit, center, span, points)):
-            msg = "scan handle cannot be combined with scan construction arguments"
-            raise ValueError(msg)
-        return target
-    if values:
-        return axis(target, values, unit=unit)
-    if span is None or points is None:
-        msg = "scan requires values or span and points"
-        raise ValueError(msg)
-    if center is not None:
-        return axis(target, center=center, span=span, points=points)
-    return _implicit_around_axis(target, span=span, points=points)
 
 
 @overload
@@ -167,7 +136,7 @@ def param_axis(
     mutating accepted parameter state.
     """
 
-    _point_target_id(target)
+    axis_id, value_type = _point_target(target)
     if internal_value_ref_parameter_lookup(lookup) is None:
         msg = "parameter scan requires a direct scopecat.parameter_lookup"
         raise TypeError(msg)
@@ -179,15 +148,13 @@ def param_axis(
         msg = "parameter scan accepts either values or span/points, not both"
         raise ValueError(msg)
     if selected_values:
-        _validate_scan_values(target, selected_values, unit=unit)
-        return _ExplicitParameterScanIntent(
-            target=target,
-            lookup=lookup,
-            values=tuple(
-                cast("ScanValue", capture_runtime_input(value))
-                for value in selected_values
+        return _AxisSpec(
+            id=axis_id,
+            value_type=_explicit_value_type(value_type, unit=unit),
+            source=_ValuesScanSource(
+                values=_capture_scan_values(target, selected_values, unit=unit),
             ),
-            unit=unit,
+            parameter_lookup=lookup,
         )
     if span is None or points is None:
         if any(item is not None for item in (span, points)):
@@ -200,59 +167,43 @@ def param_axis(
         raise ValueError(msg)
     target_type = _validate_around_target(target, points=points)
     captured_span = _validate_scan_span(target_type, span)
-    return _CenteredParameterScanIntent(
-        target=target,
-        lookup=lookup,
-        span=captured_span,
-        points=points,
+    return _AxisSpec(
+        id=axis_id,
+        value_type=value_type,
+        source=_AroundScanSource(
+            center=lookup,
+            span=captured_span,
+            points=points,
+        ),
+        parameter_lookup=lookup,
     )
 
 
-def cartesian(*scans: Scan) -> Scan:
-    """Compose scans by a flat Cartesian product."""
-
-    if not scans:
-        msg = "cartesian scan group requires at least one scan"
-        raise ValueError(msg)
-    return _CartesianScanIntent(
-        scans=tuple(leaf for scan in scans for leaf in iter_scan_leaves(scan))
-    )
-
-
-def _implicit_around_axis(
-    target: ValueRef,
-    *,
-    span: Quantity | str,
-    points: int,
-) -> Scan:
-    _point_target_id(target)
-    target_type = _validate_around_target(target, points=points)
-    captured_span = _validate_scan_span(target_type, span)
-    return _CenteredPointScanIntent(
-        target=target,
-        center=_ImplicitScanCenter(),
-        span=captured_span,
-        points=points,
-    )
-
-
-def _point_target_id(target: ValueRef) -> str:
+def _point_target(target: ValueRef) -> tuple[str, Scalar]:
     point_id = internal_value_ref_point_id(target)
     if point_id is None:
-        msg = "scan target must be created with scopecat.point"
+        msg = "scan target must be created with scopecat.coordinate"
         raise TypeError(msg)
     if not isinstance(target.value_type, Scalar):
         msg = "scan target must carry a scalar value type"
         raise TypeError(msg)
-    return point_id
+    return point_id, target.value_type
 
 
-def _validate_scan_values(
+def _explicit_value_type(value_type: Scalar, *, unit: str | None) -> Scalar:
+    atom = value_type.atom
+    if unit is not None and isinstance(atom, QuantityType) and atom.unit is None:
+        return Scalar(replace(atom, unit=unit))
+    return value_type
+
+
+def _capture_scan_values(
     target: ValueRef,
     values: Sequence[ScanValue],
     *,
     unit: str | None,
-) -> None:
+) -> tuple[ScanValue, ...]:
+    captured: list[ScanValue] = []
     for index, value in enumerate(values):
         selected: object = value
         if unit is not None:
@@ -265,6 +216,8 @@ def _validate_scan_values(
             selected,
             path=("scan", "values", index),
         )
+        captured.append(cast("ScanValue", capture_runtime_input(selected)))
+    return tuple(captured)
 
 
 def _validate_around_scan(
@@ -371,6 +324,5 @@ __all__ = [
     "ScanCenter",
     "ScanValue",
     "axis",
-    "cartesian",
     "param_axis",
 ]

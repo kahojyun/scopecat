@@ -26,10 +26,12 @@ def test_default_scan_center_rejects_external_operation() -> None:
 
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call).scan(
-            target,
-            center=center.output,
-            span=sc.Quantity(value=0.1, unit="GHz"),
-            points=3,
+            sc.axis(
+                target,
+                center=center.output,
+                span=sc.Quantity(value=0.1, unit="GHz"),
+                points=3,
+            )
         )
 
     template = sc.template(id="test.scan-stage.default", kind="scan-stage")(
@@ -59,10 +61,12 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
         return sc.experiment(call)
 
     invocation = template_definition().scan(
-        target,
-        center=center.output,
-        span=sc.Quantity(value=0.1, unit="GHz"),
-        points=3,
+        sc.axis(
+            target,
+            center=center.output,
+            span=sc.Quantity(value=0.1, unit="GHz"),
+            points=3,
+        )
     )
 
     with pytest.raises(CheckFailed) as error:

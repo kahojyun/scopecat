@@ -22,10 +22,6 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.execution.observation import (
-    RuntimeEventSink,
-    RuntimePayloadObserver,
-)
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.service import PlannedRun, plan_scratch_experiment
@@ -52,8 +48,6 @@ class _DaemonRunner:
         *,
         executor_id: str = "notebook",
         submission_id: str | None = None,
-        event_sink: RuntimeEventSink | None = None,
-        payload_observer: RuntimePayloadObserver | None = None,
     ) -> RunManifest:
         """Admit a plan remotely while executing its Python closures locally."""
 
@@ -80,8 +74,6 @@ class _DaemonRunner:
                 instrument_provider=(
                     None if planned.system is None else planned.system.provider
                 ),
-                event_sink=event_sink,
-                payload_observer=payload_observer,
             )
         finally:
             heartbeat.close()
@@ -99,8 +91,6 @@ class _DaemonRunner:
         operator: str | None = None,
         executor_id: str = "notebook",
         submission_id: str | None = None,
-        event_sink: RuntimeEventSink | None = None,
-        payload_observer: RuntimePayloadObserver | None = None,
     ) -> RunManifest:
         planned = self._plan(
             experiment,
@@ -116,8 +106,6 @@ class _DaemonRunner:
             planned,
             executor_id=executor_id,
             submission_id=submission_id,
-            event_sink=event_sink,
-            payload_observer=payload_observer,
         )
 
     def preview(
@@ -164,7 +152,7 @@ class _DaemonRunner:
                 entry_id=active.entry.id,
                 config_ref=active.entry.config_ref,
                 content_hash=active.entry.content_hash,
-                registry_generation=active.active_state.generation,
+                registry_generation=active.activation.generation,
             )
         else:
             selected_config = config

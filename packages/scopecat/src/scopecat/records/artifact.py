@@ -27,7 +27,6 @@ class RunContentEntry(BaseModel):
     title: str | None = None
     media_type: str | None = None
     filename: str | None = None
-    dataset_role: str | None = None
     data_schema: dict[str, object] | None = Field(default=None, alias="schema")
     content_hash: str = Field(min_length=1)
     produced_by: str | None = None

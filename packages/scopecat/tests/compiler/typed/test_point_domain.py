@@ -7,7 +7,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-import scopecat.compiler.typed.point_domain as point_domain_module
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
@@ -33,12 +32,10 @@ from scopecat.graph.relations.model import (
     point_col,
 )
 from scopecat.graph.relations.point_domain import (
-    POINT_UNIT,
     PointAxis,
     iter_point_axis_linear,
     point_axis_linear,
     point_axis_values,
-    point_product,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
@@ -94,7 +91,7 @@ def _domain(
     value_type: Scalar = _INT,
 ) -> PointDomain:
     return PointDomain(
-        root=_axis("x", values, value_type=value_type),
+        axes=(_axis("x", values, value_type=value_type),),
         id=domain_id,
     )
 
@@ -134,7 +131,7 @@ def test_explicit_axis_identity_is_exact_ordinal_and_repeatable(
 
 
 def test_unit_materializes_one_empty_point() -> None:
-    verified = _verify(PointDomain(root=POINT_UNIT), program_id="program")
+    verified = _verify(PointDomain(axes=()), program_id="program")
     materialized = materialize_point_domain(verified, ParameterRelationData())
 
     assert verified.cardinality == 1
@@ -146,13 +143,12 @@ def test_zero_length_explicit_axis_remains_an_empty_domain() -> None:
     materialized = materialize_point_domain(verified, ParameterRelationData())
 
     assert verified.cardinality == 0
-    assert verified.value_type.min_rows == verified.value_type.max_rows == 0
     assert materialized.points == ()
 
 
 def test_product_materialization_is_left_major() -> None:
     domain = PointDomain(
-        root=point_product(
+        axes=(
             _axis("left", (1, 2)),
             _axis("right", (3, 4)),
         )
@@ -179,12 +175,14 @@ def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
     )
     verified = _verify(
         PointDomain(
-            root=point_axis_linear(
-                "delay",
-                _TIME,
-                center,
-                _quantity(4.0),
-                3,
+            axes=(
+                point_axis_linear(
+                    "delay",
+                    _TIME,
+                    center,
+                    _quantity(4.0),
+                    3,
+                ),
             )
         ),
         program_id="program",
@@ -195,9 +193,9 @@ def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
         ParameterRelationData(scalars={"center": _quantity(10.0)}),
     )
 
-    [(path, source)] = iter_point_axis_linear(verified.root)
-    assert source.center.id == center.id
-    assert path == ()
+    [(path, source)] = iter_point_axis_linear(verified.axes)
+    assert source.center.value.plan is center.value.plan
+    assert path == ("axes", 0)
     assert [point.row for point in materialized.points] == [
         {"delay": _quantity(8.0)},
         {"delay": _quantity(10.0)},
@@ -215,12 +213,14 @@ def test_dynamic_center_evaluation_errors_report_the_center_path() -> None:
     )
     verified = _verify(
         PointDomain(
-            root=point_axis_linear(
-                "delay",
-                _TIME,
-                center,
-                _quantity(2.0),
-                3,
+            axes=(
+                point_axis_linear(
+                    "delay",
+                    _TIME,
+                    center,
+                    _quantity(2.0),
+                    3,
+                ),
             )
         )
     )
@@ -228,12 +228,12 @@ def test_dynamic_center_evaluation_errors_report_the_center_path() -> None:
     with pytest.raises(PointDomainEvaluationError) as caught:
         materialize_point_domain(verified, ParameterRelationData())
 
-    assert caught.value.path == ("source", "center")
+    assert caught.value.path == ("axes", 0, "source", "center")
 
 
 def test_duplicate_columns_fail_during_typed_verification() -> None:
     domain = PointDomain(
-        root=point_product(
+        axes=(
             _axis("same", (1,)),
             _axis("same", (2,)),
         )
@@ -260,12 +260,14 @@ def test_linear_center_rejects_an_unresolved_input() -> None:
     with pytest.raises(PointDomainVerificationError) as caught:
         _verify(
             PointDomain(
-                root=point_axis_linear(
-                    "delay",
-                    _TIME,
-                    center,
-                    _quantity(2.0),
-                    3,
+                axes=(
+                    point_axis_linear(
+                        "delay",
+                        _TIME,
+                        center,
+                        _quantity(2.0),
+                        3,
+                    ),
                 )
             )
         )
@@ -273,7 +275,7 @@ def test_linear_center_rejects_an_unresolved_input() -> None:
     assert [issue.code for issue in caught.value.issues] == [
         "point_axis_center_open_input"
     ]
-    assert caught.value.issues[0].path == ("source", "center")
+    assert caught.value.issues[0].path == ("axes", 0, "source", "center")
 
 
 def test_linear_center_rejects_a_point_dependency() -> None:
@@ -290,20 +292,22 @@ def test_linear_center_rejects_a_point_dependency() -> None:
     with pytest.raises(PointDomainVerificationError) as caught:
         _verify(
             PointDomain(
-                root=point_axis_linear(
-                    "delay",
-                    _TIME,
-                    center,
-                    _quantity(2.0),
-                    3,
+                axes=(
+                    point_axis_linear(
+                        "delay",
+                        _TIME,
+                        center,
+                        _quantity(2.0),
+                        3,
+                    ),
                 )
             )
         )
 
     assert [issue.code for issue in caught.value.issues] == [
-        "point_axis_center_open_row_interface"
+        "point_axis_center_open_point"
     ]
-    assert caught.value.issues[0].path == ("source", "center")
+    assert caught.value.issues[0].path == ("axes", 0, "source", "center")
 
 
 def test_materialization_coerces_normalized_rows_before_assigning_ids() -> None:
@@ -334,10 +338,12 @@ def test_invalid_literal_or_normalized_cell_has_a_value_validation_error() -> No
 
 def test_entity_columns_are_derived_from_exact_point_schema() -> None:
     domain = PointDomain(
-        root=_axis(
-            "qubit",
-            (EntityRef(id="q0", kind="qubit"),),
-            value_type=_ENTITY,
+        axes=(
+            _axis(
+                "qubit",
+                (EntityRef(id="q0", kind="qubit"),),
+                value_type=_ENTITY,
+            ),
         )
     )
 
@@ -347,28 +353,6 @@ def test_entity_columns_are_derived_from_exact_point_schema() -> None:
     assert verified.entity_columns == ("qubit",)
     assert [column.id for column in verified.coordinate_columns] == ["qubit"]
     assert materialized.points[0].row == {"qubit": EntityRef(id="q0", kind="qubit")}
-
-
-def test_verified_schema_projections_reuse_cached_analysis(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    verified = _verify(
-        PointDomain(
-            root=_axis(
-                "qubit",
-                (EntityRef(id="q0", kind="qubit"),),
-                value_type=_ENTITY,
-            )
-        )
-    )
-
-    def reject_analysis(_root: object) -> object:
-        raise AssertionError("verified schema projections must not reanalyze the root")
-
-    monkeypatch.setattr(point_domain_module, "analyze_point_domain", reject_analysis)
-
-    assert verified.entity_columns == ("qubit",)
-    assert verified.coordinate_columns == verified.value_type.columns
 
 
 def test_domain_namespace_and_ordinal_define_logical_identity() -> None:

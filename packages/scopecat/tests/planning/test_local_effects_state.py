@@ -22,9 +22,6 @@ from tests.testkit.materialized_effects import (
     materialized_state_fields,
 )
 from tests.testkit.parameter_fixtures import (
-    PARAMETER_TYPES,
-)
-from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
 )
 from tests.testkit.relation_plans import state_field
@@ -41,7 +38,7 @@ def _point_domain(
     values: tuple[CellValue, ...],
 ) -> PointDomain:
     return PointDomain(
-        root=point_axis_values(column_id, value_type, values),
+        axes=(point_axis_values(column_id, value_type, values),),
     )
 
 
@@ -49,7 +46,6 @@ def _point_bindings(
     points: PointDomain,
 ) -> RelationTypeBindings:
     return RelationTypeBindings(
-        parameters=PARAMETER_TYPES,
         point_row=RowType.from_table(points.value_type),
     )
 
