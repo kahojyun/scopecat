@@ -192,6 +192,7 @@ pythonpath = [
 strict_config = true
 strict_markers = true
 testpaths = [
+  "examples/instruments/tests",
   "examples/quantum/tests/test_first_use.py",
   "packages/scopecat-instruments/tests",
   "packages/scopecat-quantum/tests",

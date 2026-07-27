@@ -1,9 +1,10 @@
 # Scopecat Virtual Instrument Lab
 
-This project is a hardware-free tour of direct instrument control. Its RF
-source, DC source, temperature monitor, and VNA use the same capability
-contracts as the first-party real drivers. They share one deterministic virtual
-world, so enabled bias and RF power affect temperature and the VNA response.
+This project is a hardware-free tour of both direct instrument control and a
+complete measurement workflow. Its RF source, DC source, temperature monitor,
+and VNA use the same capability contracts as the first-party real drivers. They
+share one deterministic virtual world, so enabled bias and RF power affect
+temperature and the VNA response.
 
 ## Start the GUI
 
@@ -34,6 +35,37 @@ The script reserves three devices together, enables a virtual flux bias, reads
 the resulting mixing-chamber telemetry, collects a complex VNA trace, and then
 disables the bias output. It does not create an experiment run: direct
 interaction is an independent daemon-owned workflow.
+
+## Run resonator flux spectroscopy
+
+The second notebook uses the normal experiment API:
+
+```sh
+uv run python examples/instruments/notebooks/02_flux_spectroscopy.py
+```
+
+It calls `lab.prepare(flux_spectroscopy_template()).run()`, scans eleven DC-bias
+points, and stores a VNA frequency axis, complex S21 trace, and mixing-chamber
+temperature at every point. Its analysis extracts the resonance frequency and
+loaded linewidth, saves fit tables and a flux-map figure descriptor, and
+creates a reviewable configuration proposal for
+`readout_resonance_frequency` and `readout_resonator_linewidth`. The notebook
+does not accept that proposal automatically.
+
+The experiment declares only the logical resources `flux-source`,
+`mixing-chamber`, and `readout-vna` plus their capabilities. It has no driver or
+vendor imports, so the same experiment can be routed to compatible real
+instruments. The intended path explicitly disables the flux output after each
+acquisition. The demo provider also enforces bias-off during cleanup or abort,
+which covers an acquisition failure before the final experiment effect runs.
+
+Run the example-level checks with:
+
+```sh
+uv run pytest examples/instruments/tests
+uv run ruff check examples/instruments
+uv run basedpyright examples/instruments
+```
 
 Connection edits in the GUI publish a new immutable configuration revision.
 The four defaults use `virtual` connections; change one to a supported real

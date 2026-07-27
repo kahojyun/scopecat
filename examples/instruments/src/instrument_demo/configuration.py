@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from scopecat.authoring import QuantityType, ScalarType
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentRegistry,
     InstrumentSpec,
+    RoutingEndpointBinding,
+    RoutingGraph,
     SystemSpec,
     Topology,
     VirtualInstrumentConnection,
@@ -14,14 +18,19 @@ from scopecat.records.config import (
 )
 from scopecat.records.parameter import (
     ParameterCatalog,
+    ParameterDefinition,
     ParameterSnapshot,
+    ScalarParameterValue,
 )
-from scopecat_instruments import (
+from scopecat_instruments.provider import (
     VIRTUAL_DC_SOURCE,
     VIRTUAL_RF_SOURCE,
     VIRTUAL_TEMPERATURE_MONITOR,
     VIRTUAL_VNA,
 )
+
+RESONANCE_FREQUENCY_PARAMETER_ID = "readout_resonance_frequency"
+RESONATOR_LINEWIDTH_PARAMETER_ID = "readout_resonator_linewidth"
 
 
 def bootstrap_config() -> ConfigProfileSnapshot:
@@ -39,35 +48,76 @@ def bootstrap_config() -> ConfigProfileSnapshot:
                 instruments=[
                     _virtual_instrument(
                         "pump-source",
-                        kind="rf_source",
                         driver_id=VIRTUAL_RF_SOURCE,
                     ),
                     _virtual_instrument(
                         "flux-source",
-                        kind="dc_source",
                         driver_id=VIRTUAL_DC_SOURCE,
                     ),
                     _virtual_instrument(
                         "mixing-chamber",
-                        kind="temperature_monitor",
                         driver_id=VIRTUAL_TEMPERATURE_MONITOR,
                     ),
                     _virtual_instrument(
                         "readout-vna",
-                        kind="vector_network_analyzer",
                         driver_id=VIRTUAL_VNA,
+                    ),
+                ]
+            ),
+            routing=RoutingGraph(
+                bindings=[
+                    RoutingEndpointBinding(
+                        instrument_id="pump-source",
+                        capability="rf_output",
+                    ),
+                    RoutingEndpointBinding(
+                        instrument_id="flux-source",
+                        capability="dc_output",
+                    ),
+                    RoutingEndpointBinding(
+                        instrument_id="mixing-chamber",
+                        capability="temperature_readout",
+                    ),
+                    RoutingEndpointBinding(
+                        instrument_id="readout-vna",
+                        capability="network_sweep",
                     ),
                 ]
             ),
             domain_target=None,
             parameter_catalog=ParameterCatalog(
                 id="virtual-instrument-parameters",
-                definitions=[],
+                definitions=[
+                    ParameterDefinition(
+                        id=RESONANCE_FREQUENCY_PARAMETER_ID,
+                        value_type=ScalarType(QuantityType(unit="Hz")),
+                        description=(
+                            "Reviewed readout-resonator frequency at the selected "
+                            "flux sweet spot."
+                        ),
+                    ),
+                    ParameterDefinition(
+                        id=RESONATOR_LINEWIDTH_PARAMETER_ID,
+                        value_type=ScalarType(QuantityType(unit="Hz")),
+                        description=(
+                            "Reviewed loaded linewidth of the readout resonator."
+                        ),
+                    ),
+                ],
             ),
         ),
         parameter_snapshot=ParameterSnapshot(
             id="virtual-instrument-values",
-            values=[],
+            values=[
+                ScalarParameterValue(
+                    id=RESONANCE_FREQUENCY_PARAMETER_ID,
+                    value=Quantity(5.0e9, "Hz"),
+                ),
+                ScalarParameterValue(
+                    id=RESONATOR_LINEWIDTH_PARAMETER_ID,
+                    value=Quantity(2.0e6, "Hz"),
+                ),
+            ],
         ),
     )
 
@@ -75,15 +125,17 @@ def bootstrap_config() -> ConfigProfileSnapshot:
 def _virtual_instrument(
     instrument_id: str,
     *,
-    kind: str,
     driver_id: str,
 ) -> InstrumentSpec:
     return InstrumentSpec(
         id=instrument_id,
-        kind=kind,
         driver_id=driver_id,
         connection=VirtualInstrumentConnection(),
     )
 
 
-__all__ = ["bootstrap_config"]
+__all__ = [
+    "RESONANCE_FREQUENCY_PARAMETER_ID",
+    "RESONATOR_LINEWIDTH_PARAMETER_ID",
+    "bootstrap_config",
+]
