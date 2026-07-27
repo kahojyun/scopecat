@@ -26,7 +26,6 @@ from scopecat.execution.local.program import (
 from scopecat.graph.relations.model import (
     CellValue,
     parameter_lookup,
-    point_col,
 )
 from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.graph.values import (
@@ -38,7 +37,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Int, Payload, Scalar, String
+from scopecat.kernel.value_types import Int, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
@@ -72,7 +71,7 @@ def _point_domain(
     values: tuple[CellValue, ...],
 ) -> PointDomain:
     return PointDomain(
-        root=point_axis_values(column_id, value_type, values),
+        axes=(point_axis_values(column_id, value_type, values),),
     )
 
 
@@ -112,12 +111,10 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         parameter_overlays=[
             overlay_parameter_cell(
                 "readout_devices",
+                row_index=0,
                 key={"device_id": "r0"},
-                key_types={"device_id": Scalar(String())},
                 column_id="frequency",
-                value=point_col("readout_frequency"),
-                value_type=Scalar(QuantityType(unit="GHz")),
-                bindings=bindings,
+                axis_id="readout_frequency",
             )
         ],
         state=[

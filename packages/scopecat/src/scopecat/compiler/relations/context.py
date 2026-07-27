@@ -128,9 +128,16 @@ class ParameterRelationData:
         )
 
     def lookup_row(self, table_id: str, key: Mapping[str, CellValue]) -> Row:
+        return self.table_rows(table_id)[self.lookup_row_index(table_id, key)]
+
+    def lookup_row_index(
+        self,
+        table_id: str,
+        key: Mapping[str, CellValue],
+    ) -> int:
         matches = [
-            row
-            for row in self.table_rows(table_id)
+            row_index
+            for row_index, row in enumerate(self.table_rows(table_id))
             if all(
                 cell_matches(row.get(column), value) for column, value in key.items()
             )

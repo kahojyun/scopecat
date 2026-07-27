@@ -90,10 +90,8 @@ def test_run_request_records_canonical_scans_only() -> None:
     request = RunRequest(
         scans=[
             PointScanRecord(
-                target_id="drive_frequency",
                 axis_id="drive_frequency",
                 values=[5.0, 5.1],
-                unit="GHz",
             )
         ],
     )
@@ -106,10 +104,8 @@ def test_run_request_records_canonical_scans_only() -> None:
     assert restored.model_dump(mode="json")["scans"] == [
         {
             "kind": "point",
-            "target_id": "drive_frequency",
             "axis_id": "drive_frequency",
             "values": [5.0, 5.1],
-            "unit": "GHz",
         }
     ]
     with pytest.raises(ValidationError):
@@ -118,7 +114,6 @@ def test_run_request_records_canonical_scans_only() -> None:
                 "scans": [
                     {
                         "kind": "point",
-                        "target_id": "drive_frequency",
                         "axis_id": "drive_frequency",
                         "values": [5.0],
                         "input_id": "frequencies",
@@ -132,9 +127,7 @@ def test_run_request_records_canonical_scans_only() -> None:
                 "scans": [
                     {
                         "kind": "point",
-                        "target_id": "drive_frequency",
                         "axis_id": "drive_frequency",
-                        "unit": "GHz",
                     }
                 ],
             }
@@ -168,7 +161,6 @@ def test_run_request_values_have_a_closed_durable_domain() -> None:
             "scans": [
                 {
                     "kind": "scan",
-                    "target_id": "drive_frequency",
                     "axis_id": "drive_frequency",
                     "center": {
                         "kind": "parameter",
@@ -244,19 +236,19 @@ def test_run_request_symbolic_values_are_closed_and_recursive() -> None:
     center = {
         "kind": "binary",
         "operator": "+",
-        "left": {"kind": "input", "input_id": "frequency_offset"},
+        "left": {
+            "kind": "parameter",
+            "parameter_id": "frequency_offset",
+        },
         "right": {
             "kind": "parameter_lookup",
             "table_id": "device_parameters",
-            "key": {
-                "subject": {"kind": "axis", "axis_id": "subject"},
-            },
+            "key": {"subject": "q0"},
             "column": "frequency",
         },
     }
     scan = AroundScanRecord.model_validate(
         {
-            "target_id": "drive_frequency",
             "axis_id": "drive_frequency",
             "center": center,
             "span": Quantity(value=100.0, unit="MHz"),
@@ -287,7 +279,6 @@ def test_scan_records_reject_unknown_or_structured_scalar_values() -> None:
     with pytest.raises(ValidationError):
         AroundScanRecord.model_validate(
             {
-                "target_id": "drive_frequency",
                 "axis_id": "drive_frequency",
                 "center": {"kind": "unknown", "value": 5.0},
                 "span": 1.0,
@@ -297,7 +288,6 @@ def test_scan_records_reject_unknown_or_structured_scalar_values() -> None:
     with pytest.raises(ValidationError):
         PointScanRecord.model_validate(
             {
-                "target_id": "drive_frequency",
                 "axis_id": "drive_frequency",
                 "values": [{"arbitrary": "mapping"}],
             }

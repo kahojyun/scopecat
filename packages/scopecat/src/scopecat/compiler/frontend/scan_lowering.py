@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
-from typing import cast
 
 from scopecat.authoring._scan_intents import (
     AroundScanSource,
@@ -23,23 +21,13 @@ from scopecat.compiler.frontend.request_values import (
     project_run_request_value,
 )
 from scopecat.compiler.frontend.value_binding import bind_scalar_input_refs
-from scopecat.graph.relations.model import (
-    CellValue,
-    ScalarExpr,
-    as_scalar_expr,
-    param,
-)
+from scopecat.graph.relations.model import ScalarExpr, as_scalar_expr
 from scopecat.graph.relations.point_domain import (
-    POINT_UNIT,
+    PointAxes,
     PointAxis,
-    PointDomainExpr,
     point_axis_linear,
     point_axis_values,
-    point_product,
 )
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.kernel.value_types import Scalar
 from scopecat.records.run_request import (
     AroundScanRecord,
     ParameterAroundScanRecord,
@@ -60,12 +48,12 @@ def _lower_scan_axis(
     if isinstance(source, ValuesScanSource):
         return point_axis_values(
             axis.id,
-            _scan_point_value_type(axis),
-            _scan_axis_values(source.values, unit=source.unit),
+            axis.value_type,
+            source.values,
         )
     return point_axis_linear(
         axis.id,
-        _scan_point_value_type(axis),
+        axis.value_type,
         _lower_scan_center_value_ref(axis, inputs=inputs),
         source.span,
         source.points,
@@ -76,16 +64,10 @@ def lower_scans_point_domain(
     scans: Sequence[AxisSpec],
     *,
     inputs: Mapping[str, object] | None = None,
-) -> PointDomainExpr[ValueRef]:
-    """Lower flat scan axes as one declaration-ordered Cartesian product."""
+) -> PointAxes[ValueRef]:
+    """Lower scans to declaration-ordered axes."""
 
-    domain: PointDomainExpr[ValueRef] = POINT_UNIT
-    for scan in scans:
-        domain = point_product(
-            domain,
-            _lower_scan_axis(scan, inputs=inputs),
-        )
-    return domain
+    return tuple(_lower_scan_axis(scan, inputs=inputs) for scan in scans)
 
 
 def project_scan_record(
@@ -96,22 +78,19 @@ def project_scan_record(
     """Project scan intent into the closed durable request value domain."""
 
     source = axis.source
-    if axis.overlay is None:
+    if axis.parameter_lookup is None:
         if isinstance(source, ValuesScanSource):
             return PointScanRecord.model_validate(
                 {
-                    "target_id": axis.id,
                     "axis_id": axis.id,
                     "values": [
                         _request_scalar_value(value, inputs=inputs)
                         for value in source.values
                     ],
-                    "unit": source.unit,
                 }
             )
         return AroundScanRecord.model_validate(
             {
-                "target_id": axis.id,
                 "axis_id": axis.id,
                 "center": project_run_request_scalar(
                     _lower_scan_center(axis, inputs=inputs)
@@ -129,7 +108,6 @@ def project_scan_record(
                     _request_scalar_value(value, inputs=inputs)
                     for value in source.values
                 ],
-                "unit": source.unit,
             }
         )
     return ParameterAroundScanRecord.model_validate(
@@ -157,31 +135,6 @@ def _parameter_scan_record_fields(
     }
 
 
-def _scan_point_value_type(axis: AxisSpec) -> Scalar:
-    value_type = axis.value_type
-    source = axis.source
-    unit = source.unit if isinstance(source, ValuesScanSource) else None
-    if (
-        unit is not None
-        and isinstance(value_type.atom, QuantityType)
-        and value_type.atom.unit is None
-    ):
-        return Scalar(replace(value_type.atom, unit=unit))
-    return value_type
-
-
-def _scan_axis_values(
-    values: tuple[CellValue, ...],
-    *,
-    unit: str | None,
-) -> tuple[CellValue, ...]:
-    if unit is None:
-        return values
-    return tuple(
-        Quantity(value=float(cast("int | float", value)), unit=unit) for value in values
-    )
-
-
 def _lower_scan_center(
     axis: AxisSpec,
     *,
@@ -191,8 +144,6 @@ def _lower_scan_center(
     assert isinstance(source, AroundScanSource)
     if isinstance(source.center, ValueRef):
         expression = internal_lower_scalar_value_ref(source.center)
-    elif source.center is None:
-        expression = param(axis.id)
     else:
         expression = as_scalar_expr(source.center)
     if inputs is None:
@@ -207,9 +158,10 @@ def _lower_scan_center_value_ref(
 ) -> ValueRef:
     source = axis.source
     assert isinstance(source, AroundScanSource)
-    center = source.center if isinstance(source.center, ValueRef) else None
     center_type = (
-        cast("Scalar", center.value_type) if center is not None else axis.value_type
+        source.center.value_type
+        if isinstance(source.center, ValueRef)
+        else axis.value_type
     )
     return internal_value_ref_from_expression(
         _lower_scan_center(axis, inputs=inputs),

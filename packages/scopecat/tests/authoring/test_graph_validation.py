@@ -456,7 +456,7 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
 
     verify_assembly_graph(
         SemanticExperimentIR(
-            point_domain=point_source,
+            point_domain=(point_source,),
             product_declarations=(ModuleProductDecl(id="payload"),),
             record_selections=(record_product("payload"),),
         )
@@ -473,7 +473,7 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(
             SemanticExperimentIR(
-                point_domain=point_source,
+                point_domain=(point_source,),
                 product_declarations=(ModuleProductDecl(id="coordinate"),),
                 record_selections=(record_product("coordinate"),),
             )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -11,14 +10,12 @@ from scopecat.api.run import (
     RunOperations,
     run_handle_id,
 )
-from scopecat.authoring._value_refs import ValueRef
-from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
+from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplate
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.quantity import Quantity
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystem
@@ -48,24 +45,11 @@ class InProcessPreparedExperiment:
 
     def scan(
         self,
-        target: ValueRef | Scan,
-        values: Sequence[ScanValue] = (),
-        *,
-        unit: str | None = None,
-        center: ScanCenter | None = None,
-        span: Quantity | str | None = None,
-        points: int | None = None,
+        *scans: Scan,
     ) -> InProcessPreparedExperiment:
         return replace(
             self,
-            invocation=self.invocation.scan(
-                target,
-                values,
-                unit=unit,
-                center=center,
-                span=span,
-                points=points,
-            ),
+            invocation=self.invocation.scan(*scans),
         )
 
     def check(self) -> ExperimentCheckResult:

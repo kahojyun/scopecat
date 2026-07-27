@@ -160,6 +160,7 @@ def _bind_verified_assembly(
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(
                 parameter_catalog,
+                static_evaluator,
                 intent,
                 inputs,
                 type_bindings=type_bindings,

@@ -25,7 +25,6 @@ from scopecat.execution.local.program import (
     StateTarget,
 )
 from scopecat.graph.relations.model import lit
-from scopecat.graph.relations.point_domain import POINT_UNIT
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
@@ -98,7 +97,7 @@ def _unit_program(
     return typed_program(
         id=experiment_id,
         kind="resource_effect_regression",
-        point_domain=PointDomain(root=POINT_UNIT),
+        point_domain=PointDomain(axes=()),
         resource_requirements=resource_requirements,
         state=state,
         product_defs=products,

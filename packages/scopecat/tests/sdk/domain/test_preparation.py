@@ -84,7 +84,7 @@ def _preparation_context(
         results={"raw": module.products["raw"]},
     )
     module_call = module.domain(execution).build()()
-    body = sc.experiment(module_call).scan(count, (1, 3))
+    body = sc.experiment(module_call).scan(sc.axis(count, (1, 3)))
     if shared_product_uses:
         body = body.record_product(
             module_call.products.raw,

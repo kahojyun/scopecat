@@ -26,7 +26,7 @@ from scopecat.authoring._module_handles import (
 )
 from scopecat.authoring._products import ProductRef, RecordSelection, record_product
 from scopecat.authoring._value_refs import ValueRef, empty_frozen_mapping
-from scopecat.authoring.scans import Scan, ScanCenter, ScanValue, build_scan
+from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
     ExperimentDefinition,
     ExperimentInvocation,
@@ -89,27 +89,11 @@ class ExperimentBody:
 
     def scan(
         self,
-        target: ValueRef | Scan,
-        values: Sequence[ScanValue] = (),
-        *,
-        unit: str | None = None,
-        center: ScanCenter | None = None,
-        span: QuantityValue | str | None = None,
-        points: int | None = None,
+        *scans: Scan,
     ) -> ExperimentBody:
         return replace(
             self,
-            scans=(
-                *self.scans,
-                build_scan(
-                    target,
-                    values,
-                    unit=unit,
-                    center=center,
-                    span=span,
-                    points=points,
-                ),
-            ),
+            scans=(*self.scans, *scans),
         )
 
     def record_product(

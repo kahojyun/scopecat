@@ -439,14 +439,13 @@ def test_compute_function_signature_must_match_explicit_inputs() -> None:
         )
 
 
-def test_template_can_scan_any_entity_input() -> None:
-    qubit = authoring.input(
+def test_template_can_scan_entity_points() -> None:
+    qubit = sc.coordinate(
         "qubit",
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
         authoring.module_body(id="test.entity_scan_module")
-        .inputs(qubit)
         .resource("source", requires=("scalar_signal",))
         .product("signal", unit="ratio")
         .acquire(
@@ -463,7 +462,7 @@ def test_template_can_scan_any_entity_input() -> None:
         kind="entity_scan",
         scans=(
             sc.axis(
-                sc.coordinate("qubit", authoring.ScalarType(authoring.EntityType())),
+                qubit,
                 [EntityRef(id="q0", kind="logical_device")],
             ),
         ),
@@ -563,13 +562,12 @@ def test_entity_scan_selects_resource_entities_per_point() -> None:
         }
     )
     config = seed_config.model_copy(update={"system": system})
-    qubit = authoring.input(
+    qubit = sc.coordinate(
         "qubit",
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
         authoring.module_body(id="test.entity_scan_selection")
-        .inputs(qubit)
         .resource(
             "drive",
             requires=("set_frequency",),
@@ -596,7 +594,7 @@ def test_entity_scan_selects_resource_entities_per_point() -> None:
         kind="entity_scan_selection",
         scans=(
             sc.axis(
-                sc.coordinate("qubit", authoring.ScalarType(authoring.EntityType())),
+                qubit,
                 [
                     EntityRef(id="q0", kind="logical_device"),
                     EntityRef(id="q1", kind="logical_device"),
@@ -731,13 +729,12 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
     config = seed_config.model_copy(
         update={"system": system, "parameter_snapshot": parameter_snapshot}
     )
-    qubit = authoring.input(
+    qubit = sc.coordinate(
         "qubit",
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
         authoring.module_body(id="test.runtime_entity_scan")
-        .inputs(qubit)
         .resource(
             "drive",
             requires=("set_frequency",),
@@ -772,13 +769,10 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
 
     resolved = link_invocation(
         template.bind().scan(
-            sc.coordinate(
-                "qubit",
-                authoring.ScalarType(
-                    authoring.EntityType(entity_kind="logical_device")
-                ),
-            ),
-            ["q0", "q1"],
+            sc.axis(
+                qubit,
+                ["q0", "q1"],
+            )
         ),
         config_profile=config,
     )
@@ -1559,10 +1553,12 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
             id="test.scripted_scan",
             kind="simple_scan",
         ).scan(
-            DRIVE_FREQUENCY_POINT,
-            center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=5,
+            sc.axis(
+                DRIVE_FREQUENCY_POINT,
+                center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+            )
         ),
         config_profile=load_config(),
     )
@@ -1615,10 +1611,12 @@ def test_product_declaration_uses_axes() -> None:
             id="test.record_axes",
             kind="simple_scan",
         ).scan(
-            DRIVE_FREQUENCY_POINT,
-            center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=5,
+            sc.axis(
+                DRIVE_FREQUENCY_POINT,
+                center=sc.parameter("drive_frequency", _QUANTITY_VALUE),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+            )
         ),
         config_profile=load_config(),
     )

@@ -39,7 +39,7 @@ from scopecat.graph.relations.model import (
     lit,
     point_col,
 )
-from scopecat.graph.relations.point_domain import point_axis_values, point_product
+from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.graph.values import (
     ComputeOutput,
     OperationId,
@@ -752,7 +752,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
-def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
+def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     calls: list[Quantity] = []
 
     def build_program(*, value: object) -> dict[str, object]:
@@ -779,10 +779,10 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="cached-compute-run",
-        kind="cached_compute",
+        id="per-point-compute-run",
+        kind="per_point_compute",
         point_domain=PointDomain(
-            root=point_product(
+            axes=(
                 point_axis_values(
                     "frequency",
                     slow_axis_type.columns[0].value_type,
@@ -856,6 +856,10 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     assert manifest.status == "completed"
     assert calls == [
         Quantity(value=4.9, unit="GHz"),
+        Quantity(value=4.9, unit="GHz"),
+        Quantity(value=4.9, unit="GHz"),
+        Quantity(value=5.1, unit="GHz"),
+        Quantity(value=5.1, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
     assert len(instrument.applied) == 2

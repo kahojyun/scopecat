@@ -13,7 +13,6 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
-from scopecat.graph.relations.point_domain import POINT_UNIT
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductUse,
@@ -66,7 +65,7 @@ def _program(
     return CoreProgram(
         id="product-ir",
         kind="compiler_test",
-        point_domain=PointDomain(root=POINT_UNIT),
+        point_domain=PointDomain(axes=()),
         resource_requirements=tuple(
             LogicalResourceRequirement(
                 port_id=port_id,

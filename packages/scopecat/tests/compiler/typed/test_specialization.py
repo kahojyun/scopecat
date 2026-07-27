@@ -35,18 +35,13 @@ from scopecat.graph.relations.model import (
     PointColumnScalarExpr,
     param,
     parameter_lookup,
-    point_col,
     table,
 )
 from scopecat.graph.relations.point_domain import (
-    POINT_UNIT,
     PointAxis,
     PointAxisLinear,
-    PointProduct,
-    PointUnit,
     point_axis_linear,
     point_axis_values,
-    point_product,
 )
 from scopecat.graph.values import (
     ComputeOutput,
@@ -62,7 +57,6 @@ from scopecat.kernel.value_types import (
     Int,
     Quantity,
     Scalar,
-    String,
     Table,
     TableColumn,
 )
@@ -105,7 +99,7 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
         CoreProgram(
             id="specialized",
             kind="test",
-            point_domain=PointDomain(POINT_UNIT),
+            point_domain=PointDomain(axes=()),
             effects=(state, domain),
         ),
         parameters=ParameterRelationData(scalars={"gain": 2.5}),
@@ -189,7 +183,7 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
         CoreProgram(
             id="dce",
             kind="test",
-            point_domain=PointDomain(POINT_UNIT),
+            point_domain=PointDomain(axes=()),
             compute_nodes=(upstream, live, dead),
             effects=(state,),
         ),
@@ -202,19 +196,6 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
     )
 
 
-def test_core_specialization_preserves_structural_point_unit() -> None:
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="unit-specialized",
-            kind="test",
-            point_domain=PointDomain(POINT_UNIT),
-        ),
-        parameters=ParameterRelationData(),
-    )
-
-    assert isinstance(specialized.point_domain.root, PointUnit)
-
-
 def test_core_specialization_preserves_exact_empty_point_composition() -> None:
     integer = Scalar(Int())
 
@@ -223,17 +204,15 @@ def test_core_specialization_preserves_exact_empty_point_composition() -> None:
             id="empty-specialized",
             kind="test",
             point_domain=PointDomain(
-                point_product(
+                axes=(
                     point_axis_values("x", integer, (1,)),
                     point_axis_values("y", integer, ()),
-                )
+                ),
             ),
         ),
         parameters=ParameterRelationData(),
     )
 
-    root = specialized.point_domain.root
-    assert isinstance(root, PointProduct)
     column_ids = tuple(
         column.id for column in specialized.point_domain.value_type.columns
     )
@@ -265,23 +244,10 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     )
     overlay = PointParameterOverlay(
         table_id="readout_devices",
-        key_uses={
-            "device_id": relation_use(
-                scalar_value_expr(
-                    "r0",
-                    bindings=point_bindings,
-                    expected_type=Scalar(String()),
-                )
-            )
-        },
+        row_index=0,
+        key={"device_id": "r0"},
         column_id="frequency",
-        value_use=relation_use(
-            scalar_value_expr(
-                point_col("frequency"),
-                bindings=point_bindings,
-                expected_type=frequency,
-            )
-        ),
+        axis_id="frequency",
     )
     domain = TypedDomainExecution(
         id="domain",
@@ -300,12 +266,14 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
             id="parameter-centered-axis",
             kind="test",
             point_domain=PointDomain(
-                point_axis_linear(
-                    "frequency",
-                    frequency,
-                    relation_use(center),
-                    QuantityValue(value=0.2, unit="GHz"),
-                    3,
+                axes=(
+                    point_axis_linear(
+                        "frequency",
+                        frequency,
+                        relation_use(center),
+                        QuantityValue(value=0.2, unit="GHz"),
+                        3,
+                    ),
                 )
             ),
             parameter_overlays=(overlay,),
@@ -314,7 +282,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
         parameters=parameters(),
     )
 
-    axis = specialized.point_domain.root
+    [axis] = specialized.point_domain.axes
     assert isinstance(axis, PointAxis)
     assert isinstance(axis.source, PointAxisLinear)
     center_root = axis.source.center.value.plan.root
@@ -326,42 +294,3 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     input_root = specialized_domain.inputs["frequency"].value.plan.root
     assert isinstance(input_root, PointColumnScalarExpr)
     assert input_root.name == "frequency"
-
-
-def test_core_specialization_folds_parameter_overlay_keys() -> None:
-    integer = Scalar(Int())
-    key = scalar_value_expr(
-        param("selected"),
-        bindings=RelationTypeBindings(parameters={"selected": integer}),
-        expected_type=integer,
-    )
-    value = scalar_value_expr(
-        point_col("scan"),
-        bindings=RelationTypeBindings(
-            point_row=RowType((TableColumn("scan", integer),))
-        ),
-        expected_type=integer,
-    )
-    overlay = PointParameterOverlay(
-        table_id="devices",
-        key_uses={"id": relation_use(key)},
-        column_id="value",
-        value_use=relation_use(value),
-    )
-
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="overlay-specialized",
-            kind="test",
-            point_domain=PointDomain(POINT_UNIT),
-            parameter_overlays=(overlay,),
-        ),
-        parameters=ParameterRelationData(
-            scalars={"selected": 1},
-            tables={"devices": [{"id": 1, "value": 0}]},
-        ),
-    )
-
-    key_root = specialized.parameter_overlays[0].key_uses["id"].value.plan.root
-    assert isinstance(key_root, LiteralScalarExpr)
-    assert key_root.value == 1

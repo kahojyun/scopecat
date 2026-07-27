@@ -46,7 +46,7 @@ def load_invocation() -> ExperimentInvocation:
         SIMPLE_MODULE,
         id="test.workflow_scan",
         kind="simple_scan",
-        required_inputs=("subject", "drive_frequency"),
+        required_inputs=("subject",),
         scans=(
             axis(
                 DRIVE_FREQUENCY_POINT,

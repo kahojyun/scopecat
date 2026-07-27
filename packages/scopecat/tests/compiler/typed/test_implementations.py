@@ -64,10 +64,12 @@ def _program(
         id="implementation-sidecar",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_axis_values(
-                "point_index",
-                Scalar(Int()),
-                tuple(range(point_count)),
+            axes=(
+                point_axis_values(
+                    "point_index",
+                    Scalar(Int()),
+                    tuple(range(point_count)),
+                ),
             )
         ),
         compute_nodes=(

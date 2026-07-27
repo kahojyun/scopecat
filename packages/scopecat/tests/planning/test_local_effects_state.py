@@ -41,7 +41,7 @@ def _point_domain(
     values: tuple[CellValue, ...],
 ) -> PointDomain:
     return PointDomain(
-        root=point_axis_values(column_id, value_type, values),
+        axes=(point_axis_values(column_id, value_type, values),),
     )
 
 

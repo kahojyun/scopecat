@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
+from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
@@ -165,31 +165,18 @@ def materialize_linked_points(linked: LinkedPlan) -> MaterializedLinkedPoints:
     """Eagerly close the linked point space before target compilation."""
 
     point_domain = _materialize_linked_point_domain(linked)
-    problems: list[Problem] = []
-    point_by_ordinal = {point.logical_ordinal: point for point in point_domain.points}
-    parameter_by_ordinal: dict[int, ParameterRelationData] = {}
-    ordinals = tuple(point_by_ordinal)
-    parameter_support = linked.verified_program.variation_analysis.parameters
-    for coverage in linked.verified_program.iteration_layout.partition(
-        parameter_support.point_columns,
-        ordinals,
-        rows={ordinal: point.row for ordinal, point in point_by_ordinal.items()},
-    ):
-        parameters = _point_parameters(
-            linked,
-            point_by_ordinal[coverage[0]],
-            problems=problems,
+    point_parameters = tuple(
+        resolve_point_parameters(
+            linked.environment.parameters,
+            linked.program.parameter_overlays,
+            point_row=point.row,
         )
-        for ordinal in coverage:
-            parameter_by_ordinal[ordinal] = parameters
-    if bool(problems):
-        raise CheckFailed(problems)
+        for point in point_domain.points
+    )
     return MaterializedLinkedPoints(
         linked_plan=linked,
         point_domain=point_domain,
-        point_parameters=tuple(
-            parameter_by_ordinal[point.logical_ordinal] for point in point_domain.points
-        ),
+        point_parameters=point_parameters,
     )
 
 
@@ -232,23 +219,6 @@ def _materialize_linked_point_domain(
     if bool(problems):
         raise CheckFailed(problems)
     return point_domain
-
-
-def _point_parameters(
-    linked: LinkedPlan,
-    point: MaterializedPoint,
-    *,
-    problems: list[Problem],
-) -> ParameterRelationData:
-    try:
-        return resolve_point_parameters(
-            linked.environment.parameters,
-            linked.program.parameter_overlays,
-            point_row=point.row,
-        )
-    except CompilerProblemError as error:
-        problems.append(error.problem)
-        return ParameterRelationData()
 
 
 def _domain_inputs(

@@ -1,8 +1,6 @@
 from dataclasses import replace
 from typing import Never, cast
 
-import pytest
-
 from scopecat.compiler.linking.linked import link_program as link_core_program
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.specialization import (
@@ -10,7 +8,6 @@ from scopecat.compiler.relations.specialization import (
     specialize_scalar,
 )
 from scopecat.compiler.relations.verification import (
-    RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
 )
@@ -22,7 +19,7 @@ from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
 from scopecat.compiler.typed.parameter_overlays import (
-    resolve_parameter_cell_bindings,
+    parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -43,16 +40,13 @@ from scopecat.graph.relations.model import (
 from scopecat.graph.relations.point_domain import (
     PointAxis,
     point_axis_values,
-    point_product,
 )
 from scopecat.graph.values import ComputeOutput, OperationId, operation_result_id
-from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
-from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
@@ -90,7 +84,7 @@ def _point_domain(
             if row[index] not in values:
                 values.append(row[index])
         factors.append(point_axis_values(column.id, column.value_type, tuple(values)))
-    return PointDomain(root=point_product(*factors))
+    return PointDomain(axes=tuple(factors))
 
 
 def _point_bindings(points: PointDomain) -> RelationTypeBindings:
@@ -100,27 +94,13 @@ def _point_bindings(points: PointDomain) -> RelationTypeBindings:
     )
 
 
-def _environment():
-    return replace(
-        build_config_environment(load_config()),
-        parameters=parameters(),
-    )
-
-
-def _frequency_overlay(
-    *,
-    key: object,
-    value: object,
-    bindings: RelationTypeBindings,
-):
+def _frequency_overlay(*, axis_id: str):
     return overlay_parameter_cell(
         "readout_devices",
-        key={"device_id": key},
-        key_types={"device_id": Scalar(String())},
+        row_index=0,
+        key={"device_id": "r0"},
         column_id="frequency",
-        value=value,
-        value_type=Scalar(QuantityType(unit="GHz")),
-        bindings=bindings,
+        axis_id=axis_id,
     )
 
 
@@ -146,13 +126,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
                 capabilities=("readout",),
             ),
         ),
-        parameter_overlays=[
-            _frequency_overlay(
-                key=point_col("device_id"),
-                value=point_col("frequency"),
-                bindings=point_bindings,
-            )
-        ],
+        parameter_overlays=[_frequency_overlay(axis_id="frequency")],
         state=[
             state_field(
                 "readout",
@@ -198,8 +172,11 @@ def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
         return {"row_count": len(rows)}
 
     points = _point_domain(
-        (TableColumn("device_id", _DEVICE_ID),),
-        (("r0",), ("r1",)),
+        (TableColumn("frequency", _FREQUENCY),),
+        (
+            (Quantity(value=5.9, unit="GHz"),),
+            (Quantity(value=6.2, unit="GHz"),),
+        ),
     )
     bindings = _point_bindings(points)
     operation_id = OperationId(SymbolId(local_id="consume-readout-table"))
@@ -214,13 +191,7 @@ def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
                 capabilities=("consume_rows",),
             ),
         ),
-        parameter_overlays=[
-            _frequency_overlay(
-                key=point_col("device_id"),
-                value=Quantity(value=5.9, unit="GHz"),
-                bindings=bindings,
-            )
-        ],
+        parameter_overlays=[_frequency_overlay(axis_id="frequency")],
         compute_nodes=[
             TypedComputeNode(
                 id=operation_id,
@@ -284,27 +255,18 @@ def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
 
     assert [len(rows) for rows in bound_tables] == [2, 2]
     assert [
-        next(row["frequency"] for row in rows if row["device_id"] == device_id)
-        for device_id, rows in zip(("r0", "r1"), bound_tables, strict=True)
-    ] == [Quantity(value=5.9, unit="GHz")] * 2
+        next(row["frequency"] for row in rows if row["device_id"] == "r0")
+        for rows in bound_tables
+    ] == [
+        Quantity(value=5.9, unit="GHz"),
+        Quantity(value=6.2, unit="GHz"),
+    ]
 
 
 def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
-    points = _point_domain(
-        (TableColumn("frequency", _FREQUENCY),),
-        ((Quantity(value=5.9, unit="GHz"),),),
-    )
-    bindings = _point_bindings(points)
-    overlay = _frequency_overlay(
-        key="r0",
-        value=point_col("frequency"),
-        bindings=bindings,
-    )
+    overlay = _frequency_overlay(axis_id="frequency")
     parameters_for_run = parameters()
-    cells = resolve_parameter_cell_bindings(
-        (overlay,),
-        known=EvalContext(params=parameters_for_run),
-    )
+    cells = parameter_cell_bindings((overlay,))
 
     result = specialize_scalar(
         parameter_lookup(
@@ -317,95 +279,3 @@ def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
 
     assert isinstance(result, ResidualScalar)
     assert result.expression == point_col("frequency")
-
-
-def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> None:
-    points = _point_domain(
-        (TableColumn("device_id", _DEVICE_ID),),
-        (("missing",),),
-    )
-    bindings = _point_bindings(points)
-    spec = typed_program(
-        id="missing-overlay-row",
-        kind="problem",
-        point_domain=points,
-        resource_requirements=(
-            LogicalResourceRequirement(
-                port_id=logical_resource_port_id("source"),
-                capabilities=("set_frequency",),
-            ),
-        ),
-        parameter_overlays=[
-            _frequency_overlay(
-                key=point_col("device_id"),
-                value=Quantity(value=5.9, unit="GHz"),
-                bindings=bindings,
-            )
-        ],
-        state=[
-            state_field(
-                "source",
-                capability_id="set_frequency",
-                field_path="frequency",
-                value=point_col("device_id"),
-                bindings=bindings,
-            )
-        ],
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialize_local_execution(link_program(spec, _environment()))
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "experiment_parameter_overlay_row_not_found"
-    ]
-
-
-def test_point_parameter_overlay_validates_value_against_catalog_type() -> None:
-    points = _point_domain(
-        (
-            TableColumn("device_id", _DEVICE_ID),
-            TableColumn("frequency", Scalar(String())),
-        ),
-        (("r0", "not-a-frequency"),),
-    )
-
-    with pytest.raises(RelationPlanVerificationError) as error:
-        _frequency_overlay(
-            key=point_col("device_id"),
-            value=point_col("frequency"),
-            bindings=_point_bindings(points),
-        )
-
-    assert error.value.code == "incompatible_result_type"
-
-
-def test_point_parameter_overlay_reports_missing_table() -> None:
-    points = _point_domain(
-        (TableColumn("device_id", _DEVICE_ID),),
-        (("r0",),),
-    )
-    bindings = _point_bindings(points)
-    spec = typed_program(
-        id="missing-overlay-table",
-        kind="problem",
-        point_domain=points,
-        parameter_overlays=[
-            overlay_parameter_cell(
-                "missing_table",
-                key={"device_id": point_col("device_id")},
-                key_types={"device_id": Scalar(String())},
-                column_id="frequency",
-                value=Quantity(value=5.9, unit="GHz"),
-                value_type=Scalar(QuantityType(unit="GHz")),
-                bindings=bindings,
-            )
-        ],
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialize_local_execution(link_program(spec, _environment()))
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "experiment_parameter_overlay_table_missing"
-    ]

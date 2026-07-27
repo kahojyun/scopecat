@@ -39,7 +39,7 @@ from scopecat.graph.relations.model import (
     literal_rows,
     point_col,
 )
-from scopecat.graph.relations.point_domain import POINT_UNIT, point_axis_values
+from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.graph.values import (
     ComputeOutput,
     OperationId,
@@ -139,13 +139,15 @@ def _point_domain(
     value_type: Table,
 ) -> PointDomain:
     if not value_type.columns:
-        return PointDomain(root=POINT_UNIT)
+        return PointDomain(axes=())
     [column] = value_type.columns
     return PointDomain(
-        root=point_axis_values(
-            column.id,
-            column.value_type,
-            tuple(row[0] for row in rows),
+        axes=(
+            point_axis_values(
+                column.id,
+                column.value_type,
+                tuple(row[0] for row in rows),
+            ),
         )
     )
 

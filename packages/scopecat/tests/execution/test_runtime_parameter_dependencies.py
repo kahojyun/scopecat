@@ -22,7 +22,6 @@ from scopecat.graph.relations.model import (
     param,
     table,
 )
-from scopecat.graph.relations.point_domain import POINT_UNIT
 from scopecat.graph.values import (
     ComputeOutput,
     OperationId,
@@ -91,7 +90,7 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
     program = typed_program(
         id="dependency-provenance",
         kind="compiler_test",
-        point_domain=PointDomain(root=POINT_UNIT),
+        point_domain=PointDomain(axes=()),
         compute_nodes=(node,),
     )
     parameters = ParameterRelationData(

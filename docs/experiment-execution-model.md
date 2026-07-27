@@ -88,9 +88,8 @@ behavior, or incidental batch counts.
 ## Symbolic Specialization
 
 Point composition remains symbolic through verification and specialization.
-One compiler-owned iteration model is shared by host lowering, parameter
-overlays, entity selection, and domain projection so consumers cannot disagree
-about point variation or nesting.
+Linking materializes one ordered point sequence; host lowering, parameter
+overlays, entity selection, and domain projection consume those same point rows.
 
 Partial evaluation binds accepted inputs and configuration values, applies
 lexical scan overrides, folds pure subgraphs, removes undemanded work, and

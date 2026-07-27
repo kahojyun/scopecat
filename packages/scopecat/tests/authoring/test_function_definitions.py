@@ -168,7 +168,7 @@ def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
 
     def body() -> sc.ExperimentBody:
         call = count_source(value=count)
-        return sc.experiment(call).scan(count, (1, 2, 3))
+        return sc.experiment(call).scan(sc.axis(count, (1, 2, 3)))
 
     template = sc.template(id="test.function.template", kind="count")(body)
     scratch = sc.scratch(id="test.function.scratch", kind="count")(body)

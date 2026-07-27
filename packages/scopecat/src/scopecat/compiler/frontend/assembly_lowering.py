@@ -30,6 +30,7 @@ from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
     raise_frontend_problem,
 )
+from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
     bind_value_input_refs,
@@ -63,16 +64,12 @@ from scopecat.compiler.typed.program import (
     TypedDomainResultBinding,
     ValueInput,
 )
-from scopecat.graph.relations.model import CellValue, as_scalar_expr, point_col
+from scopecat.graph.relations.model import CellValue, as_scalar_expr
 from scopecat.graph.relations.point_domain import (
-    POINT_UNIT,
+    PointAxes,
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
-    PointDomainExpr,
-    PointProduct,
-    PointUnit,
-    analyze_point_domain,
 )
 from scopecat.graph.values import (
     ComputeOutput,
@@ -94,6 +91,7 @@ from scopecat.records.parameter import ParameterCatalog
 
 def lower_parameter_overlay_intent(
     parameter_catalog: ParameterCatalog,
+    static_evaluator: StaticRelationEvaluator,
     intent: AxisSpec,
     inputs: Mapping[str, object],
     *,
@@ -109,31 +107,51 @@ def lower_parameter_overlay_intent(
         key_types = {column_id: columns[column_id].value_type for column_id, _ in key}
     except KeyError as error:
         raise AssertionError("validated parameter overlay column is missing") from error
+    try:
+        require_assignable(
+            intent.value_type,
+            target_column.value_type,
+            path=("parameter_overlays", intent.id),
+        )
+    except ValueValidationError as error:
+        raise_frontend_problem(
+            "authoring_parameter_scan_type_mismatch",
+            f"parameter scan cannot write the selected column: {error}",
+            "parameters",
+            path=(lookup.table_id, "columns", lookup.column_id),
+        )
+    key_values = {
+        name: static_evaluator.scalar(
+            bind_scalar_input_refs(
+                internal_lower_scalar_value_ref(value)
+                if isinstance(value, ValueRef)
+                else as_scalar_expr(value),
+                inputs,
+            ),
+            bindings=type_bindings,
+            expected_type=key_types[name],
+            inputs=input_row(inputs),
+        )
+        for name, value in key
+    }
+    try:
+        row_index = static_evaluator.parameters.lookup_row_index(
+            lookup.table_id,
+            key_values,
+        )
+    except (KeyError, ValueError) as error:
+        raise_frontend_problem(
+            "experiment_parameter_overlay_row_not_found",
+            f"parameter scan cell could not be selected: {error}",
+            "parameter_overlays",
+            path=(intent.id, "key"),
+        )
     return PointParameterOverlay(
         table_id=lookup.table_id,
-        key_uses={
-            name: relation_use(
-                verify_scalar_value_expr(
-                    bind_scalar_input_refs(
-                        internal_lower_scalar_value_ref(value)
-                        if isinstance(value, ValueRef)
-                        else as_scalar_expr(value),
-                        inputs,
-                    ),
-                    bindings=type_bindings,
-                    expected_type=key_types[name],
-                )
-            )
-            for name, value in key
-        },
+        row_index=row_index,
+        key=key_values,
         column_id=lookup.column_id,
-        value_use=relation_use(
-            verify_scalar_value_expr(
-                point_col(intent.id),
-                bindings=type_bindings,
-                expected_type=target_column.value_type,
-            )
-        ),
+        axis_id=intent.id,
     )
 
 
@@ -398,10 +416,6 @@ def validate_consumed_inputs(
 ) -> None:
     """Reject only free module inputs that the assembled program actually uses."""
 
-    point_input_ids = {
-        column.id
-        for column in analyze_point_domain(assembly.point_domain).value_type.columns
-    }
     consumed_dependencies: set[str] = set()
     values: list[object] = []
     values.extend(
@@ -428,12 +442,12 @@ def validate_consumed_inputs(
         consumed_dependencies.update(_nested_input_dependencies(value, inputs=inputs))
 
     provided = set(inputs)
-    missing = sorted(consumed_dependencies - provided - point_input_ids)
+    missing = sorted(consumed_dependencies - provided)
     if missing:
         raise_frontend_problem(
             "module_input_binding_missing",
-            "experiment assembly consumes module inputs without bindings or point "
-            "values: " + ", ".join(missing),
+            "experiment assembly consumes module inputs without bindings: "
+            + ", ".join(missing),
             "inputs",
             phase=ProblemPhase.AUTHORING,
         )
@@ -494,33 +508,23 @@ def _nested_input_dependencies(
 
 
 def lower_point_domain(
-    point_domain: PointDomainExpr[ValueRef],
+    point_domain: PointAxes[ValueRef],
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> PointDomain:
     """Bind and verify each closed linear-axis center."""
 
-    if isinstance(point_domain, PointUnit):
-        root: PointDomainExpr[RelationUse[ScalarValueExpr]] = POINT_UNIT
-    elif isinstance(point_domain, PointAxis):
-        root = _lower_point_axis(
-            point_domain,
-            inputs=inputs,
-            type_bindings=type_bindings,
-        )
-    else:
-        root = PointProduct(
-            tuple(
-                _lower_point_axis(
-                    axis,
-                    inputs=inputs,
-                    type_bindings=type_bindings,
-                )
-                for axis in point_domain.factors
+    return PointDomain(
+        axes=tuple(
+            _lower_point_axis(
+                axis,
+                inputs=inputs,
+                type_bindings=type_bindings,
             )
+            for axis in point_domain
         )
-    return PointDomain(root=root)
+    )
 
 
 def _lower_point_axis(

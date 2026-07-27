@@ -39,13 +39,9 @@ from scopecat.graph.relations.model import (
     parameter_lookup,
 )
 from scopecat.graph.relations.point_domain import (
-    POINT_UNIT,
     PointAxis,
-    PointProduct,
-    PointUnit,
     point_axis_linear,
     point_axis_values,
-    point_product,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
@@ -132,7 +128,7 @@ def _entity_rows(
 
 
 def _symbolic_program() -> CoreProgram:
-    root = point_product(
+    axes = (
         _values_axis("a", _FLOAT, (1.0,)),
         _values_axis(
             "b",
@@ -176,7 +172,7 @@ def _symbolic_program() -> CoreProgram:
     return CoreProgram(
         id="symbolic-linked-plan",
         kind="compiler_test",
-        point_domain=PointDomain(root=root),
+        point_domain=PointDomain(axes=axes),
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
@@ -201,8 +197,7 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
 
     assert linked.program != program
     assert linked.point_domain is linked.verified_program.point_domain
-    assert linked.point_domain.root != program.point_domain.root
-    assert isinstance(linked.point_domain.root, PointProduct)
+    assert linked.point_domain.axes != program.point_domain.axes
     assert linked.point_domain.cardinality == 4
     assert tuple(column.id for column in linked.point_domain.coordinate_columns) == (
         "a",
@@ -214,19 +209,19 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
         consumer.location.path
         for consumer in program_relation_consumers(linked.verified_program)
         if consumer.kind is ProgramRelationConsumerKind.POINT_AXIS_CENTER
-    ) == (("factors", 2, "source", "center"),)
+    ) == (("axes", 2, "source", "center"),)
 
 
 def test_link_retains_unit_domain() -> None:
     program = CoreProgram(
         id="unit-linked-plan",
         kind="compiler_test",
-        point_domain=PointDomain(root=POINT_UNIT),
+        point_domain=PointDomain(axes=()),
     )
 
     linked = link_program(program, _environment())
 
-    assert isinstance(linked.point_domain.root, PointUnit)
+    assert linked.point_domain.axes == ()
     assert linked.point_domain.cardinality == 1
     assert all(
         consumer.kind is not ProgramRelationConsumerKind.POINT_AXIS_CENTER
@@ -324,7 +319,7 @@ def test_link_closes_every_used_axis_center_parameter_import(
         id="missing-parameter-link",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=_linear_axis("value", expression, bindings=bindings)
+            axes=(_linear_axis("value", expression, bindings=bindings),)
         ),
     )
 
@@ -345,14 +340,16 @@ def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
         id="lookup-parameter-shape-link",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=_linear_axis(
-                "value",
-                parameter_lookup(
-                    _lookup_use(parameter_id),
-                    key={"key": "selected"},
+            axes=(
+                _linear_axis(
+                    "value",
+                    parameter_lookup(
+                        _lookup_use(parameter_id),
+                        key={"key": "selected"},
+                    ),
+                    bindings=RelationTypeBindings(),
                 ),
-                bindings=RelationTypeBindings(),
-            )
+            ),
         ),
     )
     environment = replace(
@@ -377,7 +374,7 @@ def test_link_rejects_remaining_relation_input_imports() -> None:
     program = CoreProgram(
         id="unresolved-input-link",
         kind="compiler_test",
-        point_domain=PointDomain(root=POINT_UNIT),
+        point_domain=PointDomain(axes=()),
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
@@ -416,13 +413,15 @@ def test_link_reports_every_missing_import_in_one_axis_center() -> None:
         id="multiple-missing-parameter-link",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=_linear_axis(
-                "value",
-                param(missing_ids[0]) + param(missing_ids[1]),
-                bindings=RelationTypeBindings(
-                    parameters=dict.fromkeys(missing_ids, _FREQUENCY)
+            axes=(
+                _linear_axis(
+                    "value",
+                    param(missing_ids[0]) + param(missing_ids[1]),
+                    bindings=RelationTypeBindings(
+                        parameters=dict.fromkeys(missing_ids, _FREQUENCY)
+                    ),
                 ),
-            )
+            ),
         ),
     )
 
@@ -459,7 +458,7 @@ def test_linked_points_normalize_entities_before_point_identity_is_sealed() -> N
     program = CoreProgram(
         id="linked-entity-points",
         kind="compiler_test",
-        point_domain=PointDomain(root=_entity_rows(("q0",))),
+        point_domain=PointDomain(axes=(_entity_rows(("q0",)),)),
     )
 
     linked = link_program(program, _environment())
@@ -476,7 +475,7 @@ def test_linked_points_reject_unknown_entities_at_the_planning_boundary() -> Non
     program = CoreProgram(
         id="unknown-linked-entity-point",
         kind="compiler_test",
-        point_domain=PointDomain(root=_entity_rows(("missing",))),
+        point_domain=PointDomain(axes=(_entity_rows(("missing",)),)),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -495,7 +494,7 @@ def test_linked_points_preserve_entity_kind_mismatch_problem() -> None:
         id="wrong-kind-linked-entity-point",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=_entity_rows((EntityRef(id="q0", kind="logical_coupler"),)),
+            axes=(_entity_rows((EntityRef(id="q0", kind="logical_coupler"),)),),
         ),
     )
 
@@ -516,11 +515,13 @@ def test_linked_points_report_unknown_normalized_entities() -> None:
         id="invalid-normalized-linked-entity-points",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=_entity_rows(
-                (
-                    "q0",
-                    EntityRef(id="q0", kind="logical_device"),
-                    "missing",
+            axes=(
+                _entity_rows(
+                    (
+                        "q0",
+                        EntityRef(id="q0", kind="logical_device"),
+                        "missing",
+                    ),
                 ),
             ),
         ),

@@ -63,7 +63,7 @@ def _domain_scenario(
         results={"raw": module.products["raw"]},
     )
     module_call = module.domain(execution).build()()
-    body = sc.experiment(module_call).scan(count, (1, 3, 5))
+    body = sc.experiment(module_call).scan(sc.axis(count, (1, 3, 5)))
     if record_raw:
         body = body.record_product(module_call.products.raw, record_id="raw")
     body = body.record_product(module_call.products.summary, record_id="summary")

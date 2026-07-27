@@ -9,7 +9,6 @@ import scopecat as sc
 from scopecat.authoring._parameter_contracts import ParameterValueContract
 from scopecat.authoring._scan_intents import (
     AxisSpec,
-    iter_scan_axes,
     scan_parameter_contracts,
 )
 from scopecat.compiler.frontend.scan_lowering import (
@@ -20,7 +19,6 @@ from scopecat.graph.relations.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
-    PointProduct,
     analyze_point_domain,
 )
 from scopecat.kernel.quantity import Quantity
@@ -49,8 +47,7 @@ def _axis(scan: sc.Scan) -> AxisSpec:
 
 
 def _lower_axis(scan: sc.Scan) -> PointAxis[sc.ValueRef]:
-    axis = lower_scans_point_domain((_axis(scan),))
-    assert isinstance(axis, PointAxis)
+    [axis] = lower_scans_point_domain((_axis(scan),))
     return axis
 
 
@@ -65,13 +62,35 @@ def test_explicit_scan_lowers_to_a_structural_axis_with_normalized_values() -> N
             Quantity(value=5.1, unit="GHz"),
         )
     )
-    assert analyze_point_domain(axis).cardinality == 2
+    assert analyze_point_domain((axis,)).cardinality == 2
     assert (
         scan_parameter_contracts(
             _axis(sc.axis(_point("frequency"), [4.9, 5.1], unit="GHz"))
         )
         == ()
     )
+
+
+def test_explicit_unit_refines_a_generic_quantity_axis_type() -> None:
+    generic = sc.ScalarType(sc.QuantityType(dimension="frequency"))
+    axis = _lower_axis(
+        sc.axis(sc.coordinate("frequency", generic), [4.9, 5.1], unit="GHz")
+    )
+
+    assert axis.value_type == sc.ScalarType(
+        sc.QuantityType(dimension="frequency", unit="GHz")
+    )
+
+
+def test_around_scan_rejects_value_unit_argument() -> None:
+    with pytest.raises(ValueError, match="only valid with explicit values"):
+        sc.axis(
+            _point("frequency"),
+            unit="GHz",
+            center=Quantity(value=5.0, unit="GHz"),
+            span="200 MHz",
+            points=3,
+        )
 
 
 def test_around_scan_keeps_only_its_typed_center_as_authoring_data() -> None:
@@ -145,17 +164,14 @@ def test_parameter_around_scan_requires_a_quantity_point() -> None:
 
 
 def test_flat_scans_lower_to_a_cartesian_product() -> None:
-    scan = sc.cartesian(
-        sc.axis(_point("source"), [4.9, 5.1], unit="GHz"),
-        sc.axis(_point("target"), [5.0, 5.2], unit="GHz"),
+    scans = (
+        _axis(sc.axis(_point("source"), [4.9, 5.1], unit="GHz")),
+        _axis(sc.axis(_point("target"), [5.0, 5.2], unit="GHz")),
     )
 
-    domain = lower_scans_point_domain(iter_scan_axes(scan))
+    domain = lower_scans_point_domain(scans)
 
-    assert isinstance(domain, PointProduct)
-    assert tuple(
-        factor.id for factor in domain.factors if isinstance(factor, PointAxis)
-    ) == ("source", "target")
+    assert tuple(axis.id for axis in domain) == ("source", "target")
 
 
 def test_linear_center_is_the_only_point_domain_parameter_contract_source() -> None:

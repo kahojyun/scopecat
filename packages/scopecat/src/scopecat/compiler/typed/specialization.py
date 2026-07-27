@@ -23,8 +23,7 @@ from scopecat.compiler.semantic.value_expressions import (
     verify_table_value_expr,
 )
 from scopecat.compiler.typed.parameter_overlays import (
-    PointParameterOverlay,
-    resolve_parameter_cell_bindings,
+    parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -53,12 +52,7 @@ def specialize_core_program(
     """Partially evaluate pure values across one CoreProgram."""
 
     base_known = EvalContext(params=parameters)
-    parameter_cells = resolve_parameter_cell_bindings(
-        program.parameter_overlays,
-        known=base_known,
-    )
-    # Any overlay makes the whole table point-local, including dynamic keys
-    # that cannot produce a static ParameterCellBinding.
+    parameter_cells = parameter_cell_bindings(program.parameter_overlays)
     known = EvalContext(
         params=parameters.without_tables(
             {overlay.table_id for overlay in program.parameter_overlays}
@@ -69,14 +63,6 @@ def specialize_core_program(
         point_domain=_specialize_point_domain(
             program.point_domain,
             known=base_known,
-        ),
-        parameter_overlays=tuple(
-            _specialize_parameter_overlay(
-                overlay,
-                known=known,
-                parameter_cells=parameter_cells,
-            )
-            for overlay in program.parameter_overlays
         ),
         resource_requirements=tuple(
             _specialize_resource_requirement(
@@ -93,30 +79,6 @@ def specialize_core_program(
         effects=tuple(
             _specialize_effect(effect, known=known, parameter_cells=parameter_cells)
             for effect in program.effects
-        ),
-    )
-
-
-def _specialize_parameter_overlay(
-    overlay: PointParameterOverlay,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> PointParameterOverlay:
-    return replace(
-        overlay,
-        key_uses={
-            column_id: _specialize_relation_use(
-                use,
-                known=known,
-                parameter_cells=parameter_cells,
-            )
-            for column_id, use in overlay.key_uses.items()
-        },
-        value_use=_specialize_relation_use(
-            overlay.value_use,
-            known=known,
-            parameter_cells=parameter_cells,
         ),
     )
 
@@ -147,7 +109,7 @@ def _specialize_point_domain(
 
     return replace(
         domain,
-        root=map_point_axis_centers(domain.root, specialize_center),
+        axes=map_point_axis_centers(domain.axes, specialize_center),
     )
 
 

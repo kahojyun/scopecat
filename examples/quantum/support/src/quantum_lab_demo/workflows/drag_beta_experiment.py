@@ -76,14 +76,14 @@ def drag_beta_capture(
     return body.measurement_postprocessors(postprocessor)
 
 
-def _drag_beta_experiment_body(scan: sc.Scan) -> sc.ExperimentBody:
+def _drag_beta_experiment_body(*scans: sc.Scan) -> sc.ExperimentBody:
     capture = drag_beta_capture(
         amplification=AMPLIFICATION,
         beta=q0_drag_beta_lookup(),
     )
     return (
         sc.experiment(capture)
-        .scan(scan)
+        .scan(*scans)
         .record_product(
             capture.products.probability_0,
             capture.products.probability_1,
@@ -99,15 +99,13 @@ def drag_beta_template() -> sc.ExperimentBody:
     """Scan pulse DRAG beta against gate amplification in one program."""
 
     return _drag_beta_experiment_body(
-        sc.cartesian(
-            sc.param_axis(
-                BETA,
-                q0_drag_beta_lookup(),
-                span=DRAG_BETA_SPAN,
-                points=DRAG_BETA_POINTS,
-            ),
-            sc.axis(AMPLIFICATION, DEFAULT_AMPLIFICATIONS),
-        )
+        sc.param_axis(
+            BETA,
+            q0_drag_beta_lookup(),
+            span=DRAG_BETA_SPAN,
+            points=DRAG_BETA_POINTS,
+        ),
+        sc.axis(AMPLIFICATION, DEFAULT_AMPLIFICATIONS),
     )
 
 

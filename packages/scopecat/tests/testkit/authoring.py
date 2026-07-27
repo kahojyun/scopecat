@@ -7,7 +7,7 @@ from typing import Annotated, cast
 import scopecat.authoring as authoring
 from scopecat.authoring import ExperimentInvocation, ExperimentTemplate
 from scopecat.authoring._products import RecordSelection
-from scopecat.authoring.scans import Scan
+from scopecat.authoring.scans import Scan, axis
 from scopecat.authoring.templates import create_experiment_definition_internal
 from scopecat.authoring.values import MetadataValue
 from scopecat.compiler.frontend.resolution import (
@@ -128,23 +128,20 @@ def simple_template() -> ExperimentTemplate[...]:
             authoring.Input[EntityRef | str],
             _SIMPLE_SUBJECT.value_type,
         ],
-        drive_frequency: Annotated[
-            authoring.Input[Quantity],
-            authoring.QuantityType(),
-        ],
     ) -> authoring.ExperimentBody:
-        del drive_frequency
         module_call = SIMPLE_MODULE(subject=subject)
         return (
             authoring.experiment(module_call)
             .scan(
-                DRIVE_FREQUENCY_POINT,
-                center=authoring.parameter(
-                    "drive_frequency",
-                    authoring.ScalarType(authoring.QuantityType()),
+                axis(
+                    DRIVE_FREQUENCY_POINT,
+                    center=authoring.parameter(
+                        "drive_frequency",
+                        authoring.ScalarType(authoring.QuantityType()),
+                    ),
+                    span=Quantity(value=200.0, unit="MHz"),
+                    points=5,
                 ),
-                span=Quantity(value=200.0, unit="MHz"),
-                points=5,
             )
             .record_product(module_call.products.signal, record_id="signal")
         )

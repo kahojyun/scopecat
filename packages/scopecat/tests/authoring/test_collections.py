@@ -82,27 +82,17 @@ def test_nested_module_requires_explicit_input_forwarding() -> None:
     )
 
 
-def test_scan_points_are_coerced_by_same_named_scalar_input_type() -> None:
-    scanned_value = authoring.input(
+def test_scan_points_are_coerced_by_their_target_type() -> None:
+    point = authoring.coordinate(
         "value",
         authoring.ScalarType(authoring.FloatType()),
     )
-    module = (
-        authoring.module_body(id="test.scan_coercion").inputs(scanned_value).build()
-    )
+    module = authoring.module_body(id="test.scan_coercion").build()
     template = template_fixture(
         module,
         id="test.scan_coercion",
         kind="scan_coercion",
-        scans=(
-            axis(
-                authoring.coordinate(
-                    "value",
-                    authoring.ScalarType(authoring.FloatType()),
-                ),
-                (1,),
-            ),
-        ),
+        scans=(axis(point, (1,)),),
     )
 
     resolved = link_invocation(
@@ -116,26 +106,14 @@ def test_scan_points_are_coerced_by_same_named_scalar_input_type() -> None:
     assert isinstance(value, float)
 
 
-def test_scan_points_reject_same_named_scalar_input_constraint_violation() -> None:
-    count = authoring.input(
-        "count",
-        authoring.ScalarType(authoring.IntType(minimum=1)),
-    )
-    module = authoring.module_body(id="test.scan_constraint").inputs(count).build()
+def test_scan_points_reject_target_constraint_violation() -> None:
     with pytest.raises(authoring.ValueValidationError) as error:
-        template_fixture(
-            module,
-            id="test.scan_constraint",
-            kind="scan_constraint",
-            scans=(
-                axis(
-                    authoring.coordinate(
-                        "count",
-                        authoring.ScalarType(authoring.IntType(minimum=1)),
-                    ),
-                    (0,),
-                ),
+        axis(
+            authoring.coordinate(
+                "count",
+                authoring.ScalarType(authoring.IntType(minimum=1)),
             ),
+            (0,),
         )
 
     assert error.value.path == ("scan", "values", 0)

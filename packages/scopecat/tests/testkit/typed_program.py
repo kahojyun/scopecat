@@ -8,14 +8,11 @@ from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
 )
-from scopecat.compiler.relations.uses import relation_use
-from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireId,
     AcquireProduct,
 )
-from scopecat.compiler.semantic.value_expressions import verify_scalar_value_expr
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -27,7 +24,7 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.compiler.typed.verification import seal_typed_program
-from scopecat.graph.relations.model import ScalarExpr, as_scalar_expr
+from scopecat.graph.relations.model import CellValue
 from scopecat.graph.values import (
     ComputeResultRef,
     OperationId,
@@ -46,7 +43,6 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
@@ -58,38 +54,19 @@ from scopecat.measurements.results import MeasurementDType
 def overlay_parameter_cell(
     table_id: str,
     *,
-    key: dict[str, object],
-    key_types: dict[str, Scalar],
+    row_index: int,
+    key: dict[str, CellValue],
     column_id: str,
-    value: object,
-    value_type: Scalar,
-    bindings: RelationTypeBindings,
+    axis_id: str,
 ) -> PointParameterOverlay:
-    """Build a typed point-local cell overlay."""
+    """Build one statically linked point-local cell overlay."""
 
-    if set(key) != set(key_types):
-        msg = "parameter overlay key and key_types must contain the same columns"
-        raise ValueError(msg)
     return PointParameterOverlay(
         table_id=table_id,
-        key_uses={
-            name: relation_use(
-                verify_scalar_value_expr(
-                    _require_scalar_expression(expression),
-                    bindings=bindings,
-                    expected_type=key_types[name],
-                )
-            )
-            for name, expression in key.items()
-        },
+        row_index=row_index,
+        key=key,
         column_id=column_id,
-        value_use=relation_use(
-            verify_scalar_value_expr(
-                _require_scalar_expression(value),
-                bindings=bindings,
-                expected_type=value_type,
-            )
-        ),
+        axis_id=axis_id,
     )
 
 
@@ -234,7 +211,3 @@ def link_program(
         ),
         environment,
     )
-
-
-def _require_scalar_expression(value: object) -> ScalarExpr:
-    return value if isinstance(value, ScalarExpr) else as_scalar_expr(value)

@@ -11,13 +11,7 @@ from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.value_expressions import ValueExpr
 from scopecat.compiler.typed.dependencies import (
     ComputePlan,
-    VariationAnalysis,
     analyze_compute_plan,
-    analyze_variation_support,
-)
-from scopecat.compiler.typed.iteration import (
-    PointIterationLayout,
-    analyze_point_iteration_layout,
 )
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
@@ -134,25 +128,13 @@ class VerifiedCoreProgram:
 
     program: CoreProgram
     point_domain: VerifiedPointDomain = dc_field(init=False)
-    iteration_layout: PointIterationLayout = dc_field(init=False)
     compute_plan: ComputePlan = dc_field(init=False)
-    variation_analysis: VariationAnalysis = dc_field(init=False)
 
     def __post_init__(self) -> None:
         point_domain = _seal_core_program(self.program)
         object.__setattr__(self, "point_domain", point_domain)
-        object.__setattr__(
-            self,
-            "iteration_layout",
-            analyze_point_iteration_layout(point_domain),
-        )
         compute_plan = analyze_compute_plan(self.program)
         object.__setattr__(self, "compute_plan", compute_plan)
-        object.__setattr__(
-            self,
-            "variation_analysis",
-            analyze_variation_support(self.program, compute_plan),
-        )
 
 
 def seal_typed_program(
@@ -190,7 +172,7 @@ def _consumer(
 def _point_axis_center_consumers(
     point_domain: VerifiedPointDomain,
 ) -> Iterator[ProgramRelationConsumer]:
-    for path, source in iter_point_axis_linear(point_domain.root):
+    for path, source in iter_point_axis_linear(point_domain.axes):
         center = source.center
         yield _consumer(
             ProgramRelationConsumerKind.POINT_AXIS_CENTER,
@@ -212,24 +194,6 @@ def _program_relation_consumers(
     program: CoreProgram,
 ) -> Iterator[ProgramRelationConsumer]:
     """Index relation proofs already built with their exact lowering bindings."""
-
-    for overlay_index, overlay in enumerate(program.parameter_overlays):
-        for column_id, use in overlay.key_uses.items():
-            yield _consumer(
-                ProgramRelationConsumerKind.PARAMETER_OVERLAY_KEY,
-                use.value,
-                model_location(
-                    "parameter_overlays",
-                    overlay_index,
-                    "key",
-                    column_id,
-                ),
-            )
-        yield _consumer(
-            ProgramRelationConsumerKind.PARAMETER_OVERLAY_VALUE,
-            overlay.value_use.value,
-            model_location("parameter_overlays", overlay_index, "value"),
-        )
 
     for requirement_index, requirement in enumerate(program.resource_requirements):
         for expression_index, use in enumerate(requirement.entity_uses):

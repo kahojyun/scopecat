@@ -88,10 +88,12 @@ def _preparation(
     *, program_id: str = "mixed-program-result-mapping"
 ) -> DomainPreparationBuilder:
     point_domain = PointDomain(
-        root=point_axis_values(
-            "coordinate",
-            Scalar(Float()),
-            (10.0, 20.0),
+        axes=(
+            point_axis_values(
+                "coordinate",
+                Scalar(Float()),
+                (10.0, 20.0),
+            ),
         )
     )
     product = ProductDef(id=product_id("result"), dtype="complex128")

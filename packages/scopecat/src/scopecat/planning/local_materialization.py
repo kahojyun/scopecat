@@ -25,10 +25,7 @@ from scopecat.compiler.relations.context import (
     ParameterRelationData,
 )
 from scopecat.compiler.semantic.model import AcquireEffect
-from scopecat.compiler.typed.dependencies import (
-    ComputePlan,
-    PointVariationSupport,
-)
+from scopecat.compiler.typed.dependencies import ComputePlan
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
@@ -37,9 +34,6 @@ from scopecat.compiler.typed.state import (
     SetStateSpec,
     StateRecord,
     evaluate_state_spec,
-)
-from scopecat.compiler.typed.verification import (
-    VerifiedCoreProgram,
 )
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -143,17 +137,12 @@ def materialize_local_execution(
     *,
     target: LocalTargetPlan,
 ) -> MaterializedLocalEffects:
-    """Lower one bounded point coverage into final ordered local effects.
-
-    Structural variation selects representative points for safe reuse while
-    exact coverage preserves logical ownership of every resulting operation.
-    """
+    """Lower one bounded point coverage into final ordered local effects."""
 
     program = target.program
     problems: list[Problem] = []
     verified_program = linked_points.linked_plan.verified_program
     selected_compute_plan = verified_program.compute_plan
-    variation = verified_program.variation_analysis
     selected_instrument_order = target.instrument_order
     compute_seed = target.compute_seed
     materialized_domain = linked_points.point_domain
@@ -168,17 +157,13 @@ def materialize_local_execution(
             strict=True,
         )
     }
-    rows = {ordinal: point.row for ordinal, point in point_by_ordinal.items()}
     ordinals = tuple(point.logical_ordinal for point in planner_points)
-    layout = linked_points.linked_plan.verified_program.iteration_layout
     resources_by_ordinal = _select_coverage_resources(
         program,
         target.resource_ports,
         planner_points,
         params_by_ordinal,
         problems,
-        verified_program=verified_program,
-        variation_support=variation.resource_entities,
     )
     payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {
         ordinal: dict(compute_seed.payload_ids) for ordinal in ordinals
@@ -188,37 +173,29 @@ def materialize_local_execution(
     }
     compute_effects: list[RunCoverageEffect] = []
     for node in selected_compute_plan.point_nodes:
-        support = variation.compute[node.id]
-        for compute_coverage in layout.partition(
-            support.point_columns,
-            ordinals,
-            rows=rows,
-        ):
-            representative = point_by_ordinal[compute_coverage[0]]
-            representative_params = params_by_ordinal[compute_coverage[0]]
+        for ordinal in ordinals:
+            point = point_by_ordinal[ordinal]
+            point_params = params_by_ordinal[ordinal]
             compute_operations, point_payload_ids, signatures = (
                 _bind_compute_operations(
                     (node,),
-                    operation_prefix=representative.logical_id.value,
+                    operation_prefix=point.logical_id.value,
                     ctx=EvalContext(
-                        params=representative_params,
-                        point_row=representative.row,
+                        params=point_params,
+                        point_row=point.row,
                     ),
                     compute_plan=selected_compute_plan,
                     demanded_payload_results=set(
                         selected_compute_plan.demanded_payload_results
                     ),
                     problems=problems,
-                    initial_signatures=signatures_by_ordinal[
-                        representative.logical_ordinal
-                    ],
+                    initial_signatures=signatures_by_ordinal[ordinal],
                 )
             )
-            for ordinal in compute_coverage:
-                signatures_by_ordinal[ordinal] = dict(signatures)
-                payload_ids_by_ordinal[ordinal].update(point_payload_ids)
+            signatures_by_ordinal[ordinal] = dict(signatures)
+            payload_ids_by_ordinal[ordinal].update(point_payload_ids)
             compute_effects.extend(
-                RunCoverageEffect(compute_coverage, operation)
+                RunCoverageEffect.at_point(ordinal, operation)
                 for operation in compute_operations
             )
 
@@ -265,17 +242,10 @@ def materialize_local_execution(
             if isinstance(state, TypedDomainExecution | AcquireEffect):
                 raise AssertionError("state group contains a non-state effect")
             state_group.append((index, state))
-        support = PointVariationSupport()
-        for index, _state in state_group:
-            support = support.merged(variation.state[index])
-        for state_coverage in layout.partition(
-            support.point_columns,
-            ordinals,
-            rows=rows,
-        ):
-            representative = point_by_ordinal[state_coverage[0]]
-            representative_params = params_by_ordinal[state_coverage[0]]
-            resources = resources_by_ordinal[representative.logical_ordinal]
+        for ordinal in ordinals:
+            point = point_by_ordinal[ordinal]
+            point_params = params_by_ordinal[ordinal]
+            resources = resources_by_ordinal[ordinal]
             desired = _bind_desired_state(
                 tuple(
                     record
@@ -283,16 +253,16 @@ def materialize_local_execution(
                     for record in _evaluate_state_records(
                         state,
                         index,
-                        representative,
-                        representative_params,
+                        point,
+                        point_params,
                         problems=problems,
                     )
                 ),
-                point_uid=representative.logical_id.value,
+                point_uid=point.logical_id.value,
                 resources=resources,
-                payload_ids=payload_ids_by_ordinal[representative.logical_ordinal],
+                payload_ids=payload_ids_by_ordinal[ordinal],
                 known_compute_results=known_compute_results,
-                point_index=representative.logical_ordinal,
+                point_index=ordinal,
                 problems=problems,
             )
             ordered = _order_instrument_operations(
@@ -300,7 +270,7 @@ def materialize_local_execution(
                 instrument_order=selected_instrument_order,
             )
             effect_operations[state_end - 1].extend(
-                RunCoverageEffect(state_coverage, operation) for operation in ordered
+                RunCoverageEffect.at_point(ordinal, operation) for operation in ordered
             )
     if bool(problems):
         raise CheckFailed(problems)
@@ -455,17 +425,9 @@ def _select_coverage_resources(
     points: Sequence[MaterializedPoint],
     params_by_ordinal: Mapping[int, ParameterRelationData],
     problems: list[Problem],
-    *,
-    verified_program: VerifiedCoreProgram,
-    variation_support: Mapping[str, PointVariationSupport],
 ) -> dict[int, Mapping[LogicalResourcePortId, _ResourceEntitySelection]]:
-    """Evaluate point-local entities over the target's static port manifests.
+    """Evaluate point-local entities over the target's static port manifests."""
 
-    Variation keys reuse identical logical selections. Physical endpoint
-    candidates were already frozen while preparing the local target.
-    """
-
-    cache: dict[tuple[str, str], _ResourceEntitySelection | None] = {}
     return {
         point.logical_ordinal: _select_point_resources(
             program,
@@ -473,9 +435,6 @@ def _select_coverage_resources(
             point,
             params_by_ordinal[point.logical_ordinal],
             problems,
-            verified_program=verified_program,
-            variation_support=variation_support,
-            cache=cache,
         )
         for point in points
     }
@@ -487,29 +446,11 @@ def _select_point_resources(
     point: MaterializedPoint,
     params: ParameterRelationData,
     problems: list[Problem],
-    *,
-    verified_program: VerifiedCoreProgram,
-    variation_support: Mapping[str, PointVariationSupport],
-    cache: dict[tuple[str, str], _ResourceEntitySelection | None],
 ) -> Mapping[LogicalResourcePortId, _ResourceEntitySelection]:
     selected: dict[LogicalResourcePortId, _ResourceEntitySelection] = {}
     for requirement in program.resource_requirements:
         manifest = resource_ports.get(requirement.port_id)
         if manifest is None:
-            continue
-        port_id = requirement.port_id.qualified_name
-        key = (
-            port_id,
-            verified_program.iteration_layout.projection_key(
-                variation_support[port_id].point_columns,
-                point.logical_ordinal,
-                fallback_row=point.row,
-            ),
-        )
-        if key in cache:
-            cached = cache[key]
-            if cached is not None:
-                selected[cached.manifest.port_id] = cached
             continue
         ctx = EvalContext(params=params, point_row=point.row)
         entity_values: list[object] = []
@@ -538,7 +479,6 @@ def _select_point_resources(
                     )
                 )
         if failed:
-            cache[key] = None
             continue
         try:
             resource = _ResourceEntitySelection(
@@ -556,9 +496,7 @@ def _select_point_resources(
                     ),
                 )
             )
-            cache[key] = None
             continue
-        cache[key] = resource
         selected[resource.manifest.port_id] = resource
     return selected
 

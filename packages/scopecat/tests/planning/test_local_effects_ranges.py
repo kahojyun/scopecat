@@ -54,10 +54,12 @@ def _point_domain(
     values: tuple[Quantity, ...],
 ) -> PointDomain:
     return PointDomain(
-        root=point_axis_values(
-            "drive_frequency",
-            Scalar(QuantityType(unit="GHz")),
-            values,
+        axes=(
+            point_axis_values(
+                "drive_frequency",
+                Scalar(QuantityType(unit="GHz")),
+                values,
+            ),
         )
     )
 
@@ -162,12 +164,14 @@ def test_materialized_effects_rejects_link_problems_without_duplicates() -> None
         id="bad-preview-points",
         kind="problem",
         point_domain=PointDomain(
-            point_axis_linear(
-                "frequency",
-                center_type,
-                center,
-                Quantity(value=0.2, unit="GHz"),
-                2,
+            axes=(
+                point_axis_linear(
+                    "frequency",
+                    center_type,
+                    center,
+                    Quantity(value=0.2, unit="GHz"),
+                    2,
+                ),
             )
         ),
     )

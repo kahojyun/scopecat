@@ -72,7 +72,7 @@ from scopecat.compiler.semantic.model import (
     SemanticDomainExecution,
     SemanticGraphIR,
 )
-from scopecat.graph.relations.point_domain import POINT_UNIT, PointDomainExpr
+from scopecat.graph.relations.point_domain import PointAxes
 from scopecat.graph.values import (
     OperationId,
 )
@@ -140,7 +140,7 @@ class _ModuleFragmentValueRoots:
 class SemanticExperimentIR(_ExperimentEnvelope):
     """Closed config-free semantic graph plus plan and resource intents."""
 
-    point_domain: PointDomainExpr[ValueRef] = POINT_UNIT
+    point_domain: PointAxes[ValueRef] = ()
     semantic_graph: SemanticGraphIR = field(default_factory=SemanticGraphIR)
     implementations: Mapping[OperationId, LocalPythonImplementation] = field(
         default_factory=dict[OperationId, LocalPythonImplementation],

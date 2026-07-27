@@ -47,7 +47,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     module_call = module.domain(execution).build()()
     experiment_body = (
         sc.experiment(module_call)
-        .scan(count, (1, 3, 5))
+        .scan(sc.axis(count, (1, 3, 5)))
         .record_product(module_call.products.counts, record_id="counts")
     )
     template = sc.template(id="test.domain.view", kind="domain_view")(

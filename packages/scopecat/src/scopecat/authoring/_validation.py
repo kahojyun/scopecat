@@ -8,7 +8,7 @@ config-dependent assembly linker.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Protocol
+from typing import Protocol, cast
 
 from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._problems import authoring_problem as problem
@@ -16,7 +16,6 @@ from scopecat.authoring._scan_intents import (
     AroundScanSource,
     AxisSpec,
     Scan,
-    iter_scan_axes,
     parameter_cell_lookup,
 )
 from scopecat.authoring._value_refs import (
@@ -113,20 +112,20 @@ def _definition_input_types(
     problems: list[Problem] = []
 
     for scan in default_scans:
-        for axis in iter_scan_axes(scan):
-            for input_id, value_type in _direct_scan_input_types(axis):
-                existing = selected.get(input_id)
-                if existing is None or is_assignable(value_type, existing):
-                    selected[input_id] = value_type
-                elif not is_assignable(existing, value_type):
-                    problems.append(
-                        problem(
-                            "module_input_type_conflict",
-                            f"experiment input {input_id} has incompatible value types",
-                            "inputs",
-                            path=(input_id,),
-                        )
+        axis = cast("AxisSpec", scan)
+        for input_id, value_type in _direct_scan_input_types(axis):
+            existing = selected.get(input_id)
+            if existing is None or is_assignable(value_type, existing):
+                selected[input_id] = value_type
+            elif not is_assignable(existing, value_type):
+                problems.append(
+                    problem(
+                        "module_input_type_conflict",
+                        f"experiment input {input_id} has incompatible value types",
+                        "inputs",
+                        path=(input_id,),
                     )
+                )
     return selected, problems
 
 
@@ -136,11 +135,8 @@ def _direct_scan_input_types(
     selected: list[tuple[str, ValueType]] = []
     values: tuple[object, ...] = ()
     if isinstance(axis.source, AroundScanSource):
-        if axis.source.center is None:
-            selected.append((axis.id, axis.target.value_type))
-        else:
-            values = (axis.source.center,)
-    if axis.overlay is not None:
+        values = (axis.source.center,)
+    if axis.parameter_lookup is not None:
         _lookup, key = parameter_cell_lookup(axis)
         values = (*values, *(value for _name, value in key))
     for value in values:

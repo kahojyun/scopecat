@@ -1,10 +1,4 @@
-"""Verified dependency and point-variation facts for residual lowering.
-
-``ComputePlan`` closes demand, ownership, transitive provenance, and evaluation
-scope once so every lowering consumer uses the same graph facts.
-``VariationAnalysis`` identifies the point axes that may change each semantic
-object, enabling safe structural reuse across a scan.
-"""
+"""Verified dependency facts for residual compute lowering."""
 
 from __future__ import annotations
 
@@ -15,7 +9,6 @@ from types import MappingProxyType
 
 from scopecat.compiler.relations.verification import PlanImportNamespace
 from scopecat.compiler.semantic.value_expressions import ValueExpr
-from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     CoreProgram,
@@ -28,35 +21,6 @@ from scopecat.graph.values import (
     OperationId,
     ValueId,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class PointVariationSupport:
-    """Point columns whose values can change one lowered semantic object."""
-
-    point_columns: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "point_columns", tuple(sorted(set(self.point_columns)))
-        )
-
-    def merged(self, other: PointVariationSupport) -> PointVariationSupport:
-        return PointVariationSupport((*self.point_columns, *other.point_columns))
-
-
-@dataclass(frozen=True, slots=True)
-class VariationAnalysis:
-    """One verified projection of structural variation across semantic owners.
-
-    The supports describe which point axes can change a value, allowing the
-    iteration layout to derive exact contiguous reuse coverage.
-    """
-
-    parameters: PointVariationSupport
-    resource_entities: Mapping[str, PointVariationSupport]
-    compute: Mapping[OperationId, PointVariationSupport]
-    state: Mapping[int, PointVariationSupport]
 
 
 class ComputeScope(StrEnum):
@@ -100,11 +64,7 @@ class ComputeDependencies:
 
 @dataclass(frozen=True, slots=True)
 class ComputePlan:
-    """Verified residual compute facts consumed by every target materializer.
-
-    Scope follows transitive point-value dependence. Finer reuse remains separate
-    because it depends on structural variation within point scope.
-    """
+    """Verified residual compute facts consumed by every target materializer."""
 
     nodes: tuple[TypedComputeNode, ...]
     scopes: Mapping[OperationId, ComputeScope]
@@ -185,108 +145,6 @@ def analyze_compute_dependencies(
     return resolved
 
 
-def _parameter_overlay_variation_support(
-    overlays: Sequence[PointParameterOverlay],
-) -> PointVariationSupport:
-    """Return structural point support that can change effective parameters."""
-
-    return PointVariationSupport(
-        _merge_many(
-            tuple(
-                _value_dependencies(use.value).point_columns
-                for overlay in overlays
-                for use in (*overlay.key_uses.values(), overlay.value_use)
-            )
-        )
-    )
-
-
-def _resource_entity_variation_support(
-    program: CoreProgram,
-    *,
-    parameter_support: PointVariationSupport,
-) -> Mapping[str, PointVariationSupport]:
-    """Return point support that can change each logical entity selection."""
-
-    overlaid_tables = {overlay.table_id for overlay in program.parameter_overlays}
-    selected: dict[str, PointVariationSupport] = {}
-    for requirement in program.resource_requirements:
-        columns: set[str] = set()
-        for use in requirement.entity_uses:
-            dependencies = _value_dependencies(use.value)
-            columns.update(dependencies.point_columns)
-            if set(dependencies.parameters) & overlaid_tables:
-                columns.update(parameter_support.point_columns)
-        selected[requirement.port_id.qualified_name] = PointVariationSupport(
-            tuple(columns)
-        )
-    return MappingProxyType(selected)
-
-
-def analyze_variation_support(
-    program: CoreProgram,
-    compute_plan: ComputePlan,
-) -> VariationAnalysis:
-    """Project every target-facing support from canonical dependencies once."""
-
-    parameter_support = _parameter_overlay_variation_support(program.parameter_overlays)
-    resource_entity_support = _resource_entity_variation_support(
-        program,
-        parameter_support=parameter_support,
-    )
-    overlaid_tables = {overlay.table_id for overlay in program.parameter_overlays}
-    compute_support = MappingProxyType(
-        {
-            operation_id: PointVariationSupport(
-                (
-                    *dependency.point_columns,
-                    *(
-                        parameter_support.point_columns
-                        if set(dependency.parameters) & overlaid_tables
-                        else ()
-                    ),
-                )
-            )
-            for operation_id, dependency in compute_plan.dependencies.items()
-        }
-    )
-
-    def value_support(value: ValueExpr) -> PointVariationSupport:
-        dependencies = _value_dependencies(value)
-        return PointVariationSupport(
-            (
-                *dependencies.point_columns,
-                *(
-                    parameter_support.point_columns
-                    if set(dependencies.parameters) & overlaid_tables
-                    else ()
-                ),
-            )
-        )
-
-    def spec_support(spec: SetStateSpec) -> PointVariationSupport:
-        selected = resource_entity_support[spec.resource_target.port_id.qualified_name]
-        if isinstance(spec.value_use, ComputeResultRef):
-            owner = compute_plan.output_owners[spec.value_use.value_id]
-            selected = selected.merged(compute_support[owner])
-        else:
-            selected = selected.merged(value_support(spec.value_use.value))
-        return selected
-
-    return VariationAnalysis(
-        parameters=parameter_support,
-        resource_entities=resource_entity_support,
-        compute=compute_support,
-        state=MappingProxyType(
-            {
-                effect_index: spec_support(effect)
-                for effect_index, effect in enumerate(program.effects)
-                if isinstance(effect, SetStateSpec)
-            }
-        ),
-    )
-
-
 def _node_dependencies(
     node: TypedComputeNode,
     *,
@@ -323,7 +181,3 @@ def _value_dependencies(value: ValueExpr) -> ComputeDependencies:
 
 def _merge(left: tuple[str, ...], right: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted({*left, *right}))
-
-
-def _merge_many(values: Sequence[tuple[str, ...]]) -> tuple[str, ...]:
-    return tuple(sorted({item for value in values for item in value}))

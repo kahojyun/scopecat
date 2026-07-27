@@ -19,7 +19,7 @@ from tests.testkit.paths import CORE_FIXTURE_DIR as SIMPLE_SCAN_FIXTURE
 from tests.testkit.workflow_fixtures import load_experiment, load_invocation
 
 
-def test_cartesian_scan_request_contains_only_flat_axis_records() -> None:
+def test_multiple_scan_axes_produce_flat_request_records() -> None:
     first = sc.coordinate("first", sc.ScalarType(sc.IntType()))
     second = sc.coordinate("second", sc.ScalarType(sc.IntType()))
     module = sc.module_body(id="test.request_cartesian").build()
@@ -27,7 +27,8 @@ def test_cartesian_scan_request_contains_only_flat_axis_records() -> None:
     @sc.template(id="test.request_cartesian", kind="request_cartesian")
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(module()).scan(
-            sc.cartesian(sc.axis(first, [1, 2]), sc.axis(second, [3, 4]))
+            sc.axis(first, [1, 2]),
+            sc.axis(second, [3, 4]),
         )
 
     request = compile_invocation(template_definition.bind()).request
@@ -94,7 +95,7 @@ def test_parameter_scan_request_materializes_typed_input_keys() -> None:
     assert parameter_scan.key == {"subject": "q0"}
 
 
-def test_parameter_around_scan_request_preserves_implicit_center_intent() -> None:
+def test_parameter_around_scan_request_preserves_snapshot_centered_intent() -> None:
     subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("frequency", frequency_type)
@@ -153,12 +154,14 @@ def test_bound_default_scan_center_projects_as_a_closed_value() -> None:
         return (
             sc.experiment(module())
             .scan(
-                second_axis,
-                center=first,
-                span="2 GHz",
-                points=2,
+                sc.axis(
+                    second_axis,
+                    center=first,
+                    span="2 GHz",
+                    points=2,
+                )
             )
-            .scan(first_axis, [4.9, 5.1], unit="GHz")
+            .scan(sc.axis(first_axis, [4.9, 5.1], unit="GHz"))
         )
 
     template = template_definition

@@ -61,7 +61,10 @@ def _resolve_module(
     )
 
 
-def _config_with_parameter_table() -> ConfigProfileSnapshot:
+def _config_with_parameter_table(
+    *,
+    frequency_type: sc.ScalarType | None = None,
+) -> ConfigProfileSnapshot:
     config = load_config()
     definition = ParameterDefinition(
         id="device_parameters",
@@ -76,7 +79,8 @@ def _config_with_parameter_table() -> ConfigProfileSnapshot:
                 ),
                 sc.TableColumn(
                     id="frequency",
-                    value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+                    value_type=frequency_type
+                    or sc.ScalarType(sc.QuantityType(unit="GHz")),
                 ),
             ),
         ),
@@ -386,6 +390,37 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
     stored = config.parameter_snapshot.get("device_parameters")
     assert isinstance(stored, TableParameterValue)
     assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")
+
+
+def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
+    bounded_frequency = sc.ScalarType(
+        sc.QuantityType(unit="GHz", minimum=4.0, maximum=6.0)
+    )
+    config = _config_with_parameter_table(frequency_type=bounded_frequency)
+    frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
+    scan = sc.param_axis(
+        sc.coordinate("scanned_frequency", frequency_type),
+        sc.parameter_lookup(
+            "device_parameters",
+            key={"device": "q0"},
+            column="frequency",
+            value_type=frequency_type,
+        ),
+        [5.0],
+        unit="GHz",
+    )
+    module = sc.module_body(id="test.parameter-scan-write-type").build()
+    invocation = template_fixture(
+        module,
+        id="test.parameter-scan-write-type",
+        kind="parameter_contract",
+        scans=(scan,),
+    ).bind()
+
+    with pytest.raises(CheckFailed) as error:
+        link_invocation(invocation, config_profile=config)
+
+    assert error.value.problems[0].code == "authoring_parameter_scan_type_mismatch"
 
 
 def test_parameter_lookup_checks_table_column_and_entity_type() -> None:

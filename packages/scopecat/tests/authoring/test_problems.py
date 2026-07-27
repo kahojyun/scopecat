@@ -106,10 +106,8 @@ def test_compile_validates_default_scan_axes() -> None:
         id="test.invalid-default-scans",
         kind="invalid-default-scans",
         scans=(
-            sc.cartesian(
-                sc.axis(first, (1.0, 2.0)),
-                sc.axis(second, (1.0,)),
-            ),
+            sc.axis(first, (1.0, 2.0)),
+            sc.axis(second, (1.0,)),
             sc.axis(first, (3.0,)),
         ),
     )
@@ -131,7 +129,7 @@ def test_compile_rejects_repeated_scan_overrides_before_merging() -> None:
         kind="repeated-scan-overrides",
         scans=(sc.axis(point, (1.0,)),),
     )
-    invocation = template().scan(point, (2.0,)).scan(point, (3.0,))
+    invocation = template().scan(sc.axis(point, (2.0,))).scan(sc.axis(point, (3.0,)))
 
     with pytest.raises(CheckFailed) as error:
         compile_invocation(invocation)
@@ -259,7 +257,7 @@ def test_unused_child_expression_binding_does_not_consume_outer_input(
     link_invocation(invocation, config_profile=load_config())
 
 
-def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
+def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
     module, _value = _module_consuming_input()
     invocation = template_fixture(
         module,
@@ -273,7 +271,10 @@ def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
         ),
     ).bind()
 
-    link_invocation(invocation, config_profile=load_config())
+    with pytest.raises(CheckFailed) as error:
+        compile_invocation(invocation)
+
+    assert error.value.problems[0].code == "module_input_binding_missing"
 
 
 def _identity_value(value: object) -> object:

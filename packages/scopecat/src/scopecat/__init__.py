@@ -73,7 +73,6 @@ if TYPE_CHECKING:
     from scopecat.authoring.scans import (
         Scan,
         axis,
-        cartesian,
         param_axis,
     )
     from scopecat.config.candidates import CandidateConfig
@@ -146,7 +145,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "template": ("scopecat.authoring", "template"),
     "Scan": ("scopecat.authoring.scans", "Scan"),
     "axis": ("scopecat.authoring.scans", "axis"),
-    "cartesian": ("scopecat.authoring.scans", "cartesian"),
     "param_axis": ("scopecat.authoring.scans", "param_axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "Project": ("scopecat.project", "Project"),

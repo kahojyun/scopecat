@@ -7,7 +7,6 @@
   "scans": [
     {
       "kind": "scan",
-      "target_id": "drive_frequency",
       "axis_id": "drive_frequency",
       "center": {
         "kind": "parameter",

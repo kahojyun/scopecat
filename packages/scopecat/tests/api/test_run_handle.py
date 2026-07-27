@@ -52,13 +52,15 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
         return (
             authoring.experiment(module_call)
             .scan(
-                DRIVE_FREQUENCY_POINT,
-                center=authoring.parameter(
-                    "drive_frequency",
-                    authoring.ScalarType(authoring.QuantityType()),
+                sc.axis(
+                    DRIVE_FREQUENCY_POINT,
+                    center=authoring.parameter(
+                        "drive_frequency",
+                        authoring.ScalarType(authoring.QuantityType()),
+                    ),
+                    span=Quantity(value=200.0, unit="MHz"),
+                    points=3,
                 ),
-                span=Quantity(value=200.0, unit="MHz"),
-                points=3,
             )
             .record_product(module_call.products.signal, record_id="signal")
         )

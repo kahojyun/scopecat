@@ -51,7 +51,7 @@ from scopecat.graph.relations.model import (
     parameter_lookup,
     point_col,
 )
-from scopecat.graph.relations.point_domain import POINT_UNIT, point_axis_values
+from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import product_use
@@ -63,7 +63,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
+from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
 from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem
@@ -276,7 +276,6 @@ def _linked_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: Literal[0, 2] = 2,
-    equal_point_values: bool = False,
     domain_input: ValueInput | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
@@ -291,19 +290,18 @@ def _linked_program(
         ),
     )
     points = PointDomain(
-        root=point_axis_values(
-            "frequency",
-            point_type.columns[0].value_type,
-            (
+        axes=(
+            point_axis_values(
+                "frequency",
+                point_type.columns[0].value_type,
                 (
-                    Quantity(value=4.9, unit="GHz"),
-                    Quantity(
-                        value=4.9 if equal_point_values else 5.1,
-                        unit="GHz",
-                    ),
-                )
-                if point_count
-                else ()
+                    (
+                        Quantity(value=4.9, unit="GHz"),
+                        Quantity(value=5.1, unit="GHz"),
+                    )
+                    if point_count
+                    else ()
+                ),
             ),
         )
     )
@@ -514,7 +512,7 @@ def _linked_instrument_fed_postprocessor_program() -> LinkedPlan:
     program = CoreProgram(
         id="instrument-postprocessor",
         kind="compiler_test",
-        point_domain=PointDomain(root=POINT_UNIT),
+        point_domain=PointDomain(axes=()),
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
@@ -736,12 +734,10 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     )
     overlay = overlay_parameter_cell(
         "readout_devices",
+        row_index=0,
         key={"device_id": "r0"},
-        key_types={"device_id": Scalar(String())},
         column_id="frequency",
-        value=point_col("frequency"),
-        value_type=frequency_type,
-        bindings=bindings,
+        axis_id="frequency",
     )
     linked = _linked_program(
         domain_input=domain_input,
@@ -859,23 +855,7 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
     assert [request.point_ordinals for request in compiler.compile_requests] == [(0, 1)]
 
 
-def test_equal_materialized_state_values_share_one_domain_region() -> None:
-    linked = _linked_program(state_mode="varying", equal_point_values=True)
-    compiler = _DomainCompiler("tests.typed-effect-dependencies")
-
-    plan = ExperimentSystem(
-        provider=_TrackingProvider(),
-        domain_compiler=compiler,
-    ).compile(linked)
-
-    jobs = tuple(
-        operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
-    )
-    assert tuple(job.point_ordinals for job in jobs) == ((0, 1),)
-    assert compiler.compile_calls == 1
-
-
-def test_domain_compiler_batches_one_state_stable_region() -> None:
+def test_domain_compiler_batches_complete_point_domain() -> None:
     linked = _linked_program(state_mode="constant")
     compiler = _DomainCompiler("tests.constant-peripheral")
     provider = _TrackingProvider()
