@@ -27,10 +27,6 @@ def _operation_id(local_id: str) -> OperationId:
     return OperationId(SymbolId(local_id=local_id))
 
 
-def _value_id(local_id: str) -> ValueId:
-    return ValueId(SymbolId(local_id=local_id))
-
-
 def _opaque_operation(
     local_id: str,
     *,
