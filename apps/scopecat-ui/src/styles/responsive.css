@@ -40,6 +40,19 @@
   .parameter-browser-layout {
     grid-template-columns: minmax(165px, 190px) minmax(0, 1fr);
   }
+
+  .instruments-layout {
+    grid-template-columns: minmax(280px, 315px) minmax(0, 1fr);
+  }
+
+  .capability-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .capability-field,
+  .capability-field:nth-child(2n) {
+    border-right: 0;
+  }
 }
 
 @media (max-width: 880px) {
@@ -122,6 +135,44 @@
 
   .config-entry-list {
     max-height: 300px;
+  }
+
+  .instruments-layout {
+    display: block;
+    overflow: visible;
+    min-height: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .instrument-browser,
+  .instrument-inspector {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+  }
+
+  .instrument-browser {
+    position: static;
+    min-height: 0;
+    max-height: none;
+    margin-bottom: 10px;
+    border-right: 1px solid var(--line);
+  }
+
+  .instrument-list {
+    display: grid;
+    grid-auto-columns: minmax(280px, 46vw);
+    grid-auto-flow: column;
+    overflow-x: auto;
+    max-height: none;
+  }
+
+  .instrument-list-message {
+    min-width: 280px;
+  }
+
+  .instrument-inspector {
+    min-height: 560px;
   }
 
   .parameter-browser-layout {
@@ -234,6 +285,48 @@
   .config-toolbar {
     display: grid;
     gap: 17px;
+  }
+
+  .instruments-toolbar {
+    align-items: flex-start;
+  }
+
+  .instrument-config-identity {
+    min-width: 190px;
+  }
+
+  .instrument-inspector {
+    padding: 16px 13px;
+  }
+
+  .instrument-session-panel,
+  .instrument-attention-panel {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .connect-prompt,
+  .session-summary,
+  .instrument-attention-panel > div {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .instrument-actor-field {
+    flex: 1;
+  }
+
+  .instrument-actor-field input {
+    width: 100%;
+  }
+
+  .capability-field {
+    grid-template-columns: minmax(120px, 1fr) minmax(125px, 0.9fr);
+  }
+
+  .instrument-connection-fields,
+  .instrument-connection-fields.two-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .config-toolbar-actions {
@@ -444,6 +537,71 @@
 
   .dialog-viewport {
     padding: 10px;
+  }
+
+  .instruments-toolbar {
+    display: grid;
+  }
+
+  .instrument-config-identity {
+    width: 100%;
+    padding: 10px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+    text-align: left;
+  }
+
+  .instrument-list {
+    grid-auto-columns: minmax(260px, 86vw);
+  }
+
+  .instrument-inspector-header {
+    display: grid;
+  }
+
+  .instrument-inspector-header .secondary-button {
+    justify-self: start;
+  }
+
+  .session-actions {
+    width: 100%;
+  }
+
+  .session-actions > button {
+    flex: 1;
+  }
+
+  .instrument-owner {
+    display: grid;
+    gap: 5px;
+  }
+
+  .capability-card > header,
+  .capability-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .capability-card > header {
+    display: flex;
+  }
+
+  .capability-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .staged-apply-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .staged-apply-bar > div {
+    grid-column: 1 / -1;
+  }
+
+  .instrument-connection-fields,
+  .instrument-connection-fields.two-column,
+  .instrument-config-audit {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

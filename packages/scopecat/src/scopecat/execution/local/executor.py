@@ -167,7 +167,12 @@ def _provision_and_execute(
         )
 
     try:
-        provider_result = provider.provide(InstrumentProviderContext(config=config))
+        provider_result = provider.provide(
+            InstrumentProviderContext(
+                config=config,
+                instrument_ids=host.resource_order,
+            )
+        )
     except Exception as error:
         problem = problem_from_exception(
             "instrument_provider_failed",
@@ -288,7 +293,10 @@ def _execute_provider_result(
             setup_problems.extend(
                 _validate_provided_descriptions(
                     run_id=run_id,
-                    advertised=host.advertised_descriptions,
+                    advertised={
+                        instrument_id: host.advertised_descriptions[instrument_id]
+                        for instrument_id in host.resource_order
+                    },
                     actual=actual_descriptions,
                 )
             )

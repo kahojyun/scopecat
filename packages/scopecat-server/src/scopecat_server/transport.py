@@ -21,6 +21,8 @@ from scopecat.daemon.views import (
     ConfigEntryView,
     ConfigRegistryView,
     DaemonHealth,
+    InstrumentListView,
+    InstrumentView,
     MeasurementPage,
     ParameterProposalListView,
     RunAnalysisListView,
@@ -45,6 +47,14 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentSessionApplyCommand,
+    InstrumentSessionCollectCommand,
+    InstrumentSessionEndCommand,
+    InstrumentSessionEndReceipt,
+    InstrumentSessionHeartbeat,
+    InstrumentSessionLease,
+    InstrumentSessionOpenCommand,
+    InstrumentSessionReadCommand,
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
@@ -54,6 +64,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
@@ -62,6 +73,7 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
+from scopecat.sdk.instruments.contracts import ApplyReceipt, CollectReceipt
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -129,6 +141,92 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: ConfigUndoCommand,
     ) -> ConfigActivationReceipt:
         return application.config.undo_config(command)
+
+    @app.get(f"{_API_PREFIX}/instruments")
+    def list_instruments() -> InstrumentListView:
+        return application.instruments.list_instruments()
+
+    @app.get(f"{_API_PREFIX}/instruments/{{instrument_id}}")
+    def get_instrument(instrument_id: str) -> InstrumentView:
+        return application.instruments.get_instrument(instrument_id)
+
+    @app.post(f"{_API_PREFIX}/instrument-sessions", status_code=201)
+    def open_instrument_session(
+        command: InstrumentSessionOpenCommand,
+    ) -> InstrumentSessionLease:
+        return application.instruments.open_session(command)
+
+    @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/heartbeat")
+    def heartbeat_instrument_session(
+        session_id: str,
+        heartbeat: InstrumentSessionHeartbeat,
+    ) -> InstrumentSessionLease:
+        return application.instruments.heartbeat(session_id, heartbeat)
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/state/read"
+    )
+    def read_instrument_state(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentSessionReadCommand,
+    ) -> InstrumentStateSnapshot:
+        return application.instruments.read_state(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/state/apply"
+    )
+    def apply_instrument_state(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentSessionApplyCommand,
+    ) -> ApplyReceipt:
+        return application.instruments.apply_state(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/collect"
+    )
+    def collect_instrument(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentSessionCollectCommand,
+    ) -> CollectReceipt:
+        return application.instruments.collect(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/close")
+    def close_instrument_session(
+        session_id: str,
+        command: InstrumentSessionEndCommand,
+    ) -> InstrumentSessionEndReceipt:
+        return application.instruments.close_session(session_id, command)
+
+    @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/abort")
+    def abort_instrument_session(
+        session_id: str,
+        command: InstrumentSessionEndCommand,
+    ) -> InstrumentSessionEndReceipt:
+        return application.instruments.abort_session(session_id, command)
+
+    @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/attention")
+    def resolve_instrument_session_attention(
+        session_id: str,
+    ) -> InstrumentSessionEndReceipt:
+        return application.instruments.resolve_attention(session_id)
 
     @app.get(f"{_API_PREFIX}/runs")
     def list_runs(

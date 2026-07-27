@@ -8,6 +8,7 @@ import "./styles/shell.css";
 import "./styles/runs.css";
 import "./styles/proposals.css";
 import "./styles/config.css";
+import "./styles/instruments.css";
 import "./styles/overlays.css";
 import "./styles/responsive.css";
 

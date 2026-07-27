@@ -58,6 +58,17 @@ class DriverLifecycle:
 
     def finalize(self) -> None:
         action = "abort" if bool(self.journal.problems) else "cleanup"
+        self._run_finalizer(action)
+
+    def close(self) -> None:
+        """Release driver connections after terminal state has been captured."""
+
+        self._run_finalizer("close")
+
+    def _run_finalizer(
+        self,
+        action: Literal["abort", "cleanup", "close"],
+    ) -> None:
         used = set(self.resource_order)
         extras = tuple(sorted(set(self.drivers) - used))
         managed_order = (
@@ -81,7 +92,13 @@ class DriverLifecycle:
             self.journal.commit_best_effort(entry)
 
             try:
-                getattr(self.drivers[instrument_id], action)()
+                driver = self.drivers[instrument_id]
+                if action == "abort":
+                    driver.abort()
+                elif action == "cleanup":
+                    driver.cleanup()
+                else:
+                    driver.close()
             except Exception as error:
                 problem = self.journal.problem_from_exception(
                     f"instrument_{action}_failed",

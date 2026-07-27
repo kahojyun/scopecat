@@ -154,7 +154,10 @@ class RunEffectInterpreter:
                     tuple(sorted(self._active_point_indices)),
                 )
             self._lifecycle.finalize()
-            self.final_state = self._lifecycle.read_states(phase="terminal")
+            try:
+                self.final_state = self._lifecycle.read_states(phase="terminal")
+            finally:
+                self._lifecycle.close()
         return self._result()
 
     def _execute_coverage_operations(

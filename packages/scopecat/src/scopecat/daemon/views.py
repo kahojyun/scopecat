@@ -13,13 +13,18 @@ from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
 )
-from scopecat.control.models import ControlRun, ResourceKey
+from scopecat.control.models import (
+    ControlRun,
+    ResourceKey,
+    ResourceOwnerKind,
+)
 from scopecat.kernel.problems import Problem
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
+    InstrumentSpec,
     config_content_hash,
 )
 from scopecat.records.measurement import MeasurementRecord
@@ -30,6 +35,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 
 class _ViewModel(BaseModel):
@@ -84,6 +90,49 @@ class ConfigDraftPreview(_ViewModel):
     config: ConfigProfileSnapshot | None = None
     result_content_hash: ConfigContentHash | None = None
     deltas: tuple[ParameterValueDelta, ...] = ()
+    problems: tuple[Problem, ...] = ()
+
+
+class InstrumentView(_ViewModel):
+    """Configured instrument, pure driver ABI, and current exclusive ownership."""
+
+    spec: InstrumentSpec
+    description: InstrumentDescription | None = None
+    availability: Literal["available", "active", "quarantined", "unavailable"]
+    owner_kind: ResourceOwnerKind | None = None
+    owner_id: str | None = None
+    owner_actor: str | None = None
+    expires_at: datetime | None = None
+    problems: tuple[Problem, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_availability(self) -> InstrumentView:
+        if self.availability == "available":
+            if (
+                self.owner_kind is not None
+                or self.owner_id is not None
+                or self.owner_actor is not None
+                or self.expires_at is not None
+            ):
+                raise ValueError("available instrument cannot have an owner")
+        elif self.availability in {"active", "quarantined"}:
+            if self.owner_kind is None or self.owner_id is None:
+                raise ValueError("leased instrument requires an owner")
+            if self.owner_kind == "instrument_session" and self.owner_actor is None:
+                raise ValueError("interactive instrument owner requires an actor")
+            if self.owner_kind == "run" and self.owner_actor is not None:
+                raise ValueError("run-owned instrument cannot expose an actor")
+            if self.availability == "active" and self.expires_at is None:
+                raise ValueError("active instrument requires an expiry")
+            if self.availability == "quarantined" and self.expires_at is not None:
+                raise ValueError("quarantined instrument cannot have an expiry")
+        return self
+
+
+class InstrumentListView(_ViewModel):
+    config_entry_id: str
+    config_content_hash: ConfigContentHash
+    items: tuple[InstrumentView, ...] = ()
     problems: tuple[Problem, ...] = ()
 
 
@@ -240,6 +289,8 @@ __all__ = [
     "ConfigEntryView",
     "ConfigRegistryView",
     "DaemonHealth",
+    "InstrumentListView",
+    "InstrumentView",
     "MeasurementPage",
     "ParameterProposalListView",
     "ParameterProposalView",

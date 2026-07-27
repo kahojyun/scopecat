@@ -645,5 +645,8 @@ class _ScopedStateDriver:
     def cleanup(self) -> None:
         return None
 
+    def close(self) -> None:
+        return None
+
     def abort(self) -> None:
         return None

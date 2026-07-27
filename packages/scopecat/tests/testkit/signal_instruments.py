@@ -221,6 +221,9 @@ class TestSignalInstrument:
             )
         )
 
+    def close(self) -> None:
+        return None
+
     def cleanup(self) -> None:
         return None
 

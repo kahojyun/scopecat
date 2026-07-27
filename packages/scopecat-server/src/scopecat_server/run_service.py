@@ -137,7 +137,7 @@ class RunService:
                     for lease in self._control.list_resource_leases_in_transaction(
                         connection
                     )
-                    if lease.run_id == run_id
+                    if lease.owner_kind == "run" and lease.owner_id == run_id
                 }
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error

@@ -4,7 +4,7 @@ from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 12
+PROJECT_SCHEMA_VERSION = 13
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (
@@ -74,8 +74,11 @@ CREATE TABLE IF NOT EXISTS executor_leases (
 CREATE TABLE IF NOT EXISTS resource_leases (
     resource_kind TEXT NOT NULL,
     resource_id TEXT NOT NULL,
-    run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
-    executor_token TEXT,
+    owner_kind TEXT NOT NULL CHECK (
+        owner_kind IN ('run', 'instrument_session')
+    ),
+    owner_id TEXT NOT NULL,
+    owner_token TEXT,
     status TEXT NOT NULL CHECK (status IN ('active', 'quarantined')),
     acquired_at TEXT NOT NULL,
     expires_at TEXT,
@@ -83,18 +86,59 @@ CREATE TABLE IF NOT EXISTS resource_leases (
     CHECK (
         (
             status = 'active'
-            AND executor_token IS NOT NULL
+            AND owner_token IS NOT NULL
             AND expires_at IS NOT NULL
         )
         OR (
             status = 'quarantined'
-            AND executor_token IS NULL
+            AND owner_token IS NULL
             AND expires_at IS NULL
         )
     )
 );
 
-CREATE INDEX IF NOT EXISTS resource_leases_run_id ON resource_leases(run_id);
+CREATE INDEX IF NOT EXISTS resource_leases_owner
+ON resource_leases(owner_kind, owner_id);
+
+CREATE TABLE IF NOT EXISTS instrument_sessions (
+    session_id TEXT PRIMARY KEY,
+    open_operation_id TEXT NOT NULL UNIQUE,
+    actor TEXT NOT NULL,
+    config_entry_id TEXT NOT NULL,
+    config_content_hash TEXT NOT NULL,
+    instrument_ids_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (
+        state IN ('active', 'attention_required', 'closed')
+    ),
+    token TEXT UNIQUE,
+    acquired_at TEXT NOT NULL,
+    renewed_at TEXT NOT NULL,
+    expires_at TEXT,
+    attention_reason TEXT,
+    CHECK (
+        (
+            state = 'active'
+            AND token IS NOT NULL
+            AND expires_at IS NOT NULL
+            AND attention_reason IS NULL
+        )
+        OR (
+            state = 'attention_required'
+            AND token IS NULL
+            AND expires_at IS NULL
+            AND attention_reason IS NOT NULL
+        )
+        OR (
+            state = 'closed'
+            AND token IS NULL
+            AND expires_at IS NULL
+            AND attention_reason IS NULL
+        )
+    )
+);
+
+CREATE INDEX IF NOT EXISTS instrument_sessions_state_expiry
+ON instrument_sessions(state, expires_at);
 """  # noqa: S608 - interpolates an internal integer constant
 
 PROJECT_SCHEMA_SQL = "\n".join(

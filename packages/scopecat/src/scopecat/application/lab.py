@@ -39,6 +39,8 @@ class LabApplication:
     def connect(
         self,
         daemon: str,
+        *,
+        operator: str = "operator",
     ) -> LabClient:
         """Connect notebook code while retaining local scratch capabilities."""
 
@@ -47,6 +49,7 @@ class LabApplication:
         return LabClient(
             daemon,
             build_system=self.build_system,
+            operator=operator,
         )
 
 

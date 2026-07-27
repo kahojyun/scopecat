@@ -56,6 +56,7 @@ class Project:
         daemon: str | None = None,
         *,
         build_system: ExperimentSystemBuilder | None = None,
+        operator: str = "operator",
     ) -> LabClient:
         """Open the project's high-level notebook client."""
 
@@ -63,7 +64,7 @@ class Project:
         application = self.load_application()
         if build_system is not None:
             application = replace(application, build_system=build_system)
-        return application.connect(endpoint)
+        return application.connect(endpoint, operator=operator)
 
 
 def open_project(start: str | Path = ".") -> Project:

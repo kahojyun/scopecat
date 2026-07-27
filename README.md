@@ -10,7 +10,9 @@ The long-term direction is captured in the
 [project charter](docs/project-charter.md) and the
 [experiment execution semantics](docs/experiment-execution-model.md). The
 [lab daemon model](docs/lab-daemon.md) defines durable ownership
-across the GUI, notebooks, and executors.
+across the GUI, notebooks, and executors, while
+[instrument control](docs/instrument-control.md) defines direct device
+sessions and connection UX.
 Implementation contracts and design rationale live beside the code that owns
 them.
 
@@ -18,7 +20,10 @@ them.
 
 - `packages/scopecat`: domain-neutral authoring, planning, execution, data, and
   daemon client APIs.
+- `packages/scopecat-instruments`: minimal real SCPI drivers and coupled
+  virtual laboratory devices.
 - `packages/scopecat-quantum`: hardware-independent quantum building blocks.
+- `examples/instruments`: hardware-free GUI and notebook direct-control tour.
 - `examples/quantum`: notebook-first examples and a local demonstration lab.
 - `fixtures`: test-only inputs; runnable projects own their bootstrap config.
 - `docs`: long-term product direction.
@@ -86,6 +91,18 @@ through candidate acceptance, production use, and undo. The daemon records
 every immutable revision, acceptance decision, and activation while keeping
 entry ids and concurrency generations out of the ordinary workflow.
 
+For a hardware-free instrument-control tour instead, start
+`examples/instruments` and open the **Instruments** workspace:
+
+```sh
+uv run scopecat start examples/instruments --static-dir apps/scopecat-ui/dist
+uv run scopecat open examples/instruments
+uv run python examples/instruments/notebooks/01_direct_control.py
+```
+
+Its coupled virtual DC source, temperature monitor, RF source, and VNA use the
+same capability and session APIs as real devices.
+
 Explicitly local scratch code still executes in the notebook process when it
 cannot be sent reliably to another process. Admission, resource ownership,
 measurements, analysis, and configuration history are written only by the
@@ -108,6 +125,7 @@ See the [lab daemon model](docs/lab-daemon.md) and
 with [the quantum examples](examples/quantum/README.md). The package READMEs
 describe the smaller public entry points for
 [`scopecat`](packages/scopecat/README.md) and
+[`scopecat-instruments`](packages/scopecat-instruments/README.md), and
 [`scopecat-quantum`](packages/scopecat-quantum/README.md).
 
 ## Development

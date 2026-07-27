@@ -254,6 +254,74 @@ def cleanup_after_setup_failure(
             problems.append(problem)
             continue
         states.append(state)
+    for close_index, (instrument_id, instrument) in enumerate(reversed(managed)):
+        entry = ExecutionTransition(
+            run_id=run_id,
+            operation_id=(f"lifecycle.setup-close.{close_index}.{instrument_id}"),
+            stage="setup_close",
+            effect="lifecycle",
+            state="started",
+            instrument_id=instrument_id,
+        )
+        interruption = _first_interruption(
+            interruption,
+            _commit_setup_transition(
+                journal,
+                entry,
+                problems,
+            ),
+        )
+        try:
+            instrument.close()
+        except Exception as error:
+            problem = problem_from_exception(
+                "instrument_close_failed",
+                f"instrument close failed for {instrument_id}",
+                run_id=run_id,
+                operation_id=entry.operation_id,
+                instrument_id=instrument_id,
+                error=error,
+            )
+            problems.append(problem)
+            interruption = _first_interruption(
+                interruption,
+                _commit_setup_transition(
+                    journal,
+                    entry.model_copy(
+                        update={"state": "failed", "problems": (problem,)}
+                    ),
+                    problems,
+                ),
+            )
+            continue
+        except BaseException as error:
+            interruption = _first_interruption(interruption, error)
+            problem = _interruption_problem(
+                error,
+                run_id=run_id,
+                operation_id=entry.operation_id,
+                instrument_id=instrument_id,
+            )
+            problems.append(problem)
+            interruption = _first_interruption(
+                interruption,
+                _commit_setup_transition(
+                    journal,
+                    entry.model_copy(
+                        update={"state": "failed", "problems": (problem,)}
+                    ),
+                    problems,
+                ),
+            )
+            continue
+        interruption = _first_interruption(
+            interruption,
+            _commit_setup_transition(
+                journal,
+                entry.model_copy(update={"state": "completed"}),
+                problems,
+            ),
+        )
     return states, interruption
 
 

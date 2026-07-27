@@ -10,10 +10,6 @@ from scopecat.execution.local.program import (
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.persistence import validate_run_measurements
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.kernel.problems import (
-    ProblemPhase,
-    model_location,
-)
 from scopecat.kernel.product_identity import product_id, product_use
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.points import RunPoint
@@ -83,35 +79,18 @@ def test_explicit_collect_capability_selects_one_matching_product() -> None:
     assert problems == []
 
 
-def test_duplicate_product_key_within_selected_capability_is_ambiguous() -> None:
-    program = _collect_program(capability_id="readout", dtype="float64")
-    description = _description(
-        capabilities=(
-            capability(
-                "readout",
-                products=(product("signal"), product("signal")),
+def test_duplicate_product_key_within_capability_is_rejected() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="capability product keys must be unique",
+    ):
+        capability(
+            "readout",
+            products=(
+                product("signal"),
+                product("signal"),
             ),
         )
-    )
-
-    problems = _validate(
-        program,
-        descriptions={"source-0": description},
-    )
-
-    assert len(problems) == 1
-    problem = problems[0]
-    assert problem.code == "instrument_product_ambiguous"
-    assert problem.phase is ProblemPhase.PROVIDER_PREFLIGHT
-    assert problem.location == model_location(
-        "execution_program",
-        "operations",
-        "point-0.collect.source-0",
-        "requests",
-        "signal",
-        "capability_id",
-    )
-    assert "under capability 'readout'" in problem.message
 
 
 def test_run_measurements_have_expected_unique_points_and_observables() -> None:

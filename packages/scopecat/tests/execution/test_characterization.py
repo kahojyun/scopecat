@@ -5,6 +5,7 @@ from typing import override
 
 import scopecat as sc
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
+from scopecat.execution.local.drivers import cleanup_after_setup_failure
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectionResultBinding,
@@ -342,6 +343,8 @@ class _FinalizationFailureDriver(SignalInstrumentDriver):
     def __init__(self, *, instrument_id: str = "source-0") -> None:
         super().__init__(instrument_id=instrument_id)
         self.abort_count = 0
+        self.close_count = 0
+        self.read_count_when_closed: int | None = None
         self.read_count = 0
 
     @override
@@ -368,11 +371,18 @@ class _FinalizationFailureDriver(SignalInstrumentDriver):
     def abort(self) -> None:
         self.abort_count += 1
 
+    @override
+    def close(self) -> None:
+        self.close_count += 1
+        self.read_count_when_closed = self.read_count
+
 
 class _FinalizationTrackingDriver(SignalInstrumentDriver):
     def __init__(self, *, instrument_id: str) -> None:
         super().__init__(instrument_id=instrument_id)
         self.abort_count = 0
+        self.close_count = 0
+        self.read_count_when_closed: int | None = None
         self.read_count = 0
 
     @override
@@ -384,6 +394,11 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
     def abort(self) -> None:
         self.abort_count += 1
 
+    @override
+    def close(self) -> None:
+        self.close_count += 1
+        self.read_count_when_closed = self.read_count
+
 
 class _BrokenFinalizationJournal(FakeExecutionJournal):
     @override
@@ -391,6 +406,50 @@ class _BrokenFinalizationJournal(FakeExecutionJournal):
         if entry.stage == "abort":
             raise RuntimeError("lifecycle journal unavailable")
         return super().append(entry)
+
+
+class _CloseFailureDriver(_FinalizationTrackingDriver):
+    @override
+    def close(self) -> None:
+        super().close()
+        raise RuntimeError("socket close failed")
+
+
+def test_setup_failure_closes_driver_after_terminal_read() -> None:
+    driver = _CloseFailureDriver(instrument_id="source-0")
+    setup_problem = problem(
+        "instrument_setup_failed",
+        "injected setup failure",
+        phase=ProblemPhase.EXECUTION,
+    )
+    problems = [setup_problem]
+    journal = FakeExecutionJournal()
+
+    final_state, interruption = cleanup_after_setup_failure(
+        [driver],
+        problems,
+        run_id="setup-close-run",
+        journal=journal,
+    )
+
+    assert interruption is None
+    assert [state.instrument_id for state in final_state] == ["source-0"]
+    assert driver.close_count == 1
+    assert driver.read_count_when_closed == 1
+    assert [item.code for item in problems] == [
+        "instrument_setup_failed",
+        "instrument_close_failed",
+    ]
+    assert [
+        (entry.stage, entry.state)
+        for entry in journal.entries
+        if entry.stage in {"setup_cleanup", "setup_close"}
+    ] == [
+        ("setup_cleanup", "started"),
+        ("setup_cleanup", "completed"),
+        ("setup_close", "started"),
+        ("setup_close", "failed"),
+    ]
 
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
@@ -480,8 +539,12 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
     assert result.indeterminate
     assert first.abort_count == 1
     assert second.abort_count == 1
+    assert first.close_count == 1
+    assert second.close_count == 1
     assert first.read_count == 2
     assert second.read_count == 2
+    assert first.read_count_when_closed == 2
+    assert second.read_count_when_closed == 2
     assert {state.instrument_id for state in result.final_state} == {
         "source-a",
         "source-b",
@@ -489,6 +552,28 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
     assert "execution_journal_commit_failed" in {
         problem.code for problem in result.problems
     }
+
+
+def test_driver_close_failure_is_reported_after_terminal_read() -> None:
+    driver = _CloseFailureDriver(instrument_id="source-0")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("close-failure-point"), {}),
+        (_gain_operation("source-0", 1.0),),
+        resource_order=("source-0",),
+        resource_claims=_claims("source-0"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="close-failure-run",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
+        drivers={"source-0": driver},
+        journal=FakeExecutionJournal(),
+    ).run(complete_coverage_operations(program), points=program.points)
+
+    assert driver.close_count == 1
+    assert driver.read_count_when_closed == 2
+    assert "instrument_close_failed" in {item.code for item in result.problems}
 
 
 class _ReceiptEvidenceStateDriver(SignalInstrumentDriver):

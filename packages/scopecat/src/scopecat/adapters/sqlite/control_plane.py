@@ -21,6 +21,7 @@ from scopecat.control.models import (
     DurableEventInput,
     EventPage,
     ExecutorLease,
+    InstrumentSession,
     ResourceKey,
     ResourceLease,
     RunAdmissionRecord,
@@ -28,6 +29,7 @@ from scopecat.control.models import (
 )
 
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
+_STRING_TUPLE = TypeAdapter(tuple[str, ...])
 
 
 class ControlPlaneError(RuntimeError):
@@ -44,6 +46,10 @@ class ControlPlaneConflict(ControlPlaneError):
 
 class ExecutorLeaseNotHeld(ControlPlaneConflict):
     """The executor fencing token is absent, stale, or expired."""
+
+
+class InstrumentSessionLeaseNotHeld(ControlPlaneConflict):
+    """The interactive-session fencing token is absent, stale, or expired."""
 
 
 class SQLiteControlPlane:
@@ -251,7 +257,11 @@ class SQLiteControlPlane:
             at=closed_at,
         )
         released = connection.execute(
-            "DELETE FROM resource_leases WHERE run_id = ?", (run_id,)
+            """
+            DELETE FROM resource_leases
+            WHERE owner_kind = 'run' AND owner_id = ?
+            """,
+            (run_id,),
         ).rowcount
         connection.execute("DELETE FROM executor_leases WHERE run_id = ?", (run_id,))
         if released:
@@ -442,10 +452,10 @@ class SQLiteControlPlane:
         connection.executemany(
             """
             INSERT INTO resource_leases(
-                resource_kind, resource_id, run_id, executor_token,
+                resource_kind, resource_id, owner_kind, owner_id, owner_token,
                 status, acquired_at, expires_at
             )
-            VALUES (?, ?, ?, ?, 'active', ?, ?)
+            VALUES (?, ?, 'run', ?, ?, 'active', ?, ?)
             """,
             [
                 (
@@ -526,7 +536,8 @@ class SQLiteControlPlane:
             connection.execute(
                 """
                 UPDATE resource_leases SET expires_at = ?
-                WHERE executor_token = ? AND status = 'active'
+                WHERE owner_kind = 'run'
+                    AND owner_token = ? AND status = 'active'
                 """,
                 (_timestamp(expires_at), token),
             )
@@ -613,6 +624,466 @@ class SQLiteControlPlane:
         )
         return tuple(_resource_lease(row) for row in rows)
 
+    def open_instrument_session(
+        self,
+        *,
+        operation_id: str,
+        actor: str,
+        config_entry_id: str,
+        config_content_hash: str,
+        instrument_ids: tuple[str, ...],
+        ttl: timedelta,
+        at: datetime | None = None,
+    ) -> InstrumentSession:
+        """Atomically reserve instruments for one direct-interaction session."""
+
+        _ttl(ttl)
+        if not operation_id:
+            raise ValueError("instrument session operation id must be non-empty")
+        if not actor:
+            raise ValueError("instrument session actor must be non-empty")
+        if not config_entry_id:
+            raise ValueError("instrument session config entry id must be non-empty")
+        if not config_content_hash:
+            raise ValueError("instrument session config hash must be non-empty")
+        if not instrument_ids:
+            raise ValueError("instrument session requires at least one instrument")
+        if any(not instrument_id for instrument_id in instrument_ids):
+            raise ValueError("instrument session ids must be non-empty")
+        if len(instrument_ids) != len(set(instrument_ids)):
+            raise ValueError("instrument session ids must be unique")
+
+        started_at = at or datetime.now(tz=UTC)
+        expires_at = started_at + ttl
+        session_id = f"instrument-{uuid4().hex}"
+        token = uuid4().hex
+        resources = tuple(
+            ResourceKey(kind="instrument", id=instrument_id)
+            for instrument_id in instrument_ids
+        )
+        with self._transaction() as connection:
+            retry_row = _one(
+                connection.execute(
+                    """
+                    SELECT * FROM instrument_sessions
+                    WHERE open_operation_id = ?
+                    """,
+                    (operation_id,),
+                )
+            )
+            if retry_row is not None:
+                retry = _instrument_session(retry_row)
+                if (
+                    retry.actor != actor
+                    or retry.config_entry_id != config_entry_id
+                    or retry.config_content_hash != config_content_hash
+                    or retry.instrument_ids != instrument_ids
+                ):
+                    raise ControlPlaneConflict(
+                        "instrument session operation id has different content"
+                    )
+                if retry.state != "active":
+                    raise ControlPlaneConflict(
+                        "instrument session open retry is no longer active"
+                    )
+                return retry
+            conflicts = tuple(
+                resource
+                for resource in resources
+                if _one(
+                    connection.execute(
+                        """
+                        SELECT 1 FROM resource_leases
+                        WHERE resource_kind = ? AND resource_id = ?
+                        """,
+                        (resource.kind, resource.id),
+                    )
+                )
+                is not None
+            )
+            if conflicts:
+                busy = ", ".join(
+                    f"{resource.kind}:{resource.id}" for resource in conflicts
+                )
+                raise ControlPlaneConflict(
+                    f"instrument session resources are busy: {busy}"
+                )
+            connection.execute(
+                """
+                INSERT INTO instrument_sessions(
+                    session_id, open_operation_id, actor, config_entry_id,
+                    config_content_hash,
+                    instrument_ids_json, state, token, acquired_at, renewed_at,
+                    expires_at, attention_reason
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, NULL)
+                """,
+                (
+                    session_id,
+                    operation_id,
+                    actor,
+                    config_entry_id,
+                    config_content_hash,
+                    json.dumps(
+                        instrument_ids,
+                        allow_nan=False,
+                        separators=(",", ":"),
+                    ),
+                    token,
+                    _timestamp(started_at),
+                    _timestamp(started_at),
+                    _timestamp(expires_at),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO resource_leases(
+                    resource_kind, resource_id, owner_kind, owner_id, owner_token,
+                    status, acquired_at, expires_at
+                )
+                VALUES (?, ?, 'instrument_session', ?, ?, 'active', ?, ?)
+                """,
+                [
+                    (
+                        resource.kind,
+                        resource.id,
+                        session_id,
+                        token,
+                        _timestamp(started_at),
+                        _timestamp(expires_at),
+                    )
+                    for resource in resources
+                ],
+            )
+            self._insert_event(
+                connection,
+                DurableEventInput(
+                    kind="instrument_session_opened",
+                    payload={
+                        "session_id": session_id,
+                        "operation_id": operation_id,
+                        "actor": actor,
+                        "instrument_ids": list(instrument_ids),
+                        "config_entry_id": config_entry_id,
+                    },
+                    occurred_at=started_at,
+                ),
+            )
+            row = _one(
+                connection.execute(
+                    "SELECT * FROM instrument_sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+            )
+            assert row is not None
+            return _instrument_session(row)
+
+    def get_instrument_session(self, session_id: str) -> InstrumentSession:
+        with closing(self._connect()) as connection:
+            row = _one(
+                connection.execute(
+                    "SELECT * FROM instrument_sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+            )
+        if row is None:
+            raise ControlPlaneNotFound(
+                f"instrument session was not found: {session_id}"
+            )
+        return _instrument_session(row)
+
+    def list_instrument_sessions(
+        self,
+        *,
+        state: str | None = None,
+    ) -> tuple[InstrumentSession, ...]:
+        with closing(self._connect()) as connection:
+            if state is None:
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT * FROM instrument_sessions
+                        ORDER BY acquired_at, session_id
+                        """
+                    )
+                )
+            else:
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT * FROM instrument_sessions
+                        WHERE state = ?
+                        ORDER BY acquired_at, session_id
+                        """,
+                        (state,),
+                    )
+                )
+        return tuple(_instrument_session(row) for row in rows)
+
+    def renew_instrument_session(
+        self,
+        session_id: str,
+        token: str,
+        *,
+        ttl: timedelta,
+        at: datetime | None = None,
+    ) -> InstrumentSession:
+        _ttl(ttl)
+        renewed_at = at or datetime.now(tz=UTC)
+        expires_at = renewed_at + ttl
+        with self._transaction() as connection:
+            self._live_instrument_session(
+                connection,
+                session_id=session_id,
+                token=token,
+                at=renewed_at,
+            )
+            connection.execute(
+                """
+                UPDATE instrument_sessions SET renewed_at = ?, expires_at = ?
+                WHERE session_id = ? AND token = ? AND state = 'active'
+                """,
+                (
+                    _timestamp(renewed_at),
+                    _timestamp(expires_at),
+                    session_id,
+                    token,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE resource_leases SET expires_at = ?
+                WHERE owner_kind = 'instrument_session'
+                    AND owner_id = ? AND owner_token = ? AND status = 'active'
+                """,
+                (_timestamp(expires_at), session_id, token),
+            )
+            row = _one(
+                connection.execute(
+                    "SELECT * FROM instrument_sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+            )
+            assert row is not None
+            return _instrument_session(row)
+
+    def validate_instrument_session(
+        self,
+        session_id: str,
+        *,
+        token: str,
+        at: datetime | None = None,
+    ) -> InstrumentSession:
+        checked_at = at or datetime.now(tz=UTC)
+        with closing(self._connect()) as connection:
+            return self._live_instrument_session(
+                connection,
+                session_id=session_id,
+                token=token,
+                at=checked_at,
+            )
+
+    def close_instrument_session(
+        self,
+        session_id: str,
+        *,
+        token: str,
+        at: datetime | None = None,
+    ) -> tuple[InstrumentSession, int]:
+        closed_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            current = self._live_instrument_session(
+                connection,
+                session_id=session_id,
+                token=token,
+                at=closed_at,
+            )
+            released = connection.execute(
+                """
+                DELETE FROM resource_leases
+                WHERE owner_kind = 'instrument_session'
+                    AND owner_id = ? AND owner_token = ?
+                """,
+                (session_id, token),
+            ).rowcount
+            connection.execute(
+                """
+                UPDATE instrument_sessions SET
+                    state = 'closed', token = NULL, renewed_at = ?,
+                    expires_at = NULL, attention_reason = NULL
+                WHERE session_id = ? AND token = ?
+                """,
+                (_timestamp(closed_at), session_id, token),
+            )
+            self._insert_event(
+                connection,
+                DurableEventInput(
+                    kind="instrument_session_closed",
+                    payload={
+                        "session_id": session_id,
+                        "instrument_ids": list(current.instrument_ids),
+                        "released_resource_count": released,
+                    },
+                    occurred_at=closed_at,
+                ),
+            )
+            row = _one(
+                connection.execute(
+                    "SELECT * FROM instrument_sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+            )
+            assert row is not None
+            return _instrument_session(row), released
+
+    def mark_instrument_session_unknown(
+        self,
+        session_id: str,
+        *,
+        token: str,
+        reason: str,
+        at: datetime | None = None,
+    ) -> InstrumentSession:
+        if not reason:
+            raise ValueError("instrument session attention reason must be non-empty")
+        lost_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            self._live_instrument_session(
+                connection,
+                session_id=session_id,
+                token=token,
+                at=lost_at,
+            )
+            self._lose_instrument_session(
+                connection,
+                session_id,
+                lost_at,
+                reason=reason,
+                force=True,
+            )
+            row = _one(
+                connection.execute(
+                    "SELECT * FROM instrument_sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+            )
+            assert row is not None
+            return _instrument_session(row)
+
+    def expire_instrument_sessions(
+        self,
+        *,
+        at: datetime | None = None,
+    ) -> tuple[str, ...]:
+        expired_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT session_id FROM instrument_sessions
+                    WHERE state = 'active' AND expires_at <= ?
+                    ORDER BY session_id
+                    """,
+                    (_timestamp(expired_at),),
+                )
+            )
+            return tuple(
+                session_id
+                for row in rows
+                if self._lose_instrument_session(
+                    connection,
+                    session_id := _text(row, "session_id"),
+                    expired_at,
+                    reason="instrument_session_lease_expired",
+                )
+            )
+
+    def abandon_instrument_sessions(
+        self,
+        *,
+        at: datetime | None = None,
+    ) -> tuple[str, ...]:
+        abandoned_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT session_id FROM instrument_sessions
+                    WHERE state = 'active'
+                    ORDER BY session_id
+                    """
+                )
+            )
+            return tuple(
+                session_id
+                for row in rows
+                if self._lose_instrument_session(
+                    connection,
+                    session_id := _text(row, "session_id"),
+                    abandoned_at,
+                    reason="daemon_restarted",
+                    force=True,
+                )
+            )
+
+    def resolve_instrument_session_attention(
+        self,
+        session_id: str,
+        *,
+        at: datetime | None = None,
+    ) -> tuple[InstrumentSession, int]:
+        resolved_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            row = _one(
+                connection.execute(
+                    "SELECT * FROM instrument_sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+            )
+            if row is None:
+                raise ControlPlaneNotFound(
+                    f"instrument session was not found: {session_id}"
+                )
+            current = _instrument_session(row)
+            if current.state != "attention_required":
+                raise ControlPlaneConflict(
+                    "only attention-required instrument sessions can be resolved"
+                )
+            released = connection.execute(
+                """
+                DELETE FROM resource_leases
+                WHERE owner_kind = 'instrument_session' AND owner_id = ?
+                """,
+                (session_id,),
+            ).rowcount
+            connection.execute(
+                """
+                UPDATE instrument_sessions SET
+                    state = 'closed', renewed_at = ?, attention_reason = NULL
+                WHERE session_id = ?
+                """,
+                (_timestamp(resolved_at), session_id),
+            )
+            self._insert_event(
+                connection,
+                DurableEventInput(
+                    kind="instrument_session_attention_resolved",
+                    payload={
+                        "session_id": session_id,
+                        "released_resource_count": released,
+                    },
+                    occurred_at=resolved_at,
+                ),
+            )
+            updated_row = _one(
+                connection.execute(
+                    "SELECT * FROM instrument_sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+            )
+            assert updated_row is not None
+            return _instrument_session(updated_row), released
+
     def release_run_resources_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -626,7 +1097,11 @@ class SQLiteControlPlane:
                 "only reconciled attention-required resources may be released"
             )
         cursor = connection.execute(
-            "DELETE FROM resource_leases WHERE run_id = ?", (run_id,)
+            """
+            DELETE FROM resource_leases
+            WHERE owner_kind = 'run' AND owner_id = ?
+            """,
+            (run_id,),
         )
         if cursor.rowcount:
             self._insert_event(
@@ -753,7 +1228,10 @@ class SQLiteControlPlane:
             )
         else:
             released = connection.execute(
-                "DELETE FROM resource_leases WHERE executor_token = ?",
+                """
+                DELETE FROM resource_leases
+                WHERE owner_kind = 'run' AND owner_token = ?
+                """,
                 (lease.token,),
             ).rowcount
             if released:
@@ -788,11 +1266,95 @@ class SQLiteControlPlane:
         return connection.execute(
             """
             UPDATE resource_leases SET
-                executor_token = NULL, status = 'quarantined', expires_at = NULL
-            WHERE executor_token = ?
+                owner_token = NULL, status = 'quarantined', expires_at = NULL
+            WHERE owner_kind = 'run' AND owner_token = ?
             """,
             (token,),
         ).rowcount
+
+    @staticmethod
+    def _lose_instrument_session(
+        connection: sqlite3.Connection,
+        session_id: str,
+        at: datetime,
+        *,
+        reason: str,
+        force: bool = False,
+    ) -> bool:
+        row = _one(
+            connection.execute(
+                "SELECT * FROM instrument_sessions WHERE session_id = ?",
+                (session_id,),
+            )
+        )
+        if row is None:
+            return False
+        session = _instrument_session(row)
+        if session.state != "active":
+            return False
+        assert session.token is not None
+        assert session.expires_at is not None
+        if not force and session.expires_at > at:
+            return False
+        quarantined = connection.execute(
+            """
+            UPDATE resource_leases SET
+                owner_token = NULL, status = 'quarantined', expires_at = NULL
+            WHERE owner_kind = 'instrument_session'
+                AND owner_id = ? AND owner_token = ?
+            """,
+            (session_id, session.token),
+        ).rowcount
+        connection.execute(
+            """
+            UPDATE instrument_sessions SET
+                state = 'attention_required', token = NULL, renewed_at = ?,
+                expires_at = NULL, attention_reason = ?
+            WHERE session_id = ? AND token = ?
+            """,
+            (_timestamp(at), reason, session_id, session.token),
+        )
+        SQLiteControlPlane._insert_event(
+            connection,
+            DurableEventInput(
+                kind="instrument_session_lost",
+                payload={
+                    "session_id": session_id,
+                    "reason": reason,
+                    "quarantined_resource_count": quarantined,
+                },
+                occurred_at=at,
+            ),
+        )
+        return True
+
+    @staticmethod
+    def _live_instrument_session(
+        connection: sqlite3.Connection,
+        *,
+        session_id: str,
+        token: str,
+        at: datetime,
+    ) -> InstrumentSession:
+        row = _one(
+            connection.execute(
+                "SELECT * FROM instrument_sessions WHERE token = ?",
+                (token,),
+            )
+        )
+        if row is None:
+            raise InstrumentSessionLeaseNotHeld("instrument session token is not held")
+        session = _instrument_session(row)
+        if session.session_id != session_id:
+            raise InstrumentSessionLeaseNotHeld(
+                "instrument session token belongs to another session"
+            )
+        if session.state != "active":
+            raise InstrumentSessionLeaseNotHeld("instrument session is not active")
+        assert session.expires_at is not None
+        if session.expires_at <= at:
+            raise InstrumentSessionLeaseNotHeld("instrument session token has expired")
+        return session
 
     @staticmethod
     def _requirements(
@@ -943,11 +1505,34 @@ def _resource_lease(row: sqlite3.Row) -> ResourceLease:
                 "kind": _text(row, "resource_kind"),
                 "id": _text(row, "resource_id"),
             },
-            "run_id": _text(row, "run_id"),
-            "executor_token": _optional_text(row, "executor_token"),
+            "owner_kind": _text(row, "owner_kind"),
+            "owner_id": _text(row, "owner_id"),
+            "owner_token": _optional_text(row, "owner_token"),
             "status": _text(row, "status"),
             "acquired_at": _datetime(_text(row, "acquired_at")),
             "expires_at": _datetime(expires_at) if expires_at is not None else None,
+        }
+    )
+
+
+def _instrument_session(row: sqlite3.Row) -> InstrumentSession:
+    expires_at = _optional_text(row, "expires_at")
+    return InstrumentSession.model_validate(
+        {
+            "session_id": _text(row, "session_id"),
+            "open_operation_id": _text(row, "open_operation_id"),
+            "actor": _text(row, "actor"),
+            "config_entry_id": _text(row, "config_entry_id"),
+            "config_content_hash": _text(row, "config_content_hash"),
+            "instrument_ids": _STRING_TUPLE.validate_json(
+                _text(row, "instrument_ids_json")
+            ),
+            "state": _text(row, "state"),
+            "token": _optional_text(row, "token"),
+            "acquired_at": _datetime(_text(row, "acquired_at")),
+            "renewed_at": _datetime(_text(row, "renewed_at")),
+            "expires_at": _datetime(expires_at) if expires_at is not None else None,
+            "attention_reason": _optional_text(row, "attention_reason"),
         }
     )
 

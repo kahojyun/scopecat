@@ -70,6 +70,20 @@ def test_empty_lab_manifest_can_open_before_code_or_config_exists(
     client.close()
 
 
+def test_project_connect_forwards_notebook_operator(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "scopecat.toml").write_text("[lab]\n", encoding="utf-8")
+
+    client = open_project(tmp_path).connect(
+        "http://daemon.local",
+        operator="alice",
+    )
+
+    assert client._instruments._operator == "alice"
+    client.close()
+
+
 def test_project_connect_prioritizes_explicit_then_environment_then_record(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

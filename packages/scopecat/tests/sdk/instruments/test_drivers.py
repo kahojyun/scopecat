@@ -25,10 +25,13 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     InstrumentStateSnapshot as RecordInstrumentStateSnapshot,
 )
+from scopecat.records.measurement import MeasurementArray, MeasurementDType
 from scopecat.sdk.instruments import (
     CapabilityField,
+    CollectAxisRequest,
     CollectCommand,
     CollectProductRequest,
+    CollectReceipt,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -43,8 +46,12 @@ from scopecat.sdk.instruments import (
     float_field,
     int_field,
     payload_field,
+    product,
+    product_axis,
     quantity_field,
     string_field,
+    validate_collect_command,
+    validate_collect_receipt,
     validate_state_command,
 )
 from tests.testkit.execution import execute_bound_run
@@ -297,6 +304,37 @@ def test_instrument_driver_validator_checks_declared_field_shapes() -> None:
     assert unsupported[0].code == "instrument_driver_unsupported_field"
     assert unit_mismatch[0].code == "instrument_driver_field_value_mismatch"
     assert type_mismatch[0].code == "instrument_driver_field_value_mismatch"
+
+
+def test_instrument_driver_validator_rejects_writes_to_read_only_fields() -> None:
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.read_only_driver",
+        implementation_version="v0",
+        capabilities=[
+            capability(
+                "status",
+                fields=[
+                    quantity_field(
+                        "temperature",
+                        unit="K",
+                        access="read_only",
+                    )
+                ],
+            )
+        ],
+    )
+
+    problems = validate_state_command(
+        command=_state_command(
+            capability_id="status",
+            field_path="temperature",
+            value=quantity_state(0.02, "K"),
+        ),
+        description=description,
+    )
+
+    assert [item.code for item in problems] == ["instrument_driver_read_only_field"]
 
 
 def test_instrument_driver_validator_applies_scalar_constraints() -> None:
@@ -559,6 +597,196 @@ def test_collect_command_rejects_duplicate_request_ids() -> None:
         )
 
 
+def test_instrument_description_rejects_duplicate_capability_members() -> None:
+    with pytest.raises(ValidationError, match="capability field ids must be unique"):
+        capability(
+            "source",
+            fields=[float_field("level"), float_field("level")],
+        )
+    with pytest.raises(ValidationError, match="capability product keys must be unique"):
+        capability(
+            "measure",
+            products=[product("signal"), product("signal")],
+        )
+    duplicate_capability = capability("source")
+    with pytest.raises(
+        ValidationError,
+        match="instrument capability ids must be unique",
+    ):
+        InstrumentDescription(
+            instrument_id="source-0",
+            implementation_id="tests.duplicate_capabilities",
+            implementation_version="v0",
+            capabilities=[duplicate_capability, duplicate_capability],
+        )
+
+
+def test_product_description_rejects_duplicate_axis_ids() -> None:
+    with pytest.raises(ValidationError, match="product axis ids must be unique"):
+        product(
+            "trace",
+            axes=[
+                product_axis("frequency", kind="frequency"),
+                product_axis("frequency", kind="frequency"),
+            ],
+        )
+
+
+def test_collect_validator_reports_unsupported_product_without_crashing() -> None:
+    problems = validate_collect_command(
+        command=CollectCommand(
+            instrument_id="source-0",
+            point_index=0,
+            point_count=1,
+            requests=[
+                CollectProductRequest(
+                    id="missing",
+                    capability_id="trace",
+                )
+            ],
+        ),
+        description=_collect_description(),
+    )
+
+    assert [item.code for item in problems] == ["instrument_driver_unsupported_product"]
+
+
+def test_collect_validator_accepts_compatible_units_and_dynamic_shapes() -> None:
+    compatible = validate_collect_command(
+        command=_collect_command(
+            unit="GHz",
+            dimensions=[
+                CollectAxisRequest(
+                    id="frequency",
+                    kind="frequency",
+                    size=17,
+                    unit="MHz",
+                )
+            ],
+        ),
+        description=_collect_description(),
+    )
+    unspecified_dynamic_shape = validate_collect_command(
+        command=_collect_command(unit=None, dimensions=[]),
+        description=_collect_description(),
+    )
+
+    assert compatible == []
+    assert unspecified_dynamic_shape == []
+
+
+def test_collect_validator_checks_dtype_unit_and_axis_contracts() -> None:
+    problems = validate_collect_command(
+        command=_collect_command(
+            dtype="string",
+            unit="K",
+            dimensions=[
+                CollectAxisRequest(
+                    id="time",
+                    kind="time",
+                    size=3,
+                    unit="K",
+                )
+            ],
+        ),
+        description=_collect_description(),
+    )
+
+    assert {item.code for item in problems} == {
+        "instrument_driver_product_dtype_mismatch",
+        "instrument_driver_product_unit_mismatch",
+        "instrument_driver_product_axis_mismatch",
+        "instrument_driver_product_axis_unit_mismatch",
+    }
+
+
+def test_collect_receipt_validator_checks_products_and_value_contract() -> None:
+    command = _collect_command(
+        dimensions=[
+            CollectAxisRequest(
+                id="frequency",
+                kind="frequency",
+                size=2,
+                unit="Hz",
+            )
+        ]
+    )
+    valid = validate_collect_receipt(
+        command=command,
+        receipt=CollectReceipt(
+            readback=RecordInstrumentReadback(
+                values={
+                    "signal": MeasurementArray(
+                        dtype="float64",
+                        unit="GHz",
+                        shape=(2,),
+                        values=(1.0, 2.0),
+                    )
+                }
+            )
+        ),
+    )
+    invalid = validate_collect_receipt(
+        command=command,
+        receipt=CollectReceipt(
+            readback=RecordInstrumentReadback(
+                values={
+                    "unexpected": MeasurementArray(
+                        dtype="string",
+                        shape=(1,),
+                        values=("bad",),
+                    )
+                }
+            )
+        ),
+    )
+    mismatched_value = validate_collect_receipt(
+        command=command,
+        receipt=CollectReceipt(
+            readback=RecordInstrumentReadback(
+                values={
+                    "signal": MeasurementArray(
+                        dtype="string",
+                        shape=(1,),
+                        values=("bad",),
+                    )
+                }
+            )
+        ),
+    )
+
+    assert valid == []
+    assert {item.code for item in invalid} == {
+        "instrument_driver_missing_product",
+        "instrument_driver_unexpected_product",
+    }
+    assert {item.code for item in mismatched_value} == {
+        "instrument_driver_readback_dtype_mismatch",
+        "instrument_driver_readback_unit_mismatch",
+        "instrument_driver_readback_shape_mismatch",
+    }
+
+
+def test_collect_receipt_validator_allows_unspecified_dynamic_shape() -> None:
+    problems = validate_collect_receipt(
+        command=_collect_command(dimensions=[]),
+        receipt=CollectReceipt(
+            readback=RecordInstrumentReadback(
+                values={
+                    "signal": MeasurementArray(
+                        dtype="float64",
+                        unit="Hz",
+                        shape=(3,),
+                        values=(1.0, 2.0, 3.0),
+                    )
+                }
+            )
+        ),
+    )
+
+    assert problems == []
+
+
 def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     instrument = SignalInstrumentDriver()
 
@@ -597,6 +825,55 @@ def _state_command(
             )
         ],
         payloads=payloads or {},
+    )
+
+
+def _collect_description() -> InstrumentDescription:
+    return InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.collect_driver",
+        implementation_version="v0",
+        capabilities=[
+            capability(
+                "trace",
+                products=[
+                    product(
+                        "signal",
+                        dtype="float64",
+                        unit="Hz",
+                        axes=[
+                            product_axis(
+                                "frequency",
+                                kind="frequency",
+                                unit="Hz",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+
+
+def _collect_command(
+    *,
+    dtype: MeasurementDType = "float64",
+    unit: str | None = "Hz",
+    dimensions: list[CollectAxisRequest],
+) -> CollectCommand:
+    return CollectCommand(
+        instrument_id="source-0",
+        point_index=0,
+        point_count=1,
+        requests=[
+            CollectProductRequest(
+                id="signal",
+                capability_id="trace",
+                dtype=dtype,
+                unit=unit,
+                dimensions=dimensions,
+            )
+        ],
     )
 
 

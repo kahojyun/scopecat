@@ -47,6 +47,11 @@ from scopecat.records.run import (
     RunManifest,
 )
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.contracts import (
+    CollectCommand,
+    InstrumentDescription,
+    InstrumentStateCommand,
+)
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -331,6 +336,93 @@ class AttentionResolutionReceipt(_WireModel):
     released_resource_count: int = Field(ge=0)
 
 
+class InstrumentSessionOpenCommand(_WireModel):
+    """Acquire and connect one or more instruments against the active config."""
+
+    operation_id: NonEmptyText
+    actor: NonEmptyText
+    instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+
+    @field_validator("instrument_ids")
+    @classmethod
+    def validate_instrument_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("instrument session ids must be unique")
+        return value
+
+
+class InstrumentSessionLease(_WireModel):
+    """Renewable authority for daemon-owned live instrument drivers."""
+
+    session_id: NonEmptyText
+    lease_id: NonEmptyText
+    actor: NonEmptyText
+    config_entry_id: NonEmptyText
+    config_content_hash: ConfigContentHash
+    instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+    descriptions: tuple[InstrumentDescription, ...] = ()
+    issued_at: datetime
+    expires_at: datetime
+    heartbeat_interval_seconds: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> InstrumentSessionLease:
+        issued_at = _aware_datetime(self.issued_at, field_name="issued_at")
+        expires_at = _aware_datetime(self.expires_at, field_name="expires_at")
+        if expires_at <= issued_at:
+            raise ValueError("instrument lease must expire after it is issued")
+        described_ids = tuple(
+            description.instrument_id for description in self.descriptions
+        )
+        if described_ids != self.instrument_ids:
+            raise ValueError(
+                "instrument lease descriptions must match instrument_ids in order"
+            )
+        return self
+
+
+class InstrumentSessionHeartbeat(_WireModel):
+    lease_id: NonEmptyText
+
+
+class InstrumentSessionReadCommand(_WireModel):
+    lease_id: NonEmptyText
+
+
+class InstrumentSessionApplyCommand(_WireModel):
+    lease_id: NonEmptyText
+    command: InstrumentStateCommand
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> InstrumentSessionApplyCommand:
+        if not self.command.operation_id:
+            raise ValueError("interactive apply requires an operation_id")
+        return self
+
+
+class InstrumentSessionCollectCommand(_WireModel):
+    lease_id: NonEmptyText
+    command: CollectCommand
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> InstrumentSessionCollectCommand:
+        if not self.command.operation_id:
+            raise ValueError("interactive collect requires an operation_id")
+        return self
+
+
+class InstrumentSessionEndCommand(_WireModel):
+    lease_id: NonEmptyText
+    operation_id: NonEmptyText
+
+
+class InstrumentSessionEndReceipt(_WireModel):
+    session_id: NonEmptyText
+    operation_id: NonEmptyText
+    status: Literal["closed", "aborted"]
+    released_resource_count: int = Field(ge=0)
+
+
 def _aware_datetime(value: datetime, *, field_name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must include a UTC offset")
@@ -366,6 +458,14 @@ __all__ = [
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",
+    "InstrumentSessionApplyCommand",
+    "InstrumentSessionCollectCommand",
+    "InstrumentSessionEndCommand",
+    "InstrumentSessionEndReceipt",
+    "InstrumentSessionHeartbeat",
+    "InstrumentSessionLease",
+    "InstrumentSessionOpenCommand",
+    "InstrumentSessionReadCommand",
     "ManualConfigDraftRevisionSource",
     "MeasurementAppendCommand",
     "MeasurementSealCommand",

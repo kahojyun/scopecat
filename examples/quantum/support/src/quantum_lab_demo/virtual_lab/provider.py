@@ -105,6 +105,9 @@ class _VirtualInstrumentDriver:
     def cleanup(self) -> None:
         return None
 
+    def close(self) -> None:
+        return None
+
     def abort(self) -> None:
         return None
 
@@ -170,10 +173,14 @@ class QuantumLabVirtualProvider:
         )
 
     def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
-        del context
         problems: list[Problem] = []
         try:
-            drivers = tuple(self._build_virtual_instruments())
+            selected = set(context.instrument_ids)
+            drivers = tuple(
+                driver
+                for driver in self._build_virtual_instruments()
+                if not selected or driver.instrument_id in selected
+            )
         except DriverFault as error:
             problems.append(error.problem)
             drivers = ()

@@ -22,6 +22,8 @@ type ControlRunState = Literal[
 ]
 type ResourceKind = Literal["target", "instrument"]
 type ResourceLeaseStatus = Literal["active", "quarantined"]
+type ResourceOwnerKind = Literal["run", "instrument_session"]
+type InstrumentSessionState = Literal["active", "attention_required", "closed"]
 
 
 def utc_now() -> datetime:
@@ -163,8 +165,9 @@ class ExecutorLease(_ControlModel):
 
 class ResourceLease(_ControlModel):
     resource: ResourceKey
-    run_id: str
-    executor_token: str | None
+    owner_kind: ResourceOwnerKind
+    owner_id: str = Field(min_length=1)
+    owner_token: str | None
     status: ResourceLeaseStatus
     acquired_at: datetime
     expires_at: datetime | None
@@ -172,10 +175,58 @@ class ResourceLease(_ControlModel):
     @model_validator(mode="after")
     def validate_ownership(self) -> ResourceLease:
         if self.status == "active":
-            if self.executor_token is None or self.expires_at is None:
-                msg = "an active resource lease requires an executor and expiry"
+            if self.owner_token is None or self.expires_at is None:
+                msg = "an active resource lease requires an owner token and expiry"
                 raise ValueError(msg)
-        elif self.executor_token is not None or self.expires_at is not None:
-            msg = "a quarantined resource lease cannot remain executor-owned"
+        elif self.owner_token is not None or self.expires_at is not None:
+            msg = "a quarantined resource lease cannot remain token-owned"
             raise ValueError(msg)
+        return self
+
+
+class InstrumentSession(_ControlModel):
+    """Durable authority and recovery state for direct instrument access."""
+
+    session_id: str = Field(min_length=1)
+    open_operation_id: str = Field(min_length=1)
+    actor: str = Field(min_length=1)
+    config_entry_id: str = Field(min_length=1)
+    config_content_hash: str = Field(min_length=1)
+    instrument_ids: tuple[str, ...] = Field(min_length=1)
+    state: InstrumentSessionState
+    token: str | None
+    acquired_at: datetime
+    renewed_at: datetime
+    expires_at: datetime | None
+    attention_reason: str | None = None
+
+    @field_validator("instrument_ids")
+    @classmethod
+    def validate_instrument_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not instrument_id for instrument_id in value):
+            raise ValueError("instrument session ids must be non-empty")
+        if len(value) != len(set(value)):
+            raise ValueError("instrument session ids must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def validate_state(self) -> InstrumentSession:
+        if self.state == "active":
+            if self.token is None or self.expires_at is None:
+                raise ValueError("active instrument session requires token and expiry")
+            if self.expires_at <= self.renewed_at:
+                raise ValueError("instrument session must expire after renewal")
+            if self.attention_reason is not None:
+                raise ValueError("active instrument session cannot require attention")
+        elif self.state == "attention_required":
+            if self.token is not None or self.expires_at is not None:
+                raise ValueError("attention-required session cannot retain authority")
+            if not self.attention_reason:
+                raise ValueError("attention-required session requires a reason")
+        elif (
+            self.token is not None
+            or self.expires_at is not None
+            or self.attention_reason is not None
+        ):
+            raise ValueError("closed instrument session cannot retain lease state")
         return self

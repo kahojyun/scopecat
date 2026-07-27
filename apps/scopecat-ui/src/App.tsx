@@ -1,23 +1,34 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Atom, LayoutDashboard, LoaderCircle, RefreshCw, Settings2, Unplug } from "lucide-react";
+import {
+  Atom,
+  Cable,
+  LayoutDashboard,
+  LoaderCircle,
+  RefreshCw,
+  Settings2,
+  Unplug,
+} from "lucide-react";
 import { getEvents, getHealth } from "./api";
 import { RunsWorkspace } from "./features/runs/RunsWorkspace";
 import { titleCase } from "./lib/presentation";
 
-type ProjectView = "runs" | "configuration";
+type ProjectView = "runs" | "instruments" | "configuration";
 
 const ConfigWorkspace = lazy(async () => {
   const module = await import("./features/config/ConfigWorkspace");
   return { default: module.ConfigWorkspace };
 });
 
+const InstrumentsWorkspace = lazy(async () => {
+  const module = await import("./features/instruments/InstrumentsWorkspace");
+  return { default: module.InstrumentsWorkspace };
+});
+
 export default function App() {
   const queryClient = useQueryClient();
   const activeQueries = useIsFetching();
-  const [view, setView] = useState<ProjectView>(() =>
-    window.location.hash === "#configuration" ? "configuration" : "runs",
-  );
+  const [view, setView] = useState<ProjectView>(projectViewFromLocation);
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(selectedRunFromUrl);
   const eventCursor = useRef(0);
 
@@ -39,6 +50,12 @@ export default function App() {
   }, [eventsQuery.data]);
 
   useEffect(() => {
+    const restoreHashRoute = () => setView(projectViewFromLocation());
+    window.addEventListener("hashchange", restoreHashRoute);
+    return () => window.removeEventListener("hashchange", restoreHashRoute);
+  }, []);
+
+  useEffect(() => {
     if (!healthQuery.isSuccess) return;
     const events = new EventSource(`/api/v1/events/stream?after=${eventCursor.current}`);
     let refreshTimer: number | undefined;
@@ -50,6 +67,7 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ["analyses"] });
       void queryClient.invalidateQueries({ queryKey: ["run-content"] });
       void queryClient.invalidateQueries({ queryKey: ["config"] });
+      void queryClient.invalidateQueries({ queryKey: ["instruments"] });
       void queryClient.invalidateQueries({
         queryKey: ["parameter-proposals"],
       });
@@ -134,6 +152,15 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={view === "instruments" ? "active" : undefined}
+            aria-current={view === "instruments" ? "page" : undefined}
+            onClick={() => selectView("instruments")}
+          >
+            <Cable size={15} aria-hidden="true" />
+            Instruments
+          </button>
+          <button
+            type="button"
             className={view === "configuration" ? "active" : undefined}
             aria-current={view === "configuration" ? "page" : undefined}
             onClick={() => selectView("configuration")}
@@ -198,6 +225,18 @@ export default function App() {
             healthReachable={daemonReachable}
             daemonUnavailable={daemonUnavailable}
           />
+        ) : view === "instruments" ? (
+          <Suspense
+            fallback={
+              <DetailEmpty
+                icon={<LoaderCircle className="spin" />}
+                title="Loading instruments"
+                detail="The instrument workspace is being prepared."
+              />
+            }
+          >
+            <InstrumentsWorkspace daemonUnavailable={daemonUnavailable} />
+          </Suspense>
         ) : (
           <Suspense
             fallback={
@@ -255,6 +294,12 @@ function selectedRunFromUrl(): string | undefined {
   return new URL(window.location.href).searchParams.get("run") || undefined;
 }
 
+function projectViewFromLocation(): ProjectView {
+  if (window.location.hash === "#configuration") return "configuration";
+  if (window.location.hash === "#instruments") return "instruments";
+  return "runs";
+}
+
 function replaceNavigation(view: ProjectView, runId?: string): void {
   const location = new URL(window.location.href);
   if (runId) {
@@ -262,7 +307,8 @@ function replaceNavigation(view: ProjectView, runId?: string): void {
   } else {
     location.searchParams.delete("run");
   }
-  location.hash = view === "configuration" ? "configuration" : "";
+  location.hash =
+    view === "configuration" ? "configuration" : view === "instruments" ? "instruments" : "";
   window.history.replaceState(null, "", `${location.pathname}${location.search}${location.hash}`);
 }
 

@@ -1,0 +1,27 @@
+[project]
+name = "scopecat-instruments"
+version = "0.1.0"
+description = "Real and virtual laboratory instrument drivers for Scopecat."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "pydantic>=2,<3",
+  "scopecat",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.20,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest]
+minversion = "9.0"
+strict_config = true
+strict_markers = true
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+src = ["src", "tests"]
+
+[tool.uv.sources]
+scopecat = { workspace = true }
