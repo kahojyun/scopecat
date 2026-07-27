@@ -1,16 +1,10 @@
-# Scopecat server
+# Scopecat Server
 
-`scopecat-server` provides the local FastAPI and SSE transport plus the default
-SQLite daemon runtime. Published distributions include the project GUI. In a
-source checkout, use `--api-only` with the Vite development server, or pass a
-built `apps/scopecat-ui/dist` with `--static-dir`.
+Local FastAPI and SSE transport plus the default SQLite daemon runtime.
+Published distributions include the project GUI; source checkouts may use the
+Vite development server or pass `apps/scopecat-ui/dist` with `--static-dir`.
 
-When a bundled distribution is needed,
-`scripts/build_server_distribution.py` assembles the Python server and built
-GUI. Ordinary package builds remain available for local Python development.
-
-Create a runnable starter project or point it at an existing project
-containing `scopecat.toml`:
+From the repository root:
 
 ```console
 uv run scopecat init ./my-lab
@@ -20,54 +14,17 @@ uv run scopecat open ./my-lab
 uv run python ./my-lab/notebooks/01_first_run.py
 ```
 
-`init` writes a local `src/scopecat_lab` application, an editable Python
-configuration source with one typed parameter, and a hardware-free scratch
-experiment. It preflights every owned path and never replaces an existing
-project file.
+`init` creates a project without replacing existing files. `config check`
+validates its bootstrap source without starting a daemon or writing project
+state. Configuration reconciliation commands and the complete runnable
+walkthrough live in the [repository README](../../README.md).
 
-`config check` resolves and validates the application's bootstrap snapshot
-without starting a daemon or writing the configuration registry.
-
-After editing the Python source, reconcile it explicitly with the running
-daemon:
-
-```console
-uv run scopecat config diff ./my-lab
-uv run scopecat config apply ./my-lab --actor operator-name
-uv run scopecat config export ./my-lab --output ./active-config.json
-```
-
-`diff` and `apply` evaluate the source in the CLI process; the daemon does not
-watch or execute changing source automatically. `apply` uses the same
-intent-oriented, atomic default operation as notebooks. `export` writes the
-complete daemon default as generated JSON and refuses to overwrite by default.
-These project-management commands use the selected project's recorded daemon
-instead of a generic `SCOPECAT_DAEMON_URL` override.
-
-The daemon stores its database and immutable objects under
-`my-lab/.scopecat`, serves the bundled GUI, and selects an available loopback
-port recorded in `.scopecat/daemon.json`. The GUI provides live status, run
-browsing, resource state, durable events, analyses, and data previews.
-The GUI reconnects through the daemon's replayable SSE event stream; it does
-not keep a separate database.
-
-The GUI also reads the daemon-owned configuration registry and the parameter
-proposals attached to each run. Routine actions are phrased as **Set as
-default**, **Accept as default**, and **Undo**. The daemon implements them with
-immutable entries, durable human or automatic-policy acceptance evidence, and
-generation-checked activation. Explicit import, registration, review, and
-activation remain available as lower-level operator commands. A dedicated
-verification run is optional evidence, not an activation prerequisite.
-
-The manifest names one importable application factory:
+Each `scopecat.toml` names one importable application factory:
 
 ```toml
 [lab]
 application = "my_lab.application:create_application"
 ```
-
-Notebook execution imports the user-owned composition root for its
-configuration-aware system builder:
 
 ```python
 from pathlib import Path
@@ -86,37 +43,24 @@ def create_application(project: Path) -> LabApplication:
     )
 ```
 
-The named callable must accept the resolved project `Path` and return
-`LabApplication`. Scopecat exposes the project root and its optional `src/`
-directory for the process lifetime, so flat modules, delayed imports, and
-standard `src` layouts work without an editable install.
+The callable accepts the resolved project `Path`. The bootstrap factory is a
+lazy seed used only for an empty registry; the system builder receives the
+accepted snapshot selected for each run.
 
-A Python process may load application code from only one project root. Loading
-a second project would make Python's global module cache ambiguous, so Scopecat
-rejects it and requires a separate daemon or notebook process.
+Only one daemon owns a project. It stores SQLite and immutable objects below
+`.scopecat`, records its loopback endpoint in `.scopecat/daemon.json`, and
+serves the replayable event stream used by GUI and notebook clients. See the
+[daemon model](../../docs/lab-daemon.md) for ownership, fencing, quarantine,
+and security boundaries.
 
-The notebook-side builder receives the exact accepted snapshot selected for
-each run. The application's `bootstrap_config` seeds daemon state once, and the
-daemon registry is authoritative afterward. Notebook code discovers the
-application with `sc.open_project("./my-lab").connect()`.
+For a bundled source-checkout preview:
 
-`LabApplication.bootstrap_config` is a seed, not a mutable runtime setting. The
-daemon calls the factory, validates, registers, and activates its result only
-when the registry is empty. Loading the application from a notebook does not
-resolve the seed. Once an operator imports or activates another entry,
-restarting the daemon preserves that selection.
+```console
+cd apps/scopecat-ui
+pnpm run build
+cd ../..
+uv run python scripts/build_server_distribution.py
+```
 
-Only one daemon can own a lab instance. A process-owner lock rejects a second
-daemon. SQLite transactions serialize durable changes inside the owner process,
-and executors use renewable leases with unique fencing identities.
-
-The default server is intentionally local and same-user: it binds to loopback,
-checks trusted host names, and does not provide remote authentication. Lost
-executors are fenced on restart and their resources stay quarantined until an
-operator releases or aborts the run from the GUI or Python client. An abandoned
-run is not resumed: after reconciling external state, the operator submits a
-new run.
-
-Tests can construct `LocalDaemonRuntime` with a temporary project directory or
-pass another `DaemonApplication` to `create_app`, exposing separate
-configuration, run, and executor services.
+Tests may construct `LocalDaemonRuntime` with a temporary project or pass a
+custom `DaemonApplication` to `create_app`.

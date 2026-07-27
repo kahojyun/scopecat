@@ -421,7 +421,7 @@ class _PulseRecipeMapping[ParametersT](Protocol):
 
 @dataclass(frozen=True, slots=True, init=False)
 class PulseRecipeProfile[ParametersT]:
-    """Static recipe configuration interpreted against point-bound operations."""
+    """Static recipes joined only to operations used by the point-bound circuit."""
 
     _mappings: tuple[_PulseRecipeMapping[ParametersT], ...]
 

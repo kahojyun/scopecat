@@ -17,6 +17,7 @@ export function ConfigSummary({
   const active = overview.activation;
   const history = overview.activation_history;
   const defaultEntry = overview.entries.find((entry) => entry.id === active?.entry_id);
+  // Browser state cannot prove whether runtime changes were copied back to Git.
   const runtimeDerived =
     defaultEntry?.source.kind === "manual_parameter_updates" ||
     defaultEntry?.source.kind === "candidate_config";

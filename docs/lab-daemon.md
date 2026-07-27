@@ -117,16 +117,6 @@ application:
 application = "my_lab.application:create_application"
 ```
 
-Installed server distributions contain the GUI bundle. In a source checkout,
-`pnpm run build` writes the generated assets only to
-`apps/scopecat-ui/dist`; pass that path with
-`uv run scopecat start ./my-lab --static-dir apps/scopecat-ui/dist`.
-Then use `uv run scopecat open ./my-lab` to open the bundled preview. For live
-frontend development, run the daemon with `--api-only --port 8765`, start the
-Vite development server, and use its URL. The daemon selects an available
-loopback port, publishes it in `.scopecat/daemon.json`, and stores durable state
-below `my-lab/.scopecat`.
-
 The application may lazily construct an initial `ConfigProfileSnapshot` with
 Python. The daemon resolves and imports it only if the registry has no entries;
 ordinary notebook connections do not read bootstrap inputs. After that point
@@ -143,28 +133,7 @@ belong to the daemon.
 | GUI and notebooks | Views and commands against the daemon; transient scratch computation may remain in the notebook process |
 
 Editing Git-owned Python config code does not mutate the active registry entry.
-Use `scopecat config diff` to freshly evaluate that bootstrap source and compare it with
-the daemon default, then `scopecat config apply` to validate it, save an
-immutable revision, and atomically move the default. Notebook code can express
-the same intent with `lab.config.set_default(snapshot)`. This keeps
-reproducible source files separate from operator state without requiring
-ordinary code to manage entry ids or generations.
-
-The daemon deliberately does not watch or hot-reload project Python. Executing
-changed source is an explicit CLI or notebook action, so an accidental edit
-cannot silently change later runs. `scopecat config export --output PATH`
-writes the complete active snapshot for review or backup; the generated JSON
-is not the primary authoring format.
-
-For an operator adjustment, the GUI can instead derive typed scalar and table
-operations from the active entry, ask the daemon to preview and validate the
-complete candidate, and set the valid result as the default. It does not
-rewrite the Git-owned source. A runtime-derived default therefore points the
-operator to `scopecat config diff`; the browser cannot reliably infer whether
-the Python source has since been updated. Once an adjustment becomes the
-intended project default, make the equivalent source change and apply it.
-
-The explicit import, registration, activation, rollback, and expected-generation
-commands remain available for diagnostics and operator workflows. They are the
-mechanism beneath the intent-oriented API, not required ceremony for routine
-single-user experiments.
+The daemon does not watch, hot-reload, or rewrite that source; publishing a
+changed snapshot is an explicit CLI or notebook action. This keeps reproducible
+source separate from operator state and prevents an edit from silently changing
+later runs. The repository and server READMEs own the corresponding commands.
