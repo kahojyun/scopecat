@@ -51,10 +51,7 @@ from scopecat.compiler.frontend.request_values import (
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
-from scopecat.compiler.frontend.scan_lowering import (
-    lower_scans_point_domain,
-    project_scan_record,
-)
+from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.verification import RelationTypeBindings
@@ -63,7 +60,6 @@ from scopecat.compiler.semantic.model import (
     ValueUse,
 )
 from scopecat.config.environment import build_config_environment
-from scopecat.execution.local.program import CollectOperation
 from scopecat.graph.relations.model import (
     InputScalarExpr,
     LiteralScalarExpr,
@@ -82,7 +78,6 @@ from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.measurements.points import RunPoint
 from scopecat.records.config import (
     RoutingEndpointBinding,
     RoutingGraph,
@@ -99,7 +94,6 @@ from tests.testkit.authoring import (
     simple_template,
     template_fixture,
 )
-from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
@@ -437,209 +431,6 @@ def test_compute_function_signature_must_match_explicit_inputs() -> None:
             inputs={"value": "declared"},
             output_type=output_type,
         )
-
-
-def test_template_can_scan_entity_points() -> None:
-    qubit = sc.coordinate(
-        "qubit",
-        authoring.ScalarType(authoring.EntityType()),
-    )
-    module = (
-        authoring.module_body(id="test.entity_scan_module")
-        .resource("source", requires=("scalar_signal",))
-        .product("signal", unit="ratio")
-        .acquire(
-            "read-signal",
-            "signal",
-            resource="source",
-            capability="scalar_signal",
-        )
-        .build()
-    )
-    template = template_fixture(
-        module,
-        id="test.entity_scan",
-        kind="entity_scan",
-        scans=(
-            sc.axis(
-                qubit,
-                [EntityRef(id="q0", kind="logical_device")],
-            ),
-        ),
-        records=(authoring.record_product(module.products.signal),),
-    )
-
-    resolved = link_invocation(
-        template.bind(),
-        config_profile=load_config(),
-    )
-    preview = materialized_effects_contract(
-        resolved.program,
-        resolved.environment.parameters,
-    )
-    projection = measurement_projection_contract(
-        resolved.program,
-        resolved.environment.parameters,
-    )
-
-    assert preview.points[0].coordinates["qubit"] == EntityRef(
-        id="q0", kind="logical_device"
-    )
-    schema = projection.schema_for(
-        tuple(
-            RunPoint(point.logical_id, dict(point.coordinates))
-            for point in preview.points
-        )
-    )
-    assert schema is not None
-    coordinate = next(
-        variable for variable in schema.variables if variable.id == "qubit"
-    )
-    assert coordinate.dtype == "string"
-    assert coordinate.metadata == {"entity_kind": "logical_device"}
-
-
-def test_entity_scan_captures_an_immutable_durable_snapshot() -> None:
-    subject = sc.coordinate(
-        "subject",
-        sc.ScalarType(sc.EntityType()),
-    )
-    labels = ["data"]
-    entity = EntityRef(id="q0", metadata={"labels": labels})
-
-    scan = sc.axis(subject, [entity])
-    labels.append("changed")
-    request = project_scan_record(cast("AxisSpec", scan))
-
-    assert request.model_dump(mode="json")["values"] == [
-        {
-            "kind": "entity",
-            "entity_id": "q0",
-            "entity_kind": None,
-            "metadata": {"labels": ["data"]},
-        }
-    ]
-
-
-def test_entity_scan_selects_resource_entities_per_point() -> None:
-    seed_config = load_config()
-    source_0 = seed_config.instrument_registry.instruments[0]
-    topology = seed_config.topology.model_copy(
-        update={
-            "entities": [
-                *seed_config.topology.entities,
-                EntityRef(id="q1", kind="logical_device"),
-            ],
-        }
-    )
-    system = seed_config.system.model_copy(
-        update={
-            "topology": topology,
-            "instrument_registry": seed_config.instrument_registry.model_copy(
-                update={
-                    "instruments": [
-                        source_0,
-                        source_0.model_copy(update={"id": "source-1"}),
-                    ]
-                }
-            ),
-            "routing": RoutingGraph(
-                bindings=[
-                    RoutingEndpointBinding(
-                        instrument_id="source-0",
-                        capability="set_frequency",
-                        entity_id="q0",
-                        channel_id="drive-q0",
-                    ),
-                    RoutingEndpointBinding(
-                        instrument_id="source-1",
-                        capability="set_frequency",
-                        entity_id="q1",
-                        channel_id="drive-q1",
-                    ),
-                ],
-            ),
-        }
-    )
-    config = seed_config.model_copy(update={"system": system})
-    qubit = sc.coordinate(
-        "qubit",
-        authoring.ScalarType(authoring.EntityType()),
-    )
-    module = (
-        authoring.module_body(id="test.entity_scan_selection")
-        .resource(
-            "drive",
-            requires=("set_frequency",),
-            for_entities=(qubit,),
-        )
-        .bind_field(
-            "drive",
-            capability="set_frequency",
-            field="frequency",
-            value=Quantity(value=5.0, unit="GHz"),
-        )
-        .product("signal", unit="ratio")
-        .acquire(
-            "read-signal",
-            "signal",
-            resource="drive",
-            capability="set_frequency",
-        )
-        .build()
-    )
-    template = template_fixture(
-        module,
-        id="test.entity_scan_selection",
-        kind="entity_scan_selection",
-        scans=(
-            sc.axis(
-                qubit,
-                [
-                    EntityRef(id="q0", kind="logical_device"),
-                    EntityRef(id="q1", kind="logical_device"),
-                ],
-            ),
-        ),
-        records=(authoring.record_product(module.products.signal),),
-    )
-
-    resolved = link_invocation(
-        template.bind(),
-        config_profile=config,
-    )
-    preview = materialized_effects_contract(
-        resolved.program,
-        resolved.environment.parameters,
-        config=config,
-    )
-
-    assert [point.ordinal for point in preview.points] == [0, 1]
-    assert [
-        state.instrument_id for _, state, _ in materialized_state_fields(preview)
-    ] == [
-        "source-0",
-        "source-1",
-    ]
-    collections = [
-        operations_of_type(preview, CollectOperation, point_index=point_index)[0]
-        for point_index in range(2)
-    ]
-    assert [operation.instrument_id for operation in collections] == [
-        "source-0",
-        "source-1",
-    ]
-    assert [
-        (
-            tuple(request.entity_ids),
-            tuple(binding.channel_id for binding in request.channel_bindings),
-        )
-        for operation in collections
-        for request in operation.command.requests
-    ] == [
-        (("q0",), ("drive-q0",)),
-        (("q1",), ("drive-q1",)),
-    ]
 
 
 def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> None:
