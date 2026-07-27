@@ -34,7 +34,6 @@ from scopecat_quantum.targets import (
     TargetCompilationIssueDimension,
     TargetCompileEntry,
     TargetCompileRequest,
-    TargetEventAddress,
 )
 
 
@@ -134,7 +133,7 @@ def test_target_artifact_protocol_admits_a_laboratory_adapter() -> None:
     assert artifact.artifact_fingerprint == "artifact-content:v1"
 
 
-def test_addresses_cover_entries_in_exact_schedule_order() -> None:
+def test_acquisition_addresses_cover_entries_in_exact_schedule_order() -> None:
     first = TargetCompileEntry(
         id=TargetCompileEntryId("point-0"),
         program=_scheduled_acquisition_program("first", qubit_id="q0"),
@@ -148,21 +147,14 @@ def test_addresses_cover_entries_in_exact_schedule_order() -> None:
         repetitions=2,
     )
 
-    shared_event_id = PulseEventId("capture", scope=("local",))
     shared_slot_id = AcquisitionSlotId("result", scope=("local",))
-    assert first.event_addresses == (TargetEventAddress(first.id, shared_event_id),)
     assert first.acquisition_addresses == (
         TargetAcquisitionAddress(first.id, shared_slot_id),
-    )
-    assert request.event_addresses == (
-        TargetEventAddress(second.id, shared_event_id),
-        TargetEventAddress(first.id, shared_event_id),
     )
     assert request.acquisition_addresses == (
         TargetAcquisitionAddress(second.id, shared_slot_id),
         TargetAcquisitionAddress(first.id, shared_slot_id),
     )
-    assert len(set(request.event_addresses)) == 2
     assert len(set(request.acquisition_addresses)) == 2
 
 

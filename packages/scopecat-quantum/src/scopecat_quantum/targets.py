@@ -19,7 +19,6 @@ from typing import Protocol, runtime_checkable
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    PulseEventId,
     TargetArtifactId,
     TargetCompileEntryId,
     TargetCompilerId,
@@ -32,14 +31,6 @@ def _require_text(value: str, *, field: str) -> None:
     if not value.strip():
         msg = f"{field} must be non-empty"
         raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class TargetEventAddress:
-    """Entry-qualified identity of one scheduled pulse event."""
-
-    entry_id: TargetCompileEntryId
-    event_id: PulseEventId
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,15 +47,6 @@ class TargetCompileEntry:
 
     id: TargetCompileEntryId
     program: ScheduledPulseProgram
-
-    @property
-    def event_addresses(self) -> tuple[TargetEventAddress, ...]:
-        """Return exact scheduled-event coverage in canonical program order."""
-
-        return tuple(
-            TargetEventAddress(entry_id=self.id, event_id=event.id)
-            for event in self.program.events
-        )
 
     @property
     def acquisition_addresses(self) -> tuple[TargetAcquisitionAddress, ...]:
@@ -99,14 +81,6 @@ class TargetCompileRequest:
         if self.repetitions <= 0:
             msg = "target compile repetitions must be a positive finite integer"
             raise ValueError(msg)
-
-    @property
-    def event_addresses(self) -> tuple[TargetEventAddress, ...]:
-        """Return exact event coverage in semantic entry and program order."""
-
-        return tuple(
-            address for entry in self.entries for address in entry.event_addresses
-        )
 
     @property
     def acquisition_addresses(self) -> tuple[TargetAcquisitionAddress, ...]:

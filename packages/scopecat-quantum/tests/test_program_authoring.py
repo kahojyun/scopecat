@@ -19,10 +19,7 @@ from scopecat_quantum._ids import (
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.programs import (
-    AuthoredPulseAcquisitionProvenance,
-    AuthoredPulseEventProvenance,
     ImplementedGate,
-    ImplementedGatePulseEventProvenance,
     PulseBlock,
     Repeat,
     lower_quantum_program_to_pulses,
@@ -157,12 +154,6 @@ def test_repeat_preserves_one_candidate_call_until_pulse_lowering() -> None:
         output_id=PulseProgramId("repeated-drag-pulses"),
     )
     assert len(tuple(iter_pulse_leaves(lowered.program.body))) == 3
-    assert len({item.event_id for item in lowered.event_provenance}) == 3
-    assert {
-        item.operation_id
-        for item in lowered.event_provenance
-        if isinstance(item, ImplementedGatePulseEventProvenance)
-    } == {implementation.call.id}
     assert implementation.candidate_id == "x90.drag"
     [pulse] = tuple(iter_pulse_leaves(implementation.pulse_template.body))
     assert isinstance(pulse, Play)
@@ -296,11 +287,8 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     [leaf] = iter_pulse_leaves(lowered.program.body)
     assert isinstance(leaf, Play)
     assert leaf.signal == FluxSignal(CouplerId("coupler-q0-q1"))
-    [provenance] = lowered.event_provenance
-    assert isinstance(provenance, ImplementedGatePulseEventProvenance)
-    assert provenance.gate_id.value == "cz"
-    assert provenance.candidate_id == "cz.conditional-phase"
-    assert provenance.template_program_id == PulseProgramId("cz.flux")
+    assert implementation.candidate_id == "cz.conditional-phase"
+    assert implementation.pulse_template.id == PulseProgramId("cz.flux")
 
 
 def test_gate_implementation_maps_named_semantic_parameters() -> None:
@@ -475,9 +463,6 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
     assert scheduled.duration_seconds == Decimal("1.2e-8")
     assert {type(event.instruction) for event in scheduled.events} == {Play, Acquire}
     assert {event.start_seconds for event in scheduled.events} == {0}
-    [provenance] = lowered.acquisition_provenance
-    assert isinstance(provenance, AuthoredPulseAcquisitionProvenance)
-    assert provenance.acquisition_slot_id == capture.result.acquisition_slot_id
 
 
 def test_domain_execution_requires_the_exact_measurement_result_handle() -> None:
@@ -582,13 +567,6 @@ def test_pulse_template_substitutes_qubit_and_outer_input_hygienically() -> None
         output_id=PulseProgramId("two-template-calls-pulses"),
     )
     assert len({leaf.id for leaf in iter_pulse_leaves(lowered.program.body)}) == 4
-    assert {
-        provenance.template_program_id for provenance in lowered.event_provenance
-    } == {PulseProgramId("x90-with-frame")}
-    assert all(
-        isinstance(provenance, AuthoredPulseEventProvenance)
-        for provenance in lowered.event_provenance
-    )
     scheduled = schedule(lowered.program)
     shifts = tuple(
         event.instruction

@@ -20,9 +20,6 @@ from dataclasses import dataclass, replace
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CircuitOperationId,
-    GateId,
-    PulseEventId,
-    PulseImplementationId,
     PulseProgramId,
     QuantumProgramId,
     QubitId,
@@ -528,140 +525,16 @@ def _verify_parallel_qubits(
 
 
 @dataclass(frozen=True, slots=True)
-class CircuitPulseEventProvenance:
-    """Exact circuit origin of one instantiated pulse event."""
-
-    event_id: PulseEventId
-    operation_id: CircuitOperationId
-    implementation_id: PulseImplementationId
-    implementation_fingerprint: str
-    template_program_id: PulseProgramId
-    template_event_id: PulseEventId
-    template_path: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "template_path", tuple(self.template_path))
-
-
-@dataclass(frozen=True, slots=True)
-class CircuitPulseAcquisitionProvenance:
-    """Exact circuit origin of one instantiated acquisition."""
-
-    acquisition_slot_id: AcquisitionSlotId
-    measurement_id: CircuitOperationId
-    implementation_id: PulseImplementationId
-    implementation_fingerprint: str
-    template_program_id: PulseProgramId
-    template_acquisition_slot_id: AcquisitionSlotId
-    acquire_event_id: PulseEventId
-
-
-@dataclass(frozen=True, slots=True)
-class AuthoredPulseEventProvenance:
-    """Origin of one event authored directly as a pulse block."""
-
-    event_id: PulseEventId
-    source_id: CircuitOperationId
-    template_program_id: PulseProgramId
-    template_event_id: PulseEventId
-    template_path: tuple[int, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ImplementedGatePulseEventProvenance:
-    """Origin of one event from an explicitly implemented gate occurrence."""
-
-    event_id: PulseEventId
-    operation_id: CircuitOperationId
-    gate_id: GateId
-    candidate_id: str | None
-    template_program_id: PulseProgramId
-    template_event_id: PulseEventId
-    template_path: tuple[int, ...]
-
-
-type QuantumPulseEventProvenance = (
-    CircuitPulseEventProvenance
-    | AuthoredPulseEventProvenance
-    | ImplementedGatePulseEventProvenance
-)
-
-
-@dataclass(frozen=True, slots=True)
-class AuthoredPulseAcquisitionProvenance:
-    """Template-to-output mapping for one directly authored acquisition."""
-
-    acquisition_slot_id: AcquisitionSlotId
-    source_id: CircuitOperationId
-    template_program_id: PulseProgramId
-    template_acquisition_slot_id: AcquisitionSlotId
-    acquire_event_id: PulseEventId
-
-
-type QuantumPulseAcquisitionProvenance = (
-    CircuitPulseAcquisitionProvenance | AuthoredPulseAcquisitionProvenance
-)
-
-
-@dataclass(frozen=True, slots=True)
 class LoweredQuantumPulseProgram:
-    """Pulse refinement with mixed-source event and result provenance.
+    """Canonical pulse program produced by quantum lowering."""
 
-    :func:`lower_quantum_program_to_pulses` owns total provenance coverage and
-    implementation congruence for instances of this internal lowering snapshot.
-    """
-
-    source_program_id: QuantumProgramId
     program: PulseProgram
-    implementation_bindings: PulseImplementationBindings
-    event_provenance: tuple[QuantumPulseEventProvenance, ...]
-    acquisition_provenance: tuple[QuantumPulseAcquisitionProvenance, ...]
-
-    def provenance_for(
-        self,
-        event_id: PulseEventId,
-    ) -> QuantumPulseEventProvenance:
-        """Return the exact calibrated or authored origin of one pulse event."""
-
-        for provenance in self.event_provenance:
-            if provenance.event_id == event_id:
-                return provenance
-        msg = f"pulse event {event_id!r} does not belong to this quantum program"
-        raise KeyError(msg)
-
-    def acquisition_provenance_for(
-        self,
-        slot_id: AcquisitionSlotId,
-    ) -> QuantumPulseAcquisitionProvenance:
-        """Return the exact source origin of one acquisition slot."""
-
-        for provenance in self.acquisition_provenance:
-            if provenance.acquisition_slot_id == slot_id:
-                return provenance
-        msg = f"acquisition slot {slot_id!r} does not belong to this quantum program"
-        raise KeyError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class _EventInstantiation:
-    event_id: PulseEventId
-    template_event_id: PulseEventId
-    template_path: tuple[int, ...]
-    instruction: PulseInstruction
-
-
-@dataclass(frozen=True, slots=True)
-class _SlotInstantiation:
-    acquisition_slot_id: AcquisitionSlotId
-    template_acquisition_slot_id: AcquisitionSlotId
 
 
 @dataclass(frozen=True, slots=True)
 class _InstantiatedTemplate:
     body: PulseInstruction
     acquisition_slots: tuple[AcquisitionSlot, ...]
-    events: tuple[_EventInstantiation, ...]
-    slots: tuple[_SlotInstantiation, ...]
 
 
 def lower_quantum_program_to_pulses(
@@ -676,28 +549,20 @@ def lower_quantum_program_to_pulses(
         program.unresolved,
         implementations,
     )
-    event_provenance: list[QuantumPulseEventProvenance] = []
-    acquisition_provenance: list[QuantumPulseAcquisitionProvenance] = []
     acquisition_slots: list[AcquisitionSlot] = []
     body = _lower_node(
         program.program.body,
         source_program_id=program.program.id,
         bindings=bindings,
-        event_provenance=event_provenance,
         acquisition_slots=acquisition_slots,
-        acquisition_provenance=acquisition_provenance,
         occurrence_scope=(),
     )
     return LoweredQuantumPulseProgram(
-        source_program_id=program.program.id,
         program=PulseProgram(
             id=output_id,
             body=body,
             acquisition_slots=tuple(acquisition_slots),
         ),
-        implementation_bindings=bindings,
-        event_provenance=tuple(event_provenance),
-        acquisition_provenance=tuple(acquisition_provenance),
     )
 
 
@@ -706,9 +571,7 @@ def _lower_node(
     *,
     source_program_id: QuantumProgramId,
     bindings: PulseImplementationBindings,
-    event_provenance: list[QuantumPulseEventProvenance],
     acquisition_slots: list[AcquisitionSlot],
-    acquisition_provenance: list[QuantumPulseAcquisitionProvenance],
     occurrence_scope: tuple[str, ...],
 ) -> PulseInstruction:
     if isinstance(node, Sequence):
@@ -718,9 +581,7 @@ def _lower_node(
                     child,
                     source_program_id=source_program_id,
                     bindings=bindings,
-                    event_provenance=event_provenance,
                     acquisition_slots=acquisition_slots,
-                    acquisition_provenance=acquisition_provenance,
                     occurrence_scope=occurrence_scope,
                 )
                 for child in node.operations
@@ -733,9 +594,7 @@ def _lower_node(
                     child,
                     source_program_id=source_program_id,
                     bindings=bindings,
-                    event_provenance=event_provenance,
                     acquisition_slots=acquisition_slots,
-                    acquisition_provenance=acquisition_provenance,
                     occurrence_scope=occurrence_scope,
                 )
                 for child in node.branches
@@ -748,9 +607,7 @@ def _lower_node(
                     node.operation,
                     source_program_id=source_program_id,
                     bindings=bindings,
-                    event_provenance=event_provenance,
                     acquisition_slots=acquisition_slots,
-                    acquisition_provenance=acquisition_provenance,
                     occurrence_scope=(*occurrence_scope, f"repeat[{index}]"),
                 )
                 for index in range(node.count)
@@ -760,9 +617,7 @@ def _lower_node(
         node,
         source_program_id=source_program_id,
         bindings=bindings,
-        event_provenance=event_provenance,
         acquisition_slots=acquisition_slots,
-        acquisition_provenance=acquisition_provenance,
         occurrence_scope=occurrence_scope,
     )
 
@@ -772,9 +627,7 @@ def _lower_leaf(
     *,
     source_program_id: QuantumProgramId,
     bindings: PulseImplementationBindings,
-    event_provenance: list[QuantumPulseEventProvenance],
     acquisition_slots: list[AcquisitionSlot],
-    acquisition_provenance: list[QuantumPulseAcquisitionProvenance],
     occurrence_scope: tuple[str, ...],
 ) -> PulseInstruction:
     source_id = _operation_id(node)
@@ -798,71 +651,15 @@ def _lower_leaf(
             slot_substitutions=substitutions,
         )
         acquisition_slots.extend(instantiated.acquisition_slots)
-        event_provenance.extend(
-            AuthoredPulseEventProvenance(
-                event_id=event.event_id,
-                source_id=node.id,
-                template_program_id=node.pulse_template.id,
-                template_event_id=event.template_event_id,
-                template_path=event.template_path,
-            )
-            for event in instantiated.events
-        )
-        for slot in instantiated.slots:
-            acquire_events = tuple(
-                event
-                for event in instantiated.events
-                if isinstance(event.instruction, Acquire)
-                and event.instruction.slot_id == slot.acquisition_slot_id
-            )
-            if len(acquire_events) != 1:
-                raise AssertionError(
-                    "verified authored pulse slots must have exactly one Acquire"
-                )
-            acquisition_provenance.append(
-                AuthoredPulseAcquisitionProvenance(
-                    acquisition_slot_id=slot.acquisition_slot_id,
-                    source_id=node.id,
-                    template_program_id=node.pulse_template.id,
-                    template_acquisition_slot_id=(slot.template_acquisition_slot_id),
-                    acquire_event_id=acquire_events[0].event_id,
-                )
-            )
         return instantiated.body
 
     if isinstance(node, ImplementedGate):
-        instantiated = _instantiate_template(node.pulse_template, prefix=prefix)
-        event_provenance.extend(
-            ImplementedGatePulseEventProvenance(
-                event_id=event.event_id,
-                operation_id=node.call.id,
-                gate_id=node.call.gate_id,
-                candidate_id=node.candidate_id,
-                template_program_id=node.pulse_template.id,
-                template_event_id=event.template_event_id,
-                template_path=event.template_path,
-            )
-            for event in instantiated.events
-        )
-        return instantiated.body
+        return _instantiate_template(node.pulse_template, prefix=prefix).body
 
     binding = bindings.binding_for(node.id)
     if isinstance(node, GateCall):
         assert isinstance(binding, GatePulseImplementationBinding)
-        instantiated = _instantiate_template(binding.pulse_template, prefix=prefix)
-        event_provenance.extend(
-            CircuitPulseEventProvenance(
-                event_id=event.event_id,
-                operation_id=node.id,
-                implementation_id=binding.implementation_id,
-                implementation_fingerprint=binding.implementation_fingerprint,
-                template_program_id=binding.pulse_template.id,
-                template_event_id=event.template_event_id,
-                template_path=event.template_path,
-            )
-            for event in instantiated.events
-        )
-        return instantiated.body
+        return _instantiate_template(binding.pulse_template, prefix=prefix).body
 
     assert isinstance(node, Measure)
     assert isinstance(binding, MeasurementPulseImplementationBinding)
@@ -879,34 +676,6 @@ def _lower_leaf(
     )
     [output_slot] = instantiated.acquisition_slots
     acquisition_slots.append(output_slot)
-    event_provenance.extend(
-        CircuitPulseEventProvenance(
-            event_id=event.event_id,
-            operation_id=node.id,
-            implementation_id=binding.implementation_id,
-            implementation_fingerprint=binding.implementation_fingerprint,
-            template_program_id=binding.pulse_template.id,
-            template_event_id=event.template_event_id,
-            template_path=event.template_path,
-        )
-        for event in instantiated.events
-    )
-    acquire_events = tuple(
-        event for event in instantiated.events if isinstance(event.instruction, Acquire)
-    )
-    if len(acquire_events) != 1:
-        raise AssertionError("verified measurement templates have exactly one Acquire")
-    acquisition_provenance.append(
-        CircuitPulseAcquisitionProvenance(
-            acquisition_slot_id=output_slot_id,
-            measurement_id=node.id,
-            implementation_id=binding.implementation_id,
-            implementation_fingerprint=binding.implementation_fingerprint,
-            template_program_id=binding.pulse_template.id,
-            template_acquisition_slot_id=template_slot.id,
-            acquire_event_id=acquire_events[0].event_id,
-        )
-    )
     return instantiated.body
 
 
@@ -921,53 +690,26 @@ def _instantiate_template(
         slot.id: substitutions.get(slot.id, slot.id.prefixed(*prefix))
         for slot in template.acquisition_slots
     }
-    events: list[_EventInstantiation] = []
 
-    def instantiate(
-        instruction: PulseInstruction,
-        path: tuple[int, ...],
-    ) -> PulseInstruction:
+    def instantiate(instruction: PulseInstruction) -> PulseInstruction:
         if isinstance(instruction, PulseSequence):
             return PulseSequence(
-                tuple(
-                    instantiate(child, (*path, index))
-                    for index, child in enumerate(instruction.instructions)
-                )
+                tuple(instantiate(child) for child in instruction.instructions)
             )
         if isinstance(instruction, PulseParallel):
             return PulseParallel(
-                tuple(
-                    instantiate(child, (*path, index))
-                    for index, child in enumerate(instruction.branches)
-                )
+                tuple(instantiate(child) for child in instruction.branches)
             )
         event_id = instruction.id.prefixed(*prefix)
         selected = replace(instruction, id=event_id)
         if isinstance(selected, Acquire):
             selected = replace(selected, slot_id=slot_ids[selected.slot_id])
-        events.append(
-            _EventInstantiation(
-                event_id=event_id,
-                template_event_id=instruction.id,
-                template_path=path,
-                instruction=selected,
-            )
-        )
         return selected
 
-    body = instantiate(template.body, ())
-    slots = tuple(
-        _SlotInstantiation(
-            acquisition_slot_id=slot_ids[slot.id],
-            template_acquisition_slot_id=slot.id,
-        )
-        for slot in template.acquisition_slots
-    )
+    body = instantiate(template.body)
     return _InstantiatedTemplate(
         body=body,
         acquisition_slots=tuple(
             replace(slot, id=slot_ids[slot.id]) for slot in template.acquisition_slots
         ),
-        events=tuple(events),
-        slots=slots,
     )

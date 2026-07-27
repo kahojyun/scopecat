@@ -58,7 +58,6 @@ from scopecat_quantum.program_targets import (
     prepare_quantum_target_entry,
 )
 from scopecat_quantum.programs import (
-    AuthoredPulseAcquisitionProvenance,
     PulseBlock,
     QuantumProgramIR,
     lower_quantum_program_to_pulses,
@@ -258,7 +257,7 @@ def _compile(
     return compiler.compile(request)
 
 
-def test_mapping_preserves_logical_order_while_batch_retains_origins() -> None:
+def test_mapping_preserves_logical_order_and_acquisition_addresses() -> None:
     preparation, batch, entry_bindings, result_bindings = _valid_inputs()
 
     mapping = seal_quantum_target_result_mapping(
@@ -277,22 +276,6 @@ def test_mapping_preserves_logical_order_while_batch_retains_origins() -> None:
     assert {result.result_address for result in mapping.results} == set(
         batch.acquisition_addresses
     )
-    assert tuple(entry.source_program_id for entry in batch.entries) == (
-        QuantumProgramId("mixed-source-b"),
-        QuantumProgramId("mixed-source-a"),
-    )
-    entry_by_id = {entry.id: entry for entry in batch.entries}
-    for result in mapping.results:
-        address = result.result_address
-        origin = batch.acquisition_origin_for(address)
-        assert isinstance(
-            origin.provenance,
-            AuthoredPulseAcquisitionProvenance,
-        )
-        assert (
-            origin.source_program_id
-            == entry_by_id[result.result_address.entry_id].source_program_id
-        )
 
 
 @pytest.mark.parametrize("change", ("missing", "duplicate", "foreign"))

@@ -19,10 +19,7 @@ from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import CircuitVerificationError, Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.programs import (
-    AuthoredPulseAcquisitionProvenance,
-    AuthoredPulseEventProvenance,
     ImplementedGate,
-    ImplementedGatePulseEventProvenance,
     Parallel,
     PulseBlock,
     QuantumProgramIR,
@@ -33,7 +30,6 @@ from scopecat_quantum.programs import (
 )
 from scopecat_quantum.pulse_implementations import (
     GatePulseImplementation,
-    GatePulseImplementationBinding,
     GatePulseImplementationKey,
     MeasurementPulseImplementation,
     MeasurementPulseImplementationKey,
@@ -50,6 +46,7 @@ from scopecat_quantum.pulses import (
     Play,
     PulseProgram,
     ReadoutSignal,
+    iter_pulse_leaves,
     schedule,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
@@ -204,40 +201,29 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
         candidate_call.id,
         measurement.id,
     )
-    assert tuple(
-        binding.call_id
-        if isinstance(binding, GatePulseImplementationBinding)
-        else binding.measurement_id
-        for binding in lowered.implementation_bindings.bindings
-    ) == (
-        reference.id,
-        measurement.id,
-    )
     assert schedule(lowered.program).duration_seconds == Decimal("40e-9")
-    assert tuple(type(item) for item in lowered.event_provenance) == (
-        # The logical reference and measurement retain implementation provenance.
-        type(lowered.event_provenance[0]),
-        ImplementedGatePulseEventProvenance,
-        type(lowered.event_provenance[0]),
-        type(lowered.event_provenance[0]),
+    leaves = tuple(iter_pulse_leaves(lowered.program.body))
+    assert len(leaves) == 4
+    assert any(
+        leaf.id.scope[:4]
+        == (
+            "programs",
+            source.id.value,
+            "operations",
+            candidate_call.id.value,
+        )
+        for leaf in leaves
     )
-    candidate_origin = lowered.event_provenance[1]
-    assert isinstance(candidate_origin, ImplementedGatePulseEventProvenance)
-    assert candidate_origin.operation_id == candidate_call.id
-    assert candidate_origin.candidate_id == "x90.drag"
-    assert candidate_origin.event_id.scope[:4] == (
-        "programs",
-        source.id.value,
-        "operations",
-        candidate_call.id.value,
-    )
-    assert all(
-        lowered.provenance_for(origin.event_id) is origin
-        for origin in lowered.event_provenance
-    )
-    assert all(
-        lowered.acquisition_provenance_for(origin.acquisition_slot_id) is origin
-        for origin in lowered.acquisition_provenance
+    assert lowered.program.acquisition_slots[0].id == measurement.acquisition_slot_id
+    assert any(
+        leaf.id.scope[:4]
+        == (
+            "programs",
+            source.id.value,
+            "operations",
+            measurement.id.value,
+        )
+        for leaf in leaves
     )
 
 
@@ -258,18 +244,8 @@ def test_authored_pulse_block_can_own_an_acquisition() -> None:
         output_id=PulseProgramId("inline-pulse-lowered"),
     )
 
-    assert lowered.implementation_bindings.bindings == ()
-    assert all(
-        isinstance(item, AuthoredPulseEventProvenance)
-        for item in lowered.event_provenance
-    )
-    [acquisition_origin] = lowered.acquisition_provenance
-    assert isinstance(acquisition_origin, AuthoredPulseAcquisitionProvenance)
-    assert acquisition_origin.source_id == block.id
-    assert acquisition_origin.template_acquisition_slot_id == (
-        template.acquisition_slots[0].id
-    )
-    assert acquisition_origin.acquisition_slot_id.scope[:4] == (
+    [slot] = lowered.program.acquisition_slots
+    assert slot.id.scope[:4] == (
         "programs",
         verified.program.id.value,
         "operations",
@@ -299,9 +275,6 @@ def test_authored_pulse_block_can_bind_a_template_slot_to_a_public_slot() -> Non
     )
 
     assert lowered.program.acquisition_slots[0].id == public_slot
-    [origin] = lowered.acquisition_provenance
-    assert origin.acquisition_slot_id == public_slot
-    assert origin.template_acquisition_slot_id == template_slot
 
 
 def test_pulse_block_rejects_invalid_acquisition_slot_bindings() -> None:
