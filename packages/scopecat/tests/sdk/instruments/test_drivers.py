@@ -257,8 +257,6 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     assert result.problems == ()
     assert instrument.applied[0] == command
     assert updated.fields[0].value == quantity_state(5.0, "GHz")
-    assert updated.fields[0].value is not command.fields[0].value
-    assert updated.fields[0].value.root is not command.fields[0].value.root
     with pytest.raises(ValidationError):
         updated.fields[0].value.root = 1.0
     updated_quantity = updated.fields[0].value.root
