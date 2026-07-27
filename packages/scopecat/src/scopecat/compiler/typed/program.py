@@ -8,7 +8,7 @@ semantics, not intermediate compiler shape, form the durable boundary.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from scopecat.compiler.relations.uses import RelationUse, relation_use
@@ -238,7 +238,6 @@ def set_state_field(
     capability_id: str,
     field_path: str,
     value: ScalarValueExpr | ComputeResultRef,
-    target_entities: Sequence[ScalarValueExpr] = (),
 ) -> SetStateSpec:
     """Build desired state from orthogonal capability and field identities."""
 
@@ -247,9 +246,6 @@ def set_state_field(
         capability_id=capability_id,
         field_path=field_path,
         value_use=value if isinstance(value, ComputeResultRef) else relation_use(value),
-        target_entity_uses=tuple(
-            relation_use(expression) for expression in target_entities
-        ),
     )
 
 

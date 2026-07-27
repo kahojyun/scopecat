@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 
+from scopecat.compiler.relations.verification import PlanImportNamespace
 from scopecat.compiler.semantic.value_expressions import ValueExpr
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.program import (
@@ -22,7 +23,6 @@ from scopecat.compiler.typed.program import (
     core_state,
 )
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.graph.relations.analysis import PlanReferenceKind
 from scopecat.graph.values import (
     ComputeResultRef,
     OperationId,
@@ -193,7 +193,7 @@ def _parameter_overlay_variation_support(
     return PointVariationSupport(
         _merge_many(
             tuple(
-                use.value.plan.references.ids(PlanReferenceKind.POINT_COLUMN)
+                _value_dependencies(use.value).point_columns
                 for overlay in overlays
                 for use in (*overlay.key_uses.values(), overlay.value_use)
             )
@@ -265,12 +265,7 @@ def analyze_variation_support(
         )
 
     def spec_support(spec: SetStateSpec) -> PointVariationSupport:
-        selected = PointVariationSupport()
-        selected = selected.merged(
-            resource_entity_support[spec.resource_target.port_id.qualified_name]
-        )
-        for use in spec.target_entity_uses:
-            selected = selected.merged(value_support(use.value))
+        selected = resource_entity_support[spec.resource_target.port_id.qualified_name]
         if isinstance(spec.value_use, ComputeResultRef):
             owner = compute_plan.output_owners[spec.value_use.value_id]
             selected = selected.merged(compute_support[owner])
@@ -315,17 +310,14 @@ def _node_dependencies(
 
 
 def _value_dependencies(value: ValueExpr) -> ComputeDependencies:
-    references = value.plan.references
+    plan = value.plan
+    point_requirement = plan.external_point_requirement
     return ComputeDependencies(
-        point_columns=references.ids(PlanReferenceKind.POINT_COLUMN),
-        input_refs=references.ids(
-            PlanReferenceKind.INPUT_SCALAR,
-            PlanReferenceKind.INPUT_TABLE,
+        point_columns=(
+            point_requirement.column_references if point_requirement is not None else ()
         ),
-        parameters=references.ids(
-            PlanReferenceKind.PARAMETER_SCALAR,
-            PlanReferenceKind.PARAMETER_TABLE,
-        ),
+        input_refs=plan.import_ids(PlanImportNamespace.INPUT),
+        parameters=plan.import_ids(PlanImportNamespace.PARAMETER),
     )
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 
 from scopecat.compiler.relations.context import EvalContext
@@ -15,13 +14,9 @@ from scopecat.graph.relations.model import (
     CellValue,
 )
 from scopecat.graph.values import ComputeResultRef
-from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-
-type TargetEntityValue = str | EntityRef
-
 
 type StateValueUse = RelationUse[ScalarValueExpr] | ComputeResultRef
 type EvaluatedStateValue = ComputeResultRef | CellValue
@@ -42,7 +37,6 @@ class SetStateSpec:
     capability_id: str
     field_path: str
     value_use: StateValueUse
-    target_entity_uses: tuple[RelationUse[ScalarValueExpr], ...] = ()
 
     @property
     def field(self) -> str:
@@ -56,7 +50,6 @@ class StateRecord:
     capability_id: str
     field_path: str
     value: EvaluatedStateValue
-    target_entities: tuple[TargetEntityValue, ...] = ()
 
     @property
     def field(self) -> str:
@@ -83,39 +76,5 @@ def evaluate_state_spec(
                 if isinstance(value_use, ComputeResultRef)
                 else evaluate_scalar(value_use.value.plan, ctx)
             ),
-            target_entities=tuple(
-                _evaluate_target_entities(
-                    spec.target_entity_uses,
-                    ctx,
-                )
-            ),
         )
     ]
-
-
-def _evaluate_target_entities(
-    uses: Sequence[RelationUse[ScalarValueExpr]],
-    ctx: EvalContext,
-) -> list[TargetEntityValue]:
-    evaluated: list[CellValue] = [evaluate_scalar(use.value.plan, ctx) for use in uses]
-    entities: list[TargetEntityValue] = []
-    seen_ids: set[str] = set()
-    for value in evaluated:
-        if isinstance(value, EntityRef):
-            entity_id = value.id
-        elif isinstance(value, str) and value:
-            entity_id = value
-        else:
-            msg = (
-                "state target entity must resolve to an entity reference, "
-                f"got {value!r}"
-            )
-            raise TypeError(msg)
-        if not entity_id:
-            msg = "state target entity id must be non-empty"
-            raise ValueError(msg)
-        if entity_id in seen_ids:
-            continue
-        seen_ids.add(entity_id)
-        entities.append(value)
-    return entities

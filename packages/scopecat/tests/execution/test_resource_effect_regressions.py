@@ -225,7 +225,6 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
                 capability_id="A",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"),),
             ),
         ),
         products=(a_product, b_product),
@@ -282,7 +281,6 @@ def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
         capability_id="set.level",
         field_path="level",
         value=_number(1.0),
-        target_entities=(_entity("q0"),),
     )
 
     single_plan = _bind(
@@ -332,7 +330,6 @@ def test_logical_state_does_not_broadcast_across_instruments() -> None:
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"), _entity("q1")),
             ),
         ),
     )
@@ -364,7 +361,6 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"),),
             ),
         ),
         products=(product,),
@@ -424,14 +420,12 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"),),
             ),
             set_state_field(
                 resource_port_id=right,
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                target_entities=(_entity("q0"),),
             ),
         ),
     )

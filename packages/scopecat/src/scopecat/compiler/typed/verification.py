@@ -32,7 +32,6 @@ from scopecat.compiler.typed.program import (
     core_state,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
-from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.point_domain import iter_point_axis_linear
 from scopecat.graph.values import ComputeResultRef
@@ -286,34 +285,12 @@ def _program_relation_consumers(
             )
 
     for state_index, state in enumerate(core_state(program)):
-        yield from _state_relation_consumers(
-            state,
-            location=model_location("state", state_index),
-        )
-
-
-def _state_relation_consumers(
-    state: SetStateSpec,
-    *,
-    location: ModelLocation,
-) -> Iterator[ProgramRelationConsumer]:
-    if not isinstance(state.value_use, ComputeResultRef):
-        yield _consumer(
-            ProgramRelationConsumerKind.STATE_VALUE,
-            state.value_use.value,
-            model_location(location.root, *location.path, "value"),
-        )
-    for index, use in enumerate(state.target_entity_uses):
-        yield _consumer(
-            ProgramRelationConsumerKind.STATE_TARGET_ENTITY,
-            use.value,
-            model_location(
-                location.root,
-                *location.path,
-                "target_entities",
-                index,
-            ),
-        )
+        if not isinstance(state.value_use, ComputeResultRef):
+            yield _consumer(
+                ProgramRelationConsumerKind.STATE_VALUE,
+                state.value_use.value,
+                model_location("state", state_index, "value"),
+            )
 
 
 def _problem(code: str, message: str, location: ModelLocation) -> Problem:

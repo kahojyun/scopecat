@@ -229,20 +229,9 @@ def _verify_binding_compute_values(
         for index, binding in enumerate(assembly.bindings)
     ]
     for location, value in values:
-        if not isinstance(value, ValueRef):
-            continue
-        if not internal_value_ref_requires_execution(value):
-            lowered = internal_lower_value_ref(value)
-            if not (
-                isinstance(value.value_type, Scalar) and isinstance(lowered, ScalarExpr)
-            ):
-                problems.append(
-                    _problem(
-                        "state_binding_value_shape_invalid",
-                        "state binding value must be scalar-shaped",
-                        location,
-                    )
-                )
+        if not isinstance(value, ValueRef) or not internal_value_ref_requires_execution(
+            value
+        ):
             continue
         value_id = semantic_value_id(value)
         operation = graph.operation_results.get(value_id)

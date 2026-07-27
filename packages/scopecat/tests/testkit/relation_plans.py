@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_relation as evaluate_selected_relation,
@@ -76,7 +74,6 @@ def state_field(
     capability_id: str,
     field_path: str,
     value: object | ComputeResultRef,
-    target_entities: Sequence[object | ScalarValueExpr] = (),
     bindings: RelationTypeBindings | None = None,
     value_type: Scalar | None = None,
 ) -> SetStateSpec:
@@ -97,12 +94,6 @@ def state_field(
                 bindings=selected_bindings,
                 expected_type=value_type,
             )
-        ),
-        target_entities=tuple(
-            entity
-            if isinstance(entity, ScalarValueExpr)
-            else scalar_value_expr(entity, bindings=selected_bindings)
-            for entity in target_entities
         ),
     )
 

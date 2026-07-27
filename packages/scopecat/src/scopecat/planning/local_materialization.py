@@ -657,7 +657,6 @@ def _bind_desired_state(
             binding = _bind_state_resource(
                 record.resource_target,
                 capability_id=capability_id,
-                target_entities=record.target_entities,
                 resources=resources,
             )
         except ResourceBindingError as error:
@@ -772,7 +771,6 @@ def _bind_state_resource(
     target: LogicalResourcePortId,
     *,
     capability_id: str,
-    target_entities: Sequence[object],
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
 ) -> ResourceBinding:
     resource = resources.get(target)
@@ -781,98 +779,22 @@ def _bind_state_resource(
             "state_resource_port_unbound",
             f"logical state resource port {target.qualified_name!r} is not bound",
         )
-    requested_entity_ids = _normalize_entity_ids(target_entities)
-
-    if not resource.entity_ids:
-        binding = _bind_single_resource(
-            target,
-            resources=resources,
-            missing_code="state_resource_port_unbound",
+    binding = resource.select_one()
+    channel_bindings = tuple(
+        channel_binding
+        for channel_binding in binding.channel_bindings
+        if (
+            channel_binding.capability is None
+            or channel_binding.capability == capability_id
         )
-        entity_ids, channel_bindings, unbound = _logical_state_target(
-            binding=binding,
-            capability_id=capability_id,
-            target_entities=requested_entity_ids,
-        )
-        if unbound:
-            raise ResourceBindingError(
-                "state_target_entity_unbound",
-                "state target entities are not bound: " + ", ".join(unbound),
-            )
-        return replace(
-            binding,
-            entity_ids=entity_ids,
-            channel_bindings=channel_bindings,
-        )
-
-    selected_entity_ids = requested_entity_ids or resource.entity_ids
-    unbound = tuple(
-        entity_id
-        for entity_id in selected_entity_ids
-        if entity_id not in resource.entity_ids
     )
-    if unbound:
-        raise ResourceBindingError(
-            "state_target_entity_unbound",
-            "state target entities are outside the declared resource scope: "
-            + ", ".join(unbound),
-        )
-    binding = resource.manifest.select_one(selected_entity_ids)
-    entity_ids, channel_bindings, _unbound = _logical_state_target(
-        binding=binding,
-        capability_id=capability_id,
-        target_entities=(),
+    entity_ids = binding.entity_ids or tuple(
+        dict.fromkeys(channel_binding.entity_id for channel_binding in channel_bindings)
     )
     return replace(
         binding,
         entity_ids=entity_ids,
         channel_bindings=channel_bindings,
-    )
-
-
-def _logical_state_target(
-    *,
-    binding: ResourceBinding,
-    capability_id: str,
-    target_entities: Sequence[object],
-) -> tuple[
-    tuple[str, ...],
-    tuple[CommandChannelBinding, ...],
-    tuple[str, ...],
-]:
-    requested_entity_ids = tuple(
-        dict.fromkeys(
-            value.id if isinstance(value, EntityRef) else str(value)
-            for value in target_entities
-        )
-    )
-    selected_entity_ids = requested_entity_ids or binding.entity_ids
-    if requested_entity_ids and binding.entity_ids:
-        unbound = tuple(
-            entity_id
-            for entity_id in requested_entity_ids
-            if entity_id not in binding.entity_ids
-        )
-        if unbound:
-            return requested_entity_ids, (), unbound
-    channel_bindings = tuple(
-        channel_binding
-        for channel_binding in binding.channel_bindings
-        if (not selected_entity_ids or channel_binding.entity_id in selected_entity_ids)
-        and (
-            channel_binding.capability is None
-            or channel_binding.capability == capability_id
-        )
-    )
-    return (
-        selected_entity_ids
-        or tuple(
-            dict.fromkeys(
-                channel_binding.entity_id for channel_binding in channel_bindings
-            )
-        ),
-        channel_bindings,
-        (),
     )
 
 

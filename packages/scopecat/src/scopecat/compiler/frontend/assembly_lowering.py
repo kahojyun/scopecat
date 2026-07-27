@@ -25,7 +25,6 @@ from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.binding_lowering import BindingSpec
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
@@ -63,9 +62,7 @@ from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     TypedDomainResultBinding,
     ValueInput,
-    set_state_field,
 )
-from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.graph.relations.model import CellValue, as_scalar_expr, point_col
 from scopecat.graph.relations.point_domain import (
     POINT_UNIT,
@@ -556,29 +553,6 @@ def _lower_point_axis(
             center=center,
             span=source.span,
             count=source.count,
-        ),
-    )
-
-
-def state_spec(
-    binding: BindingSpec,
-    *,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
-) -> SetStateSpec:
-    value = binding.value
-    return set_state_field(
-        resource_port_id=binding.resource_port_id,
-        capability_id=binding.capability_id,
-        field_path=binding.field_path,
-        value=(
-            value
-            if isinstance(value, ComputeResultRef)
-            else verify_scalar_value_expr(
-                bind_scalar_input_refs(value, inputs),
-                bindings=type_bindings,
-                expected_type=binding.value_type,
-            )
         ),
     )
 

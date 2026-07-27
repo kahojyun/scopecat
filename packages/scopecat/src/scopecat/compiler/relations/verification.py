@@ -15,8 +15,6 @@ from typing import cast
 
 from scopecat.graph.relations.analysis import (
     PlanNode,
-    PlanReferences,
-    plan_references,
 )
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
@@ -141,7 +139,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         "_certified_type",
         "_external_point_requirement",
         "_imports",
-        "_references",
         "_root",
     )
 
@@ -150,7 +147,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         root: NodeT,
         certified_type: ValueType,
         imports: tuple[TypedPlanImport, ...],
-        references: PlanReferences,
         bindings: RelationTypeBindings,
         external_point_requirement: PointRequirement | None,
     ) -> None:
@@ -159,7 +155,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         self._imports = imports
         self._bindings = bindings
         self._external_point_requirement = external_point_requirement
-        self._references = references
 
     @property
     def root(self) -> NodeT:
@@ -173,6 +168,17 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
     def imports(self) -> tuple[TypedPlanImport, ...]:
         return self._imports
 
+    def import_ids(self, namespace: PlanImportNamespace) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    imported.id
+                    for imported in self._imports
+                    if imported.namespace is namespace
+                }
+            )
+        )
+
     @property
     def bindings(self) -> RelationTypeBindings:
         return self._bindings
@@ -180,10 +186,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
     @property
     def external_point_requirement(self) -> PointRequirement | None:
         return self._external_point_requirement
-
-    @property
-    def references(self) -> PlanReferences:
-        return self._references
 
 
 def verify_relation_plan[NodeT: PlanNode](
@@ -208,7 +210,6 @@ def verify_relation_plan[NodeT: PlanNode](
         root,
         certified,
         tuple(verifier.imports.values()),
-        plan_references(root),
         selected,
         _external_point_requirement(verifier, selected),
     )

@@ -106,9 +106,13 @@ def _is_entity_input_type(value_type: ValueType) -> bool:
 
 
 def _is_public_binding_input(value: object) -> bool:
-    return value is None or isinstance(
-        value,
-        ValueRef | Quantity | EntityRef | PayloadValue | str | int | float | bool,
+    return (
+        (isinstance(value, ValueRef) and isinstance(value.value_type, ScalarType))
+        or value is None
+        or isinstance(
+            value,
+            Quantity | EntityRef | PayloadValue | str | int | float | bool,
+        )
     )
 
 
@@ -271,7 +275,7 @@ class ModuleBuilder:
         """Bind state through structured resource/capability/field identities."""
 
         if not _is_public_binding_input(value):
-            msg = "module bindings require a typed value or scalar literal"
+            msg = "module bindings require a scalar typed value or scalar literal"
             raise TypeError(msg)
         return replace(
             self,

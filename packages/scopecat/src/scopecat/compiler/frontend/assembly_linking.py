@@ -15,12 +15,11 @@ from scopecat.compiler.frontend.assembly_lowering import (
     lower_point_domain,
     lower_semantic_compute_graph,
     lower_semantic_domain_graph,
-    state_spec,
     validate_entity_inputs,
 )
 from scopecat.compiler.frontend.binding_lowering import (
     build_resource_requirements,
-    lower_binding_intent,
+    lower_state_binding,
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
@@ -139,8 +138,8 @@ def _bind_verified_assembly(
     )
     domain_effects = {execution.id: execution for execution in domain_executions}
     ordered_effects = tuple(
-        state_spec(
-            lower_binding_intent(effect),
+        lower_state_binding(
+            effect,
             inputs=inputs,
             type_bindings=type_bindings,
         )

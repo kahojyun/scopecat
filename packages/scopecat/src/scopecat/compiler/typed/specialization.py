@@ -324,14 +324,6 @@ def _specialize_state(
             known=known,
             parameter_cells=parameter_cells,
         ),
-        target_entity_uses=tuple(
-            _specialize_relation_use(
-                use,
-                known=known,
-                parameter_cells=parameter_cells,
-            )
-            for use in state.target_entity_uses
-        ),
     )
 
 

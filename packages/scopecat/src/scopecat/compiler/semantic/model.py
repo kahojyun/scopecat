@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import cast
+from typing import cast, override
 
 import scopecat.graph.values as graph_values
 from scopecat.compiler.relations.verification import (
+    PlanImportNamespace,
     PointRequirement,
     TypedPlanImport,
     VerifiedRelationPlan,
@@ -16,9 +17,6 @@ from scopecat.compiler.semantic.operation_contract import (
     OperationContract,
 )
 from scopecat.domain.program import DomainProgramDef
-from scopecat.graph.relations.analysis import (
-    PlanReferenceKind,
-)
 from scopecat.graph.relations.model import (
     RelationExpr,
     ScalarExpr,
@@ -39,6 +37,12 @@ from scopecat.measurements.postprocessor_contract import (
 type PlanExpression = ScalarExpr | RelationExpr
 type VerifiedPlanExpression = VerifiedRelationPlan[PlanExpression]
 type SemanticValueType = ValueType
+type _PlanExpressionSemanticKey = tuple[
+    PlanExpression,
+    ValueType,
+    tuple[TypedPlanImport, ...],
+    PointRequirement | None,
+]
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:
@@ -81,61 +85,51 @@ class MeasurementPostprocessorId:
         return MeasurementPostprocessorId(self.symbol.prefixed(*scope))
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, eq=False)
 class PlanExpressionSource:
-    _expression: PlanExpression = field(hash=False, repr=False)
-    _certified_type: ValueType
-    _imports: tuple[TypedPlanImport, ...] = field(hash=False, repr=False)
-    # The verified plan is excluded from comparison, so retain its point
-    # requirement to distinguish sources with different external inputs.
-    _point_requirement: PointRequirement | None = field(
-        hash=False,
-        repr=False,
-    )
-    _verified_plan: VerifiedPlanExpression = field(
-        hash=False,
-        repr=False,
-        compare=False,
-    )
-
-    def __init__(
-        self,
-        verified_plan: VerifiedPlanExpression,
-    ) -> None:
-        object.__setattr__(self, "_expression", verified_plan.root)
-        object.__setattr__(self, "_certified_type", verified_plan.certified_type)
-        object.__setattr__(self, "_imports", verified_plan.imports)
-        object.__setattr__(
-            self,
-            "_point_requirement",
-            verified_plan.external_point_requirement,
-        )
-        object.__setattr__(self, "_verified_plan", verified_plan)
+    _verified_plan: VerifiedPlanExpression = field(repr=False)
 
     @property
     def expression(self) -> PlanExpression:
-        return self._expression
+        return self._verified_plan.root
 
     @property
     def source_inputs(self) -> tuple[str, ...]:
         """Return input dependencies derived from the retained expression."""
 
-        return self._verified_plan.references.ids(
-            PlanReferenceKind.INPUT_SCALAR,
-            PlanReferenceKind.INPUT_TABLE,
-        )
+        return self._verified_plan.import_ids(PlanImportNamespace.INPUT)
 
     @property
     def certified_type(self) -> ValueType:
-        return self._certified_type
+        return self._verified_plan.certified_type
 
     @property
     def imports(self) -> tuple[TypedPlanImport, ...]:
-        return self._imports
+        return self._verified_plan.imports
 
     @property
     def verified_plan(self) -> VerifiedPlanExpression:
         return self._verified_plan
+
+    def _semantic_key(self) -> _PlanExpressionSemanticKey:
+        plan = self._verified_plan
+        return (
+            plan.root,
+            plan.certified_type,
+            plan.imports,
+            plan.external_point_requirement,
+        )
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, PlanExpressionSource) and (
+            self._semantic_key() == other._semantic_key()
+        )
+
+    @override
+    def __hash__(self) -> int:
+        # Relation roots may contain unhashable literal rows or cells.
+        return hash(self.certified_type)
 
 
 @dataclass(frozen=True, slots=True, init=False)

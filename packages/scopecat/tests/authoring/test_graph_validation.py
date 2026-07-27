@@ -126,37 +126,24 @@ def test_state_rejects_a_non_payload_compute_output() -> None:
     assert "numeric-value/outputs/result" in error.value.problems[0].message
 
 
-def test_compile_rejects_a_table_shaped_plan_state_binding() -> None:
+def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
     rows = sc.input(
         "rows",
         sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
     )
-    module = (
-        sc.module_body(id="test.graph.table-state-binding")
-        .inputs(rows)
-        .resource("drive", requires=("set_gain",))
-        .bind_field(
-            "drive",
-            capability="set_gain",
-            field="value",
-            value=rows,
+
+    with pytest.raises(TypeError, match="scalar typed value or scalar literal"):
+        (
+            sc.module_body(id="test.graph.table-state-binding")
+            .inputs(rows)
+            .resource("drive", requires=("set_gain",))
+            .bind_field(
+                "drive",
+                capability="set_gain",
+                field="value",
+                value=rows,
+            )
         )
-        .build()
-    )
-    invocation = template_fixture(
-        module,
-        id="test.graph.table-state-binding",
-        kind="graph",
-    ).bind(rows=({"value": 1.0},))
-
-    with pytest.raises(CheckFailed) as error:
-        compile_invocation(invocation)
-
-    problem = error.value.problems[0]
-    assert problem.code == "state_binding_value_shape_invalid"
-    assert problem.phase is ProblemPhase.AUTHORING
-    assert problem.location == model_location("bindings", 0, "value")
-    assert problem.message == "state binding value must be scalar-shaped"
 
 
 def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
