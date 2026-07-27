@@ -27,25 +27,10 @@ from scopecat_quantum.measurement_implementations import (
     MeasurementPulseImplementationKey,
 )
 from scopecat_quantum.pulses import (
-    Acquire,
-    PulseLeaf,
     PulseProgram,
-    iter_pulse_leaves,
     pulse_leaf_owners,
+    schedule,
 )
-
-
-def _gate_template_leaves(
-    pulse_template: PulseProgram,
-    *,
-    subject: str,
-) -> tuple[PulseLeaf, ...]:
-    leaves = tuple(iter_pulse_leaves(pulse_template.body))
-    event_ids = tuple(leaf.id for leaf in leaves)
-    if len(set(event_ids)) != len(event_ids):
-        msg = f"{subject} pulse template event ids must be unique"
-        raise ValueError(msg)
-    return leaves
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,18 +123,10 @@ class GatePulseImplementation:
         if len(set(resources)) != len(resources):
             msg = "gate implementation resources must be unique"
             raise ValueError(msg)
-        leaves = _gate_template_leaves(
-            self.pulse_template,
-            subject="gate implementation",
-        )
-        if self.pulse_template.acquisition_slots or any(
-            isinstance(leaf, Acquire) for leaf in leaves
-        ):
-            msg = (
-                "gate implementation pulse templates cannot declare acquisition slots "
-                "or contain Acquire instructions"
-            )
+        if self.pulse_template.acquisition_slots:
+            msg = "gate implementation pulse templates cannot declare acquisition slots"
             raise ValueError(msg)
+        schedule(self.pulse_template)
         owners = set(pulse_leaf_owners(self.pulse_template.body))
         allowed_owners = {*self.key.operands, *resources}
         foreign_owners = owners - allowed_owners

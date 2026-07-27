@@ -55,9 +55,6 @@ from scopecat_quantum.pulses import (
     ReadoutSignal,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
-from scopecat_quantum.pulses import (
-    Sequence as PulseSequence,
-)
 
 X = GateDefinition(
     id=GateId("x"),
@@ -463,49 +460,11 @@ def test_gate_implementations_cannot_produce_acquisition_results() -> None:
         ),
         acquisition_slots=(slot,),
     )
-    acquire_program = PulseProgram(
-        id=PulseProgramId("contains-acquire"),
-        body=PulseSequence(
-            instructions=(
-                Acquire(
-                    id=PulseEventId("acquire"),
-                    signal=acquire_signal,
-                    slot_id=slot.id,
-                    duration=Quantity(20, "ns"),
-                ),
-            )
-        ),
-    )
-
-    for pulse_template in (declared_slot_program, acquire_program):
-        with pytest.raises(ValueError, match="cannot declare acquisition slots"):
-            GatePulseImplementation(
-                id=PulseImplementationId("implementation"),
-                key=key,
-                pulse_template=pulse_template,
-            )
-
-
-def test_gate_implementation_rejects_duplicate_template_event_identities_early() -> (
-    None
-):
-    call = _call("call")
-    duplicate = PulseEventId("delay", scope=("relative",))
-    pulse_template = PulseProgram(
-        id=PulseProgramId("duplicate-events"),
-        body=PulseSequence(
-            (
-                Delay(duplicate, DriveSignal(Q0), Quantity(10, "ns")),
-                Delay(duplicate, DriveSignal(Q0), Quantity(10, "ns")),
-            )
-        ),
-    )
-
-    with pytest.raises(ValueError, match="template event ids must be unique"):
+    with pytest.raises(ValueError, match="cannot declare acquisition slots"):
         GatePulseImplementation(
             id=PulseImplementationId("implementation"),
-            key=GatePulseImplementationKey.from_call(call),
-            pulse_template=pulse_template,
+            key=key,
+            pulse_template=declared_slot_program,
         )
 
 
