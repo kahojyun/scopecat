@@ -63,7 +63,6 @@ class Topology(BaseModel):
 class _InstrumentConnection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    credential_ref: Annotated[str, Field(min_length=1)] | None = None
     options: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -78,25 +77,8 @@ class TcpipSocketInstrumentConnection(_InstrumentConnection):
     timeout_seconds: float = Field(default=5.0, gt=0)
 
 
-class VisaInstrumentConnection(_InstrumentConnection):
-    kind: Literal["visa"] = "visa"
-    resource: Annotated[str, Field(min_length=1)]
-    backend: Annotated[str, Field(min_length=1)] | None = None
-    timeout_seconds: float = Field(default=5.0, gt=0)
-
-
-class SerialInstrumentConnection(_InstrumentConnection):
-    kind: Literal["serial"] = "serial"
-    port: Annotated[str, Field(min_length=1)]
-    baud_rate: int = Field(default=115_200, ge=1)
-    timeout_seconds: float = Field(default=5.0, gt=0)
-
-
 type InstrumentConnection = Annotated[
-    VirtualInstrumentConnection
-    | TcpipSocketInstrumentConnection
-    | VisaInstrumentConnection
-    | SerialInstrumentConnection,
+    VirtualInstrumentConnection | TcpipSocketInstrumentConnection,
     Field(discriminator="kind"),
 ]
 
@@ -105,7 +87,6 @@ class InstrumentSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: Annotated[str, Field(min_length=1)]
-    kind: Annotated[str, Field(min_length=1)]
     driver_id: Annotated[str, Field(min_length=1)]
     connection: InstrumentConnection
 

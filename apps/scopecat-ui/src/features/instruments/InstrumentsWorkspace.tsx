@@ -9,7 +9,7 @@ import {
   ServerCrash,
 } from "lucide-react";
 import type { InstrumentSessionLease, InstrumentView } from "../../api-contract";
-import { errorMessage, formatDateTime, formatRelative, titleCase } from "../../lib/presentation";
+import { errorMessage, formatDateTime, formatRelative } from "../../lib/presentation";
 import { InstrumentConnectionDialog } from "./InstrumentConnectionDialog";
 import { AvailabilityBadge, InstrumentInspector } from "./InstrumentInspector";
 import {
@@ -430,10 +430,6 @@ function InstrumentListItem({
       </span>
       <code>{instrument.spec.id}</code>
       <dl>
-        <div>
-          <dt>Kind</dt>
-          <dd>{titleCase(instrument.spec.kind)}</dd>
-        </div>
         <div>
           <dt>Driver</dt>
           <dd>{instrument.spec.driver_id}</dd>

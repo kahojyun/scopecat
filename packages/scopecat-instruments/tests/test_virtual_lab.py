@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from scopecat.kernel.quantity import Quantity
 
-from scopecat_instruments import (
-    LinearSweepSettings,
+from scopecat_instruments._support import LinearSweepSettings
+from scopecat_instruments.virtual import (
     VirtualDcSource,
     VirtualLabWorld,
     VirtualNetworkAnalyzer,

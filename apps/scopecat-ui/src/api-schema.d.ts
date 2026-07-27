@@ -1301,8 +1301,8 @@ export interface components {
                 }[]
             ];
         };
-        "InstrumentConnection-Input": components["schemas"]["VirtualInstrumentConnection-Input"] | components["schemas"]["TcpipSocketInstrumentConnection-Input"] | components["schemas"]["VisaInstrumentConnection-Input"] | components["schemas"]["SerialInstrumentConnection-Input"];
-        "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"] | components["schemas"]["VisaInstrumentConnection-Output"] | components["schemas"]["SerialInstrumentConnection-Output"];
+        "InstrumentConnection-Input": components["schemas"]["VirtualInstrumentConnection-Input"] | components["schemas"]["TcpipSocketInstrumentConnection-Input"];
+        "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"];
         /** InstrumentDescription */
         InstrumentDescription: {
             /** Capabilities */
@@ -1440,8 +1440,6 @@ export interface components {
             driver_id: string;
             /** Id */
             id: string;
-            /** Kind */
-            kind: string;
         };
         /** InstrumentSpec */
         "InstrumentSpec-Output": {
@@ -1450,8 +1448,6 @@ export interface components {
             driver_id: string;
             /** Id */
             id: string;
-            /** Kind */
-            kind: string;
         };
         /** InstrumentStateCommand */
         InstrumentStateCommand: {
@@ -2216,58 +2212,6 @@ export interface components {
             /** Value */
             value: number;
         };
-        /** SerialInstrumentConnection */
-        "SerialInstrumentConnection-Input": {
-            /**
-             * Baud Rate
-             * @default 115200
-             */
-            baud_rate: number;
-            /** Credential Ref */
-            credential_ref?: string | null;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "serial";
-            /** Options */
-            options?: {
-                [key: string]: components["schemas"]["JsonValue-Input"];
-            };
-            /** Port */
-            port: string;
-            /**
-             * Timeout Seconds
-             * @default 5
-             */
-            timeout_seconds: number;
-        };
-        /** SerialInstrumentConnection */
-        "SerialInstrumentConnection-Output": {
-            /**
-             * Baud Rate
-             * @default 115200
-             */
-            baud_rate: number;
-            /** Credential Ref */
-            credential_ref?: string | null;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "serial";
-            /** Options */
-            options?: {
-                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
-            };
-            /** Port */
-            port: string;
-            /**
-             * Timeout Seconds
-             * @default 5
-             */
-            timeout_seconds: number;
-        };
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**
          * StateValue
@@ -2362,8 +2306,6 @@ export interface components {
         };
         /** TcpipSocketInstrumentConnection */
         "TcpipSocketInstrumentConnection-Input": {
-            /** Credential Ref */
-            credential_ref?: string | null;
             /** Host */
             host: string;
             /**
@@ -2385,8 +2327,6 @@ export interface components {
         };
         /** TcpipSocketInstrumentConnection */
         "TcpipSocketInstrumentConnection-Output": {
-            /** Credential Ref */
-            credential_ref?: string | null;
             /** Host */
             host: string;
             /**
@@ -2451,8 +2391,6 @@ export interface components {
         };
         /** VirtualInstrumentConnection */
         "VirtualInstrumentConnection-Input": {
-            /** Credential Ref */
-            credential_ref?: string | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2465,8 +2403,6 @@ export interface components {
         };
         /** VirtualInstrumentConnection */
         "VirtualInstrumentConnection-Output": {
-            /** Credential Ref */
-            credential_ref?: string | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2476,52 +2412,6 @@ export interface components {
             options?: {
                 [key: string]: components["schemas"]["pydantic__types__JsonValue"];
             };
-        };
-        /** VisaInstrumentConnection */
-        "VisaInstrumentConnection-Input": {
-            /** Backend */
-            backend?: string | null;
-            /** Credential Ref */
-            credential_ref?: string | null;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "visa";
-            /** Options */
-            options?: {
-                [key: string]: components["schemas"]["JsonValue-Input"];
-            };
-            /** Resource */
-            resource: string;
-            /**
-             * Timeout Seconds
-             * @default 5
-             */
-            timeout_seconds: number;
-        };
-        /** VisaInstrumentConnection */
-        "VisaInstrumentConnection-Output": {
-            /** Backend */
-            backend?: string | null;
-            /** Credential Ref */
-            credential_ref?: string | null;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "visa";
-            /** Options */
-            options?: {
-                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
-            };
-            /** Resource */
-            resource: string;
-            /**
-             * Timeout Seconds
-             * @default 5
-             */
-            timeout_seconds: number;
         };
     };
     responses: never;

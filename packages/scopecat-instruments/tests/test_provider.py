@@ -17,12 +17,12 @@ from scopecat.records.config import (
 from scopecat.records.parameter import ParameterCatalog, ParameterSnapshot
 from scopecat.sdk.instruments import InstrumentProviderContext
 
-from scopecat_instruments import (
+from scopecat_instruments.provider import (
     ROHDE_SCHWARZ_SGS100A,
     VIRTUAL_DC_SOURCE,
     ConfiguredInstrumentProvider,
-    VirtualDcSource,
 )
+from scopecat_instruments.virtual import VirtualDcSource
 
 
 class _IdnServer:
@@ -79,7 +79,6 @@ def test_provider_probes_real_device_before_returning_driver() -> None:
     config = _config(
         InstrumentSpec(
             id="lo",
-            kind="rf_source",
             driver_id=ROHDE_SCHWARZ_SGS100A,
             connection=TcpipSocketInstrumentConnection(
                 host="127.0.0.1",
@@ -108,7 +107,6 @@ def test_provider_rejects_wrong_device_identity() -> None:
     config = _config(
         InstrumentSpec(
             id="lo",
-            kind="rf_source",
             driver_id=ROHDE_SCHWARZ_SGS100A,
             connection=TcpipSocketInstrumentConnection(
                 host="127.0.0.1",
@@ -130,13 +128,11 @@ def test_provider_subset_and_virtual_state_survive_sessions() -> None:
     config = _config(
         InstrumentSpec(
             id="flux",
-            kind="dc_source",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
         ),
         InstrumentSpec(
             id="unused",
-            kind="dc_source",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
         ),
@@ -168,13 +164,11 @@ def test_provider_returns_requested_subset_in_context_order() -> None:
     config = _config(
         InstrumentSpec(
             id="a",
-            kind="dc_source",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
         ),
         InstrumentSpec(
             id="b",
-            kind="dc_source",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
         ),

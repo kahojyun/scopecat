@@ -260,7 +260,6 @@ function configProfile(id: string): ConfigProfileSnapshot {
         instruments: [
           {
             id: "signal",
-            kind: "signal_generator",
             driver_id: "virtual.signal_generator",
             connection: { kind: "virtual" },
           },

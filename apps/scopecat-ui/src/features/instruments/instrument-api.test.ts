@@ -35,14 +35,12 @@ describe("instrument configuration publishing", () => {
       host: "192.0.2.24",
       port: 5025,
       timeout_seconds: 8,
-      credential_ref: "secret:lab-vna",
       options: { termination: "lf" },
     };
 
     await publishInstrumentConnection({
       active,
       instrumentId: "vna-1",
-      driverId: "keysight.pna",
       connection,
       actor: "Ada",
       note: "Move to the instrument VLAN",
@@ -67,13 +65,11 @@ describe("instrument configuration publishing", () => {
     expect(command.source.config.system.instrument_registry.instruments).toEqual([
       {
         id: "vna-1",
-        kind: "vector_network_analyzer",
         driver_id: "keysight.pna",
         connection,
       },
       {
         id: "fridge",
-        kind: "temperature_controller",
         driver_id: "virtual.temperature",
         connection: { kind: "virtual" },
       },
@@ -81,20 +77,24 @@ describe("instrument configuration publishing", () => {
     expect(command.source.config.parameter_snapshot.values).toEqual([
       { id: "readout.frequency", shape: "scalar", value: { value: 6.2, unit: "GHz" } },
     ]);
-    expect(active.config.system.instrument_registry.instruments[0]?.driver_id).toBe("virtual.vna");
+    expect(active.config.system.instrument_registry.instruments[0]?.connection).toEqual({
+      kind: "tcpip_socket",
+      host: "192.0.2.20",
+      port: 5025,
+      timeout_seconds: 5,
+    });
   });
 
-  it("never includes credential references in a connection summary", () => {
+  it("summarizes a TCP endpoint without rendering driver options", () => {
     expect(
       connectionSummary({
-        kind: "visa",
-        resource: "TCPIP0::192.0.2.24::INSTR",
-        backend: "@py",
+        kind: "tcpip_socket",
+        host: "192.0.2.24",
+        port: 5025,
         timeout_seconds: 5,
-        credential_ref: "secret:do-not-render",
-        options: { password: "also-do-not-render" },
+        options: { termination: "lf" },
       }),
-    ).toBe("VISA · TCPIP0::192.0.2.24::INSTR");
+    ).toBe("TCP/IP · 192.0.2.24:5025");
   });
 });
 
@@ -266,17 +266,16 @@ function activeConfig(): ActiveConfig {
         instruments: [
           {
             id: "vna-1",
-            kind: "vector_network_analyzer",
-            driver_id: "virtual.vna",
+            driver_id: "keysight.pna",
             connection: {
-              kind: "virtual",
-              credential_ref: "secret:lab-vna",
-              options: { termination: "lf" },
+              kind: "tcpip_socket",
+              host: "192.0.2.20",
+              port: 5025,
+              timeout_seconds: 5,
             },
           },
           {
             id: "fridge",
-            kind: "temperature_controller",
             driver_id: "virtual.temperature",
             connection: { kind: "virtual" },
           },

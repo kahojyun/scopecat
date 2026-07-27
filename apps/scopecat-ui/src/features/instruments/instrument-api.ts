@@ -174,14 +174,12 @@ export async function resolveInstrumentAttention(sessionId: string): Promise<voi
 export async function publishInstrumentConnection({
   active,
   instrumentId,
-  driverId,
   connection,
   actor,
   note,
 }: {
   active: ActiveConfig;
   instrumentId: string;
-  driverId: string;
   connection: InstrumentConnection;
   actor: string;
   note: string;
@@ -191,7 +189,6 @@ export async function publishInstrumentConnection({
     (instrument) => instrument.id === instrumentId,
   );
   if (!spec) throw new Error(`The active config no longer contains ${instrumentId}.`);
-  spec.driver_id = driverId;
   spec.connection = connection;
   const suffix = createInstrumentOperationId("config");
   const entryId = safeConfigEntryId(`${config.id}-instrument-${instrumentId}-${suffix}`);
@@ -214,30 +211,6 @@ export function connectionSummary(connection: InstrumentView["spec"]["connection
       return "Virtual · local simulator";
     case "tcpip_socket":
       return `TCP/IP · ${connection.host}:${connection.port}`;
-    case "visa":
-      return `VISA · ${connection.resource}`;
-    case "serial":
-      return `Serial · ${connection.port} @ ${connection.baud_rate}`;
-  }
-}
-
-export function connectionForKind(
-  kind: InstrumentConnection["kind"],
-  current: InstrumentConnection,
-): InstrumentConnection {
-  const common = {
-    credential_ref: current.credential_ref,
-    options: current.options,
-  };
-  switch (kind) {
-    case "virtual":
-      return { kind, ...common };
-    case "tcpip_socket":
-      return { kind, host: "127.0.0.1", port: 5025, timeout_seconds: 5, ...common };
-    case "visa":
-      return { kind, resource: "TCPIP0::127.0.0.1::INSTR", timeout_seconds: 5, ...common };
-    case "serial":
-      return { kind, port: "/dev/ttyUSB0", baud_rate: 115_200, timeout_seconds: 5, ...common };
   }
 }
 

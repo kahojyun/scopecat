@@ -10,15 +10,14 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommandField,
 )
 
-from scopecat_instruments import (
+from scopecat_instruments._support import LinearSweepSettings
+from scopecat_instruments.drivers import (
     KeysightE5080B,
     LakeShore372,
-    LinearSweepSettings,
     RohdeSchwarzSGS100A,
-    ScriptedExchange,
-    ScriptedTransport,
     YokogawaGS200,
 )
+from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 
 
 def _state_command(

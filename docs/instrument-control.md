@@ -26,10 +26,10 @@ flowchart LR
 ```
 
 `InstrumentSpec` answers what physical device is configured and how a provider
-can reach it. It contains a stable instance id, a model/category hint,
-`driver_id`, and a typed connection. It is versioned with the complete
-`ConfigProfileSnapshot`; editing a connection publishes a new immutable config
-entry instead of mutating a live run's inputs.
+can reach it. It contains a stable instance id, `driver_id`, and a typed
+connection. It is versioned with the complete `ConfigProfileSnapshot`; editing
+a connection publishes a new immutable config entry instead of mutating a live
+run's inputs.
 
 `InstrumentDescription` is the pure driver contract used without opening
 hardware. It declares vendor-neutral capabilities, state fields, field access,
@@ -53,29 +53,22 @@ definitions therefore do not depend on addresses, vendors, or GUI concepts.
 The core configuration schema distinguishes:
 
 - `virtual`: an in-process simulated device selected by `driver_id`;
-- `tcpip_socket`: host, port, and timeout for line-oriented SCPI;
-- `visa`: VISA resource, optional backend, and timeout;
-- `serial`: port, baud rate, and timeout.
+- `tcpip_socket`: host, port, and timeout for line-oriented SCPI.
 
-Every connection also has an opaque `credential_ref` and driver-specific
-`options`. Credentials themselves never belong in a config snapshot or GUI
-form. The first-party driver package initially provides virtual devices and raw
-TCP SCPI. VISA and serial are typed configuration contracts for providers that
-add those transports.
+Connections may carry driver-specific `options`. The first-party provider
+supports virtual devices and configured TCP/IP endpoints.
 
 Example:
 
 ```json
 {
   "id": "readout-vna",
-  "kind": "vna",
   "driver_id": "scopecat.keysight.e5080b",
   "connection": {
     "kind": "tcpip_socket",
     "host": "192.0.2.20",
     "port": 5025,
     "timeout_seconds": 10,
-    "credential_ref": null,
     "options": {}
   }
 }
@@ -83,10 +76,10 @@ Example:
 
 The GUI's connection editor follows the same immutable workflow as other
 configuration: load the active complete snapshot, edit the selected
-instrument, review, publish a new entry, and activate it. Editing is disabled
-while the instrument is leased. A “Test connection” action, when added, should
-open and immediately close a normal session so it exercises identity checks,
-leases, and auditing rather than creating a second connection path.
+instrument's current TCP/IP endpoint or timeout, publish a new entry, and
+activate it. The editor does not change `driver_id`, connection kind, or driver
+options. Virtual connections have no endpoint to edit. Editing is disabled
+while the instrument is leased.
 
 ## Instruments workspace
 

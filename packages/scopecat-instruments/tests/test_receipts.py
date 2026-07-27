@@ -9,15 +9,14 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommandField,
 )
 
-from scopecat_instruments import (
+from scopecat_instruments.drivers import (
     KeysightE5080B,
     LakeShore372,
-    ScriptedTransport,
-    TransportError,
-    VirtualDcSource,
-    VirtualLabWorld,
     YokogawaGS200,
 )
+from scopecat_instruments.testing import ScriptedTransport
+from scopecat_instruments.transport import TransportError
+from scopecat_instruments.virtual import VirtualDcSource, VirtualLabWorld
 
 
 class _FailingTransport:

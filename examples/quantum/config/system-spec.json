@@ -57,7 +57,6 @@
     "instruments": [
       {
         "id": "drive-stack",
-        "kind": "arbitrary_waveform_control",
         "driver_id": "quantum_lab_demo.virtual_lab.drive_stack",
         "connection": {
           "kind": "virtual"
@@ -65,7 +64,6 @@
       },
       {
         "id": "readout-stack",
-        "kind": "iq_readout",
         "driver_id": "quantum_lab_demo.virtual_lab.readout_stack",
         "connection": {
           "kind": "virtual"

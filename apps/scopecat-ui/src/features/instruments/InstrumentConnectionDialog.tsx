@@ -1,13 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Cable, LoaderCircle, Save, X } from "lucide-react";
 import type { InstrumentConnection } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
-import {
-  connectionForKind,
-  publishInstrumentConnection,
-  type ActiveConfig,
-} from "./instrument-api";
+import { publishInstrumentConnection, type ActiveConfig } from "./instrument-api";
+
+type TcpipInstrumentConnection = Extract<InstrumentConnection, { kind: "tcpip_socket" }>;
 
 export function InstrumentConnectionDialog({
   active,
@@ -26,11 +24,12 @@ export function InstrumentConnectionDialog({
   if (!spec) {
     return <MissingInstrumentDialog instrumentId={instrumentId} onCancel={onCancel} />;
   }
+  if (spec.connection.kind !== "tcpip_socket") return null;
   return (
     <ConnectionEditor
       active={active}
       instrumentId={instrumentId}
-      initialDriverId={spec.driver_id}
+      driverId={spec.driver_id}
       initialConnection={spec.connection}
       onCancel={onCancel}
       onPublished={onPublished}
@@ -41,29 +40,30 @@ export function InstrumentConnectionDialog({
 function ConnectionEditor({
   active,
   instrumentId,
-  initialDriverId,
+  driverId,
   initialConnection,
   onCancel,
   onPublished,
 }: {
   active: ActiveConfig;
   instrumentId: string;
-  initialDriverId: string;
-  initialConnection: InstrumentConnection;
+  driverId: string;
+  initialConnection: TcpipInstrumentConnection;
   onCancel: () => void;
   onPublished: () => void | Promise<void>;
 }) {
-  const driverInput = useRef<HTMLInputElement>(null);
-  const [driverId, setDriverId] = useState(initialDriverId);
-  const [connection, setConnection] = useState<InstrumentConnection>(initialConnection);
-  const [driverPrivateConfigCleared, setDriverPrivateConfigCleared] = useState(false);
+  const [connection, setConnection] = useState<TcpipInstrumentConnection>(initialConnection);
   const [actor, setActor] = useState("local-operator");
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
+  const changed = useMemo(
+    () => JSON.stringify(connection) !== JSON.stringify(initialConnection),
+    [connection, initialConnection],
+  );
   const valid = useMemo(
-    () => driverId.trim().length > 0 && connectionIsValid(connection) && actor.trim().length > 0,
-    [actor, connection, driverId],
+    () => changed && connectionIsValid(connection) && actor.trim().length > 0,
+    [actor, changed, connection],
   );
 
   const publish = async () => {
@@ -74,7 +74,6 @@ function ConnectionEditor({
       await publishInstrumentConnection({
         active,
         instrumentId,
-        driverId: driverId.trim(),
         connection,
         actor: actor.trim(),
         note: note.trim(),
@@ -92,10 +91,7 @@ function ConnectionEditor({
       <Dialog.Portal>
         <Dialog.Backdrop className="dialog-backdrop" />
         <Dialog.Viewport className="dialog-viewport">
-          <Dialog.Popup
-            className="dialog-popup config-modal instrument-connection-modal"
-            initialFocus={driverInput}
-          >
+          <Dialog.Popup className="dialog-popup config-modal instrument-connection-modal">
             <header>
               <span aria-hidden="true">
                 <Cable size={19} />
@@ -115,49 +111,20 @@ function ConnectionEditor({
               </Dialog.Close>
             </header>
             <div className="config-modal-body instrument-connection-form">
-              <p
-                className={`connection-privacy-note ${driverPrivateConfigCleared ? "cleared" : ""}`}
-                aria-live="polite"
-              >
-                {driverPrivateConfigCleared
-                  ? "Driver id changed. The previous credential reference and driver options were cleared; configure replacements outside this simple editor if required."
-                  : "Credential references and driver options are hidden. They are preserved only while the driver id remains unchanged; changing it clears both."}
+              <div className="instrument-connection-identity">
+                <div>
+                  <span>Driver</span>
+                  <code>{driverId}</code>
+                </div>
+                <div>
+                  <span>Connection type</span>
+                  <strong>TCP/IP socket</strong>
+                </div>
+              </div>
+              <p className="connection-scope-note">
+                Driver, connection type, and driver options come from the active configuration. This
+                editor only publishes endpoint and timeout changes.
               </p>
-              <label>
-                <span>Driver id</span>
-                <input
-                  ref={driverInput}
-                  value={driverId}
-                  onChange={(event) => {
-                    const nextDriverId = event.target.value;
-                    setDriverId(nextDriverId);
-                    if (!driverPrivateConfigCleared && nextDriverId.trim() !== initialDriverId) {
-                      setConnection(clearDriverPrivateConfig);
-                      setDriverPrivateConfigCleared(true);
-                    }
-                  }}
-                  aria-invalid={!driverId.trim()}
-                />
-              </label>
-              <label>
-                <span>Connection type</span>
-                <select
-                  value={connection.kind}
-                  onChange={(event) =>
-                    setConnection(
-                      connectionForKind(
-                        event.target.value as InstrumentConnection["kind"],
-                        connection,
-                      ),
-                    )
-                  }
-                >
-                  <option value="virtual">Virtual</option>
-                  <option value="tcpip_socket">TCP/IP socket</option>
-                  <option value="visa">VISA</option>
-                  <option value="serial">Serial</option>
-                </select>
-              </label>
               <ConnectionFields connection={connection} onChange={setConnection} />
               <div className="instrument-config-audit">
                 <label>
@@ -208,85 +175,31 @@ function ConnectionFields({
   connection,
   onChange,
 }: {
-  connection: InstrumentConnection;
-  onChange: (connection: InstrumentConnection) => void;
+  connection: TcpipInstrumentConnection;
+  onChange: (connection: TcpipInstrumentConnection) => void;
 }) {
-  switch (connection.kind) {
-    case "virtual":
-      return (
-        <p className="connection-kind-help">
-          Uses the configured in-process virtual driver. Saving does not connect it.
-        </p>
-      );
-    case "tcpip_socket":
-      return (
-        <div className="instrument-connection-fields two-column">
-          <label>
-            <span>Host</span>
-            <input
-              value={connection.host}
-              onChange={(event) => onChange({ ...connection, host: event.target.value })}
-            />
-          </label>
-          <NumberField
-            label="Port"
-            value={connection.port}
-            minimum={1}
-            maximum={65_535}
-            onChange={(port) => onChange({ ...connection, port })}
-          />
-          <TimeoutField
-            value={connection.timeout_seconds}
-            onChange={(timeout_seconds) => onChange({ ...connection, timeout_seconds })}
-          />
-        </div>
-      );
-    case "visa":
-      return (
-        <div className="instrument-connection-fields">
-          <label>
-            <span>VISA resource</span>
-            <input
-              value={connection.resource}
-              onChange={(event) => onChange({ ...connection, resource: event.target.value })}
-            />
-          </label>
-          <label>
-            <span>Backend (optional)</span>
-            <input
-              value={connection.backend ?? ""}
-              onChange={(event) => onChange({ ...connection, backend: event.target.value || null })}
-            />
-          </label>
-          <TimeoutField
-            value={connection.timeout_seconds}
-            onChange={(timeout_seconds) => onChange({ ...connection, timeout_seconds })}
-          />
-        </div>
-      );
-    case "serial":
-      return (
-        <div className="instrument-connection-fields two-column">
-          <label>
-            <span>Serial port</span>
-            <input
-              value={connection.port}
-              onChange={(event) => onChange({ ...connection, port: event.target.value })}
-            />
-          </label>
-          <NumberField
-            label="Baud rate"
-            value={connection.baud_rate}
-            minimum={1}
-            onChange={(baud_rate) => onChange({ ...connection, baud_rate })}
-          />
-          <TimeoutField
-            value={connection.timeout_seconds}
-            onChange={(timeout_seconds) => onChange({ ...connection, timeout_seconds })}
-          />
-        </div>
-      );
-  }
+  return (
+    <div className="instrument-connection-fields two-column">
+      <label>
+        <span>Host</span>
+        <input
+          value={connection.host}
+          onChange={(event) => onChange({ ...connection, host: event.target.value })}
+        />
+      </label>
+      <NumberField
+        label="Port"
+        value={connection.port}
+        minimum={1}
+        maximum={65_535}
+        onChange={(port) => onChange({ ...connection, port })}
+      />
+      <TimeoutField
+        value={connection.timeout_seconds}
+        onChange={(timeout_seconds) => onChange({ ...connection, timeout_seconds })}
+      />
+    </div>
+  );
 }
 
 function TimeoutField({ value, onChange }: { value: number; onChange: (value: number) => void }) {
@@ -322,36 +235,14 @@ function NumberField({
   );
 }
 
-function connectionIsValid(connection: InstrumentConnection): boolean {
-  switch (connection.kind) {
-    case "virtual":
-      return true;
-    case "tcpip_socket":
-      return (
-        connection.host.trim().length > 0 &&
-        Number.isInteger(connection.port) &&
-        connection.port >= 1 &&
-        connection.port <= 65_535 &&
-        connection.timeout_seconds > 0
-      );
-    case "visa":
-      return connection.resource.trim().length > 0 && connection.timeout_seconds > 0;
-    case "serial":
-      return (
-        connection.port.trim().length > 0 &&
-        Number.isInteger(connection.baud_rate) &&
-        connection.baud_rate > 0 &&
-        connection.timeout_seconds > 0
-      );
-  }
-}
-
-function clearDriverPrivateConfig(connection: InstrumentConnection): InstrumentConnection {
-  return {
-    ...connection,
-    credential_ref: null,
-    options: {},
-  };
+function connectionIsValid(connection: TcpipInstrumentConnection): boolean {
+  return (
+    connection.host.trim().length > 0 &&
+    Number.isInteger(connection.port) &&
+    connection.port >= 1 &&
+    connection.port <= 65_535 &&
+    connection.timeout_seconds > 0
+  );
 }
 
 function MissingInstrumentDialog({

@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat_instruments import (
+from scopecat_instruments.capabilities import (
     DC_OUTPUT,
     NETWORK_SWEEP,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
+)
+from scopecat_instruments.drivers import (
     KeysightE5080B,
     LakeShore372,
     RohdeSchwarzSGS100A,
-    ScriptedTransport,
     YokogawaGS200,
 )
+from scopecat_instruments.testing import ScriptedTransport
 
 
 @pytest.mark.parametrize(

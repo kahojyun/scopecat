@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api";
 import type { InstrumentSessionLease, InstrumentState, InstrumentView } from "../../api-contract";
@@ -101,7 +101,6 @@ describe("instrument workspace", () => {
         instrument({
           spec: {
             id: "vna-1",
-            kind: "vector_network_analyzer",
             driver_id: "keysight.pna",
             connection: {
               kind: "tcpip_socket",
@@ -390,7 +389,6 @@ describe("instrument workspace", () => {
     const monitor = instrument({
       spec: {
         id: "monitor",
-        kind: "temperature_controller",
         driver_id: "virtual.temperature",
         connection: { kind: "virtual" },
       },
@@ -426,40 +424,67 @@ describe("instrument workspace", () => {
     expect(vi.mocked(closeInstrumentSession).mock.calls[1]?.[2]).toBe(operationId);
   });
 
-  it("clears hidden credentials and options when the driver changes", async () => {
+  it("edits only endpoint fields while keeping driver and connection kind fixed", async () => {
     const active = activeConfig();
+    active.config.system.instrument_registry.instruments[0]!.driver_id = "keysight.pna";
     active.config.system.instrument_registry.instruments[0]!.connection = {
-      kind: "virtual",
-      credential_ref: "secret:old-driver",
-      options: { seed: 42 },
+      kind: "tcpip_socket",
+      host: "192.0.2.20",
+      port: 5025,
+      timeout_seconds: 5,
+      options: { termination: "lf" },
     };
+    const tcpInstrument = instrument();
+    tcpInstrument.spec = active.config.system.instrument_registry.instruments[0]!;
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      config_content_hash: "sha256:active",
+      problems: [],
+      items: [tcpInstrument],
+    });
     vi.mocked(getActiveConfig).mockResolvedValue(active);
     renderWorkspace();
 
     await screen.findByText("Drive source");
     fireEvent.click(screen.getByRole("button", { name: "Edit connection" }));
-    const driverId = await screen.findByRole("textbox", { name: "Driver id" });
-    fireEvent.change(driverId, { target: { value: "virtual.rf_source.v2" } });
-
-    expect(
-      screen.getByText(/previous credential reference and driver options were cleared/i),
-    ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Publish default" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("keysight.pna")).toBeVisible();
+    expect(within(dialog).getByText("TCP/IP socket")).toBeVisible();
+    expect(within(dialog).queryByRole("textbox", { name: "Driver id" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Host"), {
+      target: { value: "192.0.2.24" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Timeout (seconds)"), {
+      target: { value: "8" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish default" }));
 
     await waitFor(() =>
       expect(publishInstrumentConnection).toHaveBeenCalledWith(
         expect.objectContaining({
           instrumentId: "drive-source",
-          driverId: "virtual.rf_source.v2",
           connection: {
-            kind: "virtual",
-            credential_ref: null,
-            options: {},
+            kind: "tcpip_socket",
+            host: "192.0.2.24",
+            port: 5025,
+            timeout_seconds: 8,
+            options: { termination: "lf" },
           },
         }),
       ),
     );
     expect(openInstrumentSession).not.toHaveBeenCalled();
+  });
+
+  it("disables connection editing for a virtual instrument", async () => {
+    renderWorkspace();
+
+    await screen.findByText("Drive source");
+    const edit = screen.getByRole("button", { name: "Edit connection" });
+    expect(edit).toBeDisabled();
+    expect(edit).toHaveAttribute("title", "Virtual connections have no editable endpoint");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("shows quarantined ownership and the operator resolution action", async () => {
@@ -504,7 +529,6 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
   return {
     spec: {
       id: "drive-source",
-      kind: "signal_generator",
       driver_id: "virtual.rf_source",
       connection: { kind: "virtual" },
     },

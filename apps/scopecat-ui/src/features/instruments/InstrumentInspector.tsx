@@ -67,6 +67,7 @@ export function InstrumentInspector({
   const queryClient = useQueryClient();
   const instrumentId = instrument.spec.id;
   const connected = lease?.instrument_ids.includes(instrumentId) ?? false;
+  const connectionEditable = instrument.spec.connection.kind === "tcpip_socket";
   const interactionEnabled = connected && !closePending;
   const description =
     lease?.descriptions.find((candidate) => candidate.instrument_id === instrumentId) ??
@@ -246,16 +247,19 @@ export function InstrumentInspector({
           className="secondary-button"
           onClick={onEditConnection}
           disabled={
+            !connectionEditable ||
             connected ||
             instrument.availability === "active" ||
             instrument.availability === "quarantined"
           }
           title={
-            connected
-              ? "Disconnect before changing the immutable config"
-              : instrument.availability === "active" || instrument.availability === "quarantined"
-                ? "Resolve the current owner before changing the immutable config"
-                : undefined
+            !connectionEditable
+              ? "Virtual connections have no editable endpoint"
+              : connected
+                ? "Disconnect before changing the immutable config"
+                : instrument.availability === "active" || instrument.availability === "quarantined"
+                  ? "Resolve the current owner before changing the immutable config"
+                  : undefined
           }
         >
           <Pencil size={14} />

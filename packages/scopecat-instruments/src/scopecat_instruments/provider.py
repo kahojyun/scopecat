@@ -167,8 +167,6 @@ class ConfiguredInstrumentProvider:
     def _transport_for(self, spec: InstrumentSpec) -> ScpiTransport:
         if spec.driver_id not in SUPPORTED_DRIVER_IDS:
             raise ValueError(f"unsupported instrument driver_id {spec.driver_id!r}")
-        if spec.connection.credential_ref is not None:
-            raise ValueError("scopecat-instruments v1 does not consume credential_ref")
         if spec.driver_id.startswith("scopecat.virtual."):
             if not isinstance(spec.connection, VirtualInstrumentConnection):
                 raise ValueError(f"{spec.driver_id} requires a virtual connection")
