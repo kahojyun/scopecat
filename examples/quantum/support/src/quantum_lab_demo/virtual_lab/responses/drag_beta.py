@@ -12,7 +12,6 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import override
 
 from scopecat import Quantity
@@ -29,23 +28,11 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
     FakeDigitizerValue,
 )
 
-DEFAULT_OPTIMUM_BETA = Quantity(0.75, "ns")
-DEFAULT_BASELINE = 0.04
-DEFAULT_CURVATURE = 0.008
-DEFAULT_IQ_JITTER = 0.025
-DRAG_BETA_RESPONSE_MODEL_VERSION = "drag-beta-quadratic.v1"
-
-
-def synthetic_drag_beta_response(beta: Quantity, *, amplification: int) -> float:
-    """Evaluate the deterministic response model without preparing a target."""
-
-    return _probability_one(
-        beta_ns=_beta_ns(beta),
-        amplification=_positive_int(amplification, field_name="amplification"),
-        optimum_beta_ns=_beta_ns(DEFAULT_OPTIMUM_BETA),
-        baseline=DEFAULT_BASELINE,
-        curvature=DEFAULT_CURVATURE,
-    )
+_OPTIMUM_BETA_NS = 0.75
+_BASELINE = 0.04
+_CURVATURE = 0.008
+_IQ_JITTER = 0.025
+_MODEL_VERSION = "drag-beta-quadratic.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,10 +42,6 @@ class DragBetaResponsePoint:
     address: TargetAcquisitionAddress
     beta: Quantity
     amplification: int
-
-    def __post_init__(self) -> None:
-        _beta_ns(self.beta)
-        _positive_int(self.amplification, field_name="amplification")
 
     @property
     def beta_ns(self) -> float:
@@ -79,16 +62,7 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
 
     points: tuple[DragBetaResponsePoint, ...]
     shots: int
-    optimum_beta: Quantity = DEFAULT_OPTIMUM_BETA
-    baseline: float = DEFAULT_BASELINE
-    curvature: float = DEFAULT_CURVATURE
-    iq_jitter: float = DEFAULT_IQ_JITTER
-    model_version: str = DRAG_BETA_RESPONSE_MODEL_VERSION
-    _by_address: MappingProxyType[
-        TargetAcquisitionAddress,
-        DragBetaResponsePoint,
-    ] = field(init=False, repr=False, compare=False, hash=False)
-    _state_one_shots: MappingProxyType[
+    _state_one_shots: dict[
         TargetAcquisitionAddress,
         frozenset[int],
     ] = field(init=False, repr=False, compare=False, hash=False)
@@ -96,39 +70,15 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
 
     def __post_init__(self) -> None:
         selected = tuple(self.points)
-        if not selected:
-            msg = "DRAG acquisition responses require response points"
-            raise ValueError(msg)
-        by_address = {point.address: point for point in selected}
-        if len(by_address) != len(selected):
-            msg = "DRAG response point addresses must be unique"
-            raise ValueError(msg)
-        shots = _positive_int(self.shots, field_name="shots")
-        optimum_beta_ns = _beta_ns(self.optimum_beta)
-        baseline = _finite_float(self.baseline, field_name="baseline")
-        curvature = _finite_float(self.curvature, field_name="curvature")
-        jitter = _finite_float(self.iq_jitter, field_name="iq_jitter")
-        if not 0.0 <= baseline <= 1.0:
-            msg = "DRAG response baseline must lie in [0, 1]"
-            raise ValueError(msg)
-        if curvature <= 0.0:
-            msg = "DRAG response curvature must be positive"
-            raise ValueError(msg)
-        if not 0.0 <= jitter < 0.5:
-            msg = "DRAG response IQ jitter must lie in [0, 0.5)"
-            raise ValueError(msg)
-        if not self.model_version:
-            msg = "DRAG response model_version must be a non-empty string"
-            raise ValueError(msg)
 
         payload = {
             "schema": "quantum_lab_demo.drag_beta_response_plan.v1",
-            "model_version": self.model_version,
-            "shots": shots,
-            "optimum_beta_ns": float(optimum_beta_ns).hex(),
-            "baseline": float(baseline).hex(),
-            "curvature": float(curvature).hex(),
-            "iq_jitter": float(jitter).hex(),
+            "model_version": _MODEL_VERSION,
+            "shots": self.shots,
+            "optimum_beta_ns": float(_OPTIMUM_BETA_NS).hex(),
+            "baseline": float(_BASELINE).hex(),
+            "curvature": float(_CURVATURE).hex(),
+            "iq_jitter": float(_IQ_JITTER).hex(),
             "points": [
                 {
                     "entry_id": point.address.entry_id.value,
@@ -145,13 +95,10 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
             probability = _probability_one(
                 beta_ns=point.beta_ns,
                 amplification=point.amplification,
-                optimum_beta_ns=optimum_beta_ns,
-                baseline=baseline,
-                curvature=curvature,
             )
-            count = math.floor(shots * probability + 0.5)
+            count = math.floor(self.shots * probability + 0.5)
             ranked = sorted(
-                range(shots),
+                range(self.shots),
                 key=lambda shot_index: _shot_digest(
                     fingerprint,
                     point.address,
@@ -162,16 +109,7 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
             state_one_shots[point.address] = frozenset(ranked[:count])
 
         object.__setattr__(self, "points", selected)
-        object.__setattr__(self, "shots", shots)
-        object.__setattr__(self, "baseline", baseline)
-        object.__setattr__(self, "curvature", curvature)
-        object.__setattr__(self, "iq_jitter", jitter)
-        object.__setattr__(self, "_by_address", MappingProxyType(by_address))
-        object.__setattr__(
-            self,
-            "_state_one_shots",
-            MappingProxyType(state_one_shots),
-        )
+        object.__setattr__(self, "_state_one_shots", state_one_shots)
         object.__setattr__(self, "_fingerprint", fingerprint)
 
     @property
@@ -180,52 +118,6 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
         """Return the stable identity of all response-affecting facts."""
 
         return self._fingerprint
-
-    @property
-    def addresses(self) -> tuple[TargetAcquisitionAddress, ...]:
-        """Return exact result-address coverage in prepared point order."""
-
-        return tuple(point.address for point in self.points)
-
-    @property
-    def intent(self) -> dict[str, object]:
-        """Return the stable invocation-intent fragment for this response."""
-
-        return {
-            "schema": "quantum_lab_demo.drag_beta_response_intent.v1",
-            "model_version": self.model_version,
-            "response_fingerprint": self.fingerprint,
-            "shots": self.shots,
-            "optimum_beta_ns": float(_beta_ns(self.optimum_beta)).hex(),
-            "baseline": float(self.baseline).hex(),
-            "curvature": float(self.curvature).hex(),
-            "iq_jitter": float(self.iq_jitter).hex(),
-            "points": [
-                {
-                    "entry_id": point.address.entry_id.value,
-                    "slot_id": acquisition_slot_identity_payload(point.address.slot_id),
-                    "beta_ns": float(point.beta_ns).hex(),
-                    "amplification": point.amplification,
-                }
-                for point in self.points
-            ],
-        }
-
-    def probability_one(self, address: TargetAcquisitionAddress) -> float:
-        """Return the ideal model probability for one covered address."""
-
-        try:
-            point = self._by_address[address]
-        except KeyError as error:
-            msg = f"DRAG response plan does not cover result address {address!r}"
-            raise KeyError(msg) from error
-        return _probability_one(
-            beta_ns=point.beta_ns,
-            amplification=point.amplification,
-            optimum_beta_ns=_beta_ns(self.optimum_beta),
-            baseline=self.baseline,
-            curvature=self.curvature,
-        )
 
     @override
     def value_for(
@@ -240,12 +132,6 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
             entry_id=playback.entry_id,
             slot_id=window.slot_id,
         )
-        if address not in self._by_address:
-            msg = f"DRAG response plan does not cover result address {address!r}"
-            raise ValueError(msg)
-        if playback.shot_index >= self.shots:
-            msg = "DRAG response playback shot exceeds the prepared shot count"
-            raise ValueError(msg)
         state_one = playback.shot_index in self._state_one_shots[address]
         digest = _shot_digest(
             self.fingerprint,
@@ -253,8 +139,8 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
             playback.shot_index,
             purpose="jitter",
         )
-        real_jitter = _symmetric_fraction(digest[:8]) * self.iq_jitter
-        imag_jitter = _symmetric_fraction(digest[8:16]) * self.iq_jitter
+        real_jitter = _symmetric_fraction(digest[:8]) * _IQ_JITTER
+        imag_jitter = _symmetric_fraction(digest[8:16]) * _IQ_JITTER
         return complex((1.0 if state_one else -1.0) + real_jitter, imag_jitter)
 
 
@@ -262,12 +148,9 @@ def _probability_one(
     *,
     beta_ns: float,
     amplification: int,
-    optimum_beta_ns: float,
-    baseline: float,
-    curvature: float,
 ) -> float:
     probability = (
-        baseline + curvature * amplification**2 * (beta_ns - optimum_beta_ns) ** 2
+        _BASELINE + _CURVATURE * amplification**2 * (beta_ns - _OPTIMUM_BETA_NS) ** 2
     )
     if not 0.0 <= probability <= 1.0:
         msg = "DRAG response probability lies outside [0, 1]; narrow the scan"
@@ -304,46 +187,11 @@ def _symmetric_fraction(raw: bytes) -> float:
     return 2.0 * int.from_bytes(raw, "big") / denominator - 1.0
 
 
-def _positive_int(value: object, *, field_name: str) -> int:
-    if type(value) is not int or value <= 0:
-        msg = f"DRAG response {field_name} must be a positive integer"
-        raise ValueError(msg)
-    return value
-
-
-def _finite_float(value: object, *, field_name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        msg = f"DRAG response {field_name} must be a finite number"
-        raise TypeError(msg)
-    selected = float(value)
-    if not math.isfinite(selected):
-        msg = f"DRAG response {field_name} must be a finite number"
-        raise ValueError(msg)
-    return selected
-
-
-def _beta_ns(value: object) -> float:
-    if not isinstance(value, Quantity):
-        msg = "DRAG response beta values must be time quantities"
-        raise TypeError(msg)
-    try:
-        selected = float(value.to("ns").value)
-    except ValueError as error:
-        msg = "DRAG response beta values must be time quantities"
-        raise ValueError(msg) from error
-    if not math.isfinite(selected):
-        msg = "DRAG response beta values must be finite"
-        raise ValueError(msg)
-    return selected
+def _beta_ns(value: Quantity) -> float:
+    return float(value.to("ns").value)
 
 
 __all__ = [
-    "DEFAULT_BASELINE",
-    "DEFAULT_CURVATURE",
-    "DEFAULT_IQ_JITTER",
-    "DEFAULT_OPTIMUM_BETA",
-    "DRAG_BETA_RESPONSE_MODEL_VERSION",
     "DragBetaAcquisitionResponse",
     "DragBetaResponsePoint",
-    "synthetic_drag_beta_response",
 ]

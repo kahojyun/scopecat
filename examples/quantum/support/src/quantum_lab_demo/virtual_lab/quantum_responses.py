@@ -1,18 +1,16 @@
-"""Deterministic acquisition responses registered by authored Program id."""
+"""Deterministic acquisition responses for the fake quantum lab."""
 
 from __future__ import annotations
 
 from typing import cast
 
 from scopecat import Quantity
+from scopecat_quantum import authoring as quantum
 from scopecat_quantum._ids import AcquisitionSlotId
 from scopecat_quantum.program_targets import PreparedQuantumTargetEntry
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
-from quantum_lab_demo.response_registry import (
-    QuantumLabResponseRegistry,
-    QuantumLabResponseRequest,
-)
+from quantum_lab_demo.point_values import QuantumLabPointValues
 from quantum_lab_demo.targets.fake_list_mode import FakeAcquisitionResponse
 from quantum_lab_demo.virtual_lab.responses.drag_beta import (
     DragBetaAcquisitionResponse,
@@ -23,20 +21,17 @@ from quantum_lab_demo.workflows.drag_beta_calibration import (
 )
 
 
-def quantum_lab_response_registry() -> QuantumLabResponseRegistry:
-    """Return the fake lab's Program-to-response policy."""
+def quantum_lab_response(
+    program: quantum.Program,
+    points: tuple[QuantumLabPointValues, ...],
+    entries: tuple[PreparedQuantumTargetEntry, ...],
+    shots: int,
+) -> FakeAcquisitionResponse | None:
+    """Select the one workflow-specific response used by the demo."""
 
-    return QuantumLabResponseRegistry(
-        {
-            drag_beta_program.id: _drag_beta_response,
-        }
-    )
-
-
-def _drag_beta_response(
-    request: QuantumLabResponseRequest,
-) -> FakeAcquisitionResponse:
-    [result] = request.program.results
+    if program.id != drag_beta_program.id:
+        return None
+    [result] = program.results
     return DragBetaAcquisitionResponse(
         points=tuple(
             DragBetaResponsePoint(
@@ -44,9 +39,9 @@ def _drag_beta_response(
                 beta=cast("Quantity", point.value("beta")),
                 amplification=cast("int", point.value("amplification")),
             )
-            for entry, point in zip(request.entries, request.points, strict=True)
+            for entry, point in zip(entries, points, strict=True)
         ),
-        shots=request.shots,
+        shots=shots,
     )
 
 
@@ -60,4 +55,4 @@ def _result_address(
     return address
 
 
-__all__ = ["quantum_lab_response_registry"]
+__all__ = ["quantum_lab_response"]

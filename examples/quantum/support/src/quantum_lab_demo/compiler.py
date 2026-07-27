@@ -33,14 +33,9 @@ from scopecat_quantum.programs import (
     lower_quantum_program_to_pulses,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
-from scopecat_quantum.pulse_recipes import PulseRecipeProfile
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from quantum_lab_demo.point_values import QuantumLabPointValues
-from quantum_lab_demo.response_registry import (
-    QuantumLabResponseRegistry,
-    QuantumLabResponseRequest,
-)
 from quantum_lab_demo.targets.configuration import (
     FAKE_LIST_TARGET_KIND,
 )
@@ -52,13 +47,14 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeListRuntime,
     FakeListTarget,
     FakeListTargetCompiler,
-    FakeSegmentedDigitizer,
     MappedFakeListTarget,
     fake_measurement_invocation_spec,
     realize_fetched_fake_measurements,
 )
 from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from quantum_lab_demo.virtual_lab.parameters import QUBIT_PARAMETER_TABLE
+from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
+from quantum_lab_demo.virtual_lab.quantum_responses import quantum_lab_response
 
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId(
     "quantum-lab-demo.fake-list-target.v1"
@@ -97,14 +93,9 @@ class QuantumLabCompiler:
         self,
         *,
         target: FakeListTarget,
-        runtime: FakeListDomainRuntime,
-        response_registry: QuantumLabResponseRegistry,
-        pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
     ) -> None:
         self._target = target
-        self._runtime = runtime
-        self._response_registry = response_registry
-        self._pulse_profile = pulse_profile
+        self._runtime = FakeListDomainRuntime()
         self._target_compiler = FakeListTargetCompiler(
             _QUANTUM_LAB_TARGET_COMPILER_ID,
             self._target,
@@ -129,7 +120,7 @@ class QuantumLabCompiler:
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
-        points = _compile_points(program, inputs, self._pulse_profile)
+        points = _compile_points(program, inputs)
         entries = tuple(
             prepare_quantum_target_entry(
                 TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}"),
@@ -190,13 +181,11 @@ class QuantumLabCompiler:
             artifact.target_artifact,
             mapping,
         )
-        response = self._response_registry.response_for(
-            QuantumLabResponseRequest(
-                program=artifact.program,
-                points=artifact.points,
-                entries=entries,
-                batch=batch,
-            )
+        response = quantum_lab_response(
+            artifact.program,
+            artifact.points,
+            entries,
+            batch.request.repetitions,
         )
         runtime = self._runtime if response is None else _response_runtime(response)
         invocation = fake_measurement_invocation_spec(
@@ -270,7 +259,6 @@ def _shot_count(call: DomainCallView) -> int:
 def _compile_points(
     program: quantum.Program,
     inputs: DomainBatchInputs,
-    pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
 ) -> tuple[_CompiledQuantumPoint, ...]:
     program_inputs = inputs.program
     compiler_parameters = (
@@ -297,7 +285,7 @@ def _compile_points(
             _CompiledQuantumPoint(
                 values=point,
                 bound=bound,
-                implementations=pulse_profile.materialize(
+                implementations=QUANTUM_PULSE_PROFILE.materialize(
                     parameters,
                     bound.verified.unresolved_circuit,
                 ),
@@ -327,9 +315,7 @@ def _measurement_results(
 
 
 def _response_runtime(response: FakeAcquisitionResponse) -> FakeListDomainRuntime:
-    return FakeListDomainRuntime(
-        FakeListRuntime(digitizer=FakeSegmentedDigitizer(response=response))
-    )
+    return FakeListDomainRuntime(FakeListRuntime(response=response))
 
 
 def _realize(

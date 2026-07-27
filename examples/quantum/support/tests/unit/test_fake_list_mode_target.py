@@ -8,33 +8,13 @@ import pytest
 from scopecat import Quantity
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CircuitOperationId,
-    GateId,
     PulseEventId,
-    PulseImplementationId,
     PulseProgramId,
-    QuantumProgramId,
     QubitId,
     TargetCompileEntryId,
     TargetCompilerId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.circuits import Measure
-from scopecat_quantum.gates import GateCall, GateDefinition
-from scopecat_quantum.programs import (
-    CircuitPulseEventProvenance,
-    QuantumProgramIR,
-    lower_quantum_program_to_pulses,
-    verify_quantum_program,
-)
-from scopecat_quantum.programs import Sequence as QuantumSequence
-from scopecat_quantum.pulse_implementations import (
-    GatePulseImplementation,
-    GatePulseImplementationKey,
-    MeasurementPulseImplementation,
-    MeasurementPulseImplementationKey,
-    ResolvedPulseImplementations,
-)
 from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
@@ -49,6 +29,7 @@ from scopecat_quantum.pulses import (
     schedule,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
+from scopecat_quantum.pulses import Sequence as PulseSequence
 from scopecat_quantum.targets import TargetCompileEntry, TargetCompileRequest
 
 from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
@@ -93,74 +74,44 @@ def _request(
 
 
 def test_fake_list_compiles_and_runs_one_calibrated_acquisition() -> None:
-    gate = GateDefinition(GateId("x"), qubit_arity=1)
-    gate_call = GateCall(CircuitOperationId("x"), gate.id, (Q0,))
-    measurement = Measure(
-        CircuitOperationId("measure"),
-        Q0,
+    slot = AcquisitionSlot(
         AcquisitionSlotId("result"),
-        AcquisitionKind.INTEGRATED_IQ,
-    )
-    program = verify_quantum_program(
-        QuantumProgramIR(
-            QuantumProgramId("x-then-measure"),
-            QuantumSequence((gate_call, measurement)),
-        ),
-        (gate,),
-    )
-    gate_template = PulseProgram(
-        PulseProgramId("x-template"),
-        Play(
-            PulseEventId("drive"),
-            DRIVE_Q0,
-            Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
-        ),
-    )
-    template_slot = AcquisitionSlot(
-        AcquisitionSlotId("template-result"),
         AcquisitionKind.INTEGRATED_IQ,
         ACQUIRE_Q0,
     )
-    measurement_template = PulseProgram(
-        PulseProgramId("readout-template"),
-        PulseParallel(
-            (
-                Play(
-                    PulseEventId("stimulus"),
-                    READOUT_Q0,
-                    Constant(Quantity(8, "ns"), Quantity(0.4, "arb")),
-                ),
-                Acquire(
-                    PulseEventId("capture"),
-                    ACQUIRE_Q0,
-                    template_slot.id,
-                    Quantity(8, "ns"),
-                ),
-            )
-        ),
-        acquisition_slots=(template_slot,),
-    )
-    lowered = lower_quantum_program_to_pulses(
-        program,
-        ResolvedPulseImplementations(
-            gates=(
-                GatePulseImplementation(
-                    PulseImplementationId("x-q0"),
-                    GatePulseImplementationKey.from_call(gate_call),
-                    gate_template,
-                ),
+    scheduled = schedule(
+        PulseProgram(
+            PulseProgramId("x-then-readout"),
+            PulseSequence(
+                (
+                    Play(
+                        PulseEventId("drive"),
+                        DRIVE_Q0,
+                        Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
+                    ),
+                    PulseParallel(
+                        (
+                            Play(
+                                PulseEventId("stimulus"),
+                                READOUT_Q0,
+                                Constant(
+                                    Quantity(8, "ns"),
+                                    Quantity(0.4, "arb"),
+                                ),
+                            ),
+                            Acquire(
+                                PulseEventId("capture"),
+                                ACQUIRE_Q0,
+                                slot.id,
+                                Quantity(8, "ns"),
+                            ),
+                        )
+                    ),
+                )
             ),
-            measurements=(
-                MeasurementPulseImplementation(
-                    PulseImplementationId("readout-q0"),
-                    MeasurementPulseImplementationKey.from_measurement(measurement),
-                    measurement_template,
-                ),
-            ),
-        ),
-        output_id=PulseProgramId("x-then-readout"),
+            acquisition_slots=(slot,),
+        )
     )
-    scheduled = schedule(lowered.program)
     target = _target()
     compiler, request = _request(target, (scheduled,), repetitions=2)
 
@@ -176,21 +127,13 @@ def test_fake_list_compiles_and_runs_one_calibrated_acquisition() -> None:
     assert waveforms[drive_channel] == (0.25 + 0j,) * 4 + (0j,) * 8
     assert waveforms[readout_channel] == (0j,) * 4 + (0.4 + 0j,) * 8
     [window] = entry.acquisitions
-    assert window.slot_id == measurement.acquisition_slot_id
+    assert window.slot_id == slot.id
     assert (window.start_sample, window.sample_count) == (4, 8)
-    assert any(
-        isinstance(origin, CircuitPulseEventProvenance)
-        and origin.operation_id == measurement.id
-        for origin in lowered.event_provenance
-    )
 
     run = FakeListRuntime().execute(artifact)
     assert [
         (frame.shot_index, frame.entry_id, frame.slot_id) for frame in run.frames
-    ] == [
-        (shot, TargetCompileEntryId("entry-0"), measurement.acquisition_slot_id)
-        for shot in range(2)
-    ]
+    ] == [(shot, TargetCompileEntryId("entry-0"), slot.id) for shot in range(2)]
     assert all(isinstance(frame.value, complex) for frame in run.frames)
 
 

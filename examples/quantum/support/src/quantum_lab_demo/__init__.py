@@ -9,11 +9,7 @@ from quantum_lab_demo.configuration import (
     EXAMPLE_ROOT,
     quantum_lab_bootstrap_config,
 )
-from quantum_lab_demo.lab import (
-    quantum_lab_compiler,
-    quantum_lab_config_profile,
-    quantum_lab_system,
-)
+from quantum_lab_demo.lab import quantum_lab_system
 from quantum_lab_demo.point_values import QuantumLabPointValues
 
 __all__ = [
@@ -26,8 +22,6 @@ __all__ = [
     "__version__",
     "quantum_lab_application",
     "quantum_lab_bootstrap_config",
-    "quantum_lab_compiler",
-    "quantum_lab_config_profile",
     "quantum_lab_system",
 ]
 

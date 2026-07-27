@@ -12,16 +12,10 @@ from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
     QUBIT_PARAMETER_TABLE,
 )
-from quantum_lab_demo.virtual_lab.responses.drag_beta import (
-    synthetic_drag_beta_response,
-)
 from quantum_lab_demo.workflows.drag_beta_analysis import (
-    DragBetaObservation,
     drag_beta_analysis,
-    fit_drag_beta,
 )
 from quantum_lab_demo.workflows.drag_beta_experiment import (
-    DEFAULT_AMPLIFICATIONS,
     drag_beta_template,
 )
 
@@ -38,26 +32,6 @@ def _entity_id(value: object) -> str:
 def _quantity_in_unit(value: object, unit: str) -> float:
     assert isinstance(value, Quantity)
     return float(value.to(unit).value)
-
-
-def test_synthetic_joint_quadratic_recovers_beta_optimum() -> None:
-    observations = tuple(
-        DragBetaObservation(
-            beta=beta,
-            amplification=amplification,
-            p1=synthetic_drag_beta_response(beta, amplification=amplification),
-        )
-        for amplification in DEFAULT_AMPLIFICATIONS
-        for beta in _BETA_VALUES
-    )
-
-    fit = fit_drag_beta(observations)
-
-    assert float(fit.beta_hat.to("ns").value) == pytest.approx(0.75)
-    assert fit.baseline == pytest.approx(0.04)
-    assert fit.quadratic == pytest.approx(0.008)
-    assert fit.linear == pytest.approx(-0.012)
-    assert fit.rmse < 1e-14
 
 
 def test_drag_beta_closes_measurement_analysis_activation_and_rollback(

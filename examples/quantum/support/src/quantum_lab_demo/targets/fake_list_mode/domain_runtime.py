@@ -37,7 +37,6 @@ from scopecat_quantum.targets import (
 from quantum_lab_demo.targets.fake_list_mode.circuit_runtime import (
     correlate_fake_list_run,
     realize_fake_measurements,
-    validate_fake_measurement_mapping,
 )
 from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeListArtifact,
@@ -73,7 +72,6 @@ def fake_measurement_invocation_spec(
     content covers that response's fingerprint and configuration.
     """
 
-    validate_fake_measurement_mapping(mapped_target)
     artifact = mapped_target.artifact
     selected_response_intent = (
         {
@@ -232,20 +230,7 @@ class FakeListDomainRuntime:
                         problems=(job.result_problem,),
                     )
                 )
-            if job.target_run is None:
-                return DomainFetchCandidate(
-                    receipt=DomainFetchReceipt(
-                        submission_key=submission_id.submission_key,
-                        job_id=job.job_id,
-                        status="unknown",
-                        problems=(
-                            _fake_runtime_problem(
-                                "fake_domain_result_missing",
-                                "the synchronous fake job has no complete result",
-                            ),
-                        ),
-                    )
-                )
+            assert job.target_run is not None
             return DomainFetchCandidate(
                 receipt=DomainFetchReceipt(
                     submission_key=submission_id.submission_key,
