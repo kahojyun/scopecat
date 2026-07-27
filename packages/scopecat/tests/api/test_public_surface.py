@@ -49,13 +49,17 @@ def test_daemon_package_does_not_reexport_transport_contracts() -> None:
 
 def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.open_project)
-    assert sc.ConfigDraft
-    assert sc.LabClient
-    assert sc.Project
+    assert {
+        "CandidateConfig",
+        "ConfigDraft",
+        "ExperimentPreview",
+        "LabClient",
+        "Project",
+        "RunHandle",
+    }.isdisjoint(sc.__all__)
     assert problems.Problem
     assert callable(problems.problem)
     assert callable(problems.model_location)
-    assert sc.RunHandle
     assert callable(sc.module)
     assert callable(sc.template)
     assert callable(sc.scratch)

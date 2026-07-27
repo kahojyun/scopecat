@@ -1,9 +1,10 @@
 # ruff: noqa: F401
 # pyright: reportUnusedImport=false, reportUnsupportedDunderAll=false
-"""Notebook-first public workflow facade.
+"""Experiment authoring facade with one notebook workflow entry point.
 
-The facade is intentionally lazy: importing an internal Scopecat module does
-not construct the authoring, compiler, session, and storage dependency graph.
+The root exports authoring tools and ``open_project``. Returned workflow
+handles stay in their owner modules so the root does not become a second API
+for every subsystem. Imports are lazy to keep the dependency graph cold.
 """
 
 from __future__ import annotations
@@ -17,8 +18,6 @@ if TYPE_CHECKING:
         AnalysisContext,
         analysis_step,
     )
-    from scopecat.api.lab import LabClient
-    from scopecat.api.run import RunHandle
     from scopecat.authoring import (
         BoolType,
         Compute,
@@ -75,8 +74,6 @@ if TYPE_CHECKING:
         axis,
         param_axis,
     )
-    from scopecat.config.candidates import CandidateConfig
-    from scopecat.config.drafts import ConfigDraft
     from scopecat.config.parameters import (
         delete_parameter_rows,
         insert_parameter_rows,
@@ -89,15 +86,13 @@ if TYPE_CHECKING:
         entity_ref,
     )
     from scopecat.kernel.quantity import Quantity
-    from scopecat.planning.preview_models import ExperimentPreview
     from scopecat.planning.system import ExperimentSystem
-    from scopecat.project import Project, open_project
+    from scopecat.project import open_project
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "BoolType": ("scopecat.authoring", "BoolType"),
     "Compute": ("scopecat.authoring", "Compute"),
     "ComputeInput": ("scopecat.authoring", "ComputeInput"),
-    "ConfigDraft": ("scopecat.config.drafts", "ConfigDraft"),
     "DomainProgramDef": ("scopecat.authoring", "DomainProgramDef"),
     "EntityType": ("scopecat.authoring", "EntityType"),
     "ExperimentBody": ("scopecat.authoring", "ExperimentBody"),
@@ -107,7 +102,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "FloatType": ("scopecat.authoring", "FloatType"),
     "Input": ("scopecat.authoring", "Input"),
     "IntType": ("scopecat.authoring", "IntType"),
-    "LabClient": ("scopecat.api.lab", "LabClient"),
     "MeasurementPostprocessor": ("scopecat.authoring", "MeasurementPostprocessor"),
     "ModuleBuilder": ("scopecat.authoring", "ModuleBuilder"),
     "ModuleInvocation": ("scopecat.authoring", "ModuleInvocation"),
@@ -147,7 +141,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "axis": ("scopecat.authoring.scans", "axis"),
     "param_axis": ("scopecat.authoring.scans", "param_axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
-    "Project": ("scopecat.project", "Project"),
     "EntityRef": ("scopecat.kernel.entity", "EntityRef"),
     "entity_ref": ("scopecat.kernel.entity", "entity_ref"),
     "delete_parameter_rows": ("scopecat.config.parameters", "delete_parameter_rows"),
@@ -161,12 +154,9 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "replace_table_parameter",
     ),
     "update_parameter_rows": ("scopecat.config.parameters", "update_parameter_rows"),
-    "ExperimentPreview": ("scopecat.planning.preview_models", "ExperimentPreview"),
     "Analysis": ("scopecat.api.analysis", "Analysis"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
-    "CandidateConfig": ("scopecat.config.candidates", "CandidateConfig"),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
-    "RunHandle": ("scopecat.api.run", "RunHandle"),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
 }
