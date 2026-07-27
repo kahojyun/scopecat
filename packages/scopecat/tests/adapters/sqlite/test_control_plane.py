@@ -48,6 +48,9 @@ def _admission(
             experiment_kind="scratch",
             point_count=3,
             run_resource_claims=resources,
+            host_instrument_order=tuple(
+                resource.id for resource in resources if resource.kind == "instrument"
+            ),
         ),
         admitted_at=admitted_at,
     )
@@ -403,6 +406,44 @@ def test_renewal_extends_resource_expiry_and_close_fences_token(
             ),
             executor_token=first.token,
         )
+
+
+def test_uncertain_executor_io_fences_exact_token_and_quarantines_resources(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    _admit(
+        store,
+        _admission("run-1", ResourceKey(kind="instrument", id="scope")),
+    )
+    lease = _start(
+        store,
+        "run-1",
+        executor_id="kernel",
+        ttl=timedelta(seconds=10),
+        at=NOW,
+    )
+
+    with pytest.raises(ExecutorLeaseNotHeld):
+        store.mark_executor_unknown(
+            "run-1",
+            token=f"{lease.token}-stale",
+            reason="instrument_apply_unknown",
+            at=NOW + timedelta(seconds=1),
+        )
+    lost = store.mark_executor_unknown(
+        "run-1",
+        token=lease.token,
+        reason="instrument_apply_unknown",
+        at=NOW + timedelta(seconds=1),
+    )
+
+    assert lost.state == "attention_required"
+    assert lost.attention_reason == "instrument_apply_unknown"
+    assert _executor_lease(store, "run-1") is None
+    [resource] = _resource_leases(store)
+    assert resource.status == "quarantined"
+    assert resource.owner_token is None
 
 
 def test_instrument_session_retry_heartbeat_and_loss_quarantine(

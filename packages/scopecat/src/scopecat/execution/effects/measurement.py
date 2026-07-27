@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from scopecat.execution.effect_result import CoverageMeasurementObserver
 from scopecat.execution.effects.compute import PointEffectState
 from scopecat.execution.effects.journaled import JournaledEffectBoundary
@@ -13,10 +11,10 @@ from scopecat.execution.local.receipts import (
     command_evidence,
     validate_readback,
 )
+from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.instrument import InstrumentReadback
-from scopecat.sdk.instruments.contracts import InstrumentDriver
 from scopecat.sdk.runtime_problems import contextualize_problems
 
 
@@ -26,11 +24,11 @@ class MeasurementEffectExecutor:
     def __init__(
         self,
         *,
-        drivers: Mapping[str, InstrumentDriver],
+        instruments: RunInstrumentHost,
         journal: JournaledEffectBoundary,
         coverage_observer: CoverageMeasurementObserver | None,
     ) -> None:
-        self.drivers = drivers
+        self.instruments = instruments
         self.journal = journal
         self.coverage_observer = coverage_observer
         self.values: list[MeasurementValueCandidate] = []
@@ -76,7 +74,7 @@ class MeasurementEffectExecutor:
         )
         receipt = self.journal.invoke(
             entry,
-            lambda: self.drivers[operation.instrument_id].collect(command),
+            lambda: self.instruments.collect(command),
             unknown_code="instrument_collect_unknown",
             unknown_message=(
                 "instrument collection outcome is unknown for "

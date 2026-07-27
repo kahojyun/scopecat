@@ -53,10 +53,13 @@ class RunPlanSummary(_ControlModel):
     coordinate_ids: tuple[str, ...] = ()
     record_ids: tuple[str, ...] = ()
     run_resource_claims: tuple[ResourceKey, ...] = ()
+    host_instrument_order: tuple[str, ...] = ()
 
-    @field_validator("coordinate_ids", "record_ids")
+    @field_validator("coordinate_ids", "record_ids", "host_instrument_order")
     @classmethod
     def validate_unique_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item for item in value):
+            raise ValueError("run plan ids must be non-empty")
         if len(value) != len(set(value)):
             raise ValueError("run plan summary ids must be unique")
         return value
@@ -71,6 +74,18 @@ class RunPlanSummary(_ControlModel):
         if len(identities) != len(set(identities)):
             raise ValueError("run plan resource claims must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_host_instrument_order(self) -> RunPlanSummary:
+        claimed = {
+            claim.id for claim in self.run_resource_claims if claim.kind == "instrument"
+        }
+        # Domain-owned instruments need leases but no daemon-hosted driver.
+        if not set(self.host_instrument_order).issubset(claimed):
+            raise ValueError(
+                "run plan host_instrument_order must reference instrument claims"
+            )
+        return self
 
 
 class RunAdmissionRecord(_ControlModel):

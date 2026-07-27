@@ -83,11 +83,6 @@ class LocalDaemonRuntime:
             project_store = SQLiteProjectStore(database, objects)
             project_store.bootstrap()
 
-            executor = ExecutorService(
-                control=control,
-                runs=runs,
-                lease_ttl=lease_ttl,
-            )
             services = ProjectStateServices(
                 runs=runs,
                 config_registry=config_registry.unit_of_work,
@@ -109,8 +104,15 @@ class LocalDaemonRuntime:
             )
             instruments = InstrumentService(
                 control=control,
+                runs=runs,
                 config=config_service,
                 build_system=build_system,
+                lease_ttl=lease_ttl,
+            )
+            executor = ExecutorService(
+                control=control,
+                runs=runs,
+                instruments=instruments,
                 lease_ttl=lease_ttl,
             )
             project_id = _project_id(self.project_root)

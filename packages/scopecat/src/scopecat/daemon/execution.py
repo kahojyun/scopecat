@@ -17,13 +17,24 @@ from scopecat.daemon.wire import (
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
+    RunInstrumentApplyCommand,
+    RunInstrumentCollectCommand,
+    RunInstrumentLifecycleCommand,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
+    RunInstrumentReadCommand,
     RunSubmission,
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.ports.instruments import (
+    InstrumentLifecycleAction,
+)
 from scopecat.execution.services import ExecutionSession
+from scopecat.kernel.problems import Problem
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
@@ -31,8 +42,16 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.instruments.contracts import (
+    ApplyReceipt,
+    CollectCommand,
+    CollectReceipt,
+    InstrumentDescription,
+    InstrumentStateCommand,
+)
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
+_PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
 
 
 class ExecutorLeaseLostError(RuntimeError):
@@ -72,13 +91,19 @@ def daemon_execution_session(
         executor_id=executor_id,
         lease_supervisor=lease_supervisor,
     )
+    instruments = _DaemonRunInstrumentHost(authority)
+
+    def begin() -> None:
+        authority.start()
+        instruments.provision()
+
     return ExecutionSession(
         accepted=admission.manifest,
-        config=submission.config,
-        begin=authority.start,
+        begin=begin,
         commit_terminal=authority.commit_terminal,
         journal=_DaemonExecutionJournal(authority),
         measurements=_DaemonMeasurementRepository(authority),
+        instruments=instruments,
     )
 
 
@@ -208,6 +233,129 @@ class _DaemonMeasurementRepository:
                 seal=seal,
             ),
         )
+
+
+class _DaemonRunInstrumentHost:
+    """Typed transport proxy for drivers retained by the project daemon."""
+
+    def __init__(self, authority: _LeaseAuthority) -> None:
+        self._authority = authority
+        self._provisioning: RunInstrumentProvisionReceipt | None = None
+        self._lock = Lock()
+
+    @property
+    def provider_id(self) -> str | None:
+        return self._receipt().provider_id
+
+    @property
+    def descriptions(self) -> tuple[InstrumentDescription, ...]:
+        return self._receipt().descriptions
+
+    @property
+    def ready(self) -> bool:
+        return self._receipt().status == "ready"
+
+    @property
+    def setup_problems(self) -> tuple[Problem, ...]:
+        return self._receipt().problems
+
+    def provision(self) -> RunInstrumentProvisionReceipt:
+        with self._lock:
+            if self._provisioning is not None:
+                return self._provisioning
+        lease_id = self._authority.fence()
+        receipt = self._authority.client.provision_run_instruments(
+            self._authority.run_id,
+            RunInstrumentProvisionCommand(
+                lease_id=lease_id,
+                operation_id=_PROVISION_OPERATION_ID,
+            ),
+        )
+        if (
+            receipt.run_id != self._authority.run_id
+            or receipt.operation_id != _PROVISION_OPERATION_ID
+        ):
+            raise ValueError(
+                "run instrument provisioning receipt does not match command"
+            )
+        with self._lock:
+            if self._provisioning is None:
+                self._provisioning = receipt
+            return self._provisioning
+
+    def read_state(
+        self,
+        instrument_id: str,
+        *,
+        operation_id: str,
+    ) -> InstrumentStateSnapshot:
+        return self._authority.client.read_run_instrument_state(
+            self._authority.run_id,
+            instrument_id,
+            RunInstrumentReadCommand(
+                lease_id=self._authority.fence(),
+                operation_id=operation_id,
+            ),
+        )
+
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        operation_id = command.operation_id
+        if operation_id is None:
+            raise ValueError("run instrument apply requires an operation id")
+        return self._authority.client.apply_run_instrument_state(
+            self._authority.run_id,
+            command.instrument_id,
+            RunInstrumentApplyCommand(
+                lease_id=self._authority.fence(),
+                operation_id=operation_id,
+                command=command,
+            ),
+        )
+
+    def collect(self, command: CollectCommand) -> CollectReceipt:
+        operation_id = command.operation_id
+        if operation_id is None:
+            raise ValueError("run instrument collect requires an operation id")
+        return self._authority.client.collect_run_instrument(
+            self._authority.run_id,
+            command.instrument_id,
+            RunInstrumentCollectCommand(
+                lease_id=self._authority.fence(),
+                operation_id=operation_id,
+                command=command,
+            ),
+        )
+
+    def lifecycle(
+        self,
+        instrument_id: str,
+        *,
+        operation_id: str,
+        action: InstrumentLifecycleAction,
+    ) -> None:
+        receipt = self._authority.client.run_instrument_lifecycle(
+            self._authority.run_id,
+            instrument_id,
+            RunInstrumentLifecycleCommand(
+                lease_id=self._authority.fence(),
+                operation_id=operation_id,
+                action=action,
+            ),
+        )
+        if (
+            receipt.run_id != self._authority.run_id
+            or receipt.instrument_id != instrument_id
+            or receipt.operation_id != operation_id
+            or receipt.action != action
+        ):
+            raise ValueError("run instrument lifecycle receipt does not match command")
+
+    def _receipt(self) -> RunInstrumentProvisionReceipt:
+        with self._lock:
+            receipt = self._provisioning
+        if receipt is None:
+            raise RuntimeError("run instruments have not been provisioned")
+        return receipt
 
 
 def _json_document(model: BaseModel) -> dict[str, JsonValue]:

@@ -20,6 +20,7 @@ from scopecat.adapters.sqlite import (
 )
 from scopecat.adapters.sqlite.run_repository import _PreparedRef
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
+from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.services import ExecutionSession
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
@@ -34,6 +35,7 @@ from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton, build_run_admission
 from scopecat.runs.refs import MANIFEST_REF
 from scopecat.runs.repository import RunRepository
+from tests.testkit.instrument_host import TestRunInstrumentHost
 
 
 class SQLiteTestRunRepository(SQLiteRunRepository):
@@ -224,13 +226,13 @@ def sqlite_execution_session(
     run_id: str,
     *,
     runs: SQLiteRunRepository | None = None,
+    instruments: RunInstrumentHost | None = None,
 ) -> SQLiteExecutionSession:
     """Bind one run's execution ports to isolated SQLite persistence."""
 
     selected_runs = sqlite_run_repository(project) if runs is None else runs
     return SQLiteExecutionSession(
         accepted=selected_runs.read_manifest(run_id),
-        config=selected_runs.read_config_profile_snapshot(run_id),
         begin=lambda: None,
         commit_terminal=selected_runs.commit_terminal,
         journal=SQLiteTestExecutionJournal(selected_runs, run_id=run_id),
@@ -238,6 +240,7 @@ def sqlite_execution_session(
             selected_runs,
             run_id=run_id,
         ),
+        instruments=instruments or TestRunInstrumentHost(),
     )
 
 

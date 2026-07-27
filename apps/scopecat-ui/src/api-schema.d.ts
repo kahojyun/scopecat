@@ -2098,6 +2098,11 @@ export interface components {
             experiment_id: string;
             /** Experiment Kind */
             experiment_kind: string;
+            /**
+             * Host Instrument Order
+             * @default []
+             */
+            host_instrument_order: string[];
             /** Point Count */
             point_count: number;
             /**

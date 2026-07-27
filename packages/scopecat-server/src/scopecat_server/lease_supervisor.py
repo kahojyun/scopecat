@@ -72,14 +72,16 @@ class ExecutorLeaseSupervisor:
     def _supervise(self) -> None:
         while not self._stop.wait(self._supervisor_interval_seconds):
             try:
-                self._control.expire_executor_leases()
                 if self._instruments is not None:
-                    self._instruments.expire_sessions()
+                    self._instruments.expire_leases()
+                else:
+                    self._control.expire_executor_leases()
             except Exception:
                 self._supervisor_failed = True
                 logger.exception("executor lease supervisor iteration failed")
 
     def _reconcile_startup(self) -> None:
-        self._control.abandon_executor_leases()
         if self._instruments is not None:
             self._instruments.reconcile_startup()
+        else:
+            self._control.abandon_executor_leases()

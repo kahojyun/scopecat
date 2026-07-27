@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import override
+from types import SimpleNamespace
+from typing import cast, override
 
 import scopecat as sc
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
-from scopecat.execution.local.drivers import cleanup_after_setup_failure
+from scopecat.execution.interpreter import (
+    _execute_instrument_effects,
+    _release_instrument_setup,
+)
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectionResultBinding,
@@ -14,7 +18,8 @@ from scopecat.execution.local.program import (
     OutputInput,
     StateTarget,
 )
-from scopecat.execution.program import RunCoverageCheckpoint
+from scopecat.execution.program import RunCoverageCheckpoint, RunHostBinding, RunProgram
+from scopecat.execution.services import ExecutionSession
 from scopecat.graph.values import (
     ComputeOutput,
     OperationId,
@@ -50,6 +55,7 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
+from tests.testkit.instrument_host import TestRunInstrumentHost
 from tests.testkit.local_materialization import LocalEffectInspection
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.run_operations import complete_coverage_operations
@@ -80,7 +86,7 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
         run_id="incremental-source-run",
         coordinate_ids=(),
         resource_order=(),
-        drivers={},
+        instruments=TestRunInstrumentHost(),
         journal=FakeExecutionJournal(),
         coverage_observer=lambda selected, _candidates: delivered.append(
             tuple(point.ordinal for point in selected)
@@ -242,7 +248,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         run_id="normalized-output-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={},
+        instruments=TestRunInstrumentHost(),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -297,7 +303,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         run_id="implementation-cache-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={},
+        instruments=TestRunInstrumentHost(),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -415,41 +421,73 @@ class _CloseFailureDriver(_FinalizationTrackingDriver):
         raise RuntimeError("socket close failed")
 
 
-def test_setup_failure_closes_driver_after_terminal_read() -> None:
-    driver = _CloseFailureDriver(instrument_id="source-0")
-    setup_problem = problem(
-        "instrument_setup_failed",
-        "injected setup failure",
-        phase=ProblemPhase.EXECUTION,
-    )
-    problems = [setup_problem]
-    journal = FakeExecutionJournal()
+class _AbortFailureDriver(_FinalizationTrackingDriver):
+    @override
+    def abort(self) -> None:
+        super().abort()
+        raise RuntimeError("abort acknowledgement lost")
 
-    final_state, interruption = cleanup_after_setup_failure(
-        [driver],
-        problems,
-        run_id="setup-close-run",
-        journal=journal,
+
+def test_setup_release_attempts_abort_and_close_for_every_instrument() -> None:
+    first = _AbortFailureDriver(instrument_id="source-a")
+    second = _FinalizationTrackingDriver(instrument_id="source-b")
+    host = TestRunInstrumentHost((first, second))
+
+    problems, indeterminate = _release_instrument_setup(
+        run_id="setup-release-run",
+        instruments=host,
+        descriptions=host.descriptions,
     )
 
-    assert interruption is None
-    assert [state.instrument_id for state in final_state] == ["source-0"]
+    assert indeterminate
+    assert [item.code for item in problems] == ["instrument_setup_abort_failed"]
+    assert (first.abort_count, first.close_count) == (1, 1)
+    assert (second.abort_count, second.close_count) == (1, 1)
+
+
+def test_provider_identity_change_rejects_binding_and_releases_drivers() -> None:
+    driver = _FinalizationTrackingDriver(instrument_id="source-0")
+    description = driver.describe()
+    program = cast(
+        "RunProgram",
+        cast(
+            "object",
+            SimpleNamespace(
+                host=RunHostBinding(
+                    resource_order=("source-0",),
+                    provider_id="expected-provider",
+                    advertised_descriptions={"source-0": description},
+                ),
+                resource_order=("source-0",),
+            ),
+        ),
+    )
+    instruments = TestRunInstrumentHost(
+        (driver,),
+        provider_id="different-provider",
+    )
+    session = cast(
+        "ExecutionSession",
+        cast(
+            "object",
+            SimpleNamespace(
+                run_id="provider-changed-run",
+                instruments=instruments,
+            ),
+        ),
+    )
+
+    result = _execute_instrument_effects(
+        program=program,
+        session=session,
+        coverage_observer=lambda _points, _candidates: None,
+    )
+
+    assert [item.code for item in result.problems] == [
+        "daemon_instrument_provider_changed"
+    ]
+    assert driver.abort_count == 1
     assert driver.close_count == 1
-    assert driver.read_count_when_closed == 1
-    assert [item.code for item in problems] == [
-        "instrument_setup_failed",
-        "instrument_close_failed",
-    ]
-    assert [
-        (entry.stage, entry.state)
-        for entry in journal.entries
-        if entry.stage in {"setup_cleanup", "setup_close"}
-    ] == [
-        ("setup_cleanup", "started"),
-        ("setup_cleanup", "completed"),
-        ("setup_close", "started"),
-        ("setup_close", "failed"),
-    ]
 
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
@@ -493,7 +531,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         run_id="shared-readback-run",
         coordinate_ids=tuple(point.coordinates),
         resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
+        instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
         coverage_observer=lambda _block, candidates: observed_candidates.append(
             candidates
@@ -532,7 +570,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         run_id="finalization-journal-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={"source-a": first, "source-b": second},
+        instruments=TestRunInstrumentHost((first, second)),
         journal=_BrokenFinalizationJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -567,7 +605,7 @@ def test_driver_close_failure_is_reported_after_terminal_read() -> None:
         run_id="close-failure-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={"source-0": driver},
+        instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -603,7 +641,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         run_id="apply-receipt-evidence-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
+        instruments=TestRunInstrumentHost((driver,)),
         journal=journal,
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -639,10 +677,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         run_id="blocking-state-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={
-            first.instrument_id: first,
-            second.instrument_id: second,
-        },
+        instruments=TestRunInstrumentHost((first, second)),
         journal=journal,
     )
 
@@ -712,10 +747,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         run_id="blocking-collect-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={
-            first.instrument_id: first,
-            second.instrument_id: second,
-        },
+        instruments=TestRunInstrumentHost((first, second)),
         journal=journal,
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -772,10 +804,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
         run_id="conflicting-applied-state-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={
-            first.instrument_id: first,
-            second.instrument_id: second,
-        },
+        instruments=TestRunInstrumentHost((first, second)),
         journal=journal,
     )
 

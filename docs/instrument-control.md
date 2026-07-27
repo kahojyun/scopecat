@@ -107,8 +107,7 @@ selects **Connect**, after which the detail view:
 
 This is intentionally not a raw SCPI terminal. Driver capabilities preserve
 units and validation, make changes auditable, and keep the same semantics in
-GUI, notebooks, and experiments. A diagnostic command console can be designed
-later as a separately permissioned expert tool.
+GUI, notebooks, and experiments.
 
 Output enable, source level, heater control, and similar consequential fields
 must never be “apply on change”. Staging makes a multi-field transition
@@ -194,16 +193,15 @@ The last case aborts and closes the live drivers, retains quarantined resource
 leases, and requires operator resolution. Automatic retry would be unsafe.
 Operation ids provide session-local de-duplication, and durable started/finished
 events provide an audit trail around consequential calls.
-Successful close/abort receipts are currently replayable for the lifetime of
-the daemon process; making that small terminal-receipt ledger durable and
-bounded is a later control-plane refinement.
+Recent successful close/abort receipts remain replayable in a bounded
+in-memory retry window.
 
-The daemon is already the sole live driver host for interactive sessions.
-Experiment execution still constructs its provider in the notebook process in
-the current migration stage, but shared durable leases prevent simultaneous
-access. The target architecture moves experiment driver calls behind the same
-daemon session boundary, eliminating the remaining second driver-host path
-without changing the capability or resource models.
+The daemon is the sole live driver host for both interactive sessions and
+experiment runs. A notebook plans and interprets the experiment program, but
+after the daemon grants its fenced executor lease, the daemon provisions
+drivers from the run's accepted configuration snapshot and performs every
+read, apply, collect, cleanup, abort, and close operation. Planning may call the
+provider's pure description contract; it never provisions a live driver.
 
 ## Initial superconducting-lab driver set
 
@@ -222,11 +220,6 @@ These subsets follow the vendors' public programming documentation:
 - [Rohde & Schwarz SGS100A User Manual](https://scdn.rohde-schwarz.com/ur/pws/dl_downloads/pdm/cl_manuals/user_manual/1173_9105_01/SGS100A_UserManual_en_13.pdf)
 - [Lake Shore Model 372 User's Manual](https://www.lakeshore.com/docs/default-source/product-downloads/manuals/372_manual.pdf)
 - [Keysight E5080B Programming Guide](https://helpfiles.keysight.com/csg/e5080b/Programming/Programming_Guide.htm)
-
-Arbitrary waveform generators and oscilloscopes are the next useful pair, but
-their waveform payload, memory ownership, trigger, acquisition, and array
-contracts should be designed together rather than exposed as an unstructured
-SCPI escape hatch.
 
 ## Virtual lab
 

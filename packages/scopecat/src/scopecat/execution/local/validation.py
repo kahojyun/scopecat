@@ -1,4 +1,4 @@
-"""Validate a local effect block against live driver descriptions."""
+"""Validate an effect block against provider-advertised descriptions."""
 
 from __future__ import annotations
 

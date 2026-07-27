@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 import httpx2
+import pytest
 from pydantic import BaseModel
 
 from scopecat.control.models import RunPlanSummary
@@ -17,6 +18,13 @@ from scopecat.daemon.wire import (
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
+    RunInstrumentApplyCommand,
+    RunInstrumentCollectCommand,
+    RunInstrumentLifecycleCommand,
+    RunInstrumentLifecycleReceipt,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
+    RunInstrumentReadCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -27,6 +35,7 @@ from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
 )
+from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -37,6 +46,12 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.instruments.contracts import (
+    ApplyReceipt,
+    CollectCommand,
+    CollectReceipt,
+    InstrumentStateCommand,
+)
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -72,6 +87,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     fences: list[tuple[str, str]] = []
     transition_commands: list[ExecutionTransitionAppend] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
+    instrument_operation_ids: list[str] = []
+    instrument_state = InstrumentStateSnapshot(instrument_id="source-0")
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -79,6 +96,43 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
             command = ExecutorStartRequest.model_validate_json(request.content)
             assert command.executor_id == "notebook-1"
             return _model(_lease())
+        if path.endswith("/instruments/provision"):
+            command = RunInstrumentProvisionCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            return _model(
+                RunInstrumentProvisionReceipt(
+                    run_id="run-1",
+                    operation_id=command.operation_id,
+                    status="ready",
+                )
+            )
+        if path.endswith("/state/read"):
+            command = RunInstrumentReadCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            instrument_operation_ids.append(command.operation_id)
+            return _model(instrument_state)
+        if path.endswith("/state/apply"):
+            command = RunInstrumentApplyCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            instrument_operation_ids.append(command.operation_id)
+            return _model(ApplyReceipt(state=instrument_state))
+        if path.endswith("/collect"):
+            command = RunInstrumentCollectCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            instrument_operation_ids.append(command.operation_id)
+            return _model(CollectReceipt(readback=InstrumentReadback()))
+        if path.endswith("/lifecycle"):
+            command = RunInstrumentLifecycleCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            instrument_operation_ids.append(command.operation_id)
+            return _model(
+                RunInstrumentLifecycleReceipt(
+                    run_id="run-1",
+                    instrument_id="source-0",
+                    operation_id=command.operation_id,
+                    action=command.action,
+                )
+            )
         if path.endswith("/transitions"):
             command = ExecutionTransitionAppend.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -114,11 +168,44 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         executor_id="notebook-1",
     )
     accepted = session.accepted
-    assert session.config == submission.config
     assert session.begin() is None
 
     journal = session.journal
     measurements = session.measurements
+    instruments = session.instruments
+
+    assert (
+        instruments.read_state(
+            "source-0",
+            operation_id="lifecycle.initial-read-state.source-0",
+        )
+        == instrument_state
+    )
+    assert (
+        instruments.apply_state(
+            InstrumentStateCommand(
+                operation_id="point-0.apply.source-0",
+                instrument_id="source-0",
+            )
+        ).status
+        == "applied"
+    )
+    assert (
+        instruments.collect(
+            CollectCommand(
+                operation_id="point-0.collect.source-0",
+                instrument_id="source-0",
+                point_index=0,
+                point_count=1,
+            )
+        ).status
+        == "collected"
+    )
+    instruments.lifecycle(
+        "source-0",
+        operation_id="lifecycle.close.source-0",
+        action="close",
+    )
 
     assert journal.append(transition) == committed_transition
     assert (
@@ -157,6 +244,56 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     assert terminal_commands[0].models == ()
     assert fences
     assert set(fences) == {("run-1", "lease-1")}
+    assert instrument_operation_ids == [
+        "lifecycle.initial-read-state.source-0",
+        "point-0.apply.source-0",
+        "point-0.collect.source-0",
+        "lifecycle.close.source-0",
+    ]
+
+
+def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:
+    submission = RunSubmission(
+        submission_id="submission-1",
+        config=load_config(),
+        request=RunRequest(experiment_id="scratch"),
+        plan=RunPlanSummary(
+            experiment_id="scratch",
+            experiment_kind="scratch",
+            point_count=1,
+        ),
+    )
+    admission = RunAdmission(
+        submission_id=submission.submission_id,
+        manifest=RunManifest(
+            run_id="run-1",
+            created_at=_NOW,
+            config_content_hash=config_content_hash(submission.config),
+        ),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/executor/start"):
+            return _model(_lease())
+        if request.url.path.endswith("/instruments/provision"):
+            return _model(
+                RunInstrumentProvisionReceipt(
+                    run_id="run-1",
+                    operation_id="another-operation",
+                    status="ready",
+                )
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    session = daemon_execution_session(
+        _client(handler),
+        submission,
+        admission,
+        executor_id="notebook-1",
+    )
+
+    with pytest.raises(ValueError, match="does not match command"):
+        session.begin()
 
 
 def _client(

@@ -39,6 +39,8 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ManualConfigDraftRevisionSource,
     RunAdmission,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
     RunSubmission,
 )
 from scopecat.execution.program import RunProgram
@@ -54,7 +56,6 @@ from scopecat.records.run import (
     RunManifest,
 )
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments.contracts import InstrumentProvider
 from tests.testkit.runtime import plan_experiment, sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import (
@@ -104,6 +105,8 @@ def test_execute_submits_complete_plan_and_heartbeats(
             return _model(_admission(submission), status_code=201)
         if path.endswith("/executor/start"):
             return _model(_lease(heartbeat_interval=0.01))
+        if path.endswith("/instruments/provision"):
+            return _model(_provisioning_receipt(planned.program, http_request))
         if path.endswith("/executor/heartbeat"):
             heartbeat_count += 1
             heartbeat_seen.set()
@@ -114,14 +117,9 @@ def test_execute_submits_complete_plan_and_heartbeats(
         *,
         program: RunProgram,
         session: ExecutionSession,
-        instrument_provider: InstrumentProvider | None,
     ) -> RunManifest:
-        forwarded.update(
-            program=program,
-            instrument_provider=instrument_provider,
-        )
+        forwarded["program"] = program
         accepted = session.accepted
-        assert session.config == planned.config
         session.begin()
         assert heartbeat_seen.wait(timeout=1)
         return _terminal_manifest(accepted)
@@ -146,14 +144,12 @@ def test_execute_submits_complete_plan_and_heartbeats(
     assert submission.plan.point_count == preview.point_count
     assert submission.plan.coordinate_ids == preview.coordinate_ids
     assert submission.plan.record_ids == tuple(record.id for record in preview.records)
+    assert submission.plan.host_instrument_order == planned.program.resource_order
     assert submission.plan.run_resource_claims == tuple(
         ResourceKey(id=claim.id, kind=claim.kind)
         for claim in planned.program.resource_claims
     )
     assert forwarded["program"] == planned.program
-    assert forwarded["instrument_provider"] == (
-        None if planned.system is None else planned.system.provider
-    )
     assert result.status == "completed"
     assert completed_heartbeats >= 1
     assert heartbeat_count == completed_heartbeats
@@ -176,6 +172,8 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
             return _model(admission, status_code=201)
         if path.endswith("/executor/start"):
             return _model(_lease(heartbeat_interval=0.005))
+        if path.endswith("/instruments/provision"):
+            return _model(_provisioning_receipt(planned.program, http_request))
         if path.endswith("/executor/heartbeat"):
             heartbeat_attempted.set()
             return httpx2.Response(409, json={"detail": "executor lease expired"})
@@ -197,9 +195,8 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
         *,
         program: RunProgram,
         session: ExecutionSession,
-        instrument_provider: InstrumentProvider | None,
     ) -> RunManifest:
-        del program, instrument_provider
+        del program
         session.begin()
         assert heartbeat_attempted.wait(timeout=1)
         terminal = TerminalRunCommit(
@@ -648,6 +645,28 @@ def _lease(*, heartbeat_interval: float) -> ExecutorLease:
         issued_at=_NOW,
         expires_at=_NOW + timedelta(seconds=30),
         heartbeat_interval_seconds=heartbeat_interval,
+    )
+
+
+def _provisioning_receipt(
+    program: RunProgram,
+    request: httpx2.Request,
+) -> RunInstrumentProvisionReceipt:
+    command = RunInstrumentProvisionCommand.model_validate_json(request.content)
+    host = program.host
+    instrument_ids = () if host is None else host.resource_order
+    descriptions = (
+        ()
+        if host is None
+        else tuple(host.advertised_descriptions[item] for item in instrument_ids)
+    )
+    return RunInstrumentProvisionReceipt(
+        run_id="run-1",
+        operation_id=command.operation_id,
+        status="ready",
+        provider_id=None if host is None else host.provider_id,
+        instrument_ids=instrument_ids,
+        descriptions=descriptions,
     )
 
 

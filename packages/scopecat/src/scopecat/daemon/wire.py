@@ -27,6 +27,7 @@ from scopecat.config.registry.records import (
 )
 from scopecat.control.models import RunPlanSummary
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
@@ -297,6 +298,92 @@ class _FencedCommand(_WireModel):
     lease_id: NonEmptyText
 
 
+class _FencedOperationCommand(_FencedCommand):
+    operation_id: NonEmptyText
+
+
+class RunInstrumentProvisionCommand(_FencedOperationCommand):
+    """Provision daemon-owned drivers from the admitted run snapshot."""
+
+
+class RunInstrumentProvisionReceipt(_WireModel):
+    run_id: NonEmptyText
+    operation_id: NonEmptyText
+    status: Literal["ready", "rejected"]
+    provider_id: NonEmptyText | None = None
+    instrument_ids: tuple[NonEmptyText, ...] = ()
+    descriptions: tuple[InstrumentDescription, ...] = ()
+    problems: tuple[Problem, ...] = ()
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_result(self) -> RunInstrumentProvisionReceipt:
+        if len(self.instrument_ids) != len(set(self.instrument_ids)):
+            raise ValueError("run instrument provisioning ids must be unique")
+        described_ids = tuple(
+            description.instrument_id for description in self.descriptions
+        )
+        if self.status == "ready":
+            if bool(self.instrument_ids) != (self.provider_id is not None):
+                raise ValueError(
+                    "ready run instrument provider identity must match its claims"
+                )
+            if described_ids != self.instrument_ids:
+                raise ValueError(
+                    "ready run instrument descriptions must match ids in order"
+                )
+            if self.problems:
+                raise ValueError(
+                    "ready run instrument provisioning cannot contain problems"
+                )
+        elif not self.problems:
+            raise ValueError("rejected run instrument provisioning requires a problem")
+        elif self.descriptions:
+            raise ValueError(
+                "rejected run instrument provisioning cannot expose descriptions"
+            )
+        elif self.provider_id is not None:
+            raise ValueError(
+                "rejected run instrument provisioning cannot expose a provider"
+            )
+        return self
+
+
+class RunInstrumentReadCommand(_FencedOperationCommand):
+    """Idempotently read one daemon-owned run instrument."""
+
+
+class RunInstrumentApplyCommand(_FencedOperationCommand):
+    command: InstrumentStateCommand
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> RunInstrumentApplyCommand:
+        if self.command.operation_id != self.operation_id:
+            raise ValueError("run instrument apply command operation ids must match")
+        return self
+
+
+class RunInstrumentCollectCommand(_FencedOperationCommand):
+    command: CollectCommand
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> RunInstrumentCollectCommand:
+        if self.command.operation_id != self.operation_id:
+            raise ValueError("run instrument collect command operation ids must match")
+        return self
+
+
+class RunInstrumentLifecycleCommand(_FencedOperationCommand):
+    action: Literal["cleanup", "abort", "close"]
+
+
+class RunInstrumentLifecycleReceipt(_WireModel):
+    run_id: NonEmptyText
+    instrument_id: NonEmptyText
+    operation_id: NonEmptyText
+    action: Literal["cleanup", "abort", "close"]
+
+
 class ExecutionTransitionAppend(_FencedCommand):
     """Append one transition using its content hash as the retry identity."""
 
@@ -471,6 +558,13 @@ __all__ = [
     "MeasurementSealCommand",
     "RunAdmission",
     "RunAttachmentCommand",
+    "RunInstrumentApplyCommand",
+    "RunInstrumentCollectCommand",
+    "RunInstrumentLifecycleCommand",
+    "RunInstrumentLifecycleReceipt",
+    "RunInstrumentProvisionCommand",
+    "RunInstrumentProvisionReceipt",
+    "RunInstrumentReadCommand",
     "RunSubmission",
     "TerminalModelWrite",
     "TerminalRunCommitCommand",

@@ -74,4 +74,7 @@ class DaemonApplication:
         self,
         run_id: str,
     ) -> AttentionResolutionReceipt:
-        return self._admission.resolve_attention(run_id)
+        return self.instruments.resolve_run_attention(
+            run_id,
+            self._admission.resolve_attention,
+        )

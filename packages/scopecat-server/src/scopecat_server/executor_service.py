@@ -44,6 +44,7 @@ from scopecat.runs.repository import (
 from scopecat.runs.terminal import merge_terminal_manifest
 
 from .errors import BackendConflict, BackendNotFound
+from .instrument_service import InstrumentService
 
 
 class _JsonDocument(RootModel[dict[str, JsonValue]]):
@@ -58,10 +59,12 @@ class ExecutorService:
         *,
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
+        instruments: InstrumentService,
         lease_ttl: timedelta | None = None,
     ) -> None:
         self._control = control
         self._runs = runs
+        self._instruments = instruments
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
 
@@ -198,7 +201,12 @@ class ExecutorService:
             manifest = self._runs.read_manifest(run_id)
             if not _matches_terminal_intent(manifest, commit):
                 raise BackendConflict("run already has a different terminal outcome")
+            self._instruments.release_run(run_id)
             return manifest
+        self._instruments.finalize_run(
+            run_id,
+            token=command.lease_id,
+        )
         try:
             manifest = self.commit_terminal_with_authority(
                 run_id,
@@ -213,6 +221,7 @@ class ExecutorService:
                 commit,
             ):
                 raise
+        self._instruments.release_run(run_id)
         return manifest
 
     def _start_execution(

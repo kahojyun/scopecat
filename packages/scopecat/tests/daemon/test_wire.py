@@ -27,6 +27,10 @@ from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutorLease,
     MeasurementAppendCommand,
+    RunInstrumentApplyCommand,
+    RunInstrumentLifecycleCommand,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -38,6 +42,7 @@ from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.contracts import InstrumentStateCommand
 from tests.testkit.workflow_fixtures import load_config
 
 
@@ -208,6 +213,7 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             point_count=2,
             coordinate_ids=("bias",),
             record_ids=("signal",),
+            host_instrument_order=("scope-1",),
             run_resource_claims=(
                 ResourceKey(id="scope-1"),
                 ResourceKey(id="controller-1", kind="target"),
@@ -228,6 +234,20 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
                 ResourceKey(id="scope-1"),
                 ResourceKey(id="scope-1"),
             ),
+        )
+    RunPlanSummary(
+        experiment_id="scratch",
+        experiment_kind="scratch",
+        point_count=1,
+        run_resource_claims=(ResourceKey(id="scope-1"),),
+    )
+    with pytest.raises(ValidationError, match="host_instrument_order"):
+        RunPlanSummary(
+            experiment_id="scratch",
+            experiment_kind="scratch",
+            point_count=1,
+            host_instrument_order=("scope-2",),
+            run_resource_claims=(ResourceKey(id="scope-1"),),
         )
 
 
@@ -269,6 +289,47 @@ def test_transition_append_keeps_sequence_daemon_owned() -> None:
         ExecutionTransitionAppend(
             lease_id="lease-1",
             transition=_transition(sequence=1),
+        )
+
+
+def test_run_instrument_commands_bind_fence_and_operation_identity() -> None:
+    provision = RunInstrumentProvisionCommand(
+        lease_id="lease-1",
+        operation_id="lifecycle.provide-instruments",
+    )
+    receipt = RunInstrumentProvisionReceipt(
+        run_id="run-1",
+        operation_id=provision.operation_id,
+        status="ready",
+    )
+    apply = RunInstrumentApplyCommand(
+        lease_id="lease-1",
+        operation_id="point-0.apply.source-0",
+        command=InstrumentStateCommand(
+            operation_id="point-0.apply.source-0",
+            instrument_id="source-0",
+        ),
+    )
+    lifecycle = RunInstrumentLifecycleCommand(
+        lease_id="lease-1",
+        operation_id="lifecycle.close.source-0",
+        action="close",
+    )
+
+    assert (
+        RunInstrumentProvisionCommand.model_validate_json(provision.model_dump_json())
+        == provision
+    )
+    assert (
+        RunInstrumentProvisionReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    assert lifecycle.action == "close"
+    with pytest.raises(ValidationError, match="operation ids must match"):
+        RunInstrumentApplyCommand(
+            lease_id="lease-1",
+            operation_id="different-operation",
+            command=apply.command,
         )
 
 

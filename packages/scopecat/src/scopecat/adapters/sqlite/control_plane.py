@@ -1167,6 +1167,39 @@ class SQLiteControlPlane:
                 )
             )
 
+    def mark_executor_unknown(
+        self,
+        run_id: str,
+        *,
+        token: str,
+        reason: str,
+        at: datetime | None = None,
+    ) -> ControlRun:
+        """Fence one exact executor and quarantine its run after uncertain I/O."""
+
+        if not reason:
+            raise ValueError("executor attention reason must be non-empty")
+        lost_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            row = _one(
+                connection.execute(
+                    "SELECT * FROM executor_leases WHERE run_id = ?",
+                    (run_id,),
+                )
+            )
+            if row is None or _executor(row).token != token:
+                raise ExecutorLeaseNotHeld(
+                    "executor lease is absent, stale, or expired"
+                )
+            self._expire_one(
+                connection,
+                run_id,
+                lost_at,
+                force=True,
+                attention_reason=reason,
+            )
+            return _run(self._require_run(connection, run_id))
+
     @staticmethod
     def _find_admission_conflict(
         connection: sqlite3.Connection,

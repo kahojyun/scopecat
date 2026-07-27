@@ -318,9 +318,6 @@ class InstrumentSessionHandle:
                 raise ValueError(
                     "instrument end retry must reuse its original close or abort mode"
                 )
-        heartbeat = self._heartbeat
-        if heartbeat is not None:
-            heartbeat.close()
         command = InstrumentSessionEndCommand(
             lease_id=lease.lease_id,
             operation_id=selected_operation_id,
@@ -337,6 +334,9 @@ class InstrumentSessionHandle:
             )
         )
         self._ended = True
+        heartbeat = self._heartbeat
+        if heartbeat is not None:
+            heartbeat.close()
         return receipt
 
     def _ensure_open(self) -> InstrumentSessionLease:

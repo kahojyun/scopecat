@@ -13,6 +13,7 @@ from scopecat.execution.local.receipts import (
     apply_receipt_evidence,
     command_evidence,
 )
+from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.kernel.state import PayloadRef
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.execution_journal import ExecutionTransition
@@ -22,7 +23,6 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
-    InstrumentDriver,
     InstrumentStateCommand,
     InstrumentStateCommandField,
     apply_state_command_to_snapshot,
@@ -35,10 +35,10 @@ class StateEffectExecutor:
     def __init__(
         self,
         *,
-        drivers: Mapping[str, InstrumentDriver],
+        instruments: RunInstrumentHost,
         journal: JournaledEffectBoundary,
     ) -> None:
-        self.drivers = drivers
+        self.instruments = instruments
         self.journal = journal
         self.current_states: dict[str, InstrumentStateSnapshot] = {}
 
@@ -88,10 +88,9 @@ class StateEffectExecutor:
                 }
             }
         )
-        driver = self.drivers[operation.instrument_id]
         receipt = self.journal.invoke(
             entry,
-            lambda: driver.apply_state(command),
+            lambda: self.instruments.apply_state(command),
             unknown_code="instrument_apply_unknown",
             unknown_message=(
                 f"instrument apply outcome is unknown for {operation.instrument_id}"

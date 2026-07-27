@@ -23,6 +23,8 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.selectors import RunSelector
+from scopecat.sdk.instruments.contracts import InstrumentProviderContext
+from tests.testkit.instrument_host import provision_test_instrument_host
 from tests.testkit.runtime import (
     ServiceRunOperations,
     admit_test_run,
@@ -84,9 +86,13 @@ class InProcessPreparedExperiment:
             session=sqlite_execution_session(
                 self.lab.project_root,
                 accepted.run_id,
-            ),
-            instrument_provider=(
-                None if planned.system is None else planned.system.provider
+                instruments=provision_test_instrument_host(
+                    None if planned.system is None else planned.system.provider,
+                    context=InstrumentProviderContext(
+                        config=planned.config,
+                        instrument_ids=planned.program.resource_order,
+                    ),
+                ),
             ),
         )
         return self.lab.get_run(manifest.run_id)

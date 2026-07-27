@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from scopecat.execution.local.drivers import preflight_problem_from_exception
 from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.program import RunHostBinding
@@ -23,6 +22,8 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProvider,
     InstrumentProviderContext,
 )
+
+from .provider_validation import preflight_problem_from_exception
 
 
 @dataclass(frozen=True, slots=True)

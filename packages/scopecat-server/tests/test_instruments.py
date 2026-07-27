@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import sleep
 from typing import Never, override
 
 import httpx2
@@ -92,6 +94,40 @@ class _TrackingProvider:
         )
         self.drivers.extend(drivers)
         return InstrumentProviderResult(drivers=drivers)
+
+
+class _SlowProvider(_TrackingProvider):
+    def __init__(self, delay_seconds: float) -> None:
+        super().__init__()
+        self._delay_seconds = delay_seconds
+
+    @override
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        sleep(self._delay_seconds)
+        return super().provide(context)
+
+
+class _SlowRejectedProvider(_SlowProvider):
+    @override
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        result = super().provide(context)
+        return InstrumentProviderResult(
+            drivers=result.drivers,
+            problems=(
+                problem(
+                    "slow_rejection",
+                    "the provider rejected the connection",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location("instrument_provider"),
+                ),
+            ),
+        )
 
 
 class _ReadFailDriver(_TrackingDriver):
@@ -312,6 +348,61 @@ def test_open_retry_reuses_session_without_reprovisioning(tmp_path: Path) -> Non
             )
 
 
+def test_open_refreshes_lease_after_slow_provisioning(tmp_path: Path) -> None:
+    lease_ttl = timedelta(milliseconds=300)
+    provider = _SlowProvider(delay_seconds=0.22)
+    with _runtime(tmp_path, provider, lease_ttl=lease_ttl) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+
+            lease = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-slow",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+
+            assert lease.expires_at - datetime.now(UTC) > lease_ttl * 2 / 3
+            daemon.close_instrument_session(
+                lease.session_id,
+                InstrumentSessionEndCommand(
+                    lease_id=lease.lease_id,
+                    operation_id="close-slow",
+                ),
+            )
+
+
+def test_slow_rejection_quarantines_an_expired_session(tmp_path: Path) -> None:
+    provider = _SlowRejectedProvider(delay_seconds=0.22)
+    with (
+        _runtime(
+            tmp_path,
+            provider,
+            lease_ttl=timedelta(milliseconds=150),
+        ) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        daemon = _daemon_client(transport)
+
+        with pytest.raises(
+            DaemonConflictError,
+            match="lease expired while connecting",
+        ):
+            daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-slow-rejected",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+
+        [session] = runtime.application.executor._control.list_instrument_sessions()
+        assert session.state == "attention_required"
+        [driver] = provider.drivers
+        assert driver.close_count == 1
+
+
 def test_notebook_open_retry_reuses_operation_after_response_loss(
     tmp_path: Path,
 ) -> None:
@@ -391,6 +482,46 @@ def test_notebook_close_remains_retryable_after_both_transport_attempts_fail(
 
             assert receipt is not None
             assert receipt.operation_id == "close-after-loss"
+            [driver] = provider.drivers
+            assert driver.close_count == 1
+
+
+def test_failed_notebook_close_keeps_heartbeating_until_later_retry(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    lease_ttl = timedelta(milliseconds=120)
+    heartbeat_requests = 0
+
+    def observe_request(request: httpx2.Request) -> None:
+        nonlocal heartbeat_requests
+        if request.url.path.endswith("/heartbeat"):
+            heartbeat_requests += 1
+
+    with _runtime(tmp_path, provider, lease_ttl=lease_ttl) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(
+                transport,
+                fail_request_suffix="/close",
+                fail_request_count=2,
+                observe_request=observe_request,
+            )
+            handle = LabClient(daemon).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            handle.read_state()
+
+            with pytest.raises(httpx2.ReadError, match="request failed"):
+                handle.close(operation_id="close-after-long-failure")
+            heartbeats_before_wait = heartbeat_requests
+            sleep(lease_ttl.total_seconds() * 3)
+
+            assert heartbeat_requests > heartbeats_before_wait
+            receipt = handle.close()
+
+            assert receipt is not None
+            assert receipt.operation_id == "close-after-long-failure"
             [driver] = provider.drivers
             assert driver.close_count == 1
 
@@ -671,6 +802,7 @@ def _runtime(
     provider: _TrackingProvider,
     *,
     config: ConfigProfileSnapshot | None = None,
+    lease_ttl: timedelta | None = None,
 ) -> LocalDaemonRuntime:
     def factory(_root: Path) -> LabApplication:
         return LabApplication(
@@ -681,6 +813,7 @@ def _runtime(
         root,
         bootstrap_config=config if config is not None else load_config(),
         application_factory=factory,
+        lease_ttl=lease_ttl,
     )
 
 
@@ -689,11 +822,27 @@ def _daemon_client(
     *,
     drop_response_suffix: str | None = None,
     drop_response_count: int = 1,
+    fail_request_suffix: str | None = None,
+    fail_request_count: int = 0,
+    observe_request: Callable[[httpx2.Request], None] | None = None,
 ) -> DaemonClient:
     responses_dropped = 0
+    requests_failed = 0
 
     def send(request: httpx2.Request) -> httpx2.Response:
-        nonlocal responses_dropped
+        nonlocal requests_failed, responses_dropped
+        if observe_request is not None:
+            observe_request(request)
+        if (
+            fail_request_suffix is not None
+            and request.url.path.endswith(fail_request_suffix)
+            and requests_failed < fail_request_count
+        ):
+            requests_failed += 1
+            raise httpx2.ReadError(
+                "request failed before reaching the daemon",
+                request=request,
+            )
         response = transport.request(
             request.method,
             request.url.raw_path.decode(),
@@ -771,6 +920,7 @@ def _submission(config: ConfigProfileSnapshot) -> RunSubmission:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
+            host_instrument_order=("source-0",),
             run_resource_claims=(ResourceKey(kind="instrument", id="source-0"),),
         ),
     )

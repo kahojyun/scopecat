@@ -57,6 +57,7 @@ from scopecat.sdk.instruments import (
     float_field,
 )
 from tests.testkit.authoring import load_config, parameters
+from tests.testkit.instrument_host import TestRunInstrumentHost
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
@@ -496,7 +497,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         run_id="scoped-same-field-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
+        instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 

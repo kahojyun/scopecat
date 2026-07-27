@@ -71,9 +71,6 @@ class _DaemonRunner:
             return execute_admitted_run(
                 program=planned.program,
                 session=session,
-                instrument_provider=(
-                    None if planned.system is None else planned.system.provider
-                ),
             )
         finally:
             heartbeat.close()
@@ -236,6 +233,7 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
         point_count=len(program.points.points),
         coordinate_ids=program.measurements.coordinate_ids,
         record_ids=tuple(record.id for record in program.measurements.records),
+        host_instrument_order=program.resource_order,
         run_resource_claims=tuple(
             ResourceKey(id=claim.id, kind=claim.kind)
             for claim in program.resource_claims

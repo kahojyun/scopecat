@@ -17,8 +17,10 @@ from scopecat.planning.service import plan_scratch_experiment
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.runs.service import load_run_request
+from scopecat.sdk.instruments.contracts import InstrumentProviderContext
 from tests.testkit.authoring import simple_template
 from tests.testkit.execution import execute_invocation_run
+from tests.testkit.instrument_host import provision_test_instrument_host
 from tests.testkit.runtime import (
     admit_test_run,
     check_experiment,
@@ -59,8 +61,17 @@ def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
 
     completed = execute_admitted_run(
         program=planned.program,
-        session=sqlite_execution_session(tmp_path, accepted.run_id),
-        instrument_provider=system.provider,
+        session=sqlite_execution_session(
+            tmp_path,
+            accepted.run_id,
+            instruments=provision_test_instrument_host(
+                system.provider,
+                context=InstrumentProviderContext(
+                    config=planned.config,
+                    instrument_ids=planned.program.resource_order,
+                ),
+            ),
+        ),
     )
 
     assert completed.run_id == accepted.run_id
@@ -92,7 +103,6 @@ def test_admitted_execution_rejects_a_program_for_another_config(
                 config_content_hash=f"sha256:{'0' * 64}",
             ),
             session=sqlite_execution_session(tmp_path, accepted.run_id),
-            instrument_provider=system.provider,
         )
 
     assert services.runs.read_manifest(accepted.run_id).outcome is None

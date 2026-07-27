@@ -19,6 +19,8 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     RunAdmission,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
     RunSubmission,
 )
 from scopecat.records.config import ConfigProfileSnapshot
@@ -66,6 +68,7 @@ class FakeApplication:
             )
         )
         self.executor = FakeExecutor()
+        self.instruments = FakeInstruments()
         self.last_submission: RunSubmission | None = None
 
     def health(self) -> DaemonHealth:
@@ -123,6 +126,23 @@ class FakeExecutor:
             raise BackendNotFound(f"run was not found: {run_id}")
         self.last_start = request
         return _executor_lease()
+
+
+class FakeInstruments:
+    def __init__(self) -> None:
+        self.last_run_provision: tuple[str, RunInstrumentProvisionCommand] | None = None
+
+    def provision_run(
+        self,
+        run_id: str,
+        command: RunInstrumentProvisionCommand,
+    ) -> RunInstrumentProvisionReceipt:
+        self.last_run_provision = (run_id, command)
+        return RunInstrumentProvisionReceipt(
+            run_id=run_id,
+            operation_id=command.operation_id,
+            status="ready",
+        )
 
 
 def _create_test_app(
@@ -195,6 +215,26 @@ def test_executor_path_is_the_start_request_run_identity() -> None:
 
     assert response.status_code == 404
     assert backend.executor.last_start is None
+
+
+def test_run_instrument_provision_route_preserves_fencing_command() -> None:
+    backend = FakeApplication()
+    client = TestClient(_create_test_app(backend))
+    command = RunInstrumentProvisionCommand(
+        lease_id="lease-1",
+        operation_id="lifecycle.provide-instruments",
+    )
+
+    response = client.post(
+        "/api/v1/runs/run-1/instruments/provision",
+        json=command.model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    assert RunInstrumentProvisionReceipt.model_validate(response.json()).status == (
+        "ready"
+    )
+    assert backend.instruments.last_run_provision == ("run-1", command)
 
 
 def test_static_dist_serves_files_and_spa_without_shadowing_api(

@@ -2,26 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Literal
 
 from scopecat.execution.effects.journaled import JournaledEffectBoundary
+from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.instruments.contracts import InstrumentDriver
 
 
-class DriverLifecycle:
-    """Manage deterministic readback and reverse-order driver finalization."""
+class InstrumentLifecycle:
+    """Manage deterministic readback and reverse-order daemon finalization."""
 
     def __init__(
         self,
         *,
         resource_order: Sequence[str],
-        drivers: Mapping[str, InstrumentDriver],
+        instruments: RunInstrumentHost,
         journal: JournaledEffectBoundary,
     ) -> None:
         self.resource_order = tuple(resource_order)
-        self.drivers = drivers
+        self.instruments = instruments
         self.journal = journal
 
     def read_states(
@@ -33,7 +33,10 @@ class DriverLifecycle:
         for instrument_id in self.resource_order:
             operation_id = f"lifecycle.{phase}-read-state.{instrument_id}"
             try:
-                state = self.drivers[instrument_id].read_state().model_copy(deep=True)
+                state = self.instruments.read_state(
+                    instrument_id,
+                    operation_id=operation_id,
+                ).model_copy(deep=True)
                 if state.instrument_id != instrument_id:
                     raise ValueError("read state belongs to a different instrument")
             except Exception as error:
@@ -69,17 +72,7 @@ class DriverLifecycle:
         self,
         action: Literal["abort", "cleanup", "close"],
     ) -> None:
-        used = set(self.resource_order)
-        extras = tuple(sorted(set(self.drivers) - used))
-        managed_order = (
-            *extras,
-            *(
-                instrument_id
-                for instrument_id in self.resource_order
-                if instrument_id in self.drivers
-            ),
-        )
-        for instrument_id in reversed(managed_order):
+        for instrument_id in reversed(self.resource_order):
             operation_id = f"lifecycle.{action}.{instrument_id}"
             entry = self.journal.entry(
                 operation_id=operation_id,
@@ -92,13 +85,11 @@ class DriverLifecycle:
             self.journal.commit_best_effort(entry)
 
             try:
-                driver = self.drivers[instrument_id]
-                if action == "abort":
-                    driver.abort()
-                elif action == "cleanup":
-                    driver.cleanup()
-                else:
-                    driver.close()
+                self.instruments.lifecycle(
+                    instrument_id,
+                    operation_id=operation_id,
+                    action=action,
+                )
             except Exception as error:
                 problem = self.journal.problem_from_exception(
                     f"instrument_{action}_failed",

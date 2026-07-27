@@ -1,4 +1,4 @@
-"""Observed facts returned by the local run-effect interpreter."""
+"""Observed facts returned by the run-effect interpreter."""
 
 from __future__ import annotations
 

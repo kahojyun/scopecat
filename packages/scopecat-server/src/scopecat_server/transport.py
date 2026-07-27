@@ -59,6 +59,13 @@ from scopecat.daemon.wire import (
     MeasurementSealCommand,
     RunAdmission,
     RunAttachmentCommand,
+    RunInstrumentApplyCommand,
+    RunInstrumentCollectCommand,
+    RunInstrumentLifecycleCommand,
+    RunInstrumentLifecycleReceipt,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
+    RunInstrumentReadCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -406,6 +413,63 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         heartbeat: ExecutorHeartbeat,
     ) -> ExecutorLease:
         return application.executor.heartbeat_executor(run_id, heartbeat)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/provision")
+    def provision_run_instruments(
+        run_id: str,
+        command: RunInstrumentProvisionCommand,
+    ) -> RunInstrumentProvisionReceipt:
+        return application.instruments.provision_run(run_id, command)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/{{instrument_id}}/state/read")
+    def read_run_instrument_state(
+        run_id: str,
+        instrument_id: str,
+        command: RunInstrumentReadCommand,
+    ) -> InstrumentStateSnapshot:
+        return application.instruments.read_run_state(
+            run_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/runs/{{run_id}}/instruments/{{instrument_id}}/state/apply"
+    )
+    def apply_run_instrument_state(
+        run_id: str,
+        instrument_id: str,
+        command: RunInstrumentApplyCommand,
+    ) -> ApplyReceipt:
+        return application.instruments.apply_run_state(
+            run_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/{{instrument_id}}/collect")
+    def collect_run_instrument(
+        run_id: str,
+        instrument_id: str,
+        command: RunInstrumentCollectCommand,
+    ) -> CollectReceipt:
+        return application.instruments.collect_run(
+            run_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/{{instrument_id}}/lifecycle")
+    def run_instrument_lifecycle(
+        run_id: str,
+        instrument_id: str,
+        command: RunInstrumentLifecycleCommand,
+    ) -> RunInstrumentLifecycleReceipt:
+        return application.instruments.run_lifecycle(
+            run_id,
+            instrument_id,
+            command,
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions")
     def append_transition(

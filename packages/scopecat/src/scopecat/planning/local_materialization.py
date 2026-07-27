@@ -240,6 +240,7 @@ def materialize_local_execution(
                     )
                 ),
                 point_uid=point.logical_id.value,
+                state_group_index=effect_index,
                 resources=resources,
                 payload_ids=payload_ids_by_ordinal[ordinal],
                 known_compute_results=known_compute_results,
@@ -479,6 +480,7 @@ def _bind_desired_state(
     records: Sequence[StateRecord],
     *,
     point_uid: str,
+    state_group_index: int,
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     payload_ids: Mapping[ValueId, str],
     known_compute_results: set[ValueId],
@@ -609,7 +611,7 @@ def _bind_desired_state(
             )
     return tuple(
         ApplyStateOperation(
-            operation_id=f"{point_uid}.state.{instrument_id}",
+            operation_id=f"{point_uid}.state.{state_group_index}.{instrument_id}",
             instrument_id=instrument_id,
             targets=tuple(targets.values()),
         )

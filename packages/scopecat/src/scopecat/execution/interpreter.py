@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from scopecat.execution.effect_result import RunEffectResult
+from scopecat.execution.effect_interpreter import RunEffectInterpreter
+from scopecat.execution.effect_result import (
+    CoverageMeasurementObserver,
+    RunEffectResult,
+)
 from scopecat.execution.effects.domain import (
     domain_runtime_terminal_problem,
     measurement_recording_terminal_problem,
@@ -12,7 +16,6 @@ from scopecat.execution.evidence import (
     build_terminal_contents,
     instrument_state_evidence_ref,
 )
-from scopecat.execution.local.executor import execute_run_operations
 from scopecat.execution.measurement_postprocessors import (
     execute_measurement_postprocessors,
 )
@@ -22,6 +25,10 @@ from scopecat.execution.measurement_recording import (
 )
 from scopecat.execution.persistence import (
     validate_run_measurements,
+)
+from scopecat.execution.ports.instruments import (
+    InstrumentLifecycleAction,
+    RunInstrumentHost,
 )
 from scopecat.execution.program import RunDomainJob, RunProgram
 from scopecat.execution.services import (
@@ -46,13 +53,12 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
-from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunModelWrite,
     TerminalRunCommit,
 )
-from scopecat.sdk.instruments.contracts import InstrumentProvider
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
     problem_from_exception,
@@ -64,7 +70,6 @@ def execute_admitted_run(
     *,
     program: RunProgram,
     session: ExecutionSession,
-    instrument_provider: InstrumentProvider | None = None,
 ) -> RunManifest:
     """Execute a transient program against its authoritative accepted snapshot."""
 
@@ -77,19 +82,15 @@ def execute_admitted_run(
         raise ValueError(msg)
     session.begin()
     return _execute_run(
-        config=session.config,
         program=program,
         session=session,
-        instrument_provider=instrument_provider,
     )
 
 
 def _execute_run(
     *,
-    config: ConfigProfileSnapshot,
     program: RunProgram,
     session: ExecutionSession,
-    instrument_provider: InstrumentProvider | None,
 ) -> RunManifest:
     host = program.host
     projection = program.measurements
@@ -139,12 +140,9 @@ def _execute_run(
             committed_measurement_count += len(projected.records)
             append_content_hashes.append(receipt.dataset_content_hash)
 
-    effect_result = execute_run_operations(
-        config=config,
+    effect_result = _execute_instrument_effects(
         program=program,
-        run_id=run_id,
-        journal=journal,
-        instrument_provider=instrument_provider,
+        session=session,
         coverage_observer=commit_coverage,
     )
 
@@ -279,6 +277,157 @@ def _execute_run(
     return manifest
 
 
+def _execute_instrument_effects(
+    *,
+    program: RunProgram,
+    session: ExecutionSession,
+    coverage_observer: CoverageMeasurementObserver,
+) -> RunEffectResult:
+    instruments = session.instruments
+    setup_problems = list(instruments.setup_problems)
+    if not instruments.ready:
+        return RunEffectResult(
+            problems=tuple(setup_problems),
+            initial_state=(),
+            final_state=(),
+        )
+
+    setup_problems.extend(
+        _instrument_binding_problems(
+            program=program,
+            provider_id=instruments.provider_id,
+            descriptions=instruments.descriptions,
+            run_id=session.run_id,
+        )
+    )
+    if setup_problems:
+        release_problems, release_unknown = _release_instrument_setup(
+            run_id=session.run_id,
+            instruments=session.instruments,
+            descriptions=instruments.descriptions,
+        )
+        return RunEffectResult(
+            problems=(*setup_problems, *release_problems),
+            initial_state=(),
+            final_state=(),
+            indeterminate=release_unknown,
+        )
+
+    engine = RunEffectInterpreter(
+        run_id=session.run_id,
+        coordinate_ids=program.points.coordinate_ids,
+        resource_order=program.resource_order,
+        instruments=instruments,
+        journal=session.journal,
+        coverage_observer=coverage_observer,
+    )
+    return engine.run(
+        program.coverage,
+        points=program.points.points,
+    )
+
+
+def _instrument_binding_problems(
+    *,
+    program: RunProgram,
+    provider_id: str | None,
+    descriptions: tuple[InstrumentDescription, ...],
+    run_id: str,
+) -> list[Problem]:
+    actual = {description.instrument_id: description for description in descriptions}
+    host = program.host
+    advertised = {} if host is None else host.advertised_descriptions
+    expected_ids = program.resource_order
+    actual_ids = tuple(actual)
+    problems: list[Problem] = []
+    expected_provider_id = None if host is None else host.provider_id
+    if provider_id != expected_provider_id:
+        problems.append(
+            runtime_problem(
+                "daemon_instrument_provider_changed",
+                "daemon instrument provider differs from the admitted program",
+                run_id=run_id,
+                operation_id="lifecycle.provide-instruments",
+            )
+        )
+    for instrument_id in sorted(set(expected_ids) - set(actual_ids)):
+        problems.append(
+            runtime_problem(
+                "daemon_instrument_missing",
+                f"daemon did not provision instrument {instrument_id}",
+                run_id=run_id,
+                operation_id="lifecycle.provide-instruments",
+                instrument_id=instrument_id,
+            )
+        )
+    for instrument_id in sorted(set(actual_ids) - set(expected_ids)):
+        problems.append(
+            runtime_problem(
+                "daemon_instrument_unexpected",
+                f"daemon provisioned unexpected instrument {instrument_id}",
+                run_id=run_id,
+                operation_id="lifecycle.provide-instruments",
+                instrument_id=instrument_id,
+            )
+        )
+    if set(actual_ids) == set(expected_ids) and actual_ids != expected_ids:
+        problems.append(
+            runtime_problem(
+                "daemon_instrument_order_changed",
+                "daemon instrument order differs from the admitted program",
+                run_id=run_id,
+                operation_id="lifecycle.provide-instruments",
+            )
+        )
+    for instrument_id in sorted(set(advertised) & set(actual)):
+        if advertised[instrument_id] != actual[instrument_id]:
+            problems.append(
+                runtime_problem(
+                    "instrument_description_changed_after_provision",
+                    (
+                        f"instrument {instrument_id} differs from its "
+                        "advertised contract"
+                    ),
+                    run_id=run_id,
+                    operation_id="lifecycle.provide-instruments",
+                    instrument_id=instrument_id,
+                )
+            )
+    return problems
+
+
+def _release_instrument_setup(
+    *,
+    run_id: str,
+    instruments: RunInstrumentHost,
+    descriptions: tuple[InstrumentDescription, ...],
+) -> tuple[list[Problem], bool]:
+    instrument_ids = tuple(description.instrument_id for description in descriptions)
+    problems: list[Problem] = []
+    actions: tuple[InstrumentLifecycleAction, ...] = ("abort", "close")
+    for action in actions:
+        for instrument_id in reversed(instrument_ids):
+            operation_id = f"lifecycle.setup-{action}.{instrument_id}"
+            try:
+                instruments.lifecycle(
+                    instrument_id,
+                    operation_id=operation_id,
+                    action=action,
+                )
+            except Exception as error:
+                problems.append(
+                    problem_from_exception(
+                        f"instrument_setup_{action}_failed",
+                        f"instrument setup {action} failed for {instrument_id}",
+                        run_id=run_id,
+                        operation_id=operation_id,
+                        instrument_id=instrument_id,
+                        error=error,
+                    )
+                )
+    return problems, bool(problems)
+
+
 def _effect_problems(
     *,
     result: RunEffectResult,
@@ -288,7 +437,7 @@ def _effect_problems(
         contextualize_problems(
             result.problems,
             run_id=run_id,
-            operation_id="execution-plan.local",
+            operation_id="execution-plan.effects",
         )
     )
 

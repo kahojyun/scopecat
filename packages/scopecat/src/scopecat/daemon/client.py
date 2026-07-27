@@ -58,6 +58,13 @@ from scopecat.daemon.wire import (
     MeasurementSealCommand,
     RunAdmission,
     RunAttachmentCommand,
+    RunInstrumentApplyCommand,
+    RunInstrumentCollectCommand,
+    RunInstrumentLifecycleCommand,
+    RunInstrumentLifecycleReceipt,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
+    RunInstrumentReadCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -551,6 +558,65 @@ class DaemonClient:
             ExecutorLease,
         )
 
+    def provision_run_instruments(
+        self,
+        run_id: str,
+        command: RunInstrumentProvisionCommand,
+    ) -> RunInstrumentProvisionReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/instruments/provision",
+            command,
+            RunInstrumentProvisionReceipt,
+        )
+
+    def read_run_instrument_state(
+        self,
+        run_id: str,
+        instrument_id: str,
+        command: RunInstrumentReadCommand,
+    ) -> InstrumentStateSnapshot:
+        return self._post_idempotent_model(
+            self._run_instrument_path(run_id, instrument_id, "state/read"),
+            command,
+            InstrumentStateSnapshot,
+        )
+
+    def apply_run_instrument_state(
+        self,
+        run_id: str,
+        instrument_id: str,
+        command: RunInstrumentApplyCommand,
+    ) -> ApplyReceipt:
+        return self._post_idempotent_model(
+            self._run_instrument_path(run_id, instrument_id, "state/apply"),
+            command,
+            ApplyReceipt,
+        )
+
+    def collect_run_instrument(
+        self,
+        run_id: str,
+        instrument_id: str,
+        command: RunInstrumentCollectCommand,
+    ) -> CollectReceipt:
+        return self._post_idempotent_model(
+            self._run_instrument_path(run_id, instrument_id, "collect"),
+            command,
+            CollectReceipt,
+        )
+
+    def run_instrument_lifecycle(
+        self,
+        run_id: str,
+        instrument_id: str,
+        command: RunInstrumentLifecycleCommand,
+    ) -> RunInstrumentLifecycleReceipt:
+        return self._post_idempotent_model(
+            self._run_instrument_path(run_id, instrument_id, "lifecycle"),
+            command,
+            RunInstrumentLifecycleReceipt,
+        )
+
     def append_transition(
         self,
         run_id: str,
@@ -614,6 +680,17 @@ class DaemonClient:
         return (
             f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/"
             f"instruments/{quote(instrument_id, safe='')}/{suffix}"
+        )
+
+    @staticmethod
+    def _run_instrument_path(
+        run_id: str,
+        instrument_id: str,
+        suffix: str,
+    ) -> str:
+        return (
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/instruments/"
+            f"{quote(instrument_id, safe='')}/{suffix}"
         )
 
     def _post_model[ModelT: BaseModel](

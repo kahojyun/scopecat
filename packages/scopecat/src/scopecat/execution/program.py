@@ -18,7 +18,7 @@ from scopecat.sdk.instruments.contracts import (
 
 @dataclass(frozen=True, slots=True)
 class RunHostBinding:
-    """Provisioning contract for host effects referenced by a RunProgram."""
+    """Advertised daemon-instrument contract referenced by a RunProgram."""
 
     resource_order: tuple[str, ...]
     provider_id: str
@@ -58,8 +58,8 @@ class RunProgram:
 
     Logical point identity and measurement correlation are independent of how
     ``coverage`` partitions physical work. Coverage and domain preparations are
-    complete and repeatedly inspectable before the run boundary provisions
-    concrete providers.
+    complete and repeatedly inspectable before the daemon provisions the
+    admitted instrument claims.
     """
 
     config_content_hash: ConfigContentHash
