@@ -38,18 +38,15 @@ from scopecat.daemon.wire import (
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
-    ConfigRevisionDefaultCommand,
-    ConfigRevisionDefaultReceipt,
-    ConfigRevisionRegistrationCommand,
-    ConfigRevisionRegistrationReceipt,
-    ConfigRollbackCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    ConfigUndoCommand,
     ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
     MeasurementSealCommand,
-    ParameterProposalApprovalCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -58,7 +55,6 @@ from scopecat.daemon.wire import (
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
-from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -112,17 +108,9 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def get_config_entry(entry_id: str) -> ConfigEntryView:
         return application.config.get_config_entry(entry_id)
 
-    @app.post(f"{_API_PREFIX}/config-registry/entries", status_code=201)
-    def register_config_revision(
-        command: ConfigRevisionRegistrationCommand,
-    ) -> ConfigRevisionRegistrationReceipt:
-        return application.config.register_config_revision(command)
-
     @app.post(f"{_API_PREFIX}/config-registry/default")
-    def set_config_default(
-        command: ConfigRevisionDefaultCommand,
-    ) -> ConfigRevisionDefaultReceipt:
-        return application.config.set_config_default(command)
+    def publish_config(command: ConfigPublishCommand) -> ConfigPublishReceipt:
+        return application.config.publish_config(command)
 
     @app.post(f"{_API_PREFIX}/config-registry/drafts/preview")
     def preview_config_draft(
@@ -136,11 +124,11 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ConfigActivationReceipt:
         return application.config.activate_config_entry(command)
 
-    @app.post(f"{_API_PREFIX}/config-registry/rollback")
-    def rollback_config(
-        command: ConfigRollbackCommand,
+    @app.post(f"{_API_PREFIX}/config-registry/undo")
+    def undo_config(
+        command: ConfigUndoCommand,
     ) -> ConfigActivationReceipt:
-        return application.config.rollback_config(command)
+        return application.config.undo_config(command)
 
     @app.get(f"{_API_PREFIX}/runs")
     def list_runs(
@@ -250,20 +238,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals")
     def list_parameter_proposals(run_id: str) -> ParameterProposalListView:
         return application.runs.list_parameter_proposals(run_id)
-
-    @app.post(
-        f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}/approval"
-    )
-    def approve_parameter_proposal(
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalApprovalCommand,
-    ) -> ParameterChangeApprovalRecord:
-        return application.runs.approve_parameter_proposal(
-            run_id,
-            proposal_id,
-            command,
-        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attention")
     def resolve_attention(

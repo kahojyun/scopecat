@@ -74,8 +74,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
     activation = activate_candidate_config(
         candidate=candidate,
         services=sqlite_project_services(tmp_path),
-        registered_by="operator",
-        operator="operator",
+        actor="operator",
         entry_id="candidate-table-update",
     )
     entry = activation.entry

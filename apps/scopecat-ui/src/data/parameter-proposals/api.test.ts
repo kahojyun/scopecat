@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  activateProposalCandidate,
-  approveParameterProposal,
-  getRunParameterProposals,
-} from "./api";
+import { acceptProposal, getRunParameterProposals } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -82,46 +78,27 @@ describe("parameter proposal reads", () => {
 });
 
 describe("parameter proposal commands", () => {
-  it("uses the path as approval identity and records the actor", async () => {
+  it("accepts and publishes a proposal in one generation-checked request", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
 
-    await approveParameterProposal("run/a", "proposal b", {
-      reviewer: "Grace",
-      note: "Evidence reviewed",
-    });
-
-    expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/approval", {
-      actor: "Grace",
-      note: "Evidence reviewed",
-    });
-  });
-
-  it("sends generation-checked candidate activation evidence", async () => {
-    const fetchMock = vi.fn((_input: string | URL | Request) => Promise.resolve(jsonResponse({})));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await activateProposalCandidate({
+    await acceptProposal({
       runId: "run-a",
       proposalId: "drive-frequency",
-      registeredBy: "Ada",
-      operator: "Ada",
+      actor: "Ada",
       expectedGeneration: 4,
       note: "Promote calibrated frequency",
     });
 
     expectRequest(fetchMock, "/api/v1/config-registry/default", {
-      registration: {
-        source: {
-          kind: "candidate_config",
-          run_id: "run-a",
-          proposal_id: "drive-frequency",
-        },
-        registered_by: "Ada",
-        note: "Promote calibrated frequency",
+      source: {
+        kind: "candidate_config",
+        run_id: "run-a",
+        proposal_id: "drive-frequency",
       },
-      operator: "Ada",
+      actor: "Ada",
       expected_generation: 4,
+      note: "Promote calibrated frequency",
     });
   });
 
@@ -132,11 +109,10 @@ describe("parameter proposal commands", () => {
     );
 
     await expect(
-      activateProposalCandidate({
+      acceptProposal({
         runId: "run-a",
         proposalId: "drive-frequency",
-        registeredBy: "Ada",
-        operator: "Ada",
+        actor: "Ada",
         expectedGeneration: 4,
         note: "",
       }),

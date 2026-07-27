@@ -11,23 +11,14 @@ import {
   XCircle,
 } from "lucide-react";
 import { getConfigRegistry } from "../config/config-api";
-import {
-  activateProposalCandidate,
-  approveParameterProposal,
-  getRunParameterProposals,
-} from "../../data/parameter-proposals/api";
+import { acceptProposal, getRunParameterProposals } from "../../data/parameter-proposals/api";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 
-interface ApprovalInput {
-  proposalId: string;
-  note: string;
-}
-
 export function RunProposals({ runId }: { runId: string }) {
   const queryClient = useQueryClient();
-  const [reviewer, setReviewer] = useState("local-operator");
+  const [actor, setActor] = useState("local-operator");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [defaultedProposalId, setDefaultedProposalId] = useState<string>();
   const { requestConfirmation, confirmationDialog } = useConfirmationDialog();
@@ -43,65 +34,25 @@ export function RunProposals({ runId }: { runId: string }) {
   });
   const generation = configQuery.data?.activation?.generation ?? 0;
 
-  const approvalMutation = useMutation({
-    mutationFn: (input: ApprovalInput) =>
-      approveParameterProposal(runId, input.proposalId, {
-        reviewer: reviewer.trim(),
-        note: input.note,
+  const acceptMutation = useMutation({
+    mutationFn: ({ proposal, note }: { proposal: ParameterProposal; note: string }) =>
+      acceptProposal({
+        runId,
+        proposalId: proposal.id,
+        actor: actor.trim(),
+        expectedGeneration: generation,
+        note,
       }),
     onSuccess: async (_, input) => {
-      setNotes((current) => ({ ...current, [input.proposalId]: "" }));
-      await invalidateProposalConsumers(queryClient, runId);
-    },
-  });
-  const acceptMutation = useMutation({
-    mutationFn: async ({ proposal, note }: { proposal: ParameterProposal; note: string }) => {
-      if (!proposal.approval) {
-        await approveParameterProposal(runId, proposal.id, {
-          reviewer: reviewer.trim(),
-          note,
-        });
-      }
-      try {
-        await activateProposalCandidate({
-          runId,
-          proposalId: proposal.id,
-          registeredBy: reviewer.trim(),
-          operator: reviewer.trim(),
-          expectedGeneration: generation,
-          note,
-        });
-      } catch (error) {
-        throw new Error(
-          `The proposal is accepted, but the default was not changed: ${errorMessage(error)}`,
-          { cause: error },
-        );
-      }
-    },
-    onSuccess: async (_, input) => {
       setDefaultedProposalId(input.proposal.id);
+      setNotes((current) => ({ ...current, [input.proposal.id]: "" }));
       await Promise.all([
         invalidateProposalConsumers(queryClient, runId),
         queryClient.invalidateQueries({ queryKey: ["config"] }),
       ]);
     },
-    onError: async () => {
-      await invalidateProposalConsumers(queryClient, runId);
-    },
   });
 
-  const approve = (proposalId: string) => {
-    requestConfirmation({
-      title: "Approve this proposal?",
-      description: `Record the immutable operator approval for parameter proposal ${proposalId}.`,
-      confirmLabel: "Approve proposal",
-      onConfirm: () =>
-        approvalMutation.mutate({
-          proposalId,
-          note: notes[proposalId]?.trim() ?? "",
-        }),
-    });
-  };
   const setDefault = (proposal: ParameterProposal) => {
     requestConfirmation({
       title: "Accept this proposal as the default?",
@@ -126,10 +77,10 @@ export function RunProposals({ runId }: { runId: string }) {
           <p>Review run-scoped changes and keep an approved result as the default when ready.</p>
         </div>
         <label className="proposal-reviewer">
-          <span>Reviewer</span>
+          <span>Actor</span>
           <input
-            value={reviewer}
-            onChange={(event) => setReviewer(event.target.value)}
+            value={actor}
+            onChange={(event) => setActor(event.target.value)}
             autoComplete="name"
           />
         </label>
@@ -159,17 +110,13 @@ export function RunProposals({ runId }: { runId: string }) {
         <div className="proposal-list">
           {proposalsQuery.data.items.map((proposal) => {
             const note = notes[proposal.id] ?? "";
-            const approving =
-              approvalMutation.isPending && approvalMutation.variables?.proposalId === proposal.id;
             const activating =
               acceptMutation.isPending && acceptMutation.variables?.proposal.id === proposal.id;
             const canSetDefault = !configQuery.isPending && !configQuery.isError;
             const proposalError =
               acceptMutation.error && acceptMutation.variables?.proposal.id === proposal.id
                 ? acceptMutation.error
-                : approvalMutation.error && approvalMutation.variables?.proposalId === proposal.id
-                  ? approvalMutation.error
-                  : undefined;
+                : undefined;
             return (
               <section className="proposal" key={proposal.id}>
                 <header>
@@ -215,7 +162,7 @@ export function RunProposals({ runId }: { runId: string }) {
                     disabled={
                       !canSetDefault ||
                       activating ||
-                      !reviewer.trim() ||
+                      !actor.trim() ||
                       defaultedProposalId === proposal.id
                     }
                     title={
@@ -232,21 +179,6 @@ export function RunProposals({ runId }: { runId: string }) {
                     )}
                     {defaultedProposalId === proposal.id ? "Default set" : "Accept as default"}
                   </button>
-                  {!proposal.approval && (
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      disabled={approving || !reviewer.trim()}
-                      onClick={() => approve(proposal.id)}
-                    >
-                      {approving ? (
-                        <LoaderCircle className="spin" size={14} />
-                      ) : (
-                        <CheckCircle2 size={14} />
-                      )}
-                      Approve only
-                    </button>
-                  )}
                 </div>
                 {proposalError ? (
                   <p className="proposal-error" role="status">

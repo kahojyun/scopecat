@@ -33,7 +33,7 @@ candidate_run = lab.prepare(drag_beta_template(), config=candidate).run(
 # %%
 accepted = lab.config.accept(
     candidate,
-    operator="nightly-calibration",
+    actor="nightly-calibration",
     note="accept the reviewed DRAG fit",
 )
 

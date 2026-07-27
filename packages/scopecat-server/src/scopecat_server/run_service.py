@@ -20,7 +20,6 @@ from scopecat.analysis.service import (
 from scopecat.config.changes import (
     list_parameter_change_proposals,
     load_parameter_change_approval,
-    prepare_parameter_change_approval,
 )
 from scopecat.control.models import (
     ControlRunState,
@@ -46,7 +45,6 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    ParameterProposalApprovalCommand,
     RunAttachmentCommand,
 )
 from scopecat.kernel.errors import (
@@ -58,7 +56,6 @@ from scopecat.kernel.errors import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
@@ -393,42 +390,6 @@ class RunService:
                     for proposal in proposals
                 ),
             )
-
-    def approve_parameter_proposal(
-        self,
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalApprovalCommand,
-    ) -> ParameterChangeApprovalRecord:
-        with self._config_errors():
-            prepared = prepare_parameter_change_approval(
-                run_id=run_id,
-                selector=proposal_id,
-                services=self._services,
-                actor=command.actor,
-                note=command.note,
-            )
-            if prepared.publication is None:
-                return prepared.approval
-            publication = self._runs.prepare_content_publication(prepared.publication)
-            with self._control.transaction() as connection:
-                self._runs.publish_prepared_content_in_transaction(
-                    connection,
-                    publication,
-                )
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        run_id=run_id,
-                        kind="parameter_proposal_approved",
-                        payload={
-                            "proposal_id": prepared.approval.proposal_id,
-                            "actor": prepared.approval.actor,
-                        },
-                        occurred_at=prepared.approval.approved_at,
-                    ),
-                )
-        return prepared.approval
 
     def measurements(
         self,

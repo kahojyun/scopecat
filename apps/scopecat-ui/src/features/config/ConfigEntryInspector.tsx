@@ -86,10 +86,10 @@ export function ConfigEntryInspector({
       </header>
       <div className="config-detail-facts">
         <ConfigFact label="Source" value={configSourceLabel(entry)} />
-        <ConfigFact label="Saved by" value={entry.registered_by || "Not reported"} />
+        <ConfigFact label="Saved by" value={entry.actor || "Not reported"} />
         <ConfigFact
           label="Saved"
-          value={entry.registered_at ? formatDateTime(entry.registered_at) : "Not reported"}
+          value={entry.recorded_at ? formatDateTime(entry.recorded_at) : "Not reported"}
         />
         <ConfigFact label="Config ref" value={entry.config_ref || "Not reported"} code />
       </div>

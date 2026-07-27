@@ -37,18 +37,15 @@ from scopecat.daemon.wire import (
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
-    ConfigRevisionDefaultCommand,
-    ConfigRevisionDefaultReceipt,
-    ConfigRevisionRegistrationCommand,
-    ConfigRevisionRegistrationReceipt,
-    ConfigRollbackCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    ConfigUndoCommand,
     ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
     MeasurementSealCommand,
-    ParameterProposalApprovalCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -57,7 +54,6 @@ from scopecat.daemon.wire import (
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
-from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -143,24 +139,14 @@ class DaemonClient:
             ConfigEntryView,
         )
 
-    def register_config_revision(
+    def publish_config(
         self,
-        command: ConfigRevisionRegistrationCommand,
-    ) -> ConfigRevisionRegistrationReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/config-registry/entries",
-            command,
-            ConfigRevisionRegistrationReceipt,
-        )
-
-    def set_config_default(
-        self,
-        command: ConfigRevisionDefaultCommand,
-    ) -> ConfigRevisionDefaultReceipt:
+        command: ConfigPublishCommand,
+    ) -> ConfigPublishReceipt:
         return self._post_model(
             f"{_API_PREFIX}/config-registry/default",
             command,
-            ConfigRevisionDefaultReceipt,
+            ConfigPublishReceipt,
         )
 
     def preview_config_draft(
@@ -183,12 +169,12 @@ class DaemonClient:
             ConfigActivationReceipt,
         )
 
-    def rollback_config(
+    def undo_config(
         self,
-        command: ConfigRollbackCommand,
+        command: ConfigUndoCommand,
     ) -> ConfigActivationReceipt:
         return self._post_model(
-            f"{_API_PREFIX}/config-registry/rollback",
+            f"{_API_PREFIX}/config-registry/undo",
             command,
             ConfigActivationReceipt,
         )
@@ -360,23 +346,6 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/parameter-proposals",
             ParameterProposalListView,
-        )
-
-    def approve_parameter_proposal(
-        self,
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalApprovalCommand,
-    ) -> ParameterChangeApprovalRecord:
-        selected_run = quote(run_id, safe="")
-        selected_proposal = quote(proposal_id, safe="")
-        return self._post_model(
-            (
-                f"{_API_PREFIX}/runs/{selected_run}/parameter-proposals/"
-                f"{selected_proposal}/approval"
-            ),
-            command,
-            ParameterChangeApprovalRecord,
         )
 
     def resolve_attention(

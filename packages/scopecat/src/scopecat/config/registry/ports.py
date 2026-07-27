@@ -38,7 +38,7 @@ class ConfigRegistryRepository(Protocol):
 
     def list_activation_history(self) -> tuple[ConfigRegistryActivationRecord, ...]: ...
 
-    def commit_registration(
+    def commit_revision(
         self,
         *,
         entry: ConfigRegistryEntry,

@@ -14,7 +14,7 @@ from scopecat.daemon.endpoint import (
     DaemonEndpointError,
     read_daemon_endpoint_record,
 )
-from scopecat.daemon.wire import ConfigRevisionDefaultReceipt
+from scopecat.daemon.wire import ConfigPublishReceipt
 from scopecat.project import Project
 from scopecat.records.config import (
     ConfigContentHash,
@@ -58,7 +58,7 @@ class ProjectConfigApplyResult:
 
     source: ConfigProfileSnapshot
     previous: ConfigProfileSnapshot
-    receipt: ConfigRevisionDefaultReceipt
+    receipt: ConfigPublishReceipt
     source_content_hash: ConfigContentHash
     previous_content_hash: ConfigContentHash
 
@@ -112,8 +112,7 @@ def apply_project_config(
         previous = lab.resolve_config("active")
         receipt = lab.config.set_default(
             source,
-            registered_by=actor,
-            operator=actor,
+            actor=actor,
             note=note,
         )
     return ProjectConfigApplyResult(

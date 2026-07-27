@@ -32,11 +32,9 @@ from scopecat.daemon.views import (
 )
 from scopecat.daemon.wire import (
     ConfigActivationReceipt,
-    ConfigRevisionDefaultCommand,
-    ConfigRevisionDefaultReceipt,
-    ConfigRevisionRegistrationCommand,
-    ConfigRevisionRegistrationReceipt,
-    ConfigRollbackCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    ConfigUndoCommand,
     DirectConfigRevisionSource,
     ExecutorLease,
     ManualConfigDraftRevisionSource,
@@ -273,7 +271,7 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
         activation=activation,
         candidate_id="notebook-tuning",
     )
-    defaults: list[ConfigRevisionDefaultCommand] = []
+    publishes: list[ConfigPublishCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -286,8 +284,8 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
         if path == "/api/v1/config-registry/drafts/preview":
             return _model(preview)
         if path == "/api/v1/config-registry/default":
-            command = ConfigRevisionDefaultCommand.model_validate_json(request.content)
-            defaults.append(command)
+            command = ConfigPublishCommand.model_validate_json(request.content)
+            publishes.append(command)
             return _model(
                 _config_draft_default_receipt(command, preview, activation),
             )
@@ -305,17 +303,16 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
     )
 
     assert receipt.entry.id == "notebook-tuning"
-    assert defaults[0].registration.registered_by == "notebook-operator"
-    source = defaults[0].registration.source
+    assert publishes[0].actor == "notebook-operator"
+    source = publishes[0].source
     assert isinstance(source, ManualConfigDraftRevisionSource)
     assert source.expected_result_content_hash == preview.result_content_hash
-    assert defaults[0].operator == "notebook-operator"
 
 
 def test_lab_config_intents_hide_registry_coordination() -> None:
     config = load_config()
     entry, activation = _config_registry_records(config)
-    seen: list[ConfigRevisionDefaultCommand | ConfigRollbackCommand] = []
+    seen: list[ConfigPublishCommand | ConfigUndoCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -326,16 +323,16 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
                 ActiveConfigView(entry=entry, activation=activation, config=config)
             )
         if path == "/api/v1/config-registry/default":
-            command = ConfigRevisionDefaultCommand.model_validate_json(request.content)
+            command = ConfigPublishCommand.model_validate_json(request.content)
             seen.append(command)
             return _model(
-                ConfigRevisionDefaultReceipt(
+                ConfigPublishReceipt(
                     entry=entry,
                     activation=activation,
                 )
             )
-        if path == "/api/v1/config-registry/rollback":
-            command = ConfigRollbackCommand.model_validate_json(request.content)
+        if path == "/api/v1/config-registry/undo":
+            command = ConfigUndoCommand.model_validate_json(request.content)
             seen.append(command)
             return _model(
                 ConfigActivationReceipt(
@@ -352,18 +349,15 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
     assert set_receipt.entry == entry
     assert undo_receipt.activation == activation
     assert seen == [
-        ConfigRevisionDefaultCommand(
-            registration=ConfigRevisionRegistrationCommand(
-                source=DirectConfigRevisionSource(config=config),
-                entry_id=config_revision_entry_id(config),
-                registered_by="notebook-operator",
-                note="use tuned values",
-            ),
-            operator="notebook-operator",
+        ConfigPublishCommand(
+            source=DirectConfigRevisionSource(config=config),
+            entry_id=config_revision_entry_id(config),
+            actor="notebook-operator",
             expected_generation=activation.generation,
+            note="use tuned values",
         ),
-        ConfigRollbackCommand(
-            operator="notebook-operator",
+        ConfigUndoCommand(
+            actor="notebook-operator",
             expected_generation=activation.generation,
             note="restore prior values",
         ),
@@ -553,16 +547,15 @@ def _config_registry_records(
         config_ref="config-registry/entries/baseline/config.json",
         content_hash=config_content_hash(config),
         source=DirectConfigRegistrySource(),
-        registered_by="notebook",
-        registered_at=_NOW,
+        actor="notebook",
+        recorded_at=_NOW,
     )
     activation = ConfigRegistryActivationRecord(
-        id="activation-1",
         generation=1,
         action="activation",
         entry_id=entry.id,
         entry_content_hash=entry.content_hash,
-        operator="operator",
+        actor="operator",
         recorded_at=_NOW,
     )
     return entry, activation
@@ -596,55 +589,41 @@ def _config_draft_preview(
     )
 
 
-def _config_draft_registration_receipt(
-    command: ConfigRevisionRegistrationCommand,
+def _config_draft_default_receipt(
+    command: ConfigPublishCommand,
     preview: ConfigDraftPreview,
-) -> ConfigRevisionRegistrationReceipt:
+    previous_activation: ConfigRegistryActivationRecord,
+) -> ConfigPublishReceipt:
     assert preview.result_content_hash is not None
     assert command.entry_id is not None
     source = command.source
     assert isinstance(source, ManualConfigDraftRevisionSource)
-    return ConfigRevisionRegistrationReceipt(
-        entry=ConfigRegistryEntry(
-            id=command.entry_id,
-            config_ref=f"config-registry/entries/{command.entry_id}/config.json",
-            content_hash=preview.result_content_hash,
-            source=ManualConfigDraftRegistrySource(
-                base_entry_id=source.draft.base_entry_id,
-                base_config_content_hash=source.draft.base_content_hash,
-                base_registry_generation=source.draft.base_generation,
-            ),
-            registered_by=command.registered_by,
-            note=command.note,
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref=f"config-registry/entries/{command.entry_id}/config.json",
+        content_hash=preview.result_content_hash,
+        source=ManualConfigDraftRegistrySource(
+            base_entry_id=source.draft.base_entry_id,
+            base_config_content_hash=source.draft.base_content_hash,
+            base_registry_generation=source.draft.base_generation,
         ),
-        deltas=preview.deltas,
-    )
-
-
-def _config_draft_default_receipt(
-    command: ConfigRevisionDefaultCommand,
-    preview: ConfigDraftPreview,
-    previous_activation: ConfigRegistryActivationRecord,
-) -> ConfigRevisionDefaultReceipt:
-    registration = _config_draft_registration_receipt(
-        command.registration,
-        preview,
+        actor=command.actor,
+        note=command.note,
     )
     activation = ConfigRegistryActivationRecord(
-        id="activation-2",
         generation=previous_activation.generation + 1,
         action="activation",
-        entry_id=registration.entry.id,
-        entry_content_hash=registration.entry.content_hash,
+        entry_id=entry.id,
+        entry_content_hash=entry.content_hash,
         previous_entry_id=previous_activation.entry_id,
         previous_entry_content_hash=previous_activation.entry_content_hash,
-        operator=command.operator,
-        note=command.activation_note or command.registration.note,
+        actor=command.actor,
+        note=command.note,
         recorded_at=_NOW + timedelta(seconds=1),
     )
-    return ConfigRevisionDefaultReceipt(
-        entry=registration.entry,
-        deltas=registration.deltas,
+    return ConfigPublishReceipt(
+        entry=entry,
+        deltas=preview.deltas,
         activation=activation,
     )
 

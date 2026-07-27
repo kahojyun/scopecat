@@ -187,7 +187,7 @@ def test_candidate_config_from_snapshot_rejects_stale_base_id(
     )
 
 
-def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
+def test_candidate_config_rejects_drifted_source_snapshot_before_publish(
     tmp_path: Path,
 ) -> None:
     lab = _lab(tmp_path)
@@ -214,8 +214,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
         activate_candidate_config(
             candidate=candidate,
             services=sqlite_project_services(tmp_path),
-            registered_by="operator",
-            operator="operator",
+            actor="operator",
         )
 
     assert error.value.problems[0].code == "run.config_provenance_mismatch"

@@ -16,11 +16,10 @@ from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.config.registry.service import (
     CandidateConfigRevisionSource,
     ConfigRegistryMutationResult,
-    ConfigRevisionRegistration,
+    ConfigRevision,
     current_config_registry_generation,
     load_config_registry_entry_snapshot,
-    register_and_activate_config_revision,
-    register_config_revision,
+    publish_config_revision,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.project_state import ProjectStateServices
@@ -61,40 +60,13 @@ def load_config_registry_config(
     ).config
 
 
-def register_candidate_config(
-    *,
-    unit_of_work: ConfigRegistryUnitOfWorkFactory,
-    entry_id: str,
-    registered_by: str,
-    run_id: str,
-    proposal_id: str,
-    note: str = "",
-) -> ConfigRegistryEntry:
-    """Register without activation for persistence tests."""
-
-    return register_config_revision(
-        registration=ConfigRevisionRegistration(
-            source=CandidateConfigRevisionSource(
-                run_id=run_id,
-                proposal_id=proposal_id,
-            ),
-            entry_id=entry_id,
-            registered_by=registered_by,
-            note=note,
-        ),
-        unit_of_work=unit_of_work,
-    ).entry
-
-
 def activate_candidate_config(
     *,
     candidate: CandidateConfig,
     services: ProjectStateServices,
     entry_id: str | None = None,
-    registered_by: str,
-    operator: str,
+    actor: str,
     note: str = "",
-    activation_note: str | None = None,
     expected_generation: int | None = None,
 ) -> ConfigRegistryMutationResult:
     generation = (
@@ -102,20 +74,18 @@ def activate_candidate_config(
         if expected_generation is None
         else expected_generation
     )
-    return register_and_activate_config_revision(
-        registration=ConfigRevisionRegistration(
+    return publish_config_revision(
+        revision=ConfigRevision(
             source=CandidateConfigRevisionSource(
                 run_id=candidate.source_run_id,
                 proposal_id=candidate.proposal_id,
             ),
             entry_id=entry_id,
-            registered_by=registered_by,
+            actor=actor,
             note=note,
         ),
         unit_of_work=services.config_registry,
-        operator=operator,
         expected_generation=generation,
-        activation_note=activation_note,
     )
 
 

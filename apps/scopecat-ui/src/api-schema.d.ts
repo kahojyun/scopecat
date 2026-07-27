@@ -64,8 +64,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Set Config Default */
-        post: operations["set_config_default_api_v1_config_registry_default_post"];
+        /** Publish Config */
+        post: operations["publish_config_api_v1_config_registry_default_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -89,23 +89,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config-registry/entries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Register Config Revision */
-        post: operations["register_config_revision_api_v1_config_registry_entries_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/config-registry/entries/{entry_id}": {
         parameters: {
             query?: never;
@@ -123,7 +106,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/config-registry/rollback": {
+    "/api/v1/config-registry/undo": {
         parameters: {
             query?: never;
             header?: never;
@@ -132,8 +115,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Rollback Config */
-        post: operations["rollback_config_api_v1_config_registry_rollback_post"];
+        /** Undo Config */
+        post: operations["undo_config_api_v1_config_registry_undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -321,23 +304,6 @@ export interface paths {
         get: operations["list_parameter_proposals_api_v1_runs__run_id__parameter_proposals_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Approve Parameter Proposal */
-        post: operations["approve_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__approval_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -553,8 +519,6 @@ export interface components {
         };
         /** CandidateConfigRegistrySource */
         CandidateConfigRegistrySource: {
-            /** Approval Record Id */
-            approval_record_id: string;
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -631,9 +595,10 @@ export interface components {
         };
         /**
          * ConfigEntryActivationCommand
-         * @description Select a registered entry with generation compare-and-swap.
+         * @description Select a saved revision with generation compare-and-swap.
          */
         ConfigEntryActivationCommand: {
+            actor: components["schemas"]["NonEmptyText"];
             entry_id: components["schemas"]["NonEmptyText"];
             /** Expected Generation */
             expected_generation: number;
@@ -642,7 +607,6 @@ export interface components {
              * @default
              */
             note: string;
-            operator: components["schemas"]["NonEmptyText"];
         };
         /**
          * ConfigEntryView
@@ -672,27 +636,51 @@ export interface components {
             parameter_snapshot: components["schemas"]["ParameterSnapshot-Output"];
             system: components["schemas"]["SystemSpec-Output"];
         };
+        /**
+         * ConfigPublishCommand
+         * @description Validate, save, and select one revision in a single transaction.
+         */
+        ConfigPublishCommand: {
+            actor: components["schemas"]["NonEmptyText"];
+            entry_id?: components["schemas"]["NonEmptyText"] | null;
+            /** Expected Generation */
+            expected_generation: number;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            source: components["schemas"]["ConfigRevisionSource"];
+        };
+        /** ConfigPublishReceipt */
+        ConfigPublishReceipt: {
+            activation: components["schemas"]["ConfigRegistryActivationRecord"];
+            /**
+             * Deltas
+             * @default []
+             */
+            deltas: components["schemas"]["ParameterValueDelta-Output"][];
+            entry: components["schemas"]["ConfigRegistryEntry"];
+        };
         /** ConfigRegistryActivationRecord */
         ConfigRegistryActivationRecord: {
             /**
              * Action
              * @enum {string}
              */
-            action: "activation" | "rollback";
+            action: "activation" | "undo";
+            /** Actor */
+            actor: string;
             entry_content_hash: components["schemas"]["ConfigContentHash"];
             /** Entry Id */
             entry_id: string;
             /** Generation */
             generation: number;
-            /** Id */
-            id: string;
             /**
              * Note
              * @default
              */
             note: string;
-            /** Operator */
-            operator: string;
             previous_entry_content_hash?: components["schemas"]["ConfigContentHash"] | null;
             /** Previous Entry Id */
             previous_entry_id?: string | null;
@@ -704,6 +692,8 @@ export interface components {
         };
         /** ConfigRegistryEntry */
         ConfigRegistryEntry: {
+            /** Actor */
+            actor: string;
             /** Config Ref */
             config_ref: string;
             content_hash: components["schemas"]["ConfigContentHash"];
@@ -715,12 +705,10 @@ export interface components {
              */
             note: string;
             /**
-             * Registered At
+             * Recorded At
              * Format: date-time
              */
-            registered_at?: string;
-            /** Registered By */
-            registered_by: string;
+            recorded_at?: string;
             /** Source */
             source: components["schemas"]["DirectConfigRegistrySource"] | components["schemas"]["ManualConfigDraftRegistrySource"] | components["schemas"]["CandidateConfigRegistrySource"];
         };
@@ -743,7 +731,7 @@ export interface components {
         };
         /**
          * ConfigRegistryView
-         * @description Registered entries and the current activation head.
+         * @description Saved revisions and the current activation head.
          */
         ConfigRegistryView: {
             activation?: components["schemas"]["ConfigRegistryActivationRecord"] | null;
@@ -753,57 +741,13 @@ export interface components {
              */
             entries: components["schemas"]["ConfigRegistryEntry"][];
         };
-        /**
-         * ConfigRevisionDefaultCommand
-         * @description Register and select one revision in a single transaction.
-         */
-        ConfigRevisionDefaultCommand: {
-            /** Activation Note */
-            activation_note?: string | null;
-            /** Expected Generation */
-            expected_generation: number;
-            operator: components["schemas"]["NonEmptyText"];
-            registration: components["schemas"]["ConfigRevisionRegistrationCommand"];
-        };
-        /** ConfigRevisionDefaultReceipt */
-        ConfigRevisionDefaultReceipt: {
-            activation: components["schemas"]["ConfigRegistryActivationRecord"];
-            /**
-             * Deltas
-             * @default []
-             */
-            deltas: components["schemas"]["ParameterValueDelta-Output"][];
-            entry: components["schemas"]["ConfigRegistryEntry"];
-        };
-        /**
-         * ConfigRevisionRegistrationCommand
-         * @description Register one direct, reviewed-draft, or approved-candidate revision.
-         */
-        ConfigRevisionRegistrationCommand: {
-            entry_id?: components["schemas"]["NonEmptyText"] | null;
-            /**
-             * Note
-             * @default
-             */
-            note: string;
-            registered_by: components["schemas"]["NonEmptyText"];
-            source: components["schemas"]["ConfigRevisionSource"];
-        };
-        /** ConfigRevisionRegistrationReceipt */
-        ConfigRevisionRegistrationReceipt: {
-            /**
-             * Deltas
-             * @default []
-             */
-            deltas: components["schemas"]["ParameterValueDelta-Output"][];
-            entry: components["schemas"]["ConfigRegistryEntry"];
-        };
         ConfigRevisionSource: components["schemas"]["DirectConfigRevisionSource"] | components["schemas"]["ManualConfigDraftRevisionSource"] | components["schemas"]["CandidateConfigRevisionSource"];
         /**
-         * ConfigRollbackCommand
+         * ConfigUndoCommand
          * @description Restore the previous distinct entry with generation compare-and-swap.
          */
-        ConfigRollbackCommand: {
+        ConfigUndoCommand: {
+            actor: components["schemas"]["NonEmptyText"];
             /** Expected Generation */
             expected_generation: number;
             /**
@@ -811,7 +755,6 @@ export interface components {
              * @default
              */
             note: string;
-            operator: components["schemas"]["NonEmptyText"];
         };
         /**
          * ControlRun
@@ -1213,15 +1156,6 @@ export interface components {
             /** Id */
             id: string;
             value_type: components["schemas"]["PersistableValueType"];
-        };
-        /** ParameterProposalApprovalCommand */
-        ParameterProposalApprovalCommand: {
-            actor: components["schemas"]["NonEmptyText"];
-            /**
-             * Note
-             * @default
-             */
-            note: string;
         };
         /** ParameterProposalListView */
         ParameterProposalListView: {
@@ -1850,7 +1784,7 @@ export interface operations {
             };
         };
     };
-    set_config_default_api_v1_config_registry_default_post: {
+    publish_config_api_v1_config_registry_default_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1859,7 +1793,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfigRevisionDefaultCommand"];
+                "application/json": components["schemas"]["ConfigPublishCommand"];
             };
         };
         responses: {
@@ -1869,7 +1803,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigRevisionDefaultReceipt"];
+                    "application/json": components["schemas"]["ConfigPublishReceipt"];
                 };
             };
             /** @description Validation Error */
@@ -1916,39 +1850,6 @@ export interface operations {
             };
         };
     };
-    register_config_revision_api_v1_config_registry_entries_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConfigRevisionRegistrationCommand"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConfigRevisionRegistrationReceipt"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_config_entry_api_v1_config_registry_entries__entry_id__get: {
         parameters: {
             query?: never;
@@ -1980,7 +1881,7 @@ export interface operations {
             };
         };
     };
-    rollback_config_api_v1_config_registry_rollback_post: {
+    undo_config_api_v1_config_registry_undo_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1989,7 +1890,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfigRollbackCommand"];
+                "application/json": components["schemas"]["ConfigUndoCommand"];
             };
         };
         responses: {
@@ -2345,42 +2246,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParameterProposalListView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    approve_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__approval_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                proposal_id: string;
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ParameterProposalApprovalCommand"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ParameterChangeApprovalRecord"];
                 };
             };
             /** @description Validation Error */

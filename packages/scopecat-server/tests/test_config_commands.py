@@ -17,7 +17,7 @@ from scopecat.config.documents import (
     parse_config_snapshot_document,
 )
 from scopecat.daemon.endpoint import DAEMON_URL_ENV, DaemonEndpointRecord
-from scopecat.daemon.wire import ConfigRevisionDefaultReceipt
+from scopecat.daemon.wire import ConfigPublishReceipt
 from scopecat.kernel.errors import CheckFailed
 from scopecat.project import Project
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -203,8 +203,7 @@ def test_apply_uses_config_intent_even_when_content_is_unchanged(
     assert lab.set_default_calls == [
         _SetDefaultCall(
             config=source,
-            registered_by="config-cli",
-            operator="config-cli",
+            actor="config-cli",
             note="publish reviewed source",
         )
     ]
@@ -281,15 +280,14 @@ def test_export_refuses_overwrite_by_default_and_can_replace_explicitly(
 @dataclass(frozen=True, slots=True)
 class _SetDefaultCall:
     config: ConfigProfileSnapshot
-    registered_by: str
-    operator: str
+    actor: str
     note: str
 
 
 class _FakeLab:
     def __init__(self, active: ConfigProfileSnapshot) -> None:
         self.active = active
-        self.receipt = cast("ConfigRevisionDefaultReceipt", object())
+        self.receipt = cast("ConfigPublishReceipt", object())
         self.set_default_calls: list[_SetDefaultCall] = []
         self.closed = False
 
@@ -317,15 +315,13 @@ class _FakeLab:
         self,
         config: ConfigProfileSnapshot,
         *,
-        registered_by: str,
-        operator: str,
+        actor: str,
         note: str,
-    ) -> ConfigRevisionDefaultReceipt:
+    ) -> ConfigPublishReceipt:
         self.set_default_calls.append(
             _SetDefaultCall(
                 config=config,
-                registered_by=registered_by,
-                operator=operator,
+                actor=actor,
                 note=note,
             )
         )

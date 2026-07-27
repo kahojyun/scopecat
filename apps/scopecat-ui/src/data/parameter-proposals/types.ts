@@ -28,16 +28,10 @@ export interface RunParameterProposals {
   items: ParameterProposal[];
 }
 
-export interface ApproveProposalCommand {
-  reviewer: string;
-  note?: string;
-}
-
-export interface ActivateProposalCandidateCommand {
+export interface AcceptProposalCommand {
   runId: string;
   proposalId: string;
-  registeredBy: string;
-  operator: string;
+  actor: string;
   expectedGeneration: number;
   note?: string;
 }

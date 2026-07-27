@@ -20,16 +20,13 @@ from scopecat.daemon.wire import (
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
-    ConfigRevisionDefaultCommand,
-    ConfigRevisionDefaultReceipt,
-    ConfigRevisionRegistrationCommand,
-    ConfigRevisionRegistrationReceipt,
-    ConfigRollbackCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    ConfigUndoCommand,
     DirectConfigRevisionSource,
     ExecutionTransitionAppend,
     ExecutorLease,
     MeasurementAppendCommand,
-    ParameterProposalApprovalCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -73,42 +70,36 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         config_ref="config-registry/entries/baseline/config.json",
         content_hash=config_content_hash(config),
         source=DirectConfigRegistrySource(),
-        registered_by="notebook",
+        actor="notebook",
     )
     activation = ConfigRegistryActivationRecord(
-        id="activation-1",
         generation=1,
         action="activation",
         entry_id=entry.id,
         entry_content_hash=entry.content_hash,
-        operator="operator",
+        actor="operator",
     )
     activated = ConfigActivationReceipt(
         activation=activation,
     )
-    defaulted = ConfigRevisionDefaultReceipt(
+    published = ConfigPublishReceipt(
         entry=entry,
         activation=activation,
     )
-    registration_command = ConfigRevisionRegistrationCommand(
+    publish_command = ConfigPublishCommand(
         source=DirectConfigRevisionSource(config=config),
         entry_id=entry.id,
-        registered_by="notebook",
+        actor="notebook",
+        expected_generation=0,
     )
-    registered = ConfigRevisionRegistrationReceipt(entry=entry)
     activation_command = ConfigEntryActivationCommand(
         entry_id=entry.id,
-        operator="operator",
+        actor="operator",
         expected_generation=0,
     )
-    rollback_command = ConfigRollbackCommand(
-        operator="operator",
+    undo_command = ConfigUndoCommand(
+        actor="operator",
         expected_generation=1,
-    )
-    default_command = ConfigRevisionDefaultCommand(
-        registration=registration_command,
-        operator="operator",
-        expected_generation=0,
     )
 
     assert (
@@ -116,20 +107,8 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         == activated
     )
     assert (
-        ConfigRevisionDefaultReceipt.model_validate_json(defaulted.model_dump_json())
-        == defaulted
-    )
-    assert (
-        ConfigRevisionRegistrationCommand.model_validate_json(
-            registration_command.model_dump_json()
-        )
-        == registration_command
-    )
-    assert (
-        ConfigRevisionRegistrationReceipt.model_validate_json(
-            registered.model_dump_json()
-        )
-        == registered
+        ConfigPublishReceipt.model_validate_json(published.model_dump_json())
+        == published
     )
     assert (
         ConfigEntryActivationCommand.model_validate_json(
@@ -138,14 +117,12 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         == activation_command
     )
     assert (
-        ConfigRollbackCommand.model_validate_json(rollback_command.model_dump_json())
-        == rollback_command
+        ConfigUndoCommand.model_validate_json(undo_command.model_dump_json())
+        == undo_command
     )
     assert (
-        ConfigRevisionDefaultCommand.model_validate_json(
-            default_command.model_dump_json()
-        )
-        == default_command
+        ConfigPublishCommand.model_validate_json(publish_command.model_dump_json())
+        == publish_command
     )
 
 
@@ -181,31 +158,20 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             ),
         ),
     )
-    activation = ConfigRevisionDefaultCommand(
-        registration=ConfigRevisionRegistrationCommand(
-            source=CandidateConfigRevisionSource(
-                run_id="run-1",
-                proposal_id=proposal.id,
-            ),
-            entry_id="candidate-fit",
-            registered_by="notebook",
+    publish = ConfigPublishCommand(
+        source=CandidateConfigRevisionSource(
+            run_id="run-1",
+            proposal_id=proposal.id,
         ),
-        operator="operator",
+        entry_id="candidate-fit",
+        actor="operator",
         expected_generation=1,
-    )
-    approval = ParameterProposalApprovalCommand(
-        actor="nightly-calibration",
         note="fit reviewed",
     )
 
     assert AnalysisSaveCommand.model_validate_json(command.model_dump_json()) == command
     assert (
-        ConfigRevisionDefaultCommand.model_validate_json(activation.model_dump_json())
-        == activation
-    )
-    assert (
-        ParameterProposalApprovalCommand.model_validate_json(approval.model_dump_json())
-        == approval
+        ConfigPublishCommand.model_validate_json(publish.model_dump_json()) == publish
     )
     with pytest.raises(ValidationError, match="identify the command analysis"):
         AnalysisSaveCommand(

@@ -5,11 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getConfigRegistry } from "../config/config-api";
-import {
-  activateProposalCandidate,
-  approveParameterProposal,
-  getRunParameterProposals,
-} from "../../data/parameter-proposals/api";
+import { acceptProposal, getRunParameterProposals } from "../../data/parameter-proposals/api";
 import type {
   ParameterProposal,
   RunParameterProposals,
@@ -24,8 +20,7 @@ vi.mock("../../data/parameter-proposals/api", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../data/parameter-proposals/api")>();
   return {
     ...original,
-    activateProposalCandidate: vi.fn(),
-    approveParameterProposal: vi.fn(),
+    acceptProposal: vi.fn(),
     getRunParameterProposals: vi.fn(),
   };
 });
@@ -37,30 +32,6 @@ afterEach(() => {
 });
 
 describe("RunProposals", () => {
-  it("records approval without changing the default", async () => {
-    vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
-    vi.mocked(approveParameterProposal).mockResolvedValue();
-    renderProposals();
-
-    expect(await screen.findByText("q0.drive.frequency")).toBeInTheDocument();
-    expect(screen.getByText("5 GHz")).toBeInTheDocument();
-    expect(screen.getByText("5.1 GHz")).toBeInTheDocument();
-
-    fireEvent.change(screen.getByPlaceholderText("Evidence or rationale"), {
-      target: { value: "Peak is clean" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Approve only" }));
-    const approvalDialog = await screen.findByRole("alertdialog");
-    fireEvent.click(within(approvalDialog).getByRole("button", { name: "Approve proposal" }));
-
-    await waitFor(() =>
-      expect(approveParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
-        reviewer: "local-operator",
-        note: "Peak is clean",
-      }),
-    );
-  });
-
   it("can accept each approved proposal as the default without exposing generations", async () => {
     const older = approvedProposal({
       id: "older-proposal",
@@ -76,7 +47,7 @@ describe("RunProposals", () => {
       activation_history: [],
       entries: [],
     });
-    vi.mocked(activateProposalCandidate).mockResolvedValue();
+    vi.mocked(acceptProposal).mockResolvedValue();
     renderProposals();
 
     const setDefault = await screen.findAllByRole("button", {
@@ -93,11 +64,10 @@ describe("RunProposals", () => {
     fireEvent.click(within(defaultDialog).getByRole("button", { name: "Accept as default" }));
 
     await waitFor(() =>
-      expect(activateProposalCandidate).toHaveBeenCalledWith({
+      expect(acceptProposal).toHaveBeenCalledWith({
         runId: "run-1",
         proposalId: "latest-proposal",
-        registeredBy: "local-operator",
-        operator: "local-operator",
+        actor: "local-operator",
         expectedGeneration: 3,
         note: "",
       }),
@@ -106,13 +76,12 @@ describe("RunProposals", () => {
 
   it("accepts a pending proposal in one action and reports publish failure", async () => {
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
-    vi.mocked(approveParameterProposal).mockResolvedValue();
     vi.mocked(getConfigRegistry).mockResolvedValue({
       activation: configActivation(),
       activation_history: [],
       entries: [],
     });
-    vi.mocked(activateProposalCandidate).mockRejectedValue(new Error("generation conflict"));
+    vi.mocked(acceptProposal).mockRejectedValue(new Error("generation conflict"));
     renderProposals();
 
     const accept = await screen.findByRole("button", {
@@ -123,26 +92,17 @@ describe("RunProposals", () => {
     const defaultDialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(defaultDialog).getByRole("button", { name: "Accept as default" }));
 
-    expect(
-      await screen.findByText(
-        "The proposal is accepted, but the default was not changed: generation conflict",
-      ),
-    ).toBeInTheDocument();
-    expect(approveParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
-      reviewer: "local-operator",
-      note: "",
-    });
+    expect(await screen.findByText("generation conflict")).toBeInTheDocument();
   });
 });
 
 function configActivation() {
   return {
-    id: "activation-3",
     generation: 3,
     action: "activation" as const,
     entry_id: "baseline",
     entry_content_hash: "sha256:base",
-    operator: "Ada",
+    actor: "Ada",
     note: "",
     recorded_at: "2026-07-24T08:00:00Z",
   };

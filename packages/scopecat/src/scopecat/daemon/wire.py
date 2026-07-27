@@ -94,16 +94,17 @@ type ConfigRevisionSource = Annotated[
 ]
 
 
-class ConfigRevisionRegistrationCommand(_WireModel):
-    """Register one direct, reviewed-draft, or approved-candidate revision."""
+class ConfigPublishCommand(_WireModel):
+    """Validate, save, and select one revision in a single transaction."""
 
     source: ConfigRevisionSource
+    actor: NonEmptyText
+    expected_generation: int = Field(ge=0)
     entry_id: NonEmptyText | None = None
-    registered_by: NonEmptyText
     note: str = ""
 
     @model_validator(mode="after")
-    def validate_entry_id(self) -> ConfigRevisionRegistrationCommand:
+    def validate_entry_id(self) -> ConfigPublishCommand:
         if self.entry_id is None and not isinstance(
             self.source, CandidateConfigRevisionSource
         ):
@@ -111,39 +112,25 @@ class ConfigRevisionRegistrationCommand(_WireModel):
         return self
 
 
-class ConfigRevisionRegistrationReceipt(_WireModel):
-    entry: ConfigRegistryEntry
-    deltas: tuple[ParameterValueDelta, ...] = ()
-
-
-class ConfigRevisionDefaultCommand(_WireModel):
-    """Register and select one revision in a single transaction."""
-
-    registration: ConfigRevisionRegistrationCommand
-    operator: NonEmptyText
-    expected_generation: int = Field(ge=0)
-    activation_note: str | None = None
-
-
-class ConfigRevisionDefaultReceipt(_WireModel):
+class ConfigPublishReceipt(_WireModel):
     entry: ConfigRegistryEntry
     deltas: tuple[ParameterValueDelta, ...] = ()
     activation: ConfigRegistryActivationRecord
 
 
 class ConfigEntryActivationCommand(_WireModel):
-    """Select a registered entry with generation compare-and-swap."""
+    """Select a saved revision with generation compare-and-swap."""
 
     entry_id: NonEmptyText
-    operator: NonEmptyText
+    actor: NonEmptyText
     expected_generation: int = Field(ge=0)
     note: str = ""
 
 
-class ConfigRollbackCommand(_WireModel):
+class ConfigUndoCommand(_WireModel):
     """Restore the previous distinct entry with generation compare-and-swap."""
 
-    operator: NonEmptyText
+    actor: NonEmptyText
     expected_generation: int = Field(ge=1)
     note: str = ""
 
@@ -239,11 +226,6 @@ class RunAttachmentCommand(_WireModel):
         if (self.text is None) == (self.content_base64 is None):
             raise ValueError("run attachment requires exactly one content source")
         return self
-
-
-class ParameterProposalApprovalCommand(_WireModel):
-    actor: NonEmptyText
-    note: str = ""
 
 
 class RunSubmission(_WireModel):
@@ -375,12 +357,10 @@ __all__ = [
     "ConfigActivationReceipt",
     "ConfigDraftCommand",
     "ConfigEntryActivationCommand",
-    "ConfigRevisionDefaultCommand",
-    "ConfigRevisionDefaultReceipt",
-    "ConfigRevisionRegistrationCommand",
-    "ConfigRevisionRegistrationReceipt",
+    "ConfigPublishCommand",
+    "ConfigPublishReceipt",
     "ConfigRevisionSource",
-    "ConfigRollbackCommand",
+    "ConfigUndoCommand",
     "DirectConfigRevisionSource",
     "ExecutionTransitionAppend",
     "ExecutorHeartbeat",
@@ -389,7 +369,6 @@ __all__ = [
     "ManualConfigDraftRevisionSource",
     "MeasurementAppendCommand",
     "MeasurementSealCommand",
-    "ParameterProposalApprovalCommand",
     "RunAdmission",
     "RunAttachmentCommand",
     "RunSubmission",

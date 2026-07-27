@@ -5,14 +5,14 @@ import { ConfigInlineEmpty } from "./ConfigUi";
 
 export function ConfigSummary({
   overview,
-  rollbackDisabled,
-  rollbackPending,
-  onRollback,
+  undoDisabled,
+  undoPending,
+  onUndo,
 }: {
   overview: ConfigRegistryOverview;
-  rollbackDisabled: boolean;
-  rollbackPending: boolean;
-  onRollback: () => void;
+  undoDisabled: boolean;
+  undoPending: boolean;
+  onUndo: () => void;
 }) {
   const active = overview.activation;
   const history = overview.activation_history;
@@ -42,16 +42,11 @@ export function ConfigSummary({
           <dd>{history.length}</dd>
         </div>
       </dl>
-      <div className="config-summary-rollback">
+      <div className="config-summary-undo">
         <span>Previous</span>
         <strong title={history[1]?.entry_id}>{history[1]?.entry_id ?? "Nothing to undo"}</strong>
-        <button
-          className="secondary-button"
-          type="button"
-          disabled={rollbackDisabled}
-          onClick={onRollback}
-        >
-          {rollbackPending ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />}
+        <button className="secondary-button" type="button" disabled={undoDisabled} onClick={onUndo}>
+          {undoPending ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />}
           Undo
         </button>
       </div>
@@ -92,7 +87,7 @@ export function ActivationHistory({ history }: { history: ConfigActivationRecord
       ) : (
         <ol>
           {history.map((record, index) => (
-            <li key={record.id}>
+            <li key={record.generation}>
               <span className="history-generation">
                 <strong>G{record.generation}</strong>
                 <small>{index === 0 ? "Current" : record.action}</small>
@@ -101,7 +96,7 @@ export function ActivationHistory({ history }: { history: ConfigActivationRecord
               <div>
                 <strong>{record.entry_id}</strong>
                 <small>
-                  {record.operator || "Unknown operator"}
+                  {record.actor || "Unknown actor"}
                   {record.recorded_at ? ` · ${formatDateTime(record.recorded_at)}` : ""}
                 </small>
                 {record.note && <p>{record.note}</p>}

@@ -6,12 +6,11 @@ CREATE TABLE IF NOT EXISTS config_registry_entries (
     config_ref TEXT NOT NULL UNIQUE,
     entry_json TEXT NOT NULL,
     config_json TEXT NOT NULL,
-    registered_at TEXT NOT NULL
+    recorded_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS config_registry_activations (
     generation INTEGER PRIMARY KEY CHECK (generation >= 1),
-    record_id TEXT NOT NULL UNIQUE,
     entry_id TEXT NOT NULL,
     record_json TEXT NOT NULL,
     FOREIGN KEY (entry_id)

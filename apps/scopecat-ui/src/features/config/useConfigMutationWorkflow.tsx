@@ -6,14 +6,14 @@ import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 import {
   activateConfigEntry,
   parseConfigProfileJson,
-  registerConfigRevision,
-  rollbackConfig,
+  setConfigDefault,
+  undoConfig,
 } from "./config-api";
 import { safeConfigEntryId } from "./config-utils";
 
 export type ConfigMutation =
   | { kind: "activate-entry"; entryId: string }
-  | { kind: "rollback" }
+  | { kind: "undo" }
   | { kind: "import"; draft: ImportDraft };
 
 export interface ImportDraft {
@@ -35,29 +35,28 @@ export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
   const mutation = useMutation({
     mutationFn: async (action: ConfigMutation) => {
       const command = {
-        operator: operator.trim(),
+        actor: operator.trim(),
         note: note.trim(),
         expected_generation: generation,
       };
-      if (!command.operator) {
+      if (!command.actor) {
         throw new Error("Enter an operator name before changing configuration.");
       }
       switch (action.kind) {
         case "activate-entry":
           await activateConfigEntry({ ...command, entry_id: action.entryId });
           return;
-        case "rollback":
-          await rollbackConfig(command);
+        case "undo":
+          await undoConfig(command);
           return;
         case "import":
-          await registerConfigRevision({
+          await setConfigDefault({
             source: {
               kind: "direct_config_profile",
               config: action.draft.config,
             },
             entry_id: action.draft.entryId,
-            registered_by: command.operator,
-            note: command.note,
+            ...command,
           });
       }
     },
@@ -73,9 +72,9 @@ export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
 
   const runAction = (action: ConfigMutation, confirmation: string) => {
     requestConfirmation({
-      title: action.kind === "rollback" ? "Restore the previous default?" : "Change the default?",
+      title: action.kind === "undo" ? "Restore the previous default?" : "Change the default?",
       description: confirmation,
-      confirmLabel: action.kind === "rollback" ? "Restore default" : "Set as default",
+      confirmLabel: action.kind === "undo" ? "Restore default" : "Set as default",
       onConfirm: () => mutation.mutate(action),
     });
   };

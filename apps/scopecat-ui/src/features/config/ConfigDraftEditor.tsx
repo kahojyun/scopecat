@@ -1,9 +1,8 @@
 import { useMemo, useRef, useState } from "react";
-import { Popover } from "@base-ui/react/popover";
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, Save, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, X } from "lucide-react";
 import { ApiError } from "../../api";
-import { previewConfigDraft, registerConfigRevision, setConfigDefault } from "./config-api";
+import { previewConfigDraft, setConfigDefault } from "./config-api";
 import { deriveConfigDraftUpdates } from "./config-draft";
 import { ConfigParameters } from "./ConfigParameters";
 import { ParameterEditor } from "./ConfigValueEditors";
@@ -13,8 +12,7 @@ import type {
   ConfigProfileSnapshot,
   ConfigActivationRecord,
   ConfigRegistryEntry,
-  ConfigRevisionDefaultReceipt,
-  ConfigRevisionRegistrationReceipt,
+  ConfigPublishReceipt,
   ParameterUpdate,
   StoredParameterValue,
 } from "../../api-contract";
@@ -34,15 +32,13 @@ export function ConfigDraftEditor({
   currentActive,
   operator,
   onCancel,
-  onRegistered,
+  onPublished,
 }: {
   seed: ConfigDraftSeed;
   currentActive?: ConfigActivationRecord;
   operator: string;
   onCancel: () => void;
-  onRegistered: (
-    receipt: ConfigRevisionRegistrationReceipt | ConfigRevisionDefaultReceipt,
-  ) => void | Promise<void>;
+  onPublished: (receipt: ConfigPublishReceipt) => void | Promise<void>;
 }) {
   const definitions = seed.config.system.parameter_catalog.definitions ?? [];
   const baseValues = useMemo(
@@ -51,7 +47,6 @@ export function ConfigDraftEditor({
   );
   const [selectedId, setSelectedId] = useState(definitions[0]?.id);
   const [editedValues, setEditedValues] = useState<Record<string, StoredParameterValue>>({});
-  const [entryId, setEntryId] = useState("");
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<ConfigDraftPreview>();
   const [invalidFields, setInvalidFields] = useState<Set<string>>(() => new Set());
@@ -88,25 +83,17 @@ export function ConfigDraftEditor({
       if (variables.revision === draftRevision.current) setPreview(result);
     },
   });
-  const registrationMutation = useMutation({
-    mutationFn: registerConfigRevision,
-    onSuccess: async (receipt) => {
-      await onRegistered(receipt);
-    },
-  });
   const defaultMutation = useMutation({
     mutationFn: async ({
       command,
       reviewed,
       revision,
-      customEntryId,
       operatorName,
       auditNote,
     }: {
       command: ConfigDraftCommand;
       reviewed?: ConfigDraftPreview;
       revision: number;
-      customEntryId: string;
       operatorName: string;
       auditNote: string;
     }) => {
@@ -118,20 +105,15 @@ export function ConfigDraftEditor({
         return { preview: checked, revision };
       }
       const receipt = await setConfigDefault({
-        registration: {
-          source: {
-            kind: "manual_parameter_updates",
-            draft: command,
-            expected_result_content_hash: checked.result_content_hash,
-          },
-          entry_id:
-            customEntryId || defaultDraftEntryId(command.candidate_id, checked.result_content_hash),
-          registered_by: operatorName,
-          note: auditNote,
+        source: {
+          kind: "manual_parameter_updates",
+          draft: command,
+          expected_result_content_hash: checked.result_content_hash,
         },
-        operator: operatorName,
+        entry_id: defaultDraftEntryId(command.candidate_id, checked.result_content_hash),
+        actor: operatorName,
         expected_generation: command.base_generation,
-        activation_note: auditNote || undefined,
+        note: auditNote,
       });
       return { preview: checked, receipt, revision };
     },
@@ -139,17 +121,16 @@ export function ConfigDraftEditor({
       if (result.revision === draftRevision.current) {
         setPreview(result.preview);
       }
-      if (result.receipt) await onRegistered(result.receipt);
+      if (result.receipt) await onPublished(result.receipt);
     },
   });
-  const saving = registrationMutation.isPending || defaultMutation.isPending;
+  const saving = defaultMutation.isPending;
 
   const changeValue = (value: StoredParameterValue) => {
     draftRevision.current += 1;
     setEditedValues((current) => ({ ...current, [value.id]: value }));
     setPreview(undefined);
     previewMutation.reset();
-    registrationMutation.reset();
     defaultMutation.reset();
   };
   const setFieldValidity = (field: string, valid: boolean) => {
@@ -162,7 +143,6 @@ export function ConfigDraftEditor({
     });
     setPreview(undefined);
     previewMutation.reset();
-    registrationMutation.reset();
     defaultMutation.reset();
   };
   const resetParameter = (parameterId: string) => {
@@ -180,37 +160,15 @@ export function ConfigDraftEditor({
       return next;
     });
     previewMutation.reset();
-    registrationMutation.reset();
-    defaultMutation.reset();
-  };
-  const changeEntryId = (value: string) => {
-    setEntryId(value);
-    registrationMutation.reset();
     defaultMutation.reset();
   };
   const runPreview = () => {
     const command = draftCommand(draft);
     setPreview(undefined);
-    registrationMutation.reset();
     defaultMutation.reset();
     previewMutation.mutate({
       command,
       revision: draftRevision.current,
-    });
-  };
-  const runRegistration = () => {
-    if (!preview?.valid || !preview.result_content_hash) return;
-    const command = draftCommand(draft);
-    registrationMutation.mutate({
-      source: {
-        kind: "manual_parameter_updates",
-        draft: command,
-        expected_result_content_hash: preview.result_content_hash,
-      },
-      entry_id:
-        entryId.trim() || defaultDraftEntryId(command.candidate_id, preview.result_content_hash),
-      registered_by: operator.trim(),
-      note: note.trim(),
     });
   };
   const runSetDefault = () => {
@@ -218,7 +176,6 @@ export function ConfigDraftEditor({
       command: draftCommand(draft),
       reviewed: preview,
       revision: draftRevision.current,
-      customEntryId: entryId.trim(),
       operatorName: operator.trim(),
       auditNote: note.trim(),
     });
@@ -358,41 +315,6 @@ export function ConfigDraftEditor({
             )}
             Preview changes
           </button>
-          <Popover.Root>
-            <Popover.Trigger className="action-menu-trigger">Advanced</Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Positioner className="action-menu-positioner" sideOffset={6} align="end">
-                <Popover.Popup className="action-popover">
-                  <label>
-                    <span>Saved version id</span>
-                    <input
-                      value={entryId}
-                      onChange={(event) => changeEntryId(event.target.value)}
-                      placeholder={
-                        preview?.result_content_hash
-                          ? defaultDraftEntryId(draft.candidate_id, preview.result_content_hash)
-                          : "Generated after validation"
-                      }
-                    />
-                  </label>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={stale || !preview?.valid || !operator.trim() || saving}
-                    onClick={runRegistration}
-                  >
-                    {registrationMutation.isPending ? (
-                      <LoaderCircle className="spin" size={15} />
-                    ) : (
-                      <Save size={15} />
-                    )}
-                    Register only
-                  </button>
-                  <small>Save this immutable version without changing the default.</small>
-                </Popover.Popup>
-              </Popover.Positioner>
-            </Popover.Portal>
-          </Popover.Root>
           <button
             className="primary-button"
             type="button"
@@ -416,14 +338,10 @@ export function ConfigDraftEditor({
         </div>
       </div>
 
-      {(previewMutation.error || registrationMutation.error || defaultMutation.error) && (
+      {(previewMutation.error || defaultMutation.error) && (
         <div className="config-error" role="alert">
           <AlertTriangle size={17} aria-hidden="true" />
-          <span>
-            {draftErrorMessage(
-              defaultMutation.error ?? registrationMutation.error ?? previewMutation.error,
-            )}
-          </span>
+          <span>{draftErrorMessage(defaultMutation.error ?? previewMutation.error)}</span>
         </div>
       )}
 

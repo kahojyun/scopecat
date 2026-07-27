@@ -13,7 +13,7 @@ from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.registry.service import (
     ConfigRegistryMutationResult,
     ConfigRegistryUnitOfWorkFactory,
-    ConfigRevisionRegistration,
+    ConfigRevision,
     DirectConfigRevisionSource,
     activate_config_registry_entry,
     current_config_registry_generation,
@@ -22,10 +22,9 @@ from scopecat.config.registry.service import (
     load_active_config_registry_snapshot,
     load_config_registry_entry_snapshot,
     load_config_registry_snapshot,
-    register_and_activate_config_revision,
-    register_config_revision,
+    publish_config_revision,
     resolve_config_registry_config_source,
-    rollback_config_registry,
+    undo_config_registry,
 )
 from scopecat.kernel.errors import Conflict, StorageError
 from scopecat.records.config import ConfigProfileSnapshot
@@ -35,45 +34,29 @@ from tests.testkit.paths import CORE_FIXTURE_DIR
 from tests.testkit.runtime import SQLiteTestRunRepository
 
 
-def _register_direct_revision(
+def _publish_direct_revision(
     *,
     config: ConfigProfileSnapshot,
     unit_of_work: ConfigRegistryUnitOfWorkFactory,
     entry_id: str,
-    registered_by: str,
+    actor: str,
+    expected_generation: int | None = None,
     note: str = "",
 ) -> ConfigRegistryMutationResult:
-    return register_config_revision(
-        registration=ConfigRevisionRegistration(
-            source=DirectConfigRevisionSource(config),
-            entry_id=entry_id,
-            registered_by=registered_by,
-            note=note,
-        ),
-        unit_of_work=unit_of_work,
+    generation = (
+        current_config_registry_generation(unit_of_work=unit_of_work)
+        if expected_generation is None
+        else expected_generation
     )
-
-
-def _register_and_activate_direct_revision(
-    *,
-    config: ConfigProfileSnapshot,
-    unit_of_work: ConfigRegistryUnitOfWorkFactory,
-    entry_id: str,
-    registered_by: str,
-    operator: str,
-    expected_generation: int,
-    note: str = "",
-) -> ConfigRegistryMutationResult:
-    return register_and_activate_config_revision(
-        registration=ConfigRevisionRegistration(
+    return publish_config_revision(
+        revision=ConfigRevision(
             source=DirectConfigRevisionSource(config),
             entry_id=entry_id,
-            registered_by=registered_by,
+            actor=actor,
             note=note,
         ),
         unit_of_work=unit_of_work,
-        operator=operator,
-        expected_generation=expected_generation,
+        expected_generation=generation,
     )
 
 
@@ -84,22 +67,22 @@ def _store(tmp_path: Path) -> SQLiteConfigRegistryStore:
     return SQLiteConfigRegistryStore(database, runs=runs)
 
 
-def test_registration_is_idempotent_and_round_trips(tmp_path: Path) -> None:
+def test_publish_is_idempotent_and_round_trips(tmp_path: Path) -> None:
     unit_of_work = _store(tmp_path).unit_of_work
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
 
-    first = _register_direct_revision(
+    first = _publish_direct_revision(
         config=config,
         unit_of_work=unit_of_work,
         entry_id="contract-entry",
-        registered_by="contract",
+        actor="contract",
         note="same request",
     ).entry
-    repeated = _register_direct_revision(
+    repeated = _publish_direct_revision(
         config=config.model_copy(deep=True),
         unit_of_work=unit_of_work,
         entry_id="contract-entry",
-        registered_by="contract",
+        actor="contract",
         note="same request",
     ).entry
 
@@ -117,19 +100,19 @@ def test_registration_is_idempotent_and_round_trips(tmp_path: Path) -> None:
 def test_duplicate_identity_rejects_different_request(tmp_path: Path) -> None:
     unit_of_work = _store(tmp_path).unit_of_work
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    _register_direct_revision(
+    _publish_direct_revision(
         config=config,
         unit_of_work=unit_of_work,
         entry_id="contract-conflict",
-        registered_by="first",
+        actor="first",
     )
 
     with pytest.raises(Conflict) as captured:
-        _register_direct_revision(
+        _publish_direct_revision(
             config=config,
             unit_of_work=unit_of_work,
             entry_id="contract-conflict",
-            registered_by="different",
+            actor="different",
         )
     assert captured.value.problems[0].code == "config_registry.duplicate_entry"
 
@@ -139,12 +122,11 @@ def test_activation_uses_generation_cas_and_resolves_source(
 ) -> None:
     unit_of_work = _store(tmp_path).unit_of_work
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    result = _register_and_activate_direct_revision(
+    result = _publish_direct_revision(
         config=config,
         unit_of_work=unit_of_work,
         entry_id="contract-active",
-        registered_by="contract",
-        operator="contract",
+        actor="contract",
         expected_generation=0,
     )
     entry = result.entry
@@ -165,13 +147,12 @@ def test_activation_uses_generation_cas_and_resolves_source(
     assert source.entry_id == entry.id
 
     with pytest.raises(Conflict) as captured:
-        _register_and_activate_direct_revision(
+        _publish_direct_revision(
             config=config,
             unit_of_work=unit_of_work,
             entry_id="stale-generation",
-            registered_by="contract",
-            operator="contract",
-            expected_generation=0,
+            actor="contract",
+            expected_generation=2,
         )
     assert captured.value.problems[0].code == "config_registry.conflict"
 
@@ -179,7 +160,7 @@ def test_activation_uses_generation_cas_and_resolves_source(
         activate_config_registry_entry(
             entry_id=entry.id,
             unit_of_work=unit_of_work,
-            operator="contract",
+            actor="contract",
             expected_generation=0,
         )
     assert repeated.value.problems[0].code == "config_registry.conflict"
@@ -194,11 +175,11 @@ def test_registry_and_run_reads_share_one_database(tmp_path: Path) -> None:
     )
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
 
-    _register_direct_revision(
+    _publish_direct_revision(
         config=config,
         unit_of_work=store.unit_of_work,
         entry_id="shared",
-        registered_by="test",
+        actor="test",
     )
 
     with store.unit_of_work() as work:
@@ -211,17 +192,17 @@ def test_listing_reads_entry_metadata_without_loading_each_config(
 ) -> None:
     store = _store(tmp_path)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    _register_direct_revision(
+    _publish_direct_revision(
         config=config,
         unit_of_work=store.unit_of_work,
         entry_id="first",
-        registered_by="test",
+        actor="test",
     )
-    _register_direct_revision(
+    _publish_direct_revision(
         config=config.model_copy(update={"id": "second"}),
         unit_of_work=store.unit_of_work,
         entry_id="second",
-        registered_by="test",
+        actor="test",
     )
     statements: list[str] = []
     connection = sqlite3.connect(store.database, isolation_level=None)
@@ -247,12 +228,11 @@ def test_listing_reads_entry_metadata_without_loading_each_config(
 def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
     store = _store(tmp_path)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    _register_and_activate_direct_revision(
+    _publish_direct_revision(
         config=config,
         unit_of_work=store.unit_of_work,
         entry_id="active",
-        registered_by="test",
-        operator="test",
+        actor="test",
         expected_generation=0,
     )
     opens = 0
@@ -278,7 +258,7 @@ def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
     assert active.config == entry.config
 
 
-def test_registration_and_activation_roll_back_together(tmp_path: Path) -> None:
+def test_publish_rolls_back_together(tmp_path: Path) -> None:
     store = _store(tmp_path)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     with sqlite3.connect(store.database) as connection:
@@ -293,12 +273,11 @@ def test_registration_and_activation_roll_back_together(tmp_path: Path) -> None:
         )
 
     with pytest.raises(StorageError):
-        _register_and_activate_direct_revision(
+        _publish_direct_revision(
             config=config,
             unit_of_work=store.unit_of_work,
             entry_id="rolled-back",
-            registered_by="test",
-            operator="test",
+            actor="test",
             expected_generation=0,
         )
 
@@ -318,11 +297,11 @@ def test_borrowed_unit_of_work_leaves_transaction_and_connection_owned_by_caller
 
     connection.execute("BEGIN IMMEDIATE")
 
-    _register_direct_revision(
+    _publish_direct_revision(
         config=config,
         unit_of_work=partial(store.borrowed_unit_of_work, connection),
         entry_id="borrowed",
-        registered_by="test",
+        actor="test",
     )
 
     assert connection.in_transaction
@@ -356,39 +335,37 @@ def test_borrowed_unit_of_work_only_scopes_registry_access(tmp_path: Path) -> No
     connection.close()
 
 
-def test_rollback_persists_contiguous_activation_generations(
+def test_undo_persists_contiguous_activation_generations(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    first = _register_and_activate_direct_revision(
+    first = _publish_direct_revision(
         config=config,
         unit_of_work=store.unit_of_work,
         entry_id="first",
-        registered_by="test",
-        operator="test",
+        actor="test",
         expected_generation=0,
     )
-    _register_and_activate_direct_revision(
+    _publish_direct_revision(
         config=config.model_copy(update={"id": "second-config"}),
         unit_of_work=store.unit_of_work,
         entry_id="second",
-        registered_by="test",
-        operator="test",
+        actor="test",
         expected_generation=1,
     )
 
-    rollback = rollback_config_registry(
+    undo = undo_config_registry(
         unit_of_work=store.unit_of_work,
-        operator="test",
+        actor="test",
         expected_generation=2,
     )
 
-    record = rollback.activation
+    record = undo.activation
     assert record is not None
     assert record.generation == 3
     assert record.entry_id == first.entry.id
-    assert record.action == "rollback"
+    assert record.action == "undo"
     with sqlite3.connect(store.database) as connection:
         generations = [
             row[0]
@@ -407,31 +384,31 @@ def test_generation_cas_is_shared_across_store_instances(tmp_path: Path) -> None
     store = _store(tmp_path)
     peer = SQLiteConfigRegistryStore(store.database, runs=store.runs)
     config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
-    _register_direct_revision(
+    _publish_direct_revision(
         config=config,
         unit_of_work=store.unit_of_work,
         entry_id="first",
-        registered_by="test",
+        actor="test",
     )
-    _register_direct_revision(
+    _publish_direct_revision(
         config=config.model_copy(update={"id": "second-config"}),
         unit_of_work=store.unit_of_work,
         entry_id="second",
-        registered_by="test",
+        actor="test",
     )
     activate_config_registry_entry(
         entry_id="first",
         unit_of_work=store.unit_of_work,
-        operator="first",
-        expected_generation=0,
+        actor="first",
+        expected_generation=2,
     )
 
     with pytest.raises(Conflict) as captured:
         activate_config_registry_entry(
             entry_id="second",
             unit_of_work=peer.unit_of_work,
-            operator="second",
-            expected_generation=0,
+            actor="second",
+            expected_generation=2,
         )
 
     assert captured.value.problems[0].code == "config_registry.conflict"

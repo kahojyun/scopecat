@@ -164,17 +164,15 @@ export function ConfigWorkspace({
 
       <ConfigSummary
         overview={overview}
-        rollbackDisabled={
+        undoDisabled={
           commandDisabled ||
           overview.activation_history.length < 2 ||
           overview.activation === undefined
         }
-        rollbackPending={
-          workflow.mutation.isPending && workflow.mutation.variables?.kind === "rollback"
-        }
-        onRollback={() =>
+        undoPending={workflow.mutation.isPending && workflow.mutation.variables?.kind === "undo"}
+        onUndo={() =>
           workflow.runAction(
-            { kind: "rollback" },
+            { kind: "undo" },
             `Restore ${
               overview.activation_history[1]?.entry_id ?? "the previous version"
             } as the default configuration?`,
@@ -237,7 +235,7 @@ export function ConfigWorkspace({
           currentActive={overview.activation ?? undefined}
           operator={workflow.operator}
           onCancel={() => setConfigDraft(undefined)}
-          onRegistered={async (receipt) => {
+          onPublished={async (receipt) => {
             setConfigDraft(undefined);
             await Promise.all([
               queryClient.invalidateQueries({ queryKey: ["config"] }),

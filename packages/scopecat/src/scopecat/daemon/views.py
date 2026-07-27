@@ -49,7 +49,7 @@ class DaemonHealth(_ViewModel):
 
 
 class ConfigRegistryView(_ViewModel):
-    """Registered entries and the current activation head."""
+    """Saved revisions and the current activation head."""
 
     entries: tuple[ConfigRegistryEntry, ...] = ()
     activation: ConfigRegistryActivationRecord | None = None

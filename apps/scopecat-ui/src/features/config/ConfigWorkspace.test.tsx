@@ -9,7 +9,7 @@ import {
   activateConfigEntry,
   getConfigRegistry,
   getConfigRegistryEntry,
-  rollbackConfig,
+  undoConfig,
 } from "./config-api";
 import { ConfigWorkspace } from "./ConfigWorkspace";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
@@ -25,7 +25,7 @@ vi.mock("./config-api", async (importOriginal) => ({
   activateConfigEntry: vi.fn(),
   getConfigRegistry: vi.fn(),
   getConfigRegistryEntry: vi.fn(),
-  rollbackConfig: vi.fn(),
+  undoConfig: vi.fn(),
 }));
 
 vi.mock("../../data/parameter-proposals/api", async (importOriginal) => ({
@@ -74,7 +74,7 @@ describe("ConfigWorkspace", () => {
       };
     });
     vi.mocked(activateConfigEntry).mockResolvedValue();
-    vi.mocked(rollbackConfig).mockResolvedValue();
+    vi.mocked(undoConfig).mockResolvedValue();
 
     renderWorkspace();
 
@@ -97,7 +97,7 @@ describe("ConfigWorkspace", () => {
     await waitFor(() =>
       expect(activateConfigEntry).toHaveBeenCalledWith({
         entry_id: "calibrated",
-        operator: "local-operator",
+        actor: "local-operator",
         note: "",
         expected_generation: 2,
       }),
@@ -106,10 +106,10 @@ describe("ConfigWorkspace", () => {
     const undo = screen.getByRole("button", { name: "Undo" });
     await waitFor(() => expect(undo).toBeEnabled());
     fireEvent.click(undo);
-    const rollbackDialog = await screen.findByRole("alertdialog");
-    expect(rollbackDialog).toHaveTextContent("Restore calibrated as the default configuration?");
-    fireEvent.click(within(rollbackDialog).getByRole("button", { name: "Restore default" }));
-    await waitFor(() => expect(rollbackConfig).toHaveBeenCalled());
+    const undoDialog = await screen.findByRole("alertdialog");
+    expect(undoDialog).toHaveTextContent("Restore calibrated as the default configuration?");
+    fireEvent.click(within(undoDialog).getByRole("button", { name: "Restore default" }));
+    await waitFor(() => expect(undoConfig).toHaveBeenCalled());
   });
 
   it.each(["manual_parameter_updates", "candidate_config"] as const)(
@@ -308,8 +308,8 @@ function configEntry(id: string, contentHash: string): ConfigRegistryEntry {
     id,
     content_hash: contentHash,
     config_ref: `entries/${id}.json`,
-    registered_by: "Ada",
-    registered_at: "2026-07-24T08:00:00Z",
+    actor: "Ada",
+    recorded_at: "2026-07-24T08:00:00Z",
     source: { kind: "direct_config_profile" },
     note: "",
   };
@@ -333,7 +333,6 @@ function runtimeDerivedEntry(
         : {
             kind,
             proposal_id: proposalId,
-            approval_record_id: `${proposalId}-approval`,
             run_id: "run-calibration",
             base_config_content_hash: "sha256:baseline",
           },
@@ -347,13 +346,12 @@ function activation(
   previousEntryId?: string,
 ) {
   return {
-    id: `activation-${generation}`,
     generation,
     action: "activation" as const,
     entry_id: entryId,
     entry_content_hash: entryContentHash,
     previous_entry_id: previousEntryId,
-    operator: "Ada",
+    actor: "Ada",
     note: "",
     recorded_at: "2026-07-24T08:00:00Z",
   };

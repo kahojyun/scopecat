@@ -92,7 +92,6 @@ class LabClient:
         *,
         build_system: ExperimentSystemBuilder | None = None,
         config: ConfigProfileSnapshot | None = None,
-        reviewer: str = "operator",
         operator: str = "operator",
     ) -> None:
         self._owns_client = isinstance(daemon, str)
@@ -102,7 +101,6 @@ class LabClient:
             client=self._client,
             runs=self._runs,
             default_config=config,
-            reviewer=reviewer,
             operator=operator,
         )
         self._control = LabControlOperations(self._client)

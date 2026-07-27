@@ -6,22 +6,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigDraftEditor, type ConfigDraftSeed } from "./ConfigDraftEditor";
 import type {
-  ConfigRevisionDefaultReceipt,
   ConfigDraftPreview,
-  ConfigRevisionRegistrationReceipt,
+  ConfigPublishReceipt,
   ConfigProfileSnapshot,
 } from "../../api-contract";
 
 const apiMocks = vi.hoisted(() => ({
   previewConfigDraft: vi.fn(),
-  registerConfigRevision: vi.fn(),
   setConfigDefault: vi.fn(),
 }));
 
 vi.mock("./config-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./config-api")>()),
   previewConfigDraft: apiMocks.previewConfigDraft,
-  registerConfigRevision: apiMocks.registerConfigRevision,
   setConfigDefault: apiMocks.setConfigDefault,
 }));
 
@@ -32,7 +29,6 @@ afterEach(cleanup);
 
 beforeEach(() => {
   apiMocks.previewConfigDraft.mockReset();
-  apiMocks.registerConfigRevision.mockReset();
   apiMocks.setConfigDefault.mockReset();
 });
 
@@ -44,9 +40,9 @@ describe("ConfigDraftEditor", () => {
     const receipt = defaultReceipt();
     apiMocks.previewConfigDraft.mockResolvedValue(preview);
     apiMocks.setConfigDefault.mockResolvedValue(receipt);
-    const registered = vi.fn();
+    const published = vi.fn();
 
-    renderEditor(seed, registered);
+    renderEditor(seed, published);
 
     expect(screen.getByRole("button", { name: "Set as default" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("drive.frequency value"), {
@@ -76,60 +72,24 @@ describe("ConfigDraftEditor", () => {
     });
     await waitFor(() => expect(apiMocks.setConfigDefault).toHaveBeenCalled());
     expect(apiMocks.setConfigDefault.mock.calls[0]?.[0]).toEqual({
-      registration: {
-        source: {
-          kind: "manual_parameter_updates",
-          draft: expect.objectContaining({
-            base_entry_id: "config-a",
-            updates: expect.any(Array),
-          }),
-          expected_result_content_hash: HASH_B,
-        },
-        entry_id: "profile-edit-bbbbbbbbbbbb",
-        registered_by: "Ada",
-        note: "fresh calibration",
+      source: {
+        kind: "manual_parameter_updates",
+        draft: expect.objectContaining({
+          base_entry_id: "config-a",
+          updates: expect.any(Array),
+        }),
+        expected_result_content_hash: HASH_B,
       },
-      operator: "Ada",
+      entry_id: "profile-edit-bbbbbbbbbbbb",
+      actor: "Ada",
       expected_generation: 3,
-      activation_note: "fresh calibration",
+      note: "fresh calibration",
     });
     expect(screen.getByText("Candidate is valid")).toBeInTheDocument();
     const comparison = screen.getByLabelText("Default to selected value");
     expect(within(comparison).getByText("5 GHz")).toBeInTheDocument();
     expect(within(comparison).getByText("5.2 GHz")).toBeInTheDocument();
-    await waitFor(() => expect(registered).toHaveBeenCalledWith(receipt));
-  });
-
-  it("keeps register-only with a custom id in Advanced", async () => {
-    const seed = draftSeed();
-    const receipt = registrationReceipt();
-    apiMocks.previewConfigDraft.mockResolvedValue(validPreview(seed, snapshot(5.2, 6.5)));
-    apiMocks.registerConfigRevision.mockResolvedValue(receipt);
-
-    renderEditor(seed);
-    fireEvent.change(screen.getByLabelText("drive.frequency value"), {
-      target: { value: "5.2" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Preview changes" }));
-    await screen.findByText("Candidate is valid");
-    fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.change(screen.getByLabelText("Saved version id"), {
-      target: { value: "calibration-candidate" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Register only" }));
-
-    await waitFor(() => expect(apiMocks.registerConfigRevision).toHaveBeenCalled());
-    expect(apiMocks.registerConfigRevision.mock.calls[0]?.[0]).toEqual({
-      source: {
-        kind: "manual_parameter_updates",
-        draft: expect.objectContaining({ candidate_id: "profile-edit" }),
-        expected_result_content_hash: HASH_B,
-      },
-      entry_id: "calibration-candidate",
-      registered_by: "Ada",
-      note: "",
-    });
-    expect(apiMocks.setConfigDefault).not.toHaveBeenCalled();
+    await waitFor(() => expect(published).toHaveBeenCalledWith(receipt));
   });
 
   it("turns keyed table cell changes into row updates", async () => {
@@ -204,12 +164,11 @@ describe("ConfigDraftEditor", () => {
     const seed = draftSeed();
 
     renderEditor(seed, undefined, {
-      id: "activation-4",
       generation: 4,
       action: "activation",
       entry_id: "config-b",
       entry_content_hash: HASH_B,
-      operator: "Ada",
+      actor: "Ada",
       note: "",
       recorded_at: "2026-07-24T08:10:00Z",
     });
@@ -220,7 +179,7 @@ describe("ConfigDraftEditor", () => {
   });
 });
 
-function renderEditor(seed: ConfigDraftSeed, onRegistered = vi.fn(), currentActive = seed.active) {
+function renderEditor(seed: ConfigDraftSeed, onPublished = vi.fn(), currentActive = seed.active) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
   });
@@ -231,7 +190,7 @@ function renderEditor(seed: ConfigDraftSeed, onRegistered = vi.fn(), currentActi
         currentActive={currentActive}
         operator="Ada"
         onCancel={vi.fn()}
-        onRegistered={onRegistered}
+        onPublished={onPublished}
       />
     </QueryClientProvider>,
   );
@@ -243,18 +202,17 @@ function draftSeed(): ConfigDraftSeed {
       id: "config-a",
       content_hash: HASH_A,
       config_ref: "entries/config-a.json",
-      registered_by: "Ada",
-      registered_at: "2026-07-24T08:00:00Z",
+      actor: "Ada",
+      recorded_at: "2026-07-24T08:00:00Z",
       source: { kind: "direct_config_profile" },
       note: "",
     },
     active: {
-      id: "activation-3",
       generation: 3,
       action: "activation",
       entry_id: "config-a",
       entry_content_hash: HASH_A,
-      operator: "Ada",
+      actor: "Ada",
       note: "",
       recorded_at: "2026-07-24T08:00:00Z",
     },
@@ -287,14 +245,15 @@ function validPreview(
   };
 }
 
-function registrationReceipt(): ConfigRevisionRegistrationReceipt {
+function defaultReceipt(): ConfigPublishReceipt {
+  const entryId = "profile-edit-bbbbbbbbbbbb";
   return {
     entry: {
-      id: "config-a-edit",
+      id: entryId,
       content_hash: HASH_B,
       config_ref: "entries/config-a-edit.json",
-      registered_by: "Ada",
-      registered_at: "2026-07-24T08:10:00Z",
+      actor: "Ada",
+      recorded_at: "2026-07-24T08:10:00Z",
       source: {
         kind: "manual_parameter_updates",
         base_entry_id: "config-a",
@@ -304,23 +263,13 @@ function registrationReceipt(): ConfigRevisionRegistrationReceipt {
       note: "",
     },
     deltas: [],
-  };
-}
-
-function defaultReceipt(): ConfigRevisionDefaultReceipt {
-  const registered = registrationReceipt();
-  const entryId = "profile-edit-bbbbbbbbbbbb";
-  return {
-    ...registered,
-    entry: { ...registered.entry, id: entryId },
     activation: {
-      id: "activation-4",
       generation: 4,
       action: "activation",
       entry_id: entryId,
       entry_content_hash: HASH_B,
       previous_entry_id: "config-a",
-      operator: "Ada",
+      actor: "Ada",
       note: "fresh calibration",
       recorded_at: "2026-07-24T08:10:00Z",
     },

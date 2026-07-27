@@ -72,7 +72,7 @@ class ConfigDraft:
 
     @classmethod
     def from_snapshot(cls, snapshot: ConfigProfileSnapshot) -> Self:
-        """Start an isolated draft from an accepted or registered snapshot."""
+        """Start an isolated draft from an immutable snapshot."""
 
         return cls(snapshot)
 

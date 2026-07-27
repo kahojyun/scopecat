@@ -72,7 +72,7 @@ class SQLiteConfigRegistryRepository:
                     """
                     SELECT entry_id, entry_json
                     FROM config_registry_entries
-                    ORDER BY registered_at, entry_id
+                    ORDER BY recorded_at, entry_id
                     """
                 )
             )
@@ -187,7 +187,7 @@ class SQLiteConfigRegistryRepository:
             for row in rows
         )
 
-    def commit_registration(
+    def commit_revision(
         self,
         *,
         entry: ConfigRegistryEntry,
@@ -201,7 +201,7 @@ class SQLiteConfigRegistryRepository:
                     config_ref,
                     entry_json,
                     config_json,
-                    registered_at
+                    recorded_at
                 )
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(entry_id) DO NOTHING
@@ -211,7 +211,7 @@ class SQLiteConfigRegistryRepository:
                     entry.config_ref,
                     _encode_model(entry, ref=self.entry_ref(entry.id)),
                     _encode_model(config, ref=entry.config_ref),
-                    entry.registered_at.isoformat(),
+                    entry.recorded_at.isoformat(),
                 ),
             )
         except sqlite3.Error as error:
@@ -241,15 +241,13 @@ class SQLiteConfigRegistryRepository:
                 """
                 INSERT INTO config_registry_activations(
                     generation,
-                    record_id,
                     entry_id,
                     record_json
                 )
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?)
                 """,
                 (
                     record.generation,
-                    record.id,
                     record.entry_id,
                     _encode_model(record, ref=self.active_ref),
                 ),

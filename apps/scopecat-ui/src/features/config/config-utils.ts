@@ -11,7 +11,7 @@ export function filterConfigEntries(
       entry.source.kind === "candidate_config"
         ? [entry.source.run_id, entry.source.proposal_id]
         : [];
-    return [entry.id, entry.registered_by, entry.note, entry.source.kind, ...candidateTerms]
+    return [entry.id, entry.actor, entry.note, entry.source.kind, ...candidateTerms]
       .filter((value): value is string => value !== undefined)
       .join(" ")
       .toLocaleLowerCase()
