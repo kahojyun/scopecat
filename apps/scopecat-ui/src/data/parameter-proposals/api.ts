@@ -1,8 +1,7 @@
 import { request } from "../../api";
 import type { DaemonUiApi } from "../../api-contract";
 import type {
-  ActivateProposalCandidateCommand,
-  ApproveProposalCommand,
+  AcceptProposalCommand,
   ParameterProposal,
   ParameterProposalApproval,
   ParameterProposalDelta,
@@ -27,39 +26,18 @@ export async function getRunParameterProposals(
   };
 }
 
-export async function approveParameterProposal(
-  runId: string,
-  proposalId: string,
-  command: ApproveProposalCommand,
-): Promise<void> {
-  const payload: DaemonUiApi["parameterProposalApprovalCommand"] = {
-    actor: command.reviewer,
+export async function acceptProposal(command: AcceptProposalCommand): Promise<void> {
+  const payload: DaemonUiApi["configPublishCommand"] = {
+    source: {
+      kind: "candidate_config",
+      run_id: command.runId,
+      proposal_id: command.proposalId,
+    },
+    actor: command.actor,
+    expected_generation: command.expectedGeneration,
     note: command.note ?? "",
   };
-  await request<DaemonUiApi["parameterProposalApproval"]>(
-    `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/approval`,
-    undefined,
-    jsonRequest(payload),
-  );
-}
-
-export async function activateProposalCandidate(
-  command: ActivateProposalCandidateCommand,
-): Promise<void> {
-  const payload: DaemonUiApi["configRevisionDefaultCommand"] = {
-    registration: {
-      source: {
-        kind: "candidate_config",
-        run_id: command.runId,
-        proposal_id: command.proposalId,
-      },
-      registered_by: command.registeredBy,
-      note: command.note ?? "",
-    },
-    operator: command.operator,
-    expected_generation: command.expectedGeneration,
-  };
-  await request<DaemonUiApi["configRevisionDefaultReceipt"]>(
+  await request<DaemonUiApi["configPublishReceipt"]>(
     "/api/v1/config-registry/default",
     undefined,
     jsonRequest(payload),

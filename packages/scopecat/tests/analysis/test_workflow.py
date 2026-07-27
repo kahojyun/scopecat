@@ -45,8 +45,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         candidate=candidate,
         services=services,
         entry_id="candidate-best-signal",
-        registered_by="operator",
-        operator="operator",
+        actor="operator",
     )
     active_config, active_source = (
         config_registry_service.resolve_config_registry_config_source(

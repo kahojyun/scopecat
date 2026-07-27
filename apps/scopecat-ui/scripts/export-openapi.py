@@ -17,9 +17,8 @@ _OPERATIONS = {
     ("/api/v1/config-registry/active", "post"),
     ("/api/v1/config-registry/default", "post"),
     ("/api/v1/config-registry/drafts/preview", "post"),
-    ("/api/v1/config-registry/entries", "post"),
     ("/api/v1/config-registry/entries/{entry_id}", "get"),
-    ("/api/v1/config-registry/rollback", "post"),
+    ("/api/v1/config-registry/undo", "post"),
     ("/api/v1/events", "get"),
     ("/api/v1/health", "get"),
     ("/api/v1/runs", "get"),
@@ -31,10 +30,6 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/datasets/{selector}", "get"),
     ("/api/v1/runs/{run_id}/measurements", "get"),
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
-    (
-        "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval",
-        "post",
-    ),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),
 }
 

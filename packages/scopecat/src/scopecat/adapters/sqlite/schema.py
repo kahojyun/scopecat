@@ -4,7 +4,7 @@ from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 11
+PROJECT_SCHEMA_VERSION = 12
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (

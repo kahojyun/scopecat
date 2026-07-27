@@ -250,17 +250,17 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   expect(editedRegistry.activation.generation).toBe(initialRegistry.activation.generation + 1);
   expect(editedHistory.items).toHaveLength(initialHistory.items.length + 1);
 
-  const rollbackResponse = page.waitForResponse(
+  const undoResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      response.url().endsWith("/api/v1/config-registry/rollback"),
+      response.url().endsWith("/api/v1/config-registry/undo"),
   );
   await page.getByRole("button", { name: "Undo" }).click();
   await page
     .getByRole("alertdialog")
     .getByRole("button", { name: "Restore default", exact: true })
     .click();
-  await expectResponseOk(await rollbackResponse, "POST");
+  await expectResponseOk(await undoResponse, "POST");
 
   await expect(page.getByTestId("active-config-entry")).toHaveText(initialEntryId);
   await expect(page.getByText("Runtime-derived default")).toHaveCount(0);
@@ -310,17 +310,17 @@ test("accepts a notebook candidate in the GUI and preserves its provenance", asy
   expect(new URL(page.url()).searchParams.get("run")).toBe(candidate.runId);
 
   await page.getByRole("button", { name: "Configuration" }).click();
-  const rollbackResponse = page.waitForResponse(
+  const undoResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      response.url().endsWith("/api/v1/config-registry/rollback"),
+      response.url().endsWith("/api/v1/config-registry/undo"),
   );
   await page.getByRole("button", { name: "Undo" }).click();
   await page
     .getByRole("alertdialog")
     .getByRole("button", { name: "Restore default", exact: true })
     .click();
-  await expectResponseOk(await rollbackResponse, "POST");
+  await expectResponseOk(await undoResponse, "POST");
   await expect(page.getByTestId("active-config-entry")).toHaveText(
     initialRegistry.activation.entry_id,
   );

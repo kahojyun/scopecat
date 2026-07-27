@@ -41,11 +41,9 @@ from scopecat.daemon.wire import (
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
-    ConfigRevisionDefaultCommand,
-    ConfigRevisionDefaultReceipt,
-    ConfigRevisionRegistrationCommand,
-    ConfigRevisionRegistrationReceipt,
-    ConfigRollbackCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    ConfigUndoCommand,
     DirectConfigRevisionSource,
     ExecutionTransitionAppend,
     ExecutorHeartbeat,
@@ -53,7 +51,6 @@ from scopecat.daemon.wire import (
     ExecutorStartRequest,
     ManualConfigDraftRevisionSource,
     MeasurementAppendCommand,
-    ParameterProposalApprovalCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -67,7 +64,6 @@ from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
-    ParameterChangeApprovalRecord,
     ParameterChangeProposal,
 )
 from scopecat.records.run import RunManifest
@@ -92,39 +88,20 @@ def _config() -> ConfigProfileSnapshot:
     return load_config_snapshot_document(_FIXTURE)
 
 
-def _direct_registration(
+def _direct_publish_command(
     *,
     entry_id: str,
     config: ConfigProfileSnapshot,
-    registered_by: str,
-    note: str = "",
-) -> ConfigRevisionRegistrationCommand:
-    return ConfigRevisionRegistrationCommand(
-        source=DirectConfigRevisionSource(config=config),
-        entry_id=entry_id,
-        registered_by=registered_by,
-        note=note,
-    )
-
-
-def _direct_default_command(
-    *,
-    entry_id: str,
-    config: ConfigProfileSnapshot,
-    registered_by: str,
-    operator: str,
+    actor: str,
     expected_generation: int = 0,
     note: str = "",
-) -> ConfigRevisionDefaultCommand:
-    return ConfigRevisionDefaultCommand(
-        registration=_direct_registration(
-            entry_id=entry_id,
-            config=config,
-            registered_by=registered_by,
-            note=note,
-        ),
-        operator=operator,
+) -> ConfigPublishCommand:
+    return ConfigPublishCommand(
+        source=DirectConfigRevisionSource(config=config),
+        entry_id=entry_id,
+        actor=actor,
         expected_generation=expected_generation,
+        note=note,
     )
 
 
@@ -320,7 +297,7 @@ def test_bootstrap_config_is_active_and_idempotent_across_restarts(
     assert first.entry_id.startswith("daemon-")
     assert second == first
     assert [event.kind for event in first_events] == [
-        "config_registered",
+        "config_saved",
         "config_activated",
     ]
     assert second_events == first_events
@@ -337,12 +314,11 @@ def test_bootstrap_config_does_not_replace_later_activation(
         return LabApplication(bootstrap_config=lambda: bootstrap)
 
     with LocalDaemonRuntime(tmp_path, application_factory=factory) as runtime:
-        activation = runtime.application.config.set_config_default(
-            _direct_default_command(
+        activation = runtime.application.config.publish_config(
+            _direct_publish_command(
                 config=selected,
                 entry_id="operator-selected",
-                registered_by="operator",
-                operator="operator",
+                actor="operator",
                 expected_generation=1,
             )
         )
@@ -386,35 +362,20 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
             client.get("/api/v1/config-registry").json()
         )
         missing = client.get("/api/v1/config-registry/active")
-        baseline_import = client.post(
-            "/api/v1/config-registry/entries",
-            json=_direct_registration(
+        baseline_publish = client.post(
+            "/api/v1/config-registry/default",
+            json=_direct_publish_command(
                 entry_id="baseline",
                 config=baseline,
-                registered_by="notebook",
+                actor="notebook",
             ).model_dump(mode="json"),
         )
-        updated_import = client.post(
-            "/api/v1/config-registry/entries",
-            json=_direct_registration(
+        updated_publish = client.post(
+            "/api/v1/config-registry/default",
+            json=_direct_publish_command(
                 entry_id="updated",
                 config=updated,
-                registered_by="notebook",
-            ).model_dump(mode="json"),
-        )
-        first_activation = client.post(
-            "/api/v1/config-registry/active",
-            json=ConfigEntryActivationCommand(
-                entry_id="baseline",
-                operator="operator",
-                expected_generation=0,
-            ).model_dump(mode="json"),
-        )
-        second_activation = client.post(
-            "/api/v1/config-registry/active",
-            json=ConfigEntryActivationCommand(
-                entry_id="updated",
-                operator="operator",
+                actor="notebook",
                 expected_generation=1,
             ).model_dump(mode="json"),
         )
@@ -422,7 +383,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
             "/api/v1/config-registry/active",
             json=ConfigEntryActivationCommand(
                 entry_id="updated",
-                operator="operator",
+                actor="operator",
                 expected_generation=2,
             ).model_dump(mode="json"),
         )
@@ -430,14 +391,14 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
             "/api/v1/config-registry/active",
             json=ConfigEntryActivationCommand(
                 entry_id="baseline",
-                operator="stale-notebook",
+                actor="stale-notebook",
                 expected_generation=1,
             ).model_dump(mode="json"),
         )
-        rollback_response = client.post(
-            "/api/v1/config-registry/rollback",
-            json=ConfigRollbackCommand(
-                operator="operator",
+        undo_response = client.post(
+            "/api/v1/config-registry/undo",
+            json=ConfigUndoCommand(
+                actor="operator",
                 expected_generation=2,
             ).model_dump(mode="json"),
         )
@@ -455,57 +416,46 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
 
         assert empty == ConfigRegistryView()
         assert missing.status_code == 404
-        assert baseline_import.status_code == 201
-        assert updated_import.status_code == 201
-        assert (
-            ConfigRevisionRegistrationReceipt.model_validate(
-                baseline_import.json()
-            ).entry.id
-            == "baseline"
-        )
-        assert (
-            ConfigActivationReceipt.model_validate(
-                first_activation.json()
-            ).activation.generation
-            == 1
-        )
-        second_receipt = ConfigActivationReceipt.model_validate(
-            second_activation.json()
-        )
+        assert baseline_publish.status_code == 200
+        assert updated_publish.status_code == 200
+        first_receipt = ConfigPublishReceipt.model_validate(baseline_publish.json())
+        second_receipt = ConfigPublishReceipt.model_validate(updated_publish.json())
+        assert first_receipt.entry.id == "baseline"
+        assert first_receipt.activation.generation == 1
         assert second_receipt.activation.generation == 2
         assert (
-            ConfigActivationReceipt.model_validate(current_activation.json())
-            == second_receipt
+            ConfigActivationReceipt.model_validate(current_activation.json()).activation
+            == second_receipt.activation
         )
         assert stale_activation.status_code == 409
-        rollback = ConfigActivationReceipt.model_validate(rollback_response.json())
-        assert rollback.activation.action == "rollback"
-        assert rollback.activation.generation == 3
-        assert rollback.activation.entry_id == "baseline"
+        undo = ConfigActivationReceipt.model_validate(undo_response.json())
+        assert undo.activation.action == "undo"
+        assert undo.activation.generation == 3
+        assert undo.activation.entry_id == "baseline"
         assert [entry.id for entry in registry.entries] == ["baseline", "updated"]
         assert registry.activation is not None
         assert [record.action for record in activation_history.items] == [
             "activation",
             "activation",
-            "rollback",
+            "undo",
         ]
         assert active.entry.id == "baseline"
         assert active.config == baseline
         assert [(event.kind, event.payload, event.run_id) for event in events] == [
-            ("config_registered", {"entry_id": "baseline"}, None),
-            ("config_registered", {"entry_id": "updated"}, None),
+            ("config_saved", {"entry_id": "baseline"}, None),
             (
                 "config_activated",
                 {"entry_id": "baseline", "generation": 1},
                 None,
             ),
+            ("config_saved", {"entry_id": "updated"}, None),
             (
                 "config_activated",
                 {"entry_id": "updated", "generation": 2},
                 None,
             ),
             (
-                "config_rolled_back",
+                "config_undone",
                 {"entry_id": "baseline", "generation": 3},
                 None,
             ),
@@ -517,18 +467,17 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
 
         assert active.entry.id == "baseline"
         assert active.config == baseline
-        assert events[-1].kind == "config_rolled_back"
+        assert events[-1].kind == "config_undone"
 
 
-def test_config_default_rolls_back_registry_and_event_when_event_fails(
+def test_config_publish_rolls_back_registry_and_event_when_event_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    command = _direct_default_command(
+    command = _direct_publish_command(
         entry_id="baseline",
         config=_config(),
-        registered_by="notebook",
-        operator="notebook",
+        actor="notebook",
     )
     append_event = SQLiteControlPlane.append_event_in_transaction
 
@@ -549,12 +498,12 @@ def test_config_default_rolls_back_registry_and_event_when_event_fails(
                 fail_activation_event,
             )
             with pytest.raises(RuntimeError, match="event publication failed"):
-                runtime.application.config.set_config_default(command)
+                runtime.application.config.publish_config(command)
 
         assert runtime.application.config.get_config_registry() == ConfigRegistryView()
         assert _events(runtime).items == ()
 
-        receipt = runtime.application.config.set_config_default(command)
+        receipt = runtime.application.config.publish_config(command)
 
         assert receipt.activation.generation == 1
         assert [
@@ -562,7 +511,7 @@ def test_config_default_rolls_back_registry_and_event_when_event_fails(
             for entry in runtime.application.config.get_config_registry().entries
         ] == ["baseline"]
         assert [event.kind for event in _events(runtime).items] == [
-            "config_registered",
+            "config_saved",
             "config_activated",
         ]
 
@@ -598,20 +547,17 @@ def test_config_draft_http_workflow_previews_and_atomically_sets_default(
         assert preview.result_content_hash is not None
         default_response = client.post(
             "/api/v1/config-registry/default",
-            json=ConfigRevisionDefaultCommand(
-                registration=ConfigRevisionRegistrationCommand(
-                    source=ManualConfigDraftRevisionSource(
-                        draft=draft,
-                        expected_result_content_hash=preview.result_content_hash,
-                    ),
-                    entry_id="manual-tuning",
-                    registered_by="operator",
+            json=ConfigPublishCommand(
+                source=ManualConfigDraftRevisionSource(
+                    draft=draft,
+                    expected_result_content_hash=preview.result_content_hash,
                 ),
-                operator="operator",
+                entry_id="manual-tuning",
+                actor="operator",
                 expected_generation=active.activation.generation,
             ).model_dump(mode="json"),
         )
-        default = ConfigRevisionDefaultReceipt.model_validate(default_response.json())
+        default = ConfigPublishReceipt.model_validate(default_response.json())
 
         assert preview_response.status_code == 200
         assert preview.valid
@@ -732,38 +678,28 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         proposals = ParameterProposalListView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
-        approval_command = ParameterProposalApprovalCommand(
-            actor="nightly-calibration",
-            note="fit evidence reviewed",
-        )
-        approved = client.post(
-            f"/api/v1/runs/{admission.run_id}/parameter-proposals/"
-            f"{proposal.id}/approval",
-            json=approval_command.model_dump(mode="json"),
+        activated = client.post(
+            "/api/v1/config-registry/default",
+            json=ConfigPublishCommand(
+                source=CandidateConfigRevisionSource(
+                    run_id=admission.run_id,
+                    proposal_id=proposal.id,
+                ),
+                entry_id="candidate-fit",
+                actor="nightly-calibration",
+                expected_generation=1,
+                note="fit evidence reviewed",
+            ).model_dump(mode="json"),
         )
         approved_proposals = ParameterProposalListView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
-        activated = client.post(
-            "/api/v1/config-registry/default",
-            json=ConfigRevisionDefaultCommand(
-                registration=ConfigRevisionRegistrationCommand(
-                    source=CandidateConfigRevisionSource(
-                        run_id=admission.run_id,
-                        proposal_id=proposal.id,
-                    ),
-                    entry_id="candidate-fit",
-                    registered_by="notebook",
-                ),
-                operator="operator",
-                expected_generation=1,
-            ).model_dump(mode="json"),
-        )
 
         saved = AnalysisSaveReceipt.model_validate(first_save.json())
         retry = AnalysisSaveReceipt.model_validate(retry_save.json())
-        approval = ParameterChangeApprovalRecord.model_validate(approved.json())
-        activation = ConfigRevisionDefaultReceipt.model_validate(activated.json())
+        activation = ConfigPublishReceipt.model_validate(activated.json())
+        approval = approved_proposals.items[0].approval
+        assert approval is not None
         events = _events(runtime, run_id=admission.run_id).items
 
         assert first_save.status_code == 201
@@ -776,7 +712,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert config.config == _config()
         assert proposals.items[0].proposal == proposal
         assert proposals.items[0].approval is None
-        assert approval.actor == approval_command.actor
+        assert approval.actor == "nightly-calibration"
         assert approved_proposals.items[0].approval == approval
         assert activation.entry.id == "candidate-fit"
         assert activation.activation.generation == 2
@@ -864,19 +800,25 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
         ] == ["analysis_saved"]
 
 
-def test_parameter_approval_publication_rolls_back_with_event(
+def test_candidate_publish_rolls_back_approval_with_event(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with LocalDaemonRuntime(tmp_path) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         admission = runtime.application.submit_run(_submission("decision-atomic"))
         proposal = _analysis_proposal(admission.run_id)
         runtime.application.runs.save_run_analysis(
             admission.run_id,
             _analysis_command(proposal),
         )
-        command = ParameterProposalApprovalCommand(
+        command = ConfigPublishCommand(
+            source=CandidateConfigRevisionSource(
+                run_id=admission.run_id,
+                proposal_id=proposal.id,
+            ),
+            entry_id="candidate-atomic",
             actor="nightly-calibration",
+            expected_generation=1,
         )
         before = _manifest(runtime, admission.run_id)
         append_event = SQLiteControlPlane.append_event_in_transaction
@@ -900,29 +842,27 @@ def test_parameter_approval_publication_rolls_back_with_event(
                 RuntimeError,
                 match="approval event publication failed",
             ):
-                runtime.application.runs.approve_parameter_proposal(
-                    admission.run_id,
-                    proposal.id,
-                    command,
-                )
+                runtime.application.config.publish_config(command)
 
         proposals = runtime.application.runs.list_parameter_proposals(admission.run_id)
         assert _manifest(runtime, admission.run_id) == before
         assert proposals.items[0].approval is None
+        assert [
+            entry.id
+            for entry in runtime.application.config.get_config_registry().entries
+            if entry.id == "candidate-atomic"
+        ] == []
         assert [
             event.kind
             for event in _events(runtime, run_id=admission.run_id).items
             if event.kind == "parameter_proposal_approved"
         ] == []
 
-        receipt = runtime.application.runs.approve_parameter_proposal(
-            admission.run_id,
-            proposal.id,
-            command,
-        )
+        receipt = runtime.application.config.publish_config(command)
         proposals = runtime.application.runs.list_parameter_proposals(admission.run_id)
 
-        assert proposals.items[0].approval == receipt
+        assert proposals.items[0].approval is not None
+        assert receipt.entry.id == "candidate-atomic"
         assert [
             event.kind
             for event in _events(runtime, run_id=admission.run_id).items

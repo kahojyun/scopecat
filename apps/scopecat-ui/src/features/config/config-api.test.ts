@@ -10,8 +10,7 @@ import {
   getConfigRegistryEntry,
   parseConfigProfileJson,
   previewConfigDraft,
-  registerConfigRevision,
-  rollbackConfig,
+  undoConfig,
   setConfigDefault,
 } from "./config-api";
 
@@ -102,33 +101,20 @@ describe("config registry commands", () => {
     vi.stubGlobal("fetch", fetchMock);
     const activationCommand = {
       entry_id: "config/b",
-      operator: "Ada",
+      actor: "Ada",
       note: "promote calibrated values",
       expected_generation: 2,
     };
-    const rollback = {
-      operator: activationCommand.operator,
+    const undo = {
+      actor: activationCommand.actor,
       note: activationCommand.note,
       expected_generation: activationCommand.expected_generation,
     };
-    const config = configProfile("profile-import");
-    const imported = {
-      source: {
-        kind: "direct_config_profile" as const,
-        config,
-      },
-      entry_id: "profile-import",
-      registered_by: "Grace",
-      note: "bench setup",
-    };
-
     await activateConfigEntry(activationCommand);
-    await rollbackConfig(rollback);
-    await registerConfigRevision(imported);
+    await undoConfig(undo);
 
     expectRequest(fetchMock, 0, "/api/v1/config-registry/active", activationCommand);
-    expectRequest(fetchMock, 1, "/api/v1/config-registry/rollback", rollback);
-    expectRequest(fetchMock, 2, "/api/v1/config-registry/entries", imported);
+    expectRequest(fetchMock, 1, "/api/v1/config-registry/undo", undo);
   });
 });
 
@@ -174,18 +160,19 @@ describe("typed config drafts", () => {
     expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/preview", draft);
   });
 
-  it("sends register and set-default commands unchanged", async () => {
-    const registration = {
+  it("sends one publish command unchanged", async () => {
+    const publishCommand = {
       source: {
         kind: "manual_parameter_updates" as const,
         draft,
         expected_result_content_hash: HASH_B,
       },
       entry_id: "config-a-edit",
-      registered_by: "Ada",
-      note: "calibrated",
+      actor: "Ada",
+      expected_generation: 3,
+      note: "accepted edit",
     };
-    const registrationReceipt = {
+    const publishReceipt = {
       entry: registryEntry("config-a-edit", HASH_B),
       deltas: [
         {
@@ -194,28 +181,13 @@ describe("typed config drafts", () => {
           after: scalarValue(5.2),
         },
       ],
+      activation: activation(4, "config-a-edit", HASH_B),
     };
-    const activationRecord = activation(4, "config-a-edit", HASH_B);
-    const defaultCommand = {
-      registration,
-      operator: "Ada",
-      expected_generation: 3,
-      activation_note: "accepted edit",
-    };
-    const defaultReceipt = {
-      ...registrationReceipt,
-      activation: activationRecord,
-    };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse(registrationReceipt, 201))
-      .mockResolvedValueOnce(jsonResponse(defaultReceipt));
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(publishReceipt));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(registerConfigRevision(registration)).resolves.toEqual(registrationReceipt);
-    await expect(setConfigDefault(defaultCommand)).resolves.toEqual(defaultReceipt);
-    expectRequest(fetchMock, 0, "/api/v1/config-registry/entries", registration);
-    expectRequest(fetchMock, 1, "/api/v1/config-registry/default", defaultCommand);
+    await expect(setConfigDefault(publishCommand)).resolves.toEqual(publishReceipt);
+    expectRequest(fetchMock, 0, "/api/v1/config-registry/default", publishCommand);
   });
 });
 
@@ -249,20 +221,19 @@ function registryEntry(id: string, contentHash: string): ConfigRegistryEntry {
     config_ref: `entries/${id}.json`,
     content_hash: contentHash,
     source: { kind: "direct_config_profile" },
-    registered_by: "scopecat",
+    actor: "scopecat",
     note: "",
-    registered_at: id === "config-b" ? "2026-07-23T10:00:00Z" : "2026-07-22T10:00:00Z",
+    recorded_at: id === "config-b" ? "2026-07-23T10:00:00Z" : "2026-07-22T10:00:00Z",
   };
 }
 
 function activation(generation: number, entryId: string, entryContentHash: string) {
   return {
-    id: `activation-${generation}`,
     generation,
     action: "activation" as const,
     entry_id: entryId,
     entry_content_hash: entryContentHash,
-    operator: "Ada",
+    actor: "Ada",
     note: "",
     recorded_at: "2026-07-24T08:00:00Z",
   };

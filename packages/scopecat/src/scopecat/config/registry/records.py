@@ -41,12 +41,11 @@ class CandidateConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: str
     proposal_id: str
-    approval_record_id: str
     base_config_content_hash: ConfigContentHash
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CandidateConfigRegistrySource:
-        if not self.run_id or not self.proposal_id or not self.approval_record_id:
+        if not self.run_id or not self.proposal_id:
             msg = "candidate registry source identity fields must be non-empty"
             raise ValueError(msg)
         return self
@@ -65,33 +64,32 @@ class ConfigRegistryEntry(_FrozenRegistryModel):
     config_ref: str
     content_hash: ConfigContentHash
     source: ConfigRegistryEntrySource
-    registered_by: str
+    actor: str
     note: str = ""
-    registered_at: datetime = Field(default_factory=utc_now)
+    recorded_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
     def validate_identity(self) -> ConfigRegistryEntry:
-        if not self.id or not self.config_ref or not self.registered_by.strip():
+        if not self.id or not self.config_ref or not self.actor.strip():
             msg = "config registry entry identity fields must be non-empty"
             raise ValueError(msg)
         return self
 
 
 class ConfigRegistryActivationRecord(_FrozenRegistryModel):
-    id: str
     generation: int = Field(ge=1)
-    action: Literal["activation", "rollback"]
+    action: Literal["activation", "undo"]
     entry_id: str
     entry_content_hash: ConfigContentHash
     previous_entry_id: str | None = None
     previous_entry_content_hash: ConfigContentHash | None = None
-    operator: str
+    actor: str
     note: str = ""
     recorded_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
     def validate_identity(self) -> ConfigRegistryActivationRecord:
-        if not self.id or not self.entry_id or not self.operator.strip():
+        if not self.entry_id or not self.actor.strip():
             msg = "config registry activation identity fields must be non-empty"
             raise ValueError(msg)
         if (self.previous_entry_id is None) != (

@@ -313,7 +313,7 @@
 }
 
 .config-summary-default > span,
-.config-summary-rollback > span,
+.config-summary-undo > span,
 .config-summary-facts dt {
   color: var(--text-dim);
   font-size: 0.58rem;
@@ -368,7 +368,7 @@
   font-weight: 700;
 }
 
-.config-summary-rollback {
+.config-summary-undo {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 9px;
@@ -377,7 +377,7 @@
   padding: 7px 9px 7px 12px;
 }
 
-.config-summary-rollback strong {
+.config-summary-undo strong {
   overflow: hidden;
   color: var(--text-soft);
   font-size: 0.66rem;
@@ -385,7 +385,7 @@
   white-space: nowrap;
 }
 
-.config-summary-rollback .secondary-button {
+.config-summary-undo .secondary-button {
   min-height: 31px;
 }
 

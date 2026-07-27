@@ -28,7 +28,7 @@ if TYPE_CHECKING:
         ConfigRegistryEntrySnapshot,
         ConfigRegistryMutationResult,
         ConfigRegistrySnapshot,
-        ConfigRevisionRegistration,
+        ConfigRevision,
         ConfigRevisionSource,
         DirectConfigRevisionSource,
         ManualConfigDraftResult,
@@ -44,10 +44,9 @@ if TYPE_CHECKING:
         load_config_registry_entry_snapshot,
         load_config_registry_snapshot,
         preview_manual_config_draft,
-        register_and_activate_config_revision,
-        register_config_revision,
+        publish_config_revision,
         resolve_config_registry_config_source,
-        rollback_config_registry,
+        undo_config_registry,
     )
 
 
@@ -68,7 +67,7 @@ _SERVICE_EXPORTS = (
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
     "ActiveConfigRegistrySnapshot",
     "CandidateConfigRevisionSource",
-    "ConfigRevisionRegistration",
+    "ConfigRevision",
     "ConfigRevisionSource",
     "ConfigRegistryEntrySnapshot",
     "ConfigRegistryMutationResult",
@@ -87,10 +86,9 @@ _SERVICE_EXPORTS = (
     "load_config_registry_entry_snapshot",
     "load_config_registry_snapshot",
     "preview_manual_config_draft",
-    "register_and_activate_config_revision",
-    "register_config_revision",
+    "publish_config_revision",
     "resolve_config_registry_config_source",
-    "rollback_config_registry",
+    "undo_config_registry",
 )
 _EXPORTS = {
     **{name: ("scopecat.config.registry.records", name) for name in _RECORD_EXPORTS},

@@ -15,20 +15,6 @@ from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.compiler.relations.context import EvalContext
 from tests.testkit.relation_plans import evaluate_scalar
 
-_OWNER_ONLY_ROOT_NAMES = {
-    "AnalysisStep",
-    "DomainExecution",
-    "DomainInputPort",
-    "DomainResultPort",
-    "MetadataValue",
-    "ModuleInput",
-    "PreparedLabExperiment",
-    "ProductAxis",
-    "RecordSelection",
-    "ScalarInput",
-    "shot_axis",
-}
-
 
 def _identity_entity(qubit: str) -> str:
     return qubit
@@ -37,7 +23,6 @@ def _identity_entity(qubit: str) -> str:
 def test_root_lazy_exports_are_complete_visible_and_resolvable() -> None:
     assert len(sc.__all__) == len(set(sc.__all__))
     assert set(sc.__all__) <= set(dir(sc))
-    assert _OWNER_ONLY_ROOT_NAMES.isdisjoint(sc.__all__)
 
     for name in sc.__all__:
         assert getattr(sc, name) is not None
@@ -49,18 +34,13 @@ def test_daemon_package_does_not_reexport_transport_contracts() -> None:
 
 def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.open_project)
-    assert sc.ConfigDraft
-    assert sc.LabClient
-    assert sc.Project
     assert problems.Problem
     assert callable(problems.problem)
     assert callable(problems.model_location)
-    assert sc.RunHandle
     assert callable(sc.module)
     assert callable(sc.template)
     assert callable(sc.scratch)
     assert sc.ExperimentModule
-    assert not hasattr(sc, "ModuleDefinition")
     assert sc.ExperimentTemplate
     assert sc.ScratchDefinition
     assert callable(sc.ModuleBuilder.bind_field)

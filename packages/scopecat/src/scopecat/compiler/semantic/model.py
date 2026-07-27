@@ -1,4 +1,8 @@
-"""Backend-neutral typed value and pure-operation graph."""
+"""Backend-neutral typed value and pure-operation graph.
+
+The verified frontend owns structural validation. These transient compiler
+records only snapshot mutable values that must not leak into later stages.
+"""
 
 from __future__ import annotations
 
@@ -168,9 +172,6 @@ class SemanticOperation:
     result_id: graph_values.ValueId
     result_type: Scalar
 
-    def __post_init__(self) -> None:
-        _require_unique_names("operation input", self.inputs)
-
 
 @dataclass(frozen=True, slots=True)
 class SemanticDomainExecution:
@@ -182,13 +183,6 @@ class SemanticDomainExecution:
     compiler_inputs: tuple[tuple[str, ValueUse], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
 
-    def __post_init__(self) -> None:
-        if not self.id:
-            raise ValueError("semantic domain execution id must be non-empty")
-        _require_unique_names("domain execution input", self.inputs)
-        _require_unique_names("domain execution compiler input", self.compiler_inputs)
-        _require_unique_names("domain execution result", self.results)
-
 
 @dataclass(frozen=True, slots=True)
 class SemanticMeasurementPostprocessor:
@@ -198,12 +192,6 @@ class SemanticMeasurementPostprocessor:
     input: ProductId
     outputs: tuple[tuple[str, ProductId], ...]
     kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
-
-    def __post_init__(self) -> None:
-        _require_unique_names("measurement postprocessor output", self.outputs)
-        if not self.outputs:
-            msg = "semantic measurement postprocessors require at least one output"
-            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,8 +203,6 @@ class AcquireProduct:
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
-        if not self.provider_key:
-            raise ValueError("acquired product provider key must be non-empty")
         object.__setattr__(
             self,
             "metadata",
@@ -236,17 +222,6 @@ class AcquireEffect:
     capability_id: str
     products: tuple[AcquireProduct, ...]
 
-    def __post_init__(self) -> None:
-        if not self.products:
-            raise ValueError("acquire effects require at least one product")
-        if not self.capability_id:
-            raise ValueError("acquire effect capability must be non-empty")
-        if len(self.product_ids) != len(set(self.product_ids)):
-            raise ValueError("acquire effect product ids must be unique")
-        provider_keys = tuple(product.provider_key for product in self.products)
-        if len(provider_keys) != len(set(provider_keys)):
-            raise ValueError("acquire effect provider keys must be unique")
-
     @property
     def product_ids(self) -> tuple[ProductId, ...]:
         return tuple(product.product_id for product in self.products)
@@ -262,11 +237,6 @@ class SemanticGraphIR:
 @dataclass(frozen=True, slots=True)
 class ImplementationId:
     value: str
-
-    def __post_init__(self) -> None:
-        if not self.value:
-            msg = "implementation ids must be non-empty"
-            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,14 +270,3 @@ def _snapshot_literal(value: object) -> object:
     # Their identity is semantic data; attempting a generic deepcopy would make
     # construction depend on incidental handle internals such as locks/devices.
     return value
-
-
-def _require_unique_names(label: str, values: tuple[tuple[str, object], ...]) -> None:
-    names = tuple(name for name, _value in values)
-    if any(not name for name in names):
-        msg = f"{label} names must be non-empty"
-        raise ValueError(msg)
-    duplicates = sorted(name for name in set(names) if names.count(name) > 1)
-    if duplicates:
-        msg = f"duplicate {label} names: " + ", ".join(duplicates)
-        raise ValueError(msg)

@@ -5,10 +5,8 @@ import type {
   ConfigProfileSnapshot,
   ConfigRegistryEntry,
   ConfigRegistryOverview,
-  ConfigRevisionDefaultCommand,
-  ConfigRevisionDefaultReceipt,
-  ConfigRevisionRegistrationCommand,
-  ConfigRevisionRegistrationReceipt,
+  ConfigPublishCommand,
+  ConfigPublishReceipt,
   DaemonUiApi,
 } from "../../api-contract";
 
@@ -35,7 +33,7 @@ export async function getConfigRegistry(signal?: AbortSignal): Promise<ConfigReg
   return {
     ...registry,
     entries: [...registry.entries].sort((left, right) =>
-      (right.registered_at ?? "").localeCompare(left.registered_at ?? ""),
+      (right.recorded_at ?? "").localeCompare(left.recorded_at ?? ""),
     ),
     activation_history: [...(activations.items ?? [])].sort(
       (left, right) => right.generation - left.generation,
@@ -69,9 +67,9 @@ export async function activateConfigEntry(
   );
 }
 
-export async function rollbackConfig(command: DaemonUiApi["configRollbackCommand"]): Promise<void> {
-  await request<DaemonUiApi["configRollbackReceipt"]>(
-    `${CONFIG_API}/rollback`,
+export async function undoConfig(command: DaemonUiApi["configUndoCommand"]): Promise<void> {
+  await request<DaemonUiApi["configUndoReceipt"]>(
+    `${CONFIG_API}/undo`,
     undefined,
     jsonRequest(command),
   );
@@ -86,26 +84,15 @@ export async function previewConfigDraft(command: ConfigDraftCommand): Promise<C
   return response as ConfigDraftPreview;
 }
 
-export async function registerConfigRevision(
-  command: ConfigRevisionRegistrationCommand,
-): Promise<ConfigRevisionRegistrationReceipt> {
-  const response = await request<DaemonUiApi["configRevisionRegistrationReceipt"]>(
-    `${CONFIG_API}/entries`,
-    undefined,
-    jsonRequest(command),
-  );
-  return response as ConfigRevisionRegistrationReceipt;
-}
-
 export async function setConfigDefault(
-  command: ConfigRevisionDefaultCommand,
-): Promise<ConfigRevisionDefaultReceipt> {
-  const response = await request<DaemonUiApi["configRevisionDefaultReceipt"]>(
+  command: ConfigPublishCommand,
+): Promise<ConfigPublishReceipt> {
+  const response = await request<DaemonUiApi["configPublishReceipt"]>(
     `${CONFIG_API}/default`,
     undefined,
     jsonRequest(command),
   );
-  return response as ConfigRevisionDefaultReceipt;
+  return response as ConfigPublishReceipt;
 }
 
 export function summarizeConfigSnapshot(config: ConfigProfileSnapshot): ConfigSnapshotSummary {

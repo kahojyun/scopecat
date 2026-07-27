@@ -171,7 +171,7 @@ def config_apply(
     ] = _CURRENT_DIRECTORY,
     actor: Annotated[
         str,
-        typer.Option(help="Identity recorded for registration and activation."),
+        typer.Option(help="Identity recorded for the configuration change."),
     ] = "local-operator",
     note: Annotated[
         str,

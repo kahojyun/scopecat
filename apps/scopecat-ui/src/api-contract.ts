@@ -25,57 +25,35 @@ export interface DaemonUiApi {
   configRegistry: JsonResponse<paths["/api/v1/config-registry"]["get"], 200>;
   configActivations: JsonResponse<paths["/api/v1/config-registry/activations"]["get"], 200>;
   configEntry: JsonResponse<paths["/api/v1/config-registry/entries/{entry_id}"]["get"], 200>;
-  configRevisionRegistrationReceipt: JsonResponse<
-    paths["/api/v1/config-registry/entries"]["post"],
-    201
-  >;
-  configRevisionDefaultReceipt: JsonResponse<paths["/api/v1/config-registry/default"]["post"], 200>;
+  configPublishReceipt: JsonResponse<paths["/api/v1/config-registry/default"]["post"], 200>;
   configDraftPreview: JsonResponse<paths["/api/v1/config-registry/drafts/preview"]["post"], 200>;
   configActivationReceipt: JsonResponse<paths["/api/v1/config-registry/active"]["post"], 200>;
-  configRollbackReceipt: JsonResponse<paths["/api/v1/config-registry/rollback"]["post"], 200>;
+  configUndoReceipt: JsonResponse<paths["/api/v1/config-registry/undo"]["post"], 200>;
   runPage: JsonResponse<paths["/api/v1/runs"]["get"], 200>;
   runDetail: JsonResponse<paths["/api/v1/runs/{run_id}"]["get"], 200>;
   runAnalyses: JsonResponse<paths["/api/v1/runs/{run_id}/analyses"]["get"], 200>;
   parameterProposals: JsonResponse<paths["/api/v1/runs/{run_id}/parameter-proposals"]["get"], 200>;
-  parameterProposalApproval: JsonResponse<
-    paths["/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval"]["post"],
-    200
-  >;
   artifactText: JsonResponse<paths["/api/v1/runs/{run_id}/artifacts/{selector}/text"]["get"], 200>;
   artifactJson: JsonResponse<paths["/api/v1/runs/{run_id}/artifacts/{selector}/json"]["get"], 200>;
   recordJson: JsonResponse<paths["/api/v1/runs/{run_id}/records/{selector}/json"]["get"], 200>;
   datasetContent: JsonResponse<paths["/api/v1/runs/{run_id}/datasets/{selector}"]["get"], 200>;
   measurements: JsonResponse<paths["/api/v1/runs/{run_id}/measurements"]["get"], 200>;
   eventPage: JsonResponse<paths["/api/v1/events"]["get"], 200>;
-  configRevisionRegistrationCommand: JsonRequest<paths["/api/v1/config-registry/entries"]["post"]>;
-  configRevisionDefaultCommand: JsonRequest<paths["/api/v1/config-registry/default"]["post"]>;
+  configPublishCommand: JsonRequest<paths["/api/v1/config-registry/default"]["post"]>;
   configDraftCommand: JsonRequest<paths["/api/v1/config-registry/drafts/preview"]["post"]>;
   configActivationCommand: JsonRequest<paths["/api/v1/config-registry/active"]["post"]>;
-  configRollbackCommand: JsonRequest<paths["/api/v1/config-registry/rollback"]["post"]>;
-  parameterProposalApprovalCommand: JsonRequest<
-    paths["/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval"]["post"]
-  >;
+  configUndoCommand: JsonRequest<paths["/api/v1/config-registry/undo"]["post"]>;
 }
 
 export type ControlRun = components["schemas"]["ControlRun"];
 export type ConfigActivationRecord = components["schemas"]["ConfigRegistryActivationRecord"];
 export type ConfigDraftCommand = DaemonUiApi["configDraftCommand"];
-export type ConfigRevisionDefaultCommand = DaemonUiApi["configRevisionDefaultCommand"];
-export type ConfigRevisionDefaultReceipt = Omit<
-  DaemonUiApi["configRevisionDefaultReceipt"],
-  "deltas"
-> & {
+export type ConfigPublishCommand = DaemonUiApi["configPublishCommand"];
+export type ConfigPublishReceipt = Omit<DaemonUiApi["configPublishReceipt"], "deltas"> & {
   deltas: ParameterValueDelta[];
 };
 export type ConfigDraftPreview = Omit<DaemonUiApi["configDraftPreview"], "config" | "deltas"> & {
   config?: ConfigProfileSnapshot | null;
-  deltas: ParameterValueDelta[];
-};
-export type ConfigRevisionRegistrationCommand = DaemonUiApi["configRevisionRegistrationCommand"];
-export type ConfigRevisionRegistrationReceipt = Omit<
-  DaemonUiApi["configRevisionRegistrationReceipt"],
-  "deltas"
-> & {
   deltas: ParameterValueDelta[];
 };
 export type ConfigProfileSnapshot = components["schemas"]["ConfigProfileSnapshot-Input"];

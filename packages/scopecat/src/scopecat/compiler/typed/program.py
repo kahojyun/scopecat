@@ -4,6 +4,9 @@
 product ownership symbolic so one experiment definition can be specialized for
 different physical systems. It is transient compiler data because accepted run
 semantics, not intermediate compiler shape, form the durable boundary.
+
+Construction follows verified semantic lowering, so these records normalize
+owned mappings but do not repeat authoring validation.
 """
 
 from __future__ import annotations
@@ -110,11 +113,6 @@ class TypedDomainResultBinding:
     product_id: ProductId
     product_use_ids: tuple[ProductUseId, ...] = ()
 
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "typed domain result id must be non-empty"
-            raise ValueError(msg)
-
 
 @dataclass(frozen=True, slots=True)
 class TypedDomainExecution:
@@ -131,8 +129,6 @@ class TypedDomainExecution:
     results: tuple[TypedDomainResultBinding, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.id:
-            raise ValueError("typed domain execution id must be non-empty")
         selected_inputs: dict[str, ScalarValueInput] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
@@ -148,11 +144,6 @@ class TypedMeasurementPostprocessorOutput:
     id: str
     product_id: ProductId
     product_use_ids: tuple[ProductUseId, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "measurement postprocessor output id must be non-empty"
-            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,11 +205,6 @@ class CoreProgram:
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.id or not self.kind:
-            msg = "core program id and kind must be non-empty"
-            raise ValueError(msg)
 
 
 def core_domain_executions(program: CoreProgram) -> tuple[TypedDomainExecution, ...]:

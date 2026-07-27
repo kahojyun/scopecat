@@ -37,7 +37,7 @@ def _quantity_in_unit(value: object, unit: str) -> float:
     return float(value.to(unit).value)
 
 
-def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
+def test_drag_beta_closes_measurement_analysis_publish_and_undo(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -103,7 +103,7 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
 
     saved = analysis.save()
     candidate = analysis.candidate_config()
-    baseline = lab.activate_config(
+    baseline = lab.publish_config(
         source_run.config,
         entry_id="drag-beta-baseline",
         expected_generation=0,
@@ -114,11 +114,10 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
         proposal.id,
         note="fit reviewed",
     )
-    activated = lab.activate(
+    activated = lab.publish(
         candidate,
         entry_id="drag-beta-q0",
         expected_generation=baseline.activation.generation,
-        activation_note="use reviewed DRAG beta",
     )
     assert activated.activation is not None
 
@@ -140,7 +139,7 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
         [fitted_beta_ns + offset for offset in (-0.5, -0.25, 0.0, 0.25, 0.5)]
     )
 
-    restored = lab.rollback(
+    restored = lab.undo(
         expected_generation=activated.activation.generation,
         note="restore baseline",
     )
@@ -152,7 +151,7 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
             for point in restored_preview.points
         }
     )
-    assert restored.activation.action == "rollback"
+    assert restored.activation.action == "undo"
     assert restored_betas == pytest.approx(
         [float(beta.to("ns").value) for beta in _BETA_VALUES]
     )

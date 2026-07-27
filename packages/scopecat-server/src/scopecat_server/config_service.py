@@ -10,7 +10,9 @@ from dataclasses import replace
 from scopecat.adapters.sqlite import (
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
+    SQLiteRunRepository,
 )
+from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.config.registry import service as config_registry_service
 from scopecat.control.models import (
     DurableEventInput,
@@ -27,11 +29,9 @@ from scopecat.daemon.wire import (
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
-    ConfigRevisionDefaultCommand,
-    ConfigRevisionDefaultReceipt,
-    ConfigRevisionRegistrationCommand,
-    ConfigRevisionRegistrationReceipt,
-    ConfigRollbackCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    ConfigUndoCommand,
     DirectConfigRevisionSource,
     ManualConfigDraftRevisionSource,
 )
@@ -55,10 +55,12 @@ class ConfigService:
         *,
         control: SQLiteControlPlane,
         config_registry: SQLiteConfigRegistryStore,
+        runs: SQLiteRunRepository,
         services: ProjectStateServices,
     ) -> None:
         self._control = control
         self._config_registry = config_registry
+        self._runs = runs
         self._services = services
 
     def get_config_registry(self) -> ConfigRegistryView:
@@ -98,45 +100,55 @@ class ConfigService:
             )
             return ConfigEntryView(entry=snapshot.entry, config=snapshot.config)
 
-    def register_config_revision(
+    def publish_config(
         self,
-        command: ConfigRevisionRegistrationCommand,
-    ) -> ConfigRevisionRegistrationReceipt:
+        command: ConfigPublishCommand,
+    ) -> ConfigPublishReceipt:
+        """Publish one revision; candidate approval shares the same commit."""
+
         with (
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            result = config_registry_service.register_config_revision(
-                registration=_revision_registration(command),
+            source = command.source
+            if isinstance(source, CandidateConfigRevisionSource):
+                prepared = prepare_parameter_change_approval(
+                    run_id=source.run_id,
+                    selector=source.proposal_id,
+                    services=self._services,
+                    actor=command.actor,
+                    note=command.note,
+                )
+                if prepared.publication is not None:
+                    publication = self._runs.prepare_content_publication(
+                        prepared.publication
+                    )
+                    self._runs.publish_prepared_content_in_transaction(
+                        connection,
+                        publication,
+                    )
+                    self._control.append_event_in_transaction(
+                        connection,
+                        DurableEventInput(
+                            run_id=source.run_id,
+                            kind="parameter_proposal_approved",
+                            payload={
+                                "proposal_id": source.proposal_id,
+                                "actor": command.actor,
+                            },
+                            occurred_at=prepared.approval.approved_at,
+                        ),
+                    )
+            result = config_registry_service.publish_config_revision(
+                revision=_config_revision(command),
                 unit_of_work=services.config_registry,
+                expected_generation=command.expected_generation,
             )
             self._append_revision_events(connection, command, result)
-            return ConfigRevisionRegistrationReceipt(
-                entry=result.entry,
-                deltas=result.deltas,
-            )
-
-    def set_config_default(
-        self,
-        command: ConfigRevisionDefaultCommand,
-    ) -> ConfigRevisionDefaultReceipt:
-        with (
-            self._config_errors(),
-            self._config_transaction() as transaction,
-        ):
-            connection, services = transaction
-            result = config_registry_service.register_and_activate_config_revision(
-                registration=_revision_registration(command.registration),
-                unit_of_work=services.config_registry,
-                operator=command.operator,
-                expected_generation=command.expected_generation,
-                activation_note=command.activation_note,
-            )
-            self._append_revision_events(connection, command.registration, result)
             activation = result.activation
             assert activation is not None
-            return ConfigRevisionDefaultReceipt(
+            return ConfigPublishReceipt(
                 entry=result.entry,
                 deltas=result.deltas,
                 activation=activation,
@@ -181,7 +193,7 @@ class ConfigService:
             result = config_registry_service.activate_config_registry_entry(
                 entry_id=command.entry_id,
                 unit_of_work=services.config_registry,
-                operator=command.operator,
+                actor=command.actor,
                 expected_generation=command.expected_generation,
                 note=command.note,
             )
@@ -203,18 +215,18 @@ class ConfigService:
                 activation=activation,
             )
 
-    def rollback_config(
+    def undo_config(
         self,
-        command: ConfigRollbackCommand,
+        command: ConfigUndoCommand,
     ) -> ConfigActivationReceipt:
         with (
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
             connection, services = transaction
-            result = config_registry_service.rollback_config_registry(
+            result = config_registry_service.undo_config_registry(
                 unit_of_work=services.config_registry,
-                operator=command.operator,
+                actor=command.actor,
                 expected_generation=command.expected_generation,
                 note=command.note,
             )
@@ -224,7 +236,7 @@ class ConfigService:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
-                        kind="config_rolled_back",
+                        kind="config_undone",
                         payload={
                             "entry_id": activation.entry_id,
                             "generation": activation.generation,
@@ -239,21 +251,21 @@ class ConfigService:
     def _append_revision_events(
         self,
         connection: sqlite3.Connection,
-        command: ConfigRevisionRegistrationCommand,
+        command: ConfigPublishCommand,
         result: config_registry_service.ConfigRegistryMutationResult,
     ) -> None:
         source = command.source
         run_id = (
             source.run_id if isinstance(source, CandidateConfigRevisionSource) else None
         )
-        if result.registered:
+        if result.saved:
             self._control.append_event_in_transaction(
                 connection,
                 DurableEventInput(
                     run_id=run_id,
-                    kind="config_registered",
+                    kind="config_saved",
                     payload={"entry_id": result.entry.id},
-                    occurred_at=result.entry.registered_at,
+                    occurred_at=result.entry.recorded_at,
                 ),
             )
         activation = result.activation
@@ -296,9 +308,9 @@ class ConfigService:
             raise BackendConflict(str(error)) from error
 
 
-def _revision_registration(
-    command: ConfigRevisionRegistrationCommand,
-) -> config_registry_service.ConfigRevisionRegistration:
+def _config_revision(
+    command: ConfigPublishCommand,
+) -> config_registry_service.ConfigRevision:
     source = command.source
     if isinstance(source, DirectConfigRevisionSource):
         revision_source = config_registry_service.DirectConfigRevisionSource(
@@ -319,9 +331,9 @@ def _revision_registration(
             run_id=source.run_id,
             proposal_id=source.proposal_id,
         )
-    return config_registry_service.ConfigRevisionRegistration(
+    return config_registry_service.ConfigRevision(
         source=revision_source,
         entry_id=command.entry_id,
-        registered_by=command.registered_by,
+        actor=command.actor,
         note=command.note,
     )

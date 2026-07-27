@@ -155,15 +155,13 @@ class InProcessQuantumLab:
             self.services.runs.publish_content(prepared.publication)
         return prepared.approval
 
-    def activate(
+    def publish(
         self,
         candidate: CandidateConfig,
         *,
         entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
+        actor: str | None = None,
         note: str = "",
-        activation_note: str | None = None,
         expected_generation: int | None = None,
     ) -> config_registry_service.ConfigRegistryMutationResult:
         selected_generation = (
@@ -173,31 +171,28 @@ class InProcessQuantumLab:
             if expected_generation is None
             else expected_generation
         )
-        return config_registry_service.register_and_activate_config_revision(
-            registration=config_registry_service.ConfigRevisionRegistration(
+        selected_actor = actor or self.operator
+        return config_registry_service.publish_config_revision(
+            revision=config_registry_service.ConfigRevision(
                 source=config_registry_service.CandidateConfigRevisionSource(
                     run_id=candidate.source_run_id,
                     proposal_id=candidate.proposal_id,
                 ),
                 entry_id=entry_id,
-                registered_by=registered_by or self.operator,
+                actor=selected_actor,
                 note=note,
             ),
             unit_of_work=self.services.config_registry,
-            operator=operator or self.operator,
             expected_generation=selected_generation,
-            activation_note=activation_note,
         )
 
-    def activate_config(
+    def publish_config(
         self,
         config: ConfigProfileSnapshot,
         *,
         entry_id: str,
-        registered_by: str | None = None,
-        operator: str | None = None,
+        actor: str | None = None,
         note: str = "",
-        activation_note: str | None = None,
         expected_generation: int | None = None,
     ) -> config_registry_service.ConfigRegistryMutationResult:
         selected_generation = (
@@ -207,29 +202,28 @@ class InProcessQuantumLab:
             if expected_generation is None
             else expected_generation
         )
-        return config_registry_service.register_and_activate_config_revision(
-            registration=config_registry_service.ConfigRevisionRegistration(
+        selected_actor = actor or self.operator
+        return config_registry_service.publish_config_revision(
+            revision=config_registry_service.ConfigRevision(
                 source=config_registry_service.DirectConfigRevisionSource(config),
                 entry_id=entry_id,
-                registered_by=registered_by or self.operator,
+                actor=selected_actor,
                 note=note,
             ),
             unit_of_work=self.services.config_registry,
-            operator=operator or self.operator,
-            activation_note=activation_note,
             expected_generation=selected_generation,
         )
 
-    def rollback(
+    def undo(
         self,
         *,
         expected_generation: int,
-        operator: str | None = None,
+        actor: str | None = None,
         note: str = "",
     ) -> config_registry_service.ConfigRegistryMutationResult:
-        return config_registry_service.rollback_config_registry(
+        return config_registry_service.undo_config_registry(
             unit_of_work=self.services.config_registry,
-            operator=operator or self.operator,
+            actor=actor or self.operator,
             expected_generation=expected_generation,
             note=note,
         )

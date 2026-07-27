@@ -14,7 +14,6 @@ from scopecat.config.candidates import (
     resolve_candidate_config_from_snapshot,
 )
 from scopecat.config.drafts import ConfigDraft
-from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.config.resolution import config_revision_entry_id
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
@@ -30,19 +29,13 @@ from scopecat.daemon.wire import (
     ConfigActivationReceipt,
     ConfigDraftCommand,
     ConfigEntryActivationCommand,
-    ConfigRevisionDefaultCommand,
-    ConfigRevisionDefaultReceipt,
-    ConfigRevisionRegistrationCommand,
-    ConfigRevisionRegistrationReceipt,
-    ConfigRollbackCommand,
+    ConfigPublishCommand,
+    ConfigPublishReceipt,
+    ConfigUndoCommand,
     DirectConfigRevisionSource,
     ManualConfigDraftRevisionSource,
-    ParameterProposalApprovalCommand,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.parameter_change import (
-    ParameterChangeApprovalRecord,
-)
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
     ConfigRegistryRunConfigSource,
@@ -58,7 +51,6 @@ class LabConfigOperations:
     client: DaemonClient
     runs: RemoteRunOperations
     default_config: ConfigProfileSnapshot | None
-    reviewer: str
     operator: str
 
     def registry(self) -> ConfigRegistryView:
@@ -165,65 +157,17 @@ class LabConfigOperations:
             )
         )
 
-    def register(
-        self,
-        draft: ConfigDraft,
-        *,
-        preview: ConfigDraftPreview,
-        entry_id: str,
-        registered_by: str | None = None,
-        note: str = "",
-    ) -> ConfigRevisionRegistrationReceipt:
-        if (
-            not preview.valid
-            or preview.config is None
-            or preview.result_content_hash is None
-        ):
-            raise ValueError("only a valid config draft preview can be registered")
-        if draft.base_content_hash != preview.base_content_hash:
-            raise ValueError("config draft does not match its reviewed preview base")
-        return self.client.register_config_revision(
-            ConfigRevisionRegistrationCommand(
-                source=ManualConfigDraftRevisionSource(
-                    draft=_reviewed_draft_command(draft, preview),
-                    expected_result_content_hash=preview.result_content_hash,
-                ),
-                entry_id=entry_id,
-                registered_by=registered_by or self.operator,
-                note=note,
-            )
-        )
-
-    def import_snapshot(
-        self,
-        config: ConfigProfileSnapshot,
-        *,
-        entry_id: str,
-        registered_by: str | None = None,
-        note: str = "",
-    ) -> ConfigRegistryEntry:
-        return self.client.register_config_revision(
-            ConfigRevisionRegistrationCommand(
-                source=DirectConfigRevisionSource(config=config),
-                entry_id=entry_id,
-                registered_by=registered_by or self.operator,
-                note=note,
-            )
-        ).entry
-
     def set_default(
         self,
         config: ConfigProfileSnapshot | ConfigDraft,
         *,
         entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
+        actor: str | None = None,
         note: str = "",
-    ) -> ConfigRevisionDefaultReceipt:
+    ) -> ConfigPublishReceipt:
         """Save one immutable revision and atomically make it the default."""
 
-        selected_registered_by = registered_by or self.operator
-        selected_operator = operator or self.operator
+        selected_actor = actor or self.operator
         if isinstance(config, ConfigDraft):
             preview = self.preview(config)
             if (
@@ -232,31 +176,25 @@ class LabConfigOperations:
                 or preview.result_content_hash is None
             ):
                 raise ValueError("only a valid config draft can become the default")
-            return self.client.set_config_default(
-                ConfigRevisionDefaultCommand(
-                    registration=ConfigRevisionRegistrationCommand(
-                        source=ManualConfigDraftRevisionSource(
-                            draft=_reviewed_draft_command(config, preview),
-                            expected_result_content_hash=preview.result_content_hash,
-                        ),
-                        entry_id=entry_id or config_revision_entry_id(preview.config),
-                        registered_by=selected_registered_by,
-                        note=note,
+            return self.client.publish_config(
+                ConfigPublishCommand(
+                    source=ManualConfigDraftRevisionSource(
+                        draft=_reviewed_draft_command(config, preview),
+                        expected_result_content_hash=preview.result_content_hash,
                     ),
-                    operator=selected_operator,
+                    entry_id=entry_id or config_revision_entry_id(preview.config),
+                    actor=selected_actor,
                     expected_generation=preview.base_generation,
+                    note=note,
                 )
             )
-        return self.client.set_config_default(
-            ConfigRevisionDefaultCommand(
-                registration=ConfigRevisionRegistrationCommand(
-                    source=DirectConfigRevisionSource(config=config),
-                    entry_id=entry_id or config_revision_entry_id(config),
-                    registered_by=selected_registered_by,
-                    note=note,
-                ),
-                operator=selected_operator,
+        return self.client.publish_config(
+            ConfigPublishCommand(
+                source=DirectConfigRevisionSource(config=config),
+                entry_id=entry_id or config_revision_entry_id(config),
+                actor=selected_actor,
                 expected_generation=self._generation(),
+                note=note,
             )
         )
 
@@ -264,52 +202,20 @@ class LabConfigOperations:
         self,
         entry_id: str,
         *,
-        operator: str | None = None,
+        actor: str | None = None,
         expected_generation: int | None = None,
         note: str = "",
     ) -> ConfigActivationReceipt:
         return self.client.activate_config_entry(
             ConfigEntryActivationCommand(
                 entry_id=entry_id,
-                operator=operator or self.operator,
+                actor=actor or self.operator,
                 expected_generation=(
                     self._generation()
                     if expected_generation is None
                     else expected_generation
                 ),
                 note=note,
-            )
-        )
-
-    def activate_candidate(
-        self,
-        candidate: CandidateConfig,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-        activation_note: str | None = None,
-        expected_generation: int | None = None,
-    ) -> ConfigRevisionDefaultReceipt:
-        return self.client.set_config_default(
-            ConfigRevisionDefaultCommand(
-                registration=ConfigRevisionRegistrationCommand(
-                    source=CandidateConfigRevisionSource(
-                        run_id=candidate.source_run_id,
-                        proposal_id=candidate.proposal_id,
-                    ),
-                    entry_id=entry_id,
-                    registered_by=registered_by or self.operator,
-                    note=note,
-                ),
-                operator=operator or self.operator,
-                expected_generation=(
-                    self._generation()
-                    if expected_generation is None
-                    else expected_generation
-                ),
-                activation_note=activation_note,
             )
         )
 
@@ -319,35 +225,15 @@ class LabConfigOperations:
     ) -> ParameterProposalListView:
         return self.client.parameter_proposals(run_handle_id(run))
 
-    def approve(
-        self,
-        run: RunSelector | RunHandle,
-        selector: str,
-        *,
-        reviewer: str | None = None,
-        note: str = "",
-    ) -> ParameterChangeApprovalRecord:
-        """Record the proposal's immutable operator approval."""
-
-        return self.client.approve_parameter_proposal(
-            run_handle_id(run),
-            selector,
-            ParameterProposalApprovalCommand(
-                actor=reviewer or self.reviewer,
-                note=note,
-            ),
-        )
-
     def accept(
         self,
         candidate: CandidateConfig | Analysis,
         *,
         selection: CandidateSelection = None,
         entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
+        actor: str | None = None,
         note: str = "",
-    ) -> ConfigRevisionDefaultReceipt:
+    ) -> ConfigPublishReceipt:
         """Persist an analysis if supplied, accept its proposal, and publish."""
 
         if isinstance(candidate, Analysis):
@@ -357,46 +243,29 @@ class LabConfigOperations:
             if selection is not None:
                 raise ValueError("proposal selection belongs on an Analysis")
             selected = candidate
-        proposal_id = selected.proposal_id
-        self.client.approve_parameter_proposal(
-            selected.source_run_id,
-            proposal_id,
-            ParameterProposalApprovalCommand(
-                actor=operator or self.operator,
+        return self.client.publish_config(
+            ConfigPublishCommand(
+                source=CandidateConfigRevisionSource(
+                    run_id=selected.source_run_id,
+                    proposal_id=selected.proposal_id,
+                ),
+                actor=actor or self.operator,
+                expected_generation=self._generation(),
+                entry_id=entry_id,
                 note=note,
-            ),
-        )
-        return self.activate_candidate(
-            selected,
-            entry_id=entry_id,
-            registered_by=registered_by,
-            operator=operator,
-            note=note,
+            )
         )
 
     def undo(
         self,
         *,
-        operator: str | None = None,
+        actor: str | None = None,
         note: str = "",
     ) -> ConfigActivationReceipt:
-        return self.rollback(operator=operator, note=note)
-
-    def rollback(
-        self,
-        *,
-        expected_generation: int | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigActivationReceipt:
-        return self.client.rollback_config(
-            ConfigRollbackCommand(
-                operator=operator or self.operator,
-                expected_generation=(
-                    self._generation()
-                    if expected_generation is None
-                    else expected_generation
-                ),
+        return self.client.undo_config(
+            ConfigUndoCommand(
+                actor=actor or self.operator,
+                expected_generation=self._generation(),
                 note=note,
             )
         )

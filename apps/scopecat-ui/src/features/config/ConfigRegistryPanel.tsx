@@ -92,7 +92,7 @@ function RegistryEntryButton({
         <strong>{entry.id}</strong>
         <small>
           {configSourceLabel(entry)}
-          {entry.registered_at ? ` · ${formatRelative(entry.registered_at)}` : ""}
+          {entry.recorded_at ? ` · ${formatRelative(entry.recorded_at)}` : ""}
         </small>
         <code>{shorten(entry.content_hash, 22)}</code>
       </span>
