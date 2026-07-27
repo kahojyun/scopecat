@@ -18,14 +18,11 @@ from scopecat.sdk.domain.result_mapping import (
     DomainResultMapping,
 )
 from scopecat.sdk.domain.runtime import (
-    CorrelatedDomainFetch,
-    DomainFetchCandidate,
     DomainFetchReceipt,
-    DomainFetchRequest,
+    DomainFetchResult,
     DomainRuntime,
     DomainSubmissionId,
     DomainSubmitReceipt,
-    DomainSubmitRequest,
 )
 from scopecat.sdk.domain.view import (
     DomainCallView,
@@ -40,14 +37,12 @@ from scopecat.sdk.domain.view import (
 )
 
 __all__ = [
-    "CorrelatedDomainFetch",
     "DomainBatchInputs",
     "DomainBatchRequest",
     "DomainCallView",
     "DomainCompiler",
-    "DomainFetchCandidate",
     "DomainFetchReceipt",
-    "DomainFetchRequest",
+    "DomainFetchResult",
     "DomainInputPortView",
     "DomainInvocationSpec",
     "DomainMappedResult",
@@ -66,6 +61,5 @@ __all__ = [
     "DomainRuntime",
     "DomainSubmissionId",
     "DomainSubmitReceipt",
-    "DomainSubmitRequest",
     "PreparedDomainExecution",
 ]

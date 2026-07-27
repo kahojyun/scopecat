@@ -16,12 +16,12 @@ from dataclasses import dataclass, field
 
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
-from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
+from scopecat.sdk.domain.runtime import DomainFetchResult, DomainRuntime
 
 type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, object]
 type ErasedDomainRuntime = DomainRuntime[object, object]
 type ErasedDomainRealizer = Callable[
-    [CorrelatedDomainFetch[object]],
+    [DomainFetchResult[object]],
     tuple[MeasurementValueCandidate, ...],
 ]
 

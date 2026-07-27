@@ -49,9 +49,7 @@ from scopecat.sdk.runtime_problems import (
 class DomainSubmissionId(BaseModel):
     """Deterministic idempotency identity for one run operation."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     semantic_operation_id: str
@@ -88,24 +86,10 @@ class DomainSubmissionId(BaseModel):
         return f"domain:{self.submission_key}:fetch"
 
 
-@dataclass(frozen=True, slots=True)
-class DomainSubmitRequest[PayloadT]:
-    submission_id: DomainSubmissionId
-    payload: PayloadT = field(repr=False)
-
-
-@dataclass(frozen=True, slots=True)
-class DomainFetchRequest:
-    submission_id: DomainSubmissionId
-    job_id: str
-
-
 class DomainSubmitReceipt(BaseModel):
     """Provider evidence for the single synchronous submit call."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     submission_key: str
     status: Literal["submitted", "not_submitted", "unknown"]
@@ -140,9 +124,7 @@ class DomainSubmitReceipt(BaseModel):
 class DomainFetchReceipt(BaseModel):
     """Provider evidence for the single complete result fetch."""
 
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     submission_key: str
     job_id: str
@@ -183,33 +165,33 @@ class DomainFetchReceipt(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class KnownDomainSubmission:
-    submission_id: DomainSubmissionId
-    job_id: str
+class DomainFetchResult[ResultT]:
+    """A successful result paired with the provider evidence that covers it."""
 
-
-@dataclass(frozen=True, slots=True)
-class DomainFetchCandidate[ResultT]:
-    receipt: DomainFetchReceipt
-    result: ResultT | None = None
-
-    def __post_init__(self) -> None:
-        if (self.receipt.status == "fetched") != (self.result is not None):
-            raise ValueError("only fetched domain candidates carry a result")
-
-
-@dataclass(frozen=True, slots=True)
-class CorrelatedDomainFetch[ResultT]:
     receipt: DomainFetchReceipt
     result: ResultT = field(repr=False)
 
+    def __post_init__(self) -> None:
+        if self.receipt.status != "fetched":
+            raise ValueError("domain results require fetched receipt evidence")
+
 
 class DomainRuntime[PayloadT, ResultT](Protocol):
-    """Minimal synchronous target ABI."""
+    """Synchronous target ABI with receipt-only negative fetch outcomes."""
 
-    def submit(self, request: DomainSubmitRequest[PayloadT]) -> DomainSubmitReceipt: ...
+    def submit(
+        self,
+        submission_key: str,
+        payload: PayloadT,
+        /,
+    ) -> DomainSubmitReceipt: ...
 
-    def fetch(self, request: DomainFetchRequest) -> DomainFetchCandidate[ResultT]: ...
+    def fetch(
+        self,
+        submission_key: str,
+        job_id: str,
+        /,
+    ) -> DomainFetchReceipt | DomainFetchResult[ResultT]: ...
 
 
 def plan_domain_submission[
@@ -240,7 +222,7 @@ def submit_domain_invocation[
     submission_id: DomainSubmissionId,
     *,
     journal: ExecutionJournal,
-) -> KnownDomainSubmission:
+) -> str:
     intent = invocation.intent
     _validate_submission_id(intent, submission_id)
     operation_id = submission_id.submit_operation_id
@@ -252,13 +234,11 @@ def submit_domain_invocation[
         "started",
         _intent_evidence(intent, submission_id),
     )
-    _append_before_effect(journal, started, intent, submission_id, "submit", None)
+    _append_before_effect(journal, started, submission_id, "submit", None)
     try:
-        raw = runtime.submit(
-            DomainSubmitRequest(
-                submission_id,
-                invocation.payload,
-            )
+        receipt = runtime.submit(
+            submission_id.submission_key,
+            invocation.payload,
         )
     except Exception as error:
         problem = problem_from_exception(
@@ -271,7 +251,6 @@ def submit_domain_invocation[
         _append_after_effect(
             journal,
             started.model_copy(update={"state": "unknown", "problems": (problem,)}),
-            intent,
             submission_id,
             "submit",
             "indeterminate",
@@ -289,7 +268,6 @@ def submit_domain_invocation[
         _append_interruption_best_effort(journal, started, submission_id)
         raise
     try:
-        receipt = _normalize_submit_receipt(raw)
         _require_submission_key(receipt.submission_key, expected=submission_id)
     except Exception as error:
         problem = _provider_problem(
@@ -302,7 +280,6 @@ def submit_domain_invocation[
         _append_after_effect(
             journal,
             started.model_copy(update={"state": "unknown", "problems": (problem,)}),
-            intent,
             submission_id,
             "submit",
             "indeterminate",
@@ -330,14 +307,13 @@ def submit_domain_invocation[
                     "evidence": evidence,
                 }
             ),
-            intent,
             submission_id,
             "submit",
             "known",
             receipt.job_id,
             problems,
         )
-        return KnownDomainSubmission(submission_id, cast("str", receipt.job_id))
+        return cast("str", receipt.job_id)
     state: Literal["failed", "unknown"] = (
         "failed" if receipt.status == "not_submitted" else "unknown"
     )
@@ -349,7 +325,6 @@ def submit_domain_invocation[
         started.model_copy(
             update={"state": state, "problems": problems, "evidence": evidence}
         ),
-        intent,
         submission_id,
         "submit",
         certainty,
@@ -377,22 +352,20 @@ def submit_domain_invocation[
 def fetch_domain_invocation[PayloadT, ResultT](
     runtime: DomainRuntime[PayloadT, ResultT],
     intent: DomainInvocationIntent,
-    submission: KnownDomainSubmission,
+    submission_id: DomainSubmissionId,
+    job_id: str,
     *,
     journal: ExecutionJournal,
-) -> CorrelatedDomainFetch[ResultT]:
-    submission_id = submission.submission_id
+) -> DomainFetchResult[ResultT]:
     _validate_submission_id(intent, submission_id)
     operation_id = submission_id.fetch_operation_id
-    evidence = {**_intent_evidence(intent, submission_id), "job_id": submission.job_id}
+    evidence = {**_intent_evidence(intent, submission_id), "job_id": job_id}
     started = _transition(
         submission_id, operation_id, "domain_fetch", "read", "started", evidence
     )
-    _append_before_effect(
-        journal, started, intent, submission_id, "fetch", submission.job_id
-    )
+    _append_before_effect(journal, started, submission_id, "fetch", job_id)
     try:
-        raw = runtime.fetch(DomainFetchRequest(submission_id, submission.job_id))
+        outcome = runtime.fetch(submission_id.submission_key, job_id)
     except Exception as error:
         problem = problem_from_exception(
             "domain_fetch_raised",
@@ -404,11 +377,10 @@ def fetch_domain_invocation[PayloadT, ResultT](
         _append_after_effect(
             journal,
             started.model_copy(update={"state": "failed", "problems": (problem,)}),
-            intent,
             submission_id,
             "fetch",
             "known",
-            submission.job_id,
+            job_id,
             (problem,),
         )
         raise DomainFetchFailed(
@@ -417,21 +389,19 @@ def fetch_domain_invocation[PayloadT, ResultT](
             operation_id=operation_id,
             invocation_id=intent.invocation_id,
             submission_key=submission_id.submission_key,
-            job_id=submission.job_id,
+            job_id=job_id,
             certainty="known",
         ) from error
     except BaseException:
         _append_interruption_best_effort(journal, started, submission_id)
         raise
     try:
-        candidate = cast(
-            "DomainFetchCandidate[ResultT]",
-            _normalize_fetch_candidate(raw),
-        )
-        receipt = candidate.receipt
+        receipt = outcome.receipt if isinstance(outcome, DomainFetchResult) else outcome
         _require_submission_key(receipt.submission_key, expected=submission_id)
-        if receipt.job_id != submission.job_id:
+        if receipt.job_id != job_id:
             raise ValueError("domain fetch receipt belongs to another job")
+        if receipt.status == "fetched" and not isinstance(outcome, DomainFetchResult):
+            raise ValueError("fetched domain receipts require a result")
     except Exception as error:
         problem = _provider_problem(
             submission_id,
@@ -443,11 +413,10 @@ def fetch_domain_invocation[PayloadT, ResultT](
         _append_after_effect(
             journal,
             started.model_copy(update={"state": "unknown", "problems": (problem,)}),
-            intent,
             submission_id,
             "fetch",
             "indeterminate",
-            submission.job_id,
+            job_id,
             (problem,),
         )
         raise DomainFetchFailed(
@@ -456,14 +425,14 @@ def fetch_domain_invocation[PayloadT, ResultT](
             operation_id=operation_id,
             invocation_id=intent.invocation_id,
             submission_key=submission_id.submission_key,
-            job_id=submission.job_id,
+            job_id=job_id,
             certainty="indeterminate",
         ) from error
     problems = contextualize_problems(
         receipt.problems, run_id=submission_id.run_id, operation_id=operation_id
     )
     evidence = {**started.evidence, **_receipt_evidence(receipt)}
-    if receipt.status == "fetched" and candidate.result is not None:
+    if isinstance(outcome, DomainFetchResult):
         _append_after_effect(
             journal,
             started.model_copy(
@@ -473,14 +442,13 @@ def fetch_domain_invocation[PayloadT, ResultT](
                     "evidence": evidence,
                 }
             ),
-            intent,
             submission_id,
             "fetch",
             "known",
-            submission.job_id,
+            job_id,
             problems,
         )
-        return CorrelatedDomainFetch(receipt, candidate.result)
+        return outcome
     certainty: Literal["known", "indeterminate"] = (
         "known" if receipt.status == "not_found" else "indeterminate"
     )
@@ -492,11 +460,10 @@ def fetch_domain_invocation[PayloadT, ResultT](
         started.model_copy(
             update={"state": state, "problems": problems, "evidence": evidence}
         ),
-        intent,
         submission_id,
         "fetch",
         certainty,
-        submission.job_id,
+        job_id,
         problems,
     )
     raise DomainFetchFailed(
@@ -505,7 +472,7 @@ def fetch_domain_invocation[PayloadT, ResultT](
         operation_id=operation_id,
         invocation_id=intent.invocation_id,
         submission_key=submission_id.submission_key,
-        job_id=submission.job_id,
+        job_id=job_id,
         certainty=certainty,
     )
 
@@ -547,22 +514,6 @@ def _require_submission_key(
         raise ValueError("domain receipt belongs to another submission")
 
 
-def _normalize_submit_receipt(value: object) -> DomainSubmitReceipt:
-    if not isinstance(value, DomainSubmitReceipt):
-        raise TypeError("domain runtime submit must return DomainSubmitReceipt")
-    return DomainSubmitReceipt.model_validate(value.model_dump(mode="json"))
-
-
-def _normalize_fetch_candidate(value: object) -> DomainFetchCandidate[object]:
-    if not isinstance(value, DomainFetchCandidate):
-        raise TypeError("domain runtime fetch must return DomainFetchCandidate")
-    candidate = cast("DomainFetchCandidate[object]", value)
-    receipt = DomainFetchReceipt.model_validate(
-        candidate.receipt.model_dump(mode="json")
-    )
-    return DomainFetchCandidate(receipt, candidate.result)
-
-
 def _transition(
     submission_id: DomainSubmissionId,
     operation_id: str,
@@ -598,7 +549,6 @@ def _receipt_evidence(receipt: BaseModel) -> dict[str, JsonValue]:
 def _append_before_effect(
     journal: ExecutionJournal,
     transition: ExecutionTransition,
-    intent: DomainInvocationIntent,
     submission_id: DomainSubmissionId,
     phase: Literal["submit", "fetch"],
     job_id: str | None,
@@ -618,7 +568,7 @@ def _append_before_effect(
             (problem,),
             run_id=submission_id.run_id,
             operation_id=transition.operation_id,
-            invocation_id=intent.invocation_id,
+            invocation_id=submission_id.invocation_id,
             submission_key=submission_id.submission_key,
             phase=phase,
             certainty="known",
@@ -629,7 +579,6 @@ def _append_before_effect(
 def _append_after_effect(
     journal: ExecutionJournal,
     transition: ExecutionTransition,
-    intent: DomainInvocationIntent,
     submission_id: DomainSubmissionId,
     phase: Literal["submit", "fetch"],
     certainty: Literal["known", "indeterminate"],
@@ -651,7 +600,7 @@ def _append_after_effect(
             (*prior_problems, problem),
             run_id=submission_id.run_id,
             operation_id=transition.operation_id,
-            invocation_id=intent.invocation_id,
+            invocation_id=submission_id.invocation_id,
             submission_key=submission_id.submission_key,
             phase=phase,
             certainty=certainty,
@@ -694,15 +643,11 @@ def _provider_problem(
 
 
 __all__ = [
-    "CorrelatedDomainFetch",
-    "DomainFetchCandidate",
     "DomainFetchReceipt",
-    "DomainFetchRequest",
+    "DomainFetchResult",
     "DomainRuntime",
     "DomainSubmissionId",
     "DomainSubmitReceipt",
-    "DomainSubmitRequest",
-    "KnownDomainSubmission",
     "fetch_domain_invocation",
     "plan_domain_submission",
     "submit_domain_invocation",

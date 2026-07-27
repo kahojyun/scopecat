@@ -42,7 +42,7 @@ def execute_domain_job_values(
         run_id=run_id,
         semantic_operation_id=semantic_operation_id,
     )
-    submission = submit_domain_invocation(
+    job_id = submit_domain_invocation(
         runtime,
         invocation,
         submission_id,
@@ -51,7 +51,8 @@ def execute_domain_job_values(
     fetched = fetch_domain_invocation(
         runtime,
         invocation.intent,
-        submission,
+        submission_id,
+        job_id,
         journal=journal,
     )
     return prepared.realize(fetched)

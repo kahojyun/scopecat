@@ -14,14 +14,11 @@ from dataclasses import dataclass
 from threading import Lock
 
 from scopecat.sdk.domain import (
-    CorrelatedDomainFetch,
-    DomainFetchCandidate,
     DomainFetchReceipt,
-    DomainFetchRequest,
+    DomainFetchResult,
     DomainInvocationSpec,
     DomainResultValue,
     DomainSubmitReceipt,
-    DomainSubmitRequest,
 )
 from scopecat.sdk.problems import (
     Problem,
@@ -54,7 +51,6 @@ type FakeMeasurementInvocationSpec = DomainInvocationSpec[MappedFakeListTarget]
 
 @dataclass(frozen=True, slots=True)
 class _FakeListDomainJob:
-    intent_fingerprint: str
     job_id: str
     target_run: FakeListRun | None = None
     result_problem: Problem | None = None
@@ -122,47 +118,33 @@ class FakeListDomainRuntime:
 
     def submit(
         self,
-        request: DomainSubmitRequest[MappedFakeListTarget],
+        submission_key: str,
+        mapped_target: MappedFakeListTarget,
     ) -> DomainSubmitReceipt:
-        submission_id = request.submission_id
-        mapped_target = request.payload
         with self._lock:
-            existing = self._jobs.get(submission_id.submission_key)
+            existing = self._jobs.get(submission_key)
             if existing is not None:
-                if existing.intent_fingerprint != submission_id.intent_fingerprint:
-                    return DomainSubmitReceipt(
-                        submission_key=submission_id.submission_key,
-                        status="not_submitted",
-                        problems=(
-                            _fake_runtime_problem(
-                                "fake_submission_key_conflict",
-                                "submission key is already bound to another intent",
-                            ),
-                        ),
-                    )
                 if existing.result_problem is not None:
                     return DomainSubmitReceipt(
-                        submission_key=submission_id.submission_key,
+                        submission_key=submission_key,
                         status="unknown",
                         job_id=existing.job_id,
                         problems=(existing.result_problem,),
                     )
                 return DomainSubmitReceipt(
-                    submission_key=submission_id.submission_key,
+                    submission_key=submission_key,
                     status="submitted",
                     job_id=existing.job_id,
                 )
 
             job = _FakeListDomainJob(
-                intent_fingerprint=submission_id.intent_fingerprint,
-                job_id=f"fake-list-job:{submission_id.submission_key}",
+                job_id=f"fake-list-job:{submission_key}",
             )
-            self._jobs[submission_id.submission_key] = job
+            self._jobs[submission_key] = job
             try:
                 target_run = self._device.execute(mapped_target.artifact)
             except Exception:
-                self._jobs[submission_id.submission_key] = _FakeListDomainJob(
-                    intent_fingerprint=job.intent_fingerprint,
+                self._jobs[submission_key] = _FakeListDomainJob(
                     job_id=job.job_id,
                     result_problem=_fake_runtime_problem(
                         "fake_domain_result_unavailable",
@@ -174,66 +156,46 @@ class FakeListDomainRuntime:
                 )
                 raise
             job = _FakeListDomainJob(
-                intent_fingerprint=job.intent_fingerprint,
                 job_id=job.job_id,
                 target_run=target_run,
             )
-            self._jobs[submission_id.submission_key] = job
+            self._jobs[submission_key] = job
             return DomainSubmitReceipt(
-                submission_key=submission_id.submission_key,
+                submission_key=submission_key,
                 status="submitted",
                 job_id=job.job_id,
             )
 
     def fetch(
         self,
-        request: DomainFetchRequest,
-    ) -> DomainFetchCandidate[FakeListRun]:
-        submission_id = request.submission_id
-        job_id = request.job_id
+        submission_key: str,
+        job_id: str,
+    ) -> DomainFetchReceipt | DomainFetchResult[FakeListRun]:
         with self._lock:
-            job = self._jobs.get(submission_id.submission_key)
+            job = self._jobs.get(submission_key)
             if job is None or job.job_id != job_id:
-                return DomainFetchCandidate(
-                    receipt=DomainFetchReceipt(
-                        submission_key=submission_id.submission_key,
-                        job_id=job_id,
-                        status="not_found",
-                        problems=(
-                            _fake_runtime_problem(
-                                "fake_domain_job_not_found",
-                                "fake list-mode job does not exist for this submission",
-                            ),
+                return DomainFetchReceipt(
+                    submission_key=submission_key,
+                    job_id=job_id,
+                    status="not_found",
+                    problems=(
+                        _fake_runtime_problem(
+                            "fake_domain_job_not_found",
+                            "fake list-mode job does not exist for this submission",
                         ),
-                    )
-                )
-            if job.intent_fingerprint != submission_id.intent_fingerprint:
-                return DomainFetchCandidate(
-                    receipt=DomainFetchReceipt(
-                        submission_key=submission_id.submission_key,
-                        job_id=job_id,
-                        status="unknown",
-                        problems=(
-                            _fake_runtime_problem(
-                                "fake_domain_job_intent_mismatch",
-                                "fake list-mode job belongs to another invocation",
-                            ),
-                        ),
-                    )
+                    ),
                 )
             if job.result_problem is not None:
-                return DomainFetchCandidate(
-                    receipt=DomainFetchReceipt(
-                        submission_key=submission_id.submission_key,
-                        job_id=job.job_id,
-                        status="unknown",
-                        problems=(job.result_problem,),
-                    )
+                return DomainFetchReceipt(
+                    submission_key=submission_key,
+                    job_id=job.job_id,
+                    status="unknown",
+                    problems=(job.result_problem,),
                 )
             assert job.target_run is not None
-            return DomainFetchCandidate(
+            return DomainFetchResult(
                 receipt=DomainFetchReceipt(
-                    submission_key=submission_id.submission_key,
+                    submission_key=submission_key,
                     job_id=job.job_id,
                     status="fetched",
                     result_fingerprint=job.target_run.fingerprint,
@@ -245,7 +207,7 @@ class FakeListDomainRuntime:
 
 def realize_fetched_fake_measurements(
     mapped_target: MappedFakeListTarget,
-    fetched: CorrelatedDomainFetch[FakeListRun],
+    fetched: DomainFetchResult[FakeListRun],
 ) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
     """Correlate and decode one fetched raw run under selected policies."""
 

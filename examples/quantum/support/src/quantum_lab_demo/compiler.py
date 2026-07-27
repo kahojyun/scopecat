@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from scopecat.sdk.domain import (
-    CorrelatedDomainFetch,
     DomainBatchInputs,
     DomainBatchRequest,
     DomainCallView,
+    DomainFetchResult,
     PreparedDomainExecution,
 )
 from scopecat_quantum import authoring as quantum
@@ -320,7 +320,7 @@ def _response_runtime(response: FakeAcquisitionResponse) -> FakeListDomainRuntim
 
 def _realize(
     mapped_target: MappedFakeListTarget,
-    fetched: CorrelatedDomainFetch[FakeListRun],
+    fetched: DomainFetchResult[FakeListRun],
 ):
     return realize_fetched_fake_measurements(mapped_target, fetched)
 

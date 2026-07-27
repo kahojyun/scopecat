@@ -85,11 +85,9 @@ from scopecat.sdk.domain.result_mapping import (
     DomainResultBinding,
 )
 from scopecat.sdk.domain.runtime import (
-    CorrelatedDomainFetch,
-    DomainFetchCandidate,
-    DomainFetchRequest,
+    DomainFetchReceipt,
+    DomainFetchResult,
     DomainSubmitReceipt,
-    DomainSubmitRequest,
 )
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
@@ -121,17 +119,19 @@ class _EffectProbeRuntime:
 
     def submit(
         self,
-        request: DomainSubmitRequest[dict[str, str]],
+        submission_key: str,
+        payload: dict[str, str],
     ) -> DomainSubmitReceipt:
-        _ = request
+        del submission_key, payload
         self.submit_calls += 1
         raise AssertionError("planning must not submit a domain invocation")
 
     def fetch(
         self,
-        request: DomainFetchRequest,
-    ) -> DomainFetchCandidate[dict[str, str]]:
-        _ = request
+        submission_key: str,
+        job_id: str,
+    ) -> DomainFetchReceipt | DomainFetchResult[dict[str, str]]:
+        del submission_key, job_id
         self.fetch_calls += 1
         raise AssertionError("planning must not fetch a domain invocation")
 
@@ -261,7 +261,7 @@ class _BroadTrackingProvider(_TrackingProvider):
 
 
 def _reject_realization(
-    _fetched: CorrelatedDomainFetch[dict[str, str]],
+    _fetched: DomainFetchResult[dict[str, str]],
 ) -> Sequence[DomainResultValue[str]]:
     raise AssertionError("planning must not realize domain results")
 
