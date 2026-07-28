@@ -16,11 +16,11 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import (
+    InstrumentConnectionContext,
     InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 from tests.testkit.instrument_host import provision_test_instrument_host
@@ -50,12 +50,15 @@ class _ExplicitDriverProvider:
             instruments=tuple(driver.describe() for driver in self.drivers),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        return InstrumentProviderResult(drivers=self.drivers)
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        return next(
+            driver
+            for driver in self.drivers
+            if driver.instrument_id == context.instrument_id
+        )
 
 
 def execute_bound_run(
@@ -113,10 +116,8 @@ def execute_invocation_run(
             runs=repository,
             instruments=provision_test_instrument_host(
                 None if planned.system is None else planned.system.provider,
-                context=InstrumentProviderContext(
-                    config=planned.config,
-                    instrument_ids=planned.program.resource_order,
-                ),
+                context=InstrumentProviderContext(config=planned.config),
+                instrument_ids=planned.program.resource_order,
             ),
         ),
     )
@@ -155,10 +156,8 @@ def execute_program_run(
             runs=repository,
             instruments=provision_test_instrument_host(
                 instrument_provider,
-                context=InstrumentProviderContext(
-                    config=config,
-                    instrument_ids=program.resource_order,
-                ),
+                context=InstrumentProviderContext(config=config),
+                instrument_ids=program.resource_order,
             ),
         ),
     )

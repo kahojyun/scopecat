@@ -840,7 +840,6 @@ export interface components {
             command_id?: components["schemas"]["_NonEmptyId"] | null;
             /** Instrument Id */
             instrument_id: string;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
             /** Point Count */
             point_count: number;
             /** Point Index */
@@ -1475,7 +1474,7 @@ export interface components {
         };
         /**
          * InstrumentSessionOpenCommand
-         * @description Acquire and connect one or more instruments against the active config.
+         * @description Acquire and synchronize instruments against the active config.
          */
         InstrumentSessionOpenCommand: {
             actor: components["schemas"]["NonEmptyText"];

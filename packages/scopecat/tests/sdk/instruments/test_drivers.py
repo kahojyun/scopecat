@@ -31,11 +31,11 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     CollectResultRequest,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentOperationArgument,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
@@ -568,22 +568,26 @@ def test_provider_builds_fresh_drivers() -> None:
                 instruments=(SignalInstrumentDriver().describe(),),
             )
 
-        def provide(
-            self, context: InstrumentProviderContext
-        ) -> InstrumentProviderResult:
+        def connect(
+            self, context: InstrumentConnectionContext
+        ) -> SignalInstrumentDriver:
             assert context.config.id == "simple-scan-profile"
-            return InstrumentProviderResult(drivers=(SignalInstrumentDriver(),))
+            assert context.instrument_id == "source-0"
+            return SignalInstrumentDriver()
 
     provider = Provider()
     context = InstrumentProviderContext(config=load_config())
-    first = provider.provide(context)
-    second = provider.provide(context)
+    connection = InstrumentConnectionContext(
+        config=context.config,
+        instrument_id="source-0",
+    )
+    first = provider.connect(connection)
+    second = provider.connect(connection)
 
     description = provider.describe(context)
     assert description.provider_id == "tests.driver_provider"
     assert [item.instrument_id for item in description.instruments] == ["source-0"]
-    assert first.problems == ()
-    assert first.drivers[0] is not second.drivers[0]
+    assert first is not second
 
 
 def test_provider_description_resolves_instruments_from_config() -> None:

@@ -84,9 +84,10 @@ from pathlib import Path
 import scopecat as sc
 from scopecat.application import LabApplication
 from scopecat.sdk.instruments import (
+    InstrumentConnectionContext,
+    InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
 )
 
 from .configuration import bootstrap_config
@@ -103,11 +104,11 @@ class LocalProvider:
     ) -> InstrumentProviderDescription:
         return InstrumentProviderDescription(provider_id=self.provider_id)
 
-    def provide(
+    def connect(
         self,
-        _context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        return InstrumentProviderResult(drivers=())
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        raise RuntimeError(f"no instrument is configured: {context.instrument_id}")
 
 
 def create_application(_project_root: Path) -> LabApplication:

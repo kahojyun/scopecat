@@ -52,7 +52,7 @@ class VirtualVnaState:
 
 
 class VirtualLabWorld:
-    """State shared across driver sessions, with deterministic synthetic traces."""
+    """Device state shared across driver instances, with deterministic traces."""
 
     def __init__(
         self,

@@ -8,11 +8,11 @@ from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
@@ -50,20 +50,15 @@ class InstrumentDemoProvider:
             provider_id=self.provider_id,
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        result = self._configured.provide(context)
-        return replace(
-            result,
-            drivers=tuple(
-                _BiasSafeDriver(driver)
-                if driver.instrument_id == FLUX_SOURCE_ID
-                else driver
-                for driver in result.drivers
-            ),
-            metadata={**result.metadata, "provider_id": self.provider_id},
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        driver = self._configured.connect(context)
+        return (
+            _BiasSafeDriver(driver)
+            if driver.instrument_id == FLUX_SOURCE_ID
+            else driver
         )
 
 
@@ -72,18 +67,12 @@ class _BiasSafeDriver:
 
     def __init__(self, driver: InstrumentDriver) -> None:
         self._driver = driver
+        self.implementation_id = driver.implementation_id
+        self.implementation_version = driver.implementation_version
 
     @property
     def instrument_id(self) -> str:
         return self._driver.instrument_id
-
-    @property
-    def implementation_id(self) -> str:
-        return self._driver.implementation_id
-
-    @property
-    def implementation_version(self) -> str:
-        return self._driver.implementation_version
 
     def describe(self) -> InstrumentDescription:
         return self._driver.describe()

@@ -45,12 +45,12 @@ from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectResultRequest,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentOperationArgument,
     InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
@@ -272,56 +272,50 @@ class _Provider:
         self.fail_action: _FailAction = fail_action
         self.apply_barrier = apply_barrier
         self.driver_type = driver_type
-        self.provide_count = 0
+        self.connect_count = 0
         self.drivers: list[_Driver] = []
 
     def describe(
         self,
         context: InstrumentProviderContext,
     ) -> InstrumentProviderDescription:
-        selected = set(context.instrument_ids)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
                 self.driver_type(item.id).describe()
                 for item in context.config.instrument_registry.instruments
-                if item.id in selected
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        self.provide_count += 1
-        drivers = tuple(
-            self.driver_type(
-                instrument_id,
-                fail_action=self.fail_action,
-                apply_barrier=self.apply_barrier,
-            )
-            for instrument_id in context.instrument_ids
+        context: InstrumentConnectionContext,
+    ) -> _Driver:
+        self.connect_count += 1
+        driver = self.driver_type(
+            context.instrument_id,
+            fail_action=self.fail_action,
+            apply_barrier=self.apply_barrier,
         )
-        self.drivers.extend(drivers)
-        return InstrumentProviderResult(drivers=drivers)
+        self.drivers.append(driver)
+        return driver
 
 
 class _SecondRejectingProvider(_Provider):
     @override
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        self.provide_count += 1
-        drivers = tuple(
-            _Driver(
-                instrument_id,
-                fail_action=("reject_apply" if instrument_id == "source-1" else None),
-            )
-            for instrument_id in context.instrument_ids
+        context: InstrumentConnectionContext,
+    ) -> _Driver:
+        self.connect_count += 1
+        driver = _Driver(
+            context.instrument_id,
+            fail_action=(
+                "reject_apply" if context.instrument_id == "source-1" else None
+            ),
         )
-        self.drivers.extend(drivers)
-        return InstrumentProviderResult(drivers=drivers)
+        self.drivers.append(driver)
+        return driver
 
 
 def test_batch_reconciles_state_collects_values_and_replays_once(
@@ -750,7 +744,7 @@ def test_provision_rejects_contract_changed_after_admission(tmp_path: Path) -> N
         assert [item.code for item in receipt.problems] == [
             "instrument_contract_changed_after_admission"
         ]
-        assert provider.provide_count == 0
+        assert provider.connect_count == 0
 
 
 def test_batch_id_rejects_different_content(tmp_path: Path) -> None:
@@ -994,7 +988,7 @@ def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None
             assert all(not future.result(timeout=3).problems for future in futures)
 
 
-def test_expiry_and_shutdown_release_live_run_drivers(tmp_path: Path) -> None:
+def test_expiry_and_shutdown_fault_live_run_connections(tmp_path: Path) -> None:
     provider = _Provider()
     runtime = _runtime(tmp_path, provider)
     run_id, lease_id = _start_run(runtime, load_config())
@@ -1040,7 +1034,7 @@ def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:
         assert receipt.status == "ready"
         assert receipt.observed_state == ()
         assert receipt.prepared_state == ()
-        assert provider.provide_count == 0
+        assert provider.connect_count == 0
 
 
 def _config_with_defaults(

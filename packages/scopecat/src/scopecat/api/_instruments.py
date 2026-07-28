@@ -79,7 +79,7 @@ class LabInstrumentOperations:
 
 
 class InstrumentSessionHandle:
-    """Context-managed direct access to one or more live drivers."""
+    """Context-managed direct ownership of one or more instruments."""
 
     def __init__(
         self,

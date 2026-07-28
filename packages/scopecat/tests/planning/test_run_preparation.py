@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Never
 
 import pytest
 from pydantic import ValidationError
@@ -16,10 +17,10 @@ from scopecat.records.config import (
 )
 from scopecat.records.instrument import InstrumentPropertyState
 from scopecat.sdk.instruments import (
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     discriminated_state,
     enum_property,
     interface,
@@ -234,12 +235,12 @@ class _ModeProvider:
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        return InstrumentProviderResult(drivers=())
+        raise AssertionError("preflight must not connect an instrument")
 
 
 @dataclass(frozen=True)
@@ -253,9 +254,9 @@ class _EmptyProvider:
         del context
         return InstrumentProviderDescription(provider_id=self.provider_id)
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        return InstrumentProviderResult(drivers=())
+        raise AssertionError("preflight must not connect an instrument")

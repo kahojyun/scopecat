@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from scopecat.execution.ports.instruments import (
     RunHardwareApply,
@@ -20,6 +20,7 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
+    InstrumentConnectionContext,
     InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
@@ -230,22 +231,30 @@ def provision_test_instrument_host(
     provider: InstrumentProvider | None,
     *,
     context: InstrumentProviderContext,
+    instrument_ids: Sequence[str],
 ) -> TestRunInstrumentHost:
     """Provision fixture drivers outside the production Notebook executor."""
 
-    if not context.instrument_ids:
+    if not instrument_ids:
         return TestRunInstrumentHost()
     if provider is None:
         raise ValueError("instrument claims require a test instrument provider")
-    result = provider.provide(context)
-    if result.problems:
-        for driver in reversed(result.drivers):
+    drivers: list[InstrumentDriver] = []
+    try:
+        for instrument_id in instrument_ids:
+            drivers.append(
+                provider.connect(
+                    InstrumentConnectionContext(
+                        config=context.config,
+                        instrument_id=instrument_id,
+                    )
+                )
+            )
+    except Exception:
+        for driver in reversed(drivers):
             driver.disconnect()
-        return TestRunInstrumentHost(
-            ready=False,
-            setup_problems=result.problems,
-        )
-    return TestRunInstrumentHost(result.drivers)
+        raise
+    return TestRunInstrumentHost(drivers)
 
 
 __all__ = ["TestRunInstrumentHost", "provision_test_instrument_host"]

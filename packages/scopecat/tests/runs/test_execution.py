@@ -9,9 +9,10 @@ from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.runs.service import read_run_record_json
 from scopecat.sdk.instruments import (
+    InstrumentConnectionContext,
+    InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
 )
 from tests.testkit.execution import execute_invocation_run
 from tests.testkit.runtime import sqlite_project_services
@@ -27,7 +28,7 @@ class _CountingProvider:
     def __init__(self) -> None:
         self.delegate = TestSignalInstrumentProvider()
         self.describe_calls = 0
-        self.provide_calls = 0
+        self.connect_calls = 0
 
     @property
     def provider_id(self) -> str:
@@ -40,12 +41,12 @@ class _CountingProvider:
         self.describe_calls += 1
         return self.delegate.describe(context)
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        self.provide_calls += 1
-        return self.delegate.provide(context)
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        self.connect_calls += 1
+        return self.delegate.connect(context)
 
 
 def test_state_evidence_requires_matching_observed_and_prepared_order() -> None:
@@ -91,4 +92,4 @@ def test_execution_reuses_point_provider_preflight(tmp_path: Path) -> None:
 
     assert manifest.status == "completed"
     assert provider.describe_calls == 1
-    assert provider.provide_calls == 1
+    assert provider.connect_calls == 1

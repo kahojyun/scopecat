@@ -27,13 +27,13 @@ if TYPE_CHECKING:
         ComponentSpec,
         DiscriminatedStateSpec,
         DriverFault,
+        InstrumentConnectionContext,
         InstrumentDescription,
         InstrumentDriver,
         InstrumentOperationArgument,
         InstrumentProvider,
         InstrumentProviderContext,
         InstrumentProviderDescription,
-        InstrumentProviderResult,
         InstrumentStateAssignment,
         InstrumentStateCommand,
         InterfaceSpec,
@@ -99,6 +99,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "DiscriminatedStateSpec",
     ),
     "DriverFault": ("scopecat.sdk.instruments.contracts", "DriverFault"),
+    "InstrumentConnectionContext": (
+        "scopecat.sdk.instruments.contracts",
+        "InstrumentConnectionContext",
+    ),
     "InterfaceSpec": ("scopecat.sdk.instruments.contracts", "InterfaceSpec"),
     "InstrumentDescription": (
         "scopecat.sdk.instruments.contracts",
@@ -117,10 +121,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentProviderDescription": (
         "scopecat.sdk.instruments.contracts",
         "InstrumentProviderDescription",
-    ),
-    "InstrumentProviderResult": (
-        "scopecat.sdk.instruments.contracts",
-        "InstrumentProviderResult",
     ),
     "InstrumentReadback": ("scopecat.records.instrument", "InstrumentReadback"),
     "InstrumentStateCommand": (

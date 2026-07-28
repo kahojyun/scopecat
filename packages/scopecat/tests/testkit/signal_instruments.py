@@ -16,11 +16,11 @@ from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
@@ -60,25 +60,21 @@ class TestSignalInstrumentProvider:
             problems=tuple(problems),
         )
 
-    def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
-        instrument_id, problems = self._resolve_instrument_id(context)
+    def connect(self, context: InstrumentConnectionContext) -> TestSignalInstrument:
+        instrument_id, problems = self._resolve_instrument_id(
+            InstrumentProviderContext(config=context.config)
+        )
         if problems:
-            return InstrumentProviderResult(
-                drivers=(),
-                problems=tuple(problems),
-                metadata={"provider_id": self.provider_id},
+            raise ValueError(
+                "; ".join(provider_problem.message for provider_problem in problems)
             )
-        return InstrumentProviderResult(
-            drivers=(
-                TestSignalInstrument(
-                    instrument_id=instrument_id,
-                    additional_result_ids=self.additional_result_ids,
-                ),
-            ),
-            metadata={
-                "provider_id": self.provider_id,
-                "instrument_id": instrument_id,
-            },
+        if context.instrument_id != instrument_id:
+            raise ValueError(
+                f"test signal provider cannot connect {context.instrument_id}"
+            )
+        return TestSignalInstrument(
+            instrument_id=instrument_id,
+            additional_result_ids=self.additional_result_ids,
         )
 
     def _resolve_instrument_id(

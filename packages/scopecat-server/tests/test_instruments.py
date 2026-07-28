@@ -34,12 +34,14 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     CollectResultRequest,
+    DriverFault,
+    InstrumentConnectionContext,
     InstrumentDescription,
+    InstrumentDriver,
     InstrumentPropertyState,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InstrumentReadback,
     InstrumentStateAssignment,
     InstrumentStateCommand,
@@ -101,34 +103,29 @@ class _TrackingProvider:
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        drivers = tuple(
-            self._driver_type(instrument_id) for instrument_id in _selected_ids(context)
-        )
-        self.drivers.extend(drivers)
-        return InstrumentProviderResult(drivers=drivers)
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        driver = self._driver_type(context.instrument_id)
+        self.drivers.append(driver)
+        return driver
 
 
 class _RejectedProvider(_TrackingProvider):
     @override
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        result = super().provide(context)
-        return InstrumentProviderResult(
-            drivers=result.drivers,
-            problems=(
-                problem(
-                    "slow_rejection",
-                    "the provider rejected the connection",
-                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
-                    location=model_location("instrument_provider"),
-                ),
-            ),
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        del context
+        raise DriverFault(
+            problem(
+                "slow_rejection",
+                "the provider rejected the connection",
+                phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                location=model_location("instrument_provider"),
+            )
         )
 
 
@@ -289,16 +286,11 @@ class _StatefulProvider:
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        return InstrumentProviderResult(
-            drivers=tuple(
-                _StatefulDriver(instrument_id, self.state)
-                for instrument_id in _selected_ids(context)
-            )
-        )
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        return _StatefulDriver(context.instrument_id, self.state)
 
 
 class _ShutdownRaceDriver(_TrackingDriver):
@@ -355,22 +347,19 @@ class _ShutdownRaceProvider:
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        drivers = tuple(
-            _ShutdownRaceDriver(
-                instrument_id,
-                read_entered=self.read_entered,
-                release_read=self.release_read,
-                abort_entered=self.abort_entered,
-                release_abort=self.release_abort,
-            )
-            for instrument_id in _selected_ids(context)
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        driver = _ShutdownRaceDriver(
+            context.instrument_id,
+            read_entered=self.read_entered,
+            release_read=self.release_read,
+            abort_entered=self.abort_entered,
+            release_abort=self.release_abort,
         )
-        self.drivers.extend(drivers)
-        return InstrumentProviderResult(drivers=drivers)
+        self.drivers.append(driver)
+        return driver
 
 
 class _ProblemProvider(_TrackingProvider):
@@ -414,7 +403,25 @@ class _ProblemProvider(_TrackingProvider):
         )
 
 
-def test_notebook_direct_interaction_owns_and_releases_driver(
+class _ScopedProblemProvider(_ProblemProvider):
+    @override
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        description = super().describe(context)
+        return InstrumentProviderDescription(
+            provider_id=description.provider_id,
+            instruments=description.instruments,
+            problems=tuple(
+                item
+                for item in description.problems
+                if item.code == "source_zero_problem"
+            ),
+        )
+
+
+def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider()
@@ -856,8 +863,7 @@ def test_provider_rejection_closes_the_daemon_session(tmp_path: Path) -> None:
         assert session.end_status == "aborted"
         [instrument] = daemon.list_instruments().items
         assert instrument.availability == "available"
-        [driver] = provider.drivers
-        assert driver.disconnect_count == 1
+        assert provider.drivers == []
 
 
 def test_notebook_open_retry_reuses_operation_after_response_loss(
@@ -1334,6 +1340,27 @@ def test_provider_problems_are_scoped_without_polluting_healthy_views(
     assert [item.code for item in instruments.problems] == ["provider_global_problem"]
 
 
+def test_direct_session_ignores_unrelated_instrument_description_problem(
+    tmp_path: Path,
+) -> None:
+    provider = _ScopedProblemProvider()
+    with (
+        _runtime(tmp_path, provider, config=_two_instrument_config()) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        daemon = _daemon_client(transport)
+        session = daemon.open_instrument_session(
+            InstrumentSessionOpenCommand(
+                operation_id="open-healthy-source",
+                actor="alice",
+                instrument_ids=("source-1",),
+            )
+        )
+
+        assert session.instrument_ids == ("source-1",)
+        daemon.close_instrument_session(session.session_id)
+
+
 def test_run_and_interactive_session_compete_for_the_same_resource(
     tmp_path: Path,
 ) -> None:
@@ -1435,9 +1462,7 @@ def _daemon_client(
 
 
 def _selected_ids(context: InstrumentProviderContext) -> Sequence[str]:
-    return context.instrument_ids or tuple(
-        item.id for item in context.config.instrument_registry.instruments
-    )
+    return tuple(item.id for item in context.config.instrument_registry.instruments)
 
 
 def _apply_command(*, value: float) -> InstrumentStateCommand:

@@ -12,12 +12,12 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     DriverFault,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
@@ -163,11 +163,6 @@ class QuantumLabVirtualProvider:
         profile: str | Path,
     ) -> None:
         self.profile = load_virtual_lab_profile(profile)
-        self._metadata: dict[str, JsonValue] = {
-            "mode": "virtual_lab",
-            "category": "experiment_system",
-            "virtual_lab_profile": self.profile.id,
-        }
 
     def describe(
         self, context: InstrumentProviderContext
@@ -187,26 +182,26 @@ class QuantumLabVirtualProvider:
             problems=tuple(problems),
         )
 
-    def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
-        problems: list[Problem] = []
-        try:
-            selected = set(context.instrument_ids)
-            drivers = tuple(
-                driver
-                for driver in self._build_virtual_instruments()
-                if not selected or driver.instrument_id in selected
-            )
-        except DriverFault as error:
-            problems.append(error.problem)
-            drivers = ()
-        return InstrumentProviderResult(
-            drivers=drivers,
-            problems=tuple(problems),
-            metadata={
-                "provider_id": self.provider_id,
-                **self._metadata,
-            },
+    def connect(self, context: InstrumentConnectionContext) -> InstrumentDriver:
+        driver = next(
+            (
+                candidate
+                for candidate in self._build_virtual_instruments()
+                if candidate.instrument_id == context.instrument_id
+            ),
+            None,
         )
+        if driver is None:
+            raise DriverFault(
+                problem(
+                    "virtual_lab_unknown_instrument",
+                    f"virtual lab does not define {context.instrument_id}",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location("instrument_connection", "instrument_id"),
+                    details={"instrument_id": context.instrument_id},
+                )
+            )
+        return driver
 
     def _build_virtual_instruments(self) -> Sequence[InstrumentDriver]:
         profiles = {profile.id: profile for profile in self.profile.devices}

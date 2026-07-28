@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from dataclasses import field as dc_field
 from typing import Annotated, Literal, Protocol
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    JsonValue,
     field_validator,
     model_validator,
 )
@@ -431,7 +429,6 @@ class CollectCommand(BaseModel):
     point_index: int
     point_count: int
     requests: list[CollectResultRequest] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_unique_requests(self) -> CollectCommand:
@@ -561,21 +558,21 @@ class InstrumentDriver(Protocol):
 
 @dataclass(frozen=True)
 class InstrumentProviderContext:
-    config: ConfigProfileSnapshot
-    instrument_ids: tuple[str, ...] = ()
+    """Inputs for side-effect-free catalog discovery."""
 
-    def __post_init__(self) -> None:
-        if any(not instrument_id for instrument_id in self.instrument_ids):
-            raise ValueError("provider instrument ids must be non-empty")
-        if len(self.instrument_ids) != len(set(self.instrument_ids)):
-            raise ValueError("provider instrument ids must be unique")
+    config: ConfigProfileSnapshot
 
 
 @dataclass(frozen=True)
-class InstrumentProviderResult:
-    drivers: tuple[InstrumentDriver, ...]
-    problems: tuple[Problem, ...] = ()
-    metadata: dict[str, JsonValue] = dc_field(default_factory=dict)
+class InstrumentConnectionContext:
+    """Inputs for opening one driver for exactly one configured instrument."""
+
+    config: ConfigProfileSnapshot
+    instrument_id: str
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id:
+            raise ValueError("connection instrument id must be non-empty")
 
 
 @dataclass(frozen=True)
@@ -614,6 +611,12 @@ class InstrumentProviderDescription:
 
 
 class InstrumentProvider(Protocol):
+    """Pure catalog plus a one-instrument driver connection boundary.
+
+    ``connect`` returns a fresh identified driver; expected rejections raise
+    ``DriverFault``.
+    """
+
     @property
     def provider_id(self) -> str: ...
 
@@ -621,9 +624,7 @@ class InstrumentProvider(Protocol):
         self, context: InstrumentProviderContext
     ) -> InstrumentProviderDescription: ...
 
-    def provide(
-        self, context: InstrumentProviderContext
-    ) -> InstrumentProviderResult: ...
+    def connect(self, context: InstrumentConnectionContext) -> InstrumentDriver: ...
 
 
 def state_case(

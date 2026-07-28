@@ -92,9 +92,9 @@ from scopecat.sdk.domain.runtime import (
     DomainSubmitReceipt,
 )
 from scopecat.sdk.instruments import (
+    InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.parameter_fixtures import (
@@ -221,7 +221,7 @@ class _TrackingProvider:
         default_factory=TestSignalInstrumentProvider
     )
     describe_calls: int = 0
-    provide_calls: int = 0
+    connect_calls: int = 0
 
     @property
     def provider_id(self) -> str:
@@ -234,13 +234,13 @@ class _TrackingProvider:
         self.describe_calls += 1
         return self.delegate.describe(context)
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_calls += 1
-        raise AssertionError("planning must not request effect-capable drivers")
+        self.connect_calls += 1
+        raise AssertionError("planning must not connect an instrument")
 
 
 @dataclass
@@ -791,7 +791,7 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
         if isinstance(operation, RunCoverageCheckpoint)
     ] == [0, 1]
     assert provider.describe_calls == 1
-    assert provider.provide_calls == 0
+    assert provider.connect_calls == 0
     assert compiler.compile_calls == 1
     _assert_no_domain_effects(compiler)
 
@@ -883,7 +883,7 @@ def test_domain_compiler_batches_complete_point_domain() -> None:
     [domain_job] = domain_jobs
     assert isinstance(domain_job.execution, PreparedDomainExecution)
     assert provider.describe_calls == 1
-    assert provider.provide_calls == 0
+    assert provider.connect_calls == 0
     assert compiler.compile_calls == 1
     assert [job.id for job in domain_jobs] == ["domain:batch-0"]
     _assert_no_domain_effects(compiler)

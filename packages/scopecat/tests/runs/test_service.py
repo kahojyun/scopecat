@@ -66,10 +66,8 @@ def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
             accepted.run_id,
             instruments=provision_test_instrument_host(
                 system.provider,
-                context=InstrumentProviderContext(
-                    config=planned.config,
-                    instrument_ids=planned.program.resource_order,
-                ),
+                context=InstrumentProviderContext(config=planned.config),
+                instrument_ids=planned.program.resource_order,
             ),
         ),
     )

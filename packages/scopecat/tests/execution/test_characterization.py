@@ -39,9 +39,9 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     CollectResultRequest,
+    InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
@@ -109,12 +109,12 @@ class _SingleDriverProvider:
             instruments=(self.driver.describe(),),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        return InstrumentProviderResult(drivers=(self.driver,))
+        context: InstrumentConnectionContext,
+    ) -> SignalInstrumentDriver:
+        assert context.instrument_id == self.driver.instrument_id
+        return self.driver
 
 
 def test_project_run_schedules_parent_compute_before_child_consumer(

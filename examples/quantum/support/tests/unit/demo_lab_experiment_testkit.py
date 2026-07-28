@@ -95,10 +95,8 @@ class InProcessPreparedExperiment:
                 accepted.run_id,
                 instruments=provision_test_instrument_host(
                     None if planned.system is None else planned.system.provider,
-                    context=InstrumentProviderContext(
-                        config=planned.config,
-                        instrument_ids=planned.program.resource_order,
-                    ),
+                    context=InstrumentProviderContext(config=planned.config),
+                    instrument_ids=planned.program.resource_order,
                 ),
             ),
         )

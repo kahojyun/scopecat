@@ -4,6 +4,7 @@ import socket
 from threading import Thread
 from typing import cast
 
+import pytest
 from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -16,7 +17,11 @@ from scopecat.records.config import (
     VirtualInstrumentConnection,
 )
 from scopecat.records.parameter import ParameterCatalog, ParameterSnapshot
-from scopecat.sdk.instruments import InstrumentProviderContext
+from scopecat.sdk.instruments import (
+    DriverFault,
+    InstrumentConnectionContext,
+    InstrumentProviderContext,
+)
 
 from scopecat_instruments.provider import (
     ROHDE_SCHWARZ_SGS100A,
@@ -89,19 +94,13 @@ def test_provider_probes_real_device_before_returning_driver() -> None:
         )
     )
 
-    result = ConfiguredInstrumentProvider().provide(
-        InstrumentProviderContext(config=config)
+    driver = ConfiguredInstrumentProvider().connect(
+        InstrumentConnectionContext(config=config, instrument_id="lo")
     )
 
-    assert not result.problems
-    assert len(result.drivers) == 1
-    identities = result.metadata["identities"]
-    assert isinstance(identities, dict)
-    identity = identities["lo"]
-    assert isinstance(identity, str)
-    assert identity.startswith("Rohde&Schwarz")
+    assert driver.instrument_id == "lo"
     assert server.commands == ["*IDN?"]
-    result.drivers[0].disconnect()
+    driver.disconnect()
 
 
 def test_provider_rejects_wrong_device_identity() -> None:
@@ -118,16 +117,16 @@ def test_provider_rejects_wrong_device_identity() -> None:
         )
     )
 
-    result = ConfiguredInstrumentProvider().provide(
-        InstrumentProviderContext(config=config)
-    )
+    with pytest.raises(DriverFault) as caught:
+        ConfiguredInstrumentProvider().connect(
+            InstrumentConnectionContext(config=config, instrument_id="lo")
+        )
 
-    assert not result.drivers
-    assert result.problems[0].code == "instrument_connection_failed"
+    assert caught.value.problem.code == "instrument_connection_failed"
     assert server.commands == ["*IDN?"]
 
 
-def test_provider_subset_and_virtual_state_survive_sessions() -> None:
+def test_virtual_state_survives_driver_recreation() -> None:
     config = _config(
         InstrumentSpec(
             id="flux",
@@ -143,29 +142,29 @@ def test_provider_subset_and_virtual_state_survive_sessions() -> None:
         ),
     )
     provider = ConfiguredInstrumentProvider(seed=17)
-    context = InstrumentProviderContext(
+    context = InstrumentConnectionContext(
         config=config,
-        instrument_ids=("flux",),
+        instrument_id="flux",
     )
 
-    description = provider.describe(context)
-    first_result = provider.provide(context)
-    first = first_result.drivers[0]
+    description = provider.describe(InstrumentProviderContext(config=config))
+    first = provider.connect(context)
     assert isinstance(first, VirtualDcSource)
     first.set_voltage_level(0.2)
     first.set_output(True)
     first.disconnect()
-    second_result = provider.provide(context)
-    second = second_result.drivers[0]
+    second = provider.connect(context)
 
-    assert [item.instrument_id for item in description.instruments] == ["flux"]
-    assert len(first_result.drivers) == 1
+    assert [item.instrument_id for item in description.instruments] == [
+        "flux",
+        "unused",
+    ]
     assert isinstance(second, VirtualDcSource)
     assert second.output_enabled() is True
     assert provider.world.flux_bias() == 0.8
 
 
-def test_provider_returns_requested_subset_in_context_order() -> None:
+def test_provider_connects_exact_requested_instrument() -> None:
     config = _config(
         InstrumentSpec(
             id="a",
@@ -181,13 +180,11 @@ def test_provider_returns_requested_subset_in_context_order() -> None:
         ),
     )
     provider = ConfiguredInstrumentProvider()
-    context = InstrumentProviderContext(
-        config=config,
-        instrument_ids=("b", "a"),
+    description = provider.describe(InstrumentProviderContext(config=config))
+    driver = provider.connect(
+        InstrumentConnectionContext(config=config, instrument_id="b")
     )
 
-    description = provider.describe(context)
-    result = provider.provide(context)
-
-    assert [item.instrument_id for item in description.instruments] == ["b", "a"]
-    assert [driver.instrument_id for driver in result.drivers] == ["b", "a"]
+    assert [item.instrument_id for item in description.instruments] == ["a", "b"]
+    assert driver.instrument_id == "b"
+    driver.disconnect()

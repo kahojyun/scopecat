@@ -72,6 +72,8 @@ from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
+    DriverFault,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProvider,
@@ -318,10 +320,7 @@ class InstrumentService:
 
         try:
             provider_description = provider.describe(
-                InstrumentProviderContext(
-                    config=config,
-                    instrument_ids=instrument_ids,
-                )
+                InstrumentProviderContext(config=config)
             )
         except Exception:
             return self._reject_run_provision(
@@ -603,17 +602,15 @@ class InstrumentService:
                         expected=expected[instrument_id],
                     ),
                 )
-        except _ProvisioningRejected as error:
-            _call_all(error.drivers, _disconnect_driver)
+        except _ProvisioningRejected:
             _release_instruments(instruments.values())
             raise
-        except _ConnectionFailed as error:
-            _call_all(error.drivers, _disconnect_driver)
+        except _ConnectionFailed:
             _release_instruments(instruments.values())
             raise
         except Exception as error:
             _release_instruments(instruments.values())
-            raise _ConnectionFailed(()) from error
+            raise _ConnectionFailed from error
         return _OwnershipRuntime(
             instruments=instruments,
             payload_codecs=payload_codecs,
@@ -2414,15 +2411,22 @@ class InstrumentService:
         instrument_ids: tuple[str, ...],
     ) -> dict[str, InstrumentDescription]:
         try:
-            result = provider.describe(
-                InstrumentProviderContext(
-                    config=config,
-                    instrument_ids=instrument_ids,
-                )
-            )
+            result = provider.describe(InstrumentProviderContext(config=config))
         except Exception as error:
             raise BackendConflict("instrument provider description failed") from error
-        if result.problems:
+        global_problems, instrument_problems = _scope_provider_problems(
+            config.instrument_registry.instruments,
+            result.problems,
+        )
+        selected_problems = (
+            *global_problems,
+            *(
+                item
+                for instrument_id in instrument_ids
+                for item in instrument_problems.get(instrument_id, ())
+            ),
+        )
+        if selected_problems:
             raise BackendConflict("instrument provider cannot describe the session")
         descriptions = {
             description.instrument_id: description
@@ -2515,17 +2519,13 @@ class _ProvisioningRejected(RuntimeError):
         message: str,
         *,
         problems: tuple[Problem, ...],
-        drivers: tuple[InstrumentDriver, ...],
     ) -> None:
         self.problems = problems
-        self.drivers = drivers
         super().__init__(message)
 
 
 class _ConnectionFailed(RuntimeError):
-    def __init__(self, drivers: tuple[InstrumentDriver, ...]) -> None:
-        self.drivers = drivers
-        super().__init__("instrument connection failed")
+    pass
 
 
 class _RunPreparationRejected(RuntimeError):
@@ -2551,38 +2551,22 @@ def _provide_driver(
     instrument_id: str,
     expected: InstrumentDescription,
 ) -> tuple[InstrumentDriver, InstrumentDescription]:
-    drivers: tuple[InstrumentDriver, ...] = ()
+    driver: InstrumentDriver | None = None
     try:
-        result = provider.provide(
-            InstrumentProviderContext(
+        driver = provider.connect(
+            InstrumentConnectionContext(
                 config=config,
-                instrument_ids=(instrument_id,),
+                instrument_id=instrument_id,
             )
         )
-        drivers = result.drivers
-        if result.problems:
-            raise _ProvisioningRejected(
-                "instrument provider rejected provisioning",
-                problems=result.problems,
-                drivers=drivers,
-            )
         problems = validate_instruments(
             config=config,
-            instruments=list(drivers),
+            instruments=[driver],
         )
-        actual, description_problems = describe_instruments(list(drivers))
+        actual, description_problems = describe_instruments([driver])
         problems.extend(description_problems)
-        actual_by_id = {
-            description.instrument_id: description for description in actual
-        }
-        if tuple(actual_by_id) != (instrument_id,):
-            problems.append(
-                _provision_problem(
-                    "instrument_provider_result_order_mismatch",
-                    "instrument provider did not return requested drivers in order",
-                )
-            )
-        if instrument_id in actual_by_id and actual_by_id[instrument_id] != expected:
+        actual_description = actual[0] if actual else None
+        if actual_description is not None and actual_description != expected:
             problems.append(
                 _provision_problem(
                     "instrument_description_changed",
@@ -2592,16 +2576,27 @@ def _provide_driver(
                 )
             )
         if problems:
+            with suppress(Exception):
+                driver.disconnect()
             raise _ProvisioningRejected(
-                "instrument provider returned invalid drivers",
+                "instrument provider returned an invalid driver",
                 problems=tuple(problems),
-                drivers=drivers,
             )
-        return drivers[0], actual_by_id[instrument_id]
+        if actual_description is None:
+            raise AssertionError("validated instrument connection has no description")
+        return driver, actual_description
+    except DriverFault as error:
+        raise _ProvisioningRejected(
+            "instrument provider rejected connection",
+            problems=(error.problem,),
+        ) from error
     except _ProvisioningRejected:
         raise
     except Exception as error:
-        raise _ConnectionFailed(drivers) from error
+        if driver is not None:
+            with suppress(Exception):
+                driver.disconnect()
+        raise _ConnectionFailed from error
 
 
 def _provision_problem(
@@ -2739,23 +2734,6 @@ def _state_assignment_satisfied(
     return actual is not None and (
         scalar_identity(actual.root) == scalar_identity(target.value.root)
     )
-
-
-def _call_all(
-    drivers: Iterable[InstrumentDriver],
-    operation: Callable[[InstrumentDriver], None],
-) -> bool:
-    failed = False
-    for driver in reversed(tuple(drivers)):
-        try:
-            operation(driver)
-        except Exception:
-            failed = True
-    return failed
-
-
-def _disconnect_driver(driver: InstrumentDriver) -> None:
-    driver.disconnect()
 
 
 def _release_instruments(instruments: Iterable[OwnedInstrument]) -> bool:

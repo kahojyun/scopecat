@@ -315,7 +315,7 @@ class _FencedOperationCommand(_FencedCommand):
 
 
 class RunInstrumentProvisionCommand(_FencedOperationCommand):
-    """Provision daemon-owned drivers from the admitted run snapshot."""
+    """Acquire daemon-owned instrument epochs from the admitted run snapshot."""
 
 
 class RunInstrumentProvisionReceipt(_WireModel):
@@ -411,7 +411,7 @@ class AttentionResolutionReceipt(_WireModel):
 
 
 class InstrumentSessionOpenCommand(_WireModel):
-    """Acquire and connect one or more instruments against the active config."""
+    """Acquire and synchronize instruments against the active config."""
 
     operation_id: NonEmptyText
     actor: NonEmptyText

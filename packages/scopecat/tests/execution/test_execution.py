@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 from pathlib import Path
-from typing import cast, override
+from typing import Never, cast, override
 
 import pytest
 from pydantic import JsonValue
@@ -75,11 +75,11 @@ from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
     CollectCommand,
     CollectReceipt,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InterfaceSpec,
@@ -385,7 +385,7 @@ class _OrderedAbiProblemProvider:
     provider_id = "tests.ordered_abi_provider"
 
     def __init__(self) -> None:
-        self.provide_called = False
+        self.connect_called = False
 
     def describe(
         self,
@@ -420,20 +420,20 @@ class _OrderedAbiProblemProvider:
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
+        self.connect_called = True
+        raise AssertionError("preflight must not connect an instrument")
 
 
 class _PartialDescriptionProvider:
     provider_id = "tests.partial_description_provider"
 
     def __init__(self) -> None:
-        self.provide_called = False
+        self.connect_called = False
 
     def describe(
         self,
@@ -450,13 +450,13 @@ class _PartialDescriptionProvider:
             instruments=(description,),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
+        self.connect_called = True
+        raise AssertionError("preflight must not connect an instrument")
 
 
 class _FailingDescriptionProvider:
@@ -464,7 +464,7 @@ class _FailingDescriptionProvider:
 
     def __init__(self, error: BaseException) -> None:
         self.error = error
-        self.provide_called = False
+        self.connect_called = False
 
     def describe(
         self,
@@ -473,13 +473,13 @@ class _FailingDescriptionProvider:
         del context
         raise self.error
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
+        self.connect_called = True
+        raise AssertionError("preflight must not connect an instrument")
 
 
 class _UnitAbiProvider:
@@ -495,7 +495,7 @@ class _UnitAbiProvider:
         self.result_unit = result_unit
         self.axis_unit = axis_unit
         self.include_axis = include_axis
-        self.provide_called = False
+        self.connect_called = False
 
     def describe(
         self,
@@ -542,13 +542,13 @@ class _UnitAbiProvider:
             instruments=(description.model_copy(update={"interfaces": interfaces}),),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
+        self.connect_called = True
+        raise AssertionError("preflight must not connect an instrument")
 
 
 def _lower_test_host_binding(
@@ -607,7 +607,7 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
         "instrument_not_in_config",
         "instrument_acquisition_result_unsupported",
     ]
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -627,7 +627,7 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
         "instrument_not_in_config",
         "missing_instrument_description",
     ]
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -647,7 +647,7 @@ def test_provider_description_exception_fails_at_preflight_boundary(
         "instrument_provider_description_failed"
     ]
     assert captured.value.__cause__ is failure
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -677,7 +677,7 @@ def test_provider_acquisition_result_unit_mismatch_is_rejected_before_run(
         "signal",
         "unit",
     )
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -732,7 +732,7 @@ def test_provider_acquisition_axis_unit_mismatch_is_rejected_before_run(
         0,
         "unit",
     )
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -758,7 +758,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
     with pytest.raises(KeyboardInterrupt, match="description cancelled"):
         _lower_test_host_binding(plan, config, provider)
 
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 

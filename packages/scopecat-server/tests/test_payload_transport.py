@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Literal, override
 
@@ -34,10 +34,10 @@ from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     CollectResultRequest,
+    InstrumentConnectionContext,
     InstrumentOperationArgument,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
     InvokeCommand,
     InvokeReceipt,
 )
@@ -86,21 +86,18 @@ class _PayloadProvider:
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
-                _PayloadConsumerDriver(instrument_id).describe()
-                for instrument_id in _selected_ids(context)
+                _PayloadConsumerDriver(spec.id).describe()
+                for spec in context.config.instrument_registry.instruments
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        drivers = tuple(
-            _PayloadConsumerDriver(instrument_id)
-            for instrument_id in context.instrument_ids
-        )
-        self.drivers.extend(drivers)
-        return InstrumentProviderResult(drivers=drivers)
+        context: InstrumentConnectionContext,
+    ) -> _PayloadConsumerDriver:
+        driver = _PayloadConsumerDriver(context.instrument_id)
+        self.drivers.append(driver)
+        return driver
 
 
 def test_binary_command_payload_crosses_real_json_http_boundary(
@@ -933,9 +930,3 @@ def _payload_object_path(
 ) -> Path:
     hexdigest = content_hash.removeprefix("sha256:")
     return runtime.state_dir / "objects" / hexdigest[:2] / hexdigest[2:]
-
-
-def _selected_ids(context: InstrumentProviderContext) -> Sequence[str]:
-    return context.instrument_ids or tuple(
-        item.id for item in context.config.instrument_registry.instruments
-    )

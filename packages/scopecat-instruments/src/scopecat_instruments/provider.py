@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from contextlib import suppress
 
-from pydantic import JsonValue
 from scopecat.records.config import (
     InstrumentSpec,
     TcpipSocketInstrumentConnection,
     VirtualInstrumentConnection,
 )
 from scopecat.sdk.instruments import (
+    DriverFault,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
 )
 from scopecat.sdk.problems import Problem
 
@@ -72,9 +72,9 @@ type _ConfiguredDriver = (
 class ConfiguredInstrumentProvider:
     """Instantiate exactly the drivers declared by an accepted config snapshot.
 
-    Real TCP sessions are probed with ``*IDN?`` before they are returned. Virtual
-    sessions share the provider's world, so state survives disconnect/re-provide
-    cycles.
+    Every new real connection is probed with ``*IDN?`` before it is returned.
+    Virtual driver instances share the provider's world, so device state survives
+    connection retirement and recreation.
     """
 
     provider_id = "scopecat.instruments.configured"
@@ -91,7 +91,8 @@ class ConfiguredInstrumentProvider:
         self,
         context: InstrumentProviderContext,
     ) -> InstrumentProviderDescription:
-        specifications, problems = self._select_specs(context)
+        specifications = list(enumerate(context.config.instrument_registry.instruments))
+        problems: list[Problem] = []
         descriptions: list[InstrumentDescription] = []
         for index, spec in specifications:
             try:
@@ -108,62 +109,37 @@ class ConfiguredInstrumentProvider:
             problems=tuple(problems),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        specifications, problems = self._select_specs(context)
-        drivers: list[InstrumentDriver] = []
-        identities: dict[str, JsonValue] = {}
-        for index, spec in specifications:
-            driver: _ConfiguredDriver | None = None
-            try:
-                transport = self._transport_for(spec)
-                driver = self._build_driver(spec, transport=transport)
-                identity = self._probe_real_driver(driver)
-                if identity is not None:
-                    identities[spec.id] = identity.raw
-                drivers.append(driver)
-            except Exception as error:
-                if driver is not None:
-                    with suppress(Exception):
-                        driver.disconnect()
-                problems.append(_connection_problem(spec, index, error))
-        metadata: dict[str, JsonValue] = {
-            "provider_id": self.provider_id,
-            "virtual_world_seed": self.world.seed,
-            "identities": identities,
-        }
-        return InstrumentProviderResult(
-            drivers=tuple(drivers),
-            problems=tuple(problems),
-            metadata=metadata,
-        )
-
-    def _select_specs(
-        self,
-        context: InstrumentProviderContext,
-    ) -> tuple[list[tuple[int, InstrumentSpec]], list[Problem]]:
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
         indexed = list(enumerate(context.config.instrument_registry.instruments))
-        if not context.instrument_ids:
-            return indexed, []
         by_id = {spec.id: (index, spec) for index, spec in indexed}
-        problems = [
-            provider_problem(
-                "instrument_provider_unknown_instrument",
-                f"configured instrument does not exist: {instrument_id}",
-                "context",
-                "instrument_ids",
-                details={"instrument_id": instrument_id},
+        selected = by_id.get(context.instrument_id)
+        if selected is None:
+            raise DriverFault(
+                provider_problem(
+                    "instrument_provider_unknown_instrument",
+                    f"configured instrument does not exist: {context.instrument_id}",
+                    "context",
+                    "instrument_id",
+                    details={"instrument_id": context.instrument_id},
+                )
             )
-            for instrument_id in context.instrument_ids
-            if instrument_id not in by_id
-        ]
-        return [
-            by_id[instrument_id]
-            for instrument_id in context.instrument_ids
-            if instrument_id in by_id
-        ], problems
+        index, spec = selected
+        driver: _ConfiguredDriver | None = None
+        try:
+            transport = self._transport_for(spec)
+            driver = self._build_driver(spec, transport=transport)
+            self._probe_real_driver(driver)
+            return driver
+        except Exception as error:
+            if driver is not None:
+                with suppress(Exception):
+                    driver.disconnect()
+            if isinstance(error, DriverFault):
+                raise
+            raise DriverFault(_connection_problem(spec, index, error)) from error
 
     def _transport_for(self, spec: InstrumentSpec) -> ScpiTransport:
         if spec.driver_id not in SUPPORTED_DRIVER_IDS:
