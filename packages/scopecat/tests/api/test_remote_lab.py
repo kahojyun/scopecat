@@ -661,7 +661,11 @@ def _provisioning_receipt(
         operation_id=command.operation_id,
         status="ready",
         instrument_ids=instrument_ids,
-        initial_state=tuple(
+        observed_state=tuple(
+            InstrumentStateSnapshot(instrument_id=instrument_id)
+            for instrument_id in instrument_ids
+        ),
+        prepared_state=tuple(
             InstrumentStateSnapshot(instrument_id=instrument_id)
             for instrument_id in instrument_ids
         ),

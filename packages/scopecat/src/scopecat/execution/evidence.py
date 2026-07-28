@@ -88,6 +88,7 @@ def build_instrument_state_evidence(
 ) -> InstrumentStateEvidence:
     return InstrumentStateEvidence(
         run_id=run_id,
-        initial_state=list(result.initial_state),
+        observed_state=list(result.observed_state),
+        prepared_state=list(result.prepared_state),
         final_state=list(result.final_state),
     )

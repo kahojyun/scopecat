@@ -124,7 +124,7 @@ export function InstrumentInspector({
   });
   useEffect(() => {
     if (connected && session) readMutation.mutate();
-    // Only a newly opened session should trigger the initial read.
+    // Only a newly opened session should trigger fresh observation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, instrumentId, session?.session_id]);
   const visiblePropertyKeys = useMemo(

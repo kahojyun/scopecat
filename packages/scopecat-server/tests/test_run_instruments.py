@@ -24,13 +24,17 @@ from scopecat.execution.ports.instruments import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
+from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import (
+    ApplyDefaultsRunPreparation,
+    ConfigProfileSnapshot,
+)
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
@@ -61,7 +65,9 @@ from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
 from scopecat_server.instrument_service import InstrumentService
 
-type _FailAction = Literal["apply", "invoke", "cleanup", "abort", "close"] | None
+type _FailAction = (
+    Literal["apply", "reject_apply", "invoke", "cleanup", "abort", "close"] | None
+)
 
 
 class _Driver(SignalInstrumentDriver):
@@ -91,6 +97,17 @@ class _Driver(SignalInstrumentDriver):
             self.apply_barrier.wait(timeout=2)
         if self.fail_action == "apply":
             raise RuntimeError("apply outcome lost")
+        if self.fail_action == "reject_apply":
+            return ApplyReceipt(
+                status="not_applied",
+                problems=(
+                    problem(
+                        "test_apply_rejected",
+                        "test driver rejected state",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                ),
+            )
         return super().apply_state(command)
 
     @override
@@ -218,6 +235,31 @@ class _VariantDriver(_Driver):
         return InvokeReceipt(status="invoked")
 
 
+class _NonConvergingDriver(_Driver):
+    @override
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        self.applied.append(command)
+        return ApplyReceipt(status="applied")
+
+
+class _EquivalentQuantityDriver(_Driver):
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        fail_action: _FailAction = None,
+        apply_barrier: Barrier | None = None,
+    ) -> None:
+        super().__init__(
+            instrument_id,
+            fail_action=fail_action,
+            apply_barrier=apply_barrier,
+        )
+        self._state[("test.set_frequency/v1", "frequency")] = StateValue(
+            Quantity(value=1.0, unit="GHz")
+        )
+
+
 class _Provider:
     provider_id = "tests.run_provider"
 
@@ -265,6 +307,24 @@ class _Provider:
         return InstrumentProviderResult(drivers=drivers)
 
 
+class _SecondRejectingProvider(_Provider):
+    @override
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        self.provide_count += 1
+        drivers = tuple(
+            _Driver(
+                instrument_id,
+                fail_action="reject_apply" if index == 1 else None,
+            )
+            for index, instrument_id in enumerate(context.instrument_ids)
+        )
+        self.drivers.extend(drivers)
+        return InstrumentProviderResult(drivers=drivers)
+
+
 def test_batch_reconciles_state_collects_values_and_replays_once(
     tmp_path: Path,
 ) -> None:
@@ -273,7 +333,9 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         run_id, lease_id = _start_run(runtime, load_config())
         instruments = runtime.application.instruments
         provision = instruments.provision_run(run_id, _provision(lease_id))
-        assert provision.initial_state[0].instrument_id == "source-0"
+        assert provision.observed_state[0].instrument_id == "source-0"
+        assert provision.prepared_state[0].instrument_id == "source-0"
+        assert provision.prepared_state == provision.observed_state
         [driver] = provider.drivers
 
         command = _batch_command(
@@ -328,6 +390,217 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
                 },
             },
         ]
+
+
+def test_run_preparation_applies_defaults_after_fresh_observation(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    config = _config_with_defaults(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+
+        provision = instruments.provision_run(run_id, _provision(lease_id))
+        replay = instruments.provision_run(run_id, _provision(lease_id))
+
+        assert replay == provision
+        [observed] = provision.observed_state
+        [prepared] = provision.prepared_state
+        assert observed.properties == []
+        assert {item.property_id: item.value.root for item in prepared.properties} == {
+            "frequency": Quantity(value=5.0, unit="GHz")
+        }
+        [driver] = provider.drivers
+        assert len(driver.applied) == 1
+        assert driver.applied[0].command_id == "hardware.provision.prepare.source-0"
+
+
+def test_unknown_run_preparation_quarantines_the_run(tmp_path: Path) -> None:
+    provider = _Provider(fail_action="apply")
+    config = _config_with_defaults(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+
+        with pytest.raises(BackendConflict, match="preparation failed with unknown"):
+            runtime.application.instruments.provision_run(
+                run_id,
+                _provision(lease_id),
+            )
+
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        assert driver.close_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state == (
+            "attention_required"
+        )
+        _assert_run_state_discarded(runtime.application.instruments, run_id)
+
+
+def test_run_preparation_requires_defaults_to_converge(tmp_path: Path) -> None:
+    provider = _Provider(driver_type=_NonConvergingDriver)
+    config = _config_with_defaults(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_NonConvergingDriver,
+        )
+
+        with pytest.raises(BackendConflict, match="preparation failed with unknown"):
+            runtime.application.instruments.provision_run(
+                run_id,
+                _provision(lease_id),
+            )
+
+        [driver] = provider.drivers
+        assert len(driver.applied) == 1
+        assert driver.abort_count == 1
+        assert driver.close_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state == (
+            "attention_required"
+        )
+
+
+def test_rejected_run_preparation_closes_without_quarantine(tmp_path: Path) -> None:
+    provider = _Provider(fail_action="reject_apply")
+    config = _config_with_defaults(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+
+        receipt = instruments.provision_run(run_id, _provision(lease_id))
+
+        assert receipt.status == "rejected"
+        assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
+        [driver] = provider.drivers
+        assert driver.abort_count == 0
+        assert driver.close_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state != (
+            "attention_required"
+        )
+        assert run_id not in instruments._run_runtimes
+
+
+def test_partial_run_preparation_is_unknown(tmp_path: Path) -> None:
+    provider = _SecondRejectingProvider()
+    config = _two_instrument_config_with_defaults(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            host_instrument_order=("source-0", "source-1"),
+        )
+
+        with pytest.raises(BackendConflict, match="partially changed hardware"):
+            runtime.application.instruments.provision_run(
+                run_id,
+                _provision(lease_id),
+            )
+
+        first, second = provider.drivers
+        assert len(first.applied) == 1
+        assert second.applied == []
+        assert [driver.abort_count for driver in provider.drivers] == [1, 1]
+        assert [driver.close_count for driver in provider.drivers] == [1, 1]
+        assert runtime.application.executor._control.get_run(run_id).state == (
+            "attention_required"
+        )
+
+
+def test_run_preparation_skips_defaults_matching_observed_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    config = _config_with_defaults(
+        InstrumentPropertyState(
+            interface_id="test.dc/v1",
+            property_id="mode",
+            value=StateValue("voltage"),
+        ),
+        InstrumentPropertyState(
+            interface_id="test.dc/v1",
+            property_id="voltage_level",
+            value=StateValue(0.1),
+        ),
+        InstrumentPropertyState(
+            interface_id="test.dc/v1",
+            property_id="output_enabled",
+            value=StateValue(False),
+        ),
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_VariantDriver,
+        )
+
+        receipt = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
+
+        assert receipt.status == "ready"
+        assert receipt.prepared_state == receipt.observed_state
+        [driver] = provider.drivers
+        assert driver.applied == []
+
+
+def test_run_preparation_skips_unit_equivalent_defaults(tmp_path: Path) -> None:
+    provider = _Provider(driver_type=_EquivalentQuantityDriver)
+    config = _config_with_defaults(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=1000.0, unit="MHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_EquivalentQuantityDriver,
+        )
+
+        receipt = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
+
+        assert receipt.prepared_state == receipt.observed_state
+        [driver] = provider.drivers
+        assert driver.applied == []
 
 
 def test_batch_retry_replays_before_state_dependent_preflight(tmp_path: Path) -> None:
@@ -729,8 +1002,51 @@ def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:
             _provision(lease_id),
         )
         assert receipt.status == "ready"
-        assert receipt.initial_state == ()
+        assert receipt.observed_state == ()
+        assert receipt.prepared_state == ()
         assert provider.provide_count == 0
+
+
+def _config_with_defaults(
+    *properties: InstrumentPropertyState,
+) -> ConfigProfileSnapshot:
+    config = load_config()
+    [instrument] = config.instrument_registry.instruments
+    prepared = instrument.model_copy(
+        update={
+            "run_preparation": ApplyDefaultsRunPreparation(properties=list(properties))
+        }
+    )
+    registry = config.instrument_registry.model_copy(update={"instruments": [prepared]})
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
+
+
+def _two_instrument_config_with_defaults(
+    *properties: InstrumentPropertyState,
+) -> ConfigProfileSnapshot:
+    config = _two_instrument_config()
+    instruments = [
+        instrument.model_copy(
+            update={
+                "run_preparation": ApplyDefaultsRunPreparation(
+                    properties=[item.model_copy(deep=True) for item in properties]
+                )
+            }
+        )
+        for instrument in config.instrument_registry.instruments
+    ]
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": instruments}
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
 
 
 def _runtime(

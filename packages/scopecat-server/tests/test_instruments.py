@@ -21,7 +21,10 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import command_payload_from_bytes
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import (
+    ApplyDefaultsRunPreparation,
+    ConfigProfileSnapshot,
+)
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
@@ -689,7 +692,7 @@ def test_notebook_default_collect_retries_with_same_operation_after_response_los
             assert driver.collect_commands[0].command_id is not None
 
 
-def test_initial_read_failure_aborts_session_without_quarantining(
+def test_observation_failure_aborts_session_without_quarantining(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider(_ReadFailDriver)
@@ -698,7 +701,7 @@ def test_initial_read_failure_aborts_session_without_quarantining(
             daemon = _daemon_client(transport)
             with pytest.raises(
                 DaemonConflictError,
-                match="initial state could not be read",
+                match="state could not be observed",
             ):
                 daemon.open_instrument_session(
                     InstrumentSessionOpenCommand(
@@ -712,6 +715,28 @@ def test_initial_read_failure_aborts_session_without_quarantining(
             [driver] = provider.drivers
             assert instrument.availability == "available"
             assert driver.closed
+
+
+def test_direct_session_observes_without_applying_run_defaults(tmp_path: Path) -> None:
+    provider = _TrackingProvider()
+    config = _config_with_defaults(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            _ = handle.session_id
+
+            [driver] = provider.drivers
+            assert driver.applied == []
+            handle.close()
 
 
 def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
@@ -964,6 +989,24 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
             ]
         }
     )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
+
+
+def _config_with_defaults(
+    *properties: InstrumentPropertyState,
+) -> ConfigProfileSnapshot:
+    config = load_config()
+    [instrument] = config.instrument_registry.instruments
+    prepared = instrument.model_copy(
+        update={
+            "run_preparation": ApplyDefaultsRunPreparation(properties=list(properties))
+        }
+    )
+    registry = config.instrument_registry.model_copy(update={"instruments": [prepared]})
     return config.model_copy(
         update={
             "system": config.system.model_copy(update={"instrument_registry": registry})

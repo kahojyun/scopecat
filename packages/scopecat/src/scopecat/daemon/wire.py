@@ -319,24 +319,37 @@ class RunInstrumentProvisionCommand(_FencedOperationCommand):
 
 
 class RunInstrumentProvisionReceipt(_WireModel):
+    """State evidence around run preparation for daemon-owned instruments.
+
+    ``observed_state`` is read after exclusive ownership is acquired.
+    ``prepared_state`` is the execution baseline after the run policy is applied.
+    """
+
     run_id: NonEmptyText
     operation_id: NonEmptyText
     status: Literal["ready", "rejected"]
     instrument_ids: tuple[NonEmptyText, ...] = ()
     problems: tuple[Problem, ...] = ()
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
-    initial_state: tuple[InstrumentStateSnapshot, ...] = ()
+    observed_state: tuple[InstrumentStateSnapshot, ...] = ()
+    prepared_state: tuple[InstrumentStateSnapshot, ...] = ()
 
     @model_validator(mode="after")
     def validate_result(self) -> RunInstrumentProvisionReceipt:
         if len(self.instrument_ids) != len(set(self.instrument_ids)):
             raise ValueError("run instrument provisioning ids must be unique")
         if self.status == "ready":
-            if tuple(state.instrument_id for state in self.initial_state) != (
+            if tuple(state.instrument_id for state in self.observed_state) != (
                 self.instrument_ids
             ):
                 raise ValueError(
-                    "ready run initial state must match instrument ids in order"
+                    "ready run observed state must match instrument ids in order"
+                )
+            if tuple(state.instrument_id for state in self.prepared_state) != (
+                self.instrument_ids
+            ):
+                raise ValueError(
+                    "ready run prepared state must match instrument ids in order"
                 )
             if self.problems:
                 raise ValueError(
@@ -344,9 +357,9 @@ class RunInstrumentProvisionReceipt(_WireModel):
                 )
         elif not self.problems:
             raise ValueError("rejected run instrument provisioning requires a problem")
-        elif self.initial_state:
+        elif self.observed_state or self.prepared_state:
             raise ValueError(
-                "rejected run instrument provisioning cannot expose initial state"
+                "rejected run instrument provisioning cannot expose state evidence"
             )
         return self
 

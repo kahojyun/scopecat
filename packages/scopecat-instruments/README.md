@@ -54,6 +54,29 @@ Virtual instrument:
   "driver_id": "scopecat.virtual.dc_source",
   "connection": {
     "kind": "virtual"
+  },
+  "run_preparation": {
+    "kind": "apply_defaults",
+    "properties": [
+      {
+        "interface_id": "scopecat.dc_source/v2",
+        "property_id": "source_mode",
+        "value": "voltage"
+      },
+      {
+        "interface_id": "scopecat.dc_source/v2",
+        "property_id": "voltage_level",
+        "value": {
+          "value": 0,
+          "unit": "V"
+        }
+      },
+      {
+        "interface_id": "scopecat.dc_source/v2",
+        "property_id": "output_enabled",
+        "value": false
+      }
+    ]
   }
 }
 ```
@@ -69,9 +92,16 @@ TCP/IP instrument:
     "host": "192.0.2.10",
     "port": 5025,
     "timeout_seconds": 5
+  },
+  "run_preparation": {
+    "kind": "preserve"
   }
 }
 ```
+
+Every run first synchronizes the device. `preserve` retains that observed
+state; `apply_defaults` then applies declared interface properties. It does not
+perform a factory reset.
 
 Connection `options` are intentionally narrow:
 

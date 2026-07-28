@@ -483,7 +483,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state == result.initial_state
+    assert result.final_state == result.prepared_state
 
 
 class _UnexpectedResultDriver(SignalInstrumentDriver):
@@ -574,7 +574,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state[0] != result.initial_state[0]
+    assert result.final_state[0] != result.prepared_state[0]
     assert result.final_state[0].properties[0].value == StateValue(1.0)
 
 

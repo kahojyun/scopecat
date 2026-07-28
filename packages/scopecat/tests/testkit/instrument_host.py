@@ -50,9 +50,10 @@ class TestRunInstrumentHost:
         }
         self._ready = ready
         self._setup_problems = setup_problems
-        self._initial_state = tuple(driver.read_state() for driver in selected)
+        self._observed_state = tuple(driver.read_state() for driver in selected)
+        self._prepared_state = self._observed_state
         self._assumed_states = {
-            state.instrument_id: state for state in self._initial_state
+            state.instrument_id: state for state in self._prepared_state
         }
         self._finished: RunHardwareFinalizationReceipt | None = None
 
@@ -65,8 +66,12 @@ class TestRunInstrumentHost:
         return self._setup_problems
 
     @property
-    def initial_state(self) -> tuple[InstrumentStateSnapshot, ...]:
-        return self._initial_state
+    def observed_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._observed_state
+
+    @property
+    def prepared_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._prepared_state
 
     def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
         values: list[RunHardwareValue] = []

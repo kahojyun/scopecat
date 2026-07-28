@@ -98,9 +98,30 @@ Example:
     "port": 5025,
     "timeout_seconds": 10,
     "options": {}
+  },
+  "run_preparation": {
+    "kind": "preserve"
   }
 }
 ```
+
+`run_preparation` is explicit for every instrument:
+
+- `preserve` reads the device after the run acquires exclusive ownership and
+  keeps those settings.
+- `apply_defaults` reads first, then reconciles only the declared public
+  interface properties. Unspecified properties are preserved.
+
+`apply_defaults` is not a factory reset. Settings outside the public interface
+remain driver-owned connection or profile configuration; experiments neither
+guess nor overwrite them. For a discriminated interface, defaults that set a
+case-specific property must also set the discriminator, so preparation does not
+depend on whichever mode the device happened to be using while idle.
+
+Run evidence records both the fresh `observed_state` and the resulting
+`prepared_state`. Direct GUI and Notebook sessions always use fresh observation
+with preserve semantics; run defaults never change a device merely because a
+user opened an interactive session.
 
 The GUI's connection editor follows the same immutable workflow as other
 configuration: load the active complete snapshot, edit the selected

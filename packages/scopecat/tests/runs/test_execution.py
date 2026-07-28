@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.execution import InstrumentStateEvidence
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.runs.service import read_run_record_json
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
@@ -45,6 +48,15 @@ class _CountingProvider:
         return self.delegate.provide(context)
 
 
+def test_state_evidence_requires_matching_observed_and_prepared_order() -> None:
+    with pytest.raises(ValueError, match="same order"):
+        InstrumentStateEvidence(
+            run_id="run-1",
+            observed_state=[InstrumentStateSnapshot(instrument_id="source-a")],
+            prepared_state=[InstrumentStateSnapshot(instrument_id="source-b")],
+        )
+
+
 def test_execution_uses_provider_selected_config_instrument(
     tmp_path: Path,
 ) -> None:
@@ -63,7 +75,8 @@ def test_execution_uses_provider_selected_config_instrument(
     evidence = InstrumentStateEvidence.model_validate(snapshot.content)
 
     assert manifest.status == "completed"
-    assert [state.instrument_id for state in evidence.initial_state] == ["source-a"]
+    assert [state.instrument_id for state in evidence.observed_state] == ["source-a"]
+    assert evidence.prepared_state == evidence.observed_state
 
 
 def test_execution_reuses_point_provider_preflight(tmp_path: Path) -> None:

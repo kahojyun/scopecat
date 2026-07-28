@@ -284,7 +284,8 @@ def _execute_instrument_effects(
     if not instruments.ready:
         return RunEffectResult(
             problems=tuple(setup_problems),
-            initial_state=(),
+            observed_state=(),
+            prepared_state=(),
             final_state=(),
         )
 
@@ -309,7 +310,8 @@ def _execute_instrument_effects(
             release_unknown = True
         return RunEffectResult(
             problems=(*setup_problems, *release_problems),
-            initial_state=(),
+            observed_state=(),
+            prepared_state=(),
             final_state=(),
             indeterminate=release_unknown,
         )

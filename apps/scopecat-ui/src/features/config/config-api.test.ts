@@ -198,7 +198,7 @@ describe("config snapshot import boundary", () => {
     expect(
       parseConfigProfileJson(
         JSON.stringify({
-          format_version: "scopecat.config_snapshot.v2",
+          format_version: "scopecat.config_snapshot.v3",
           ...config,
         }),
       ),
@@ -262,6 +262,7 @@ function configProfile(id: string): ConfigProfileSnapshot {
             id: "signal",
             driver_id: "virtual.signal_generator",
             connection: { kind: "virtual" },
+            run_preparation: { kind: "preserve" },
           },
         ],
       },

@@ -38,7 +38,6 @@ type ExecutionStage = Literal[
     "setup_cleanup",
     "setup_close",
     "setup_terminal_readback",
-    "initial_readback",
     "point",
     "compute",
     "apply_state",

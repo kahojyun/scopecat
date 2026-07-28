@@ -35,10 +35,12 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBatch
+from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
@@ -344,6 +346,72 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
         RunHardwareBatch(
             operation_id="hardware.duplicate",
             actions=(batch.actions[0], batch.actions[0]),
+        )
+
+
+def test_run_instrument_provision_state_evidence_matches_instrument_order() -> None:
+    source_a = InstrumentStateSnapshot(instrument_id="source-a")
+    source_b = InstrumentStateSnapshot(instrument_id="source-b")
+
+    receipt = RunInstrumentProvisionReceipt(
+        run_id="run-1",
+        operation_id="lifecycle.provide-instruments",
+        status="ready",
+        instrument_ids=("source-a", "source-b"),
+        observed_state=(source_a, source_b),
+        prepared_state=(source_a, source_b),
+    )
+
+    assert (
+        RunInstrumentProvisionReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="observed state must match"):
+        RunInstrumentProvisionReceipt(
+            run_id="run-1",
+            operation_id="lifecycle.provide-instruments",
+            status="ready",
+            instrument_ids=("source-a", "source-b"),
+            observed_state=(source_b, source_a),
+            prepared_state=(source_a, source_b),
+        )
+    with pytest.raises(ValidationError, match="prepared state must match"):
+        RunInstrumentProvisionReceipt(
+            run_id="run-1",
+            operation_id="lifecycle.provide-instruments",
+            status="ready",
+            instrument_ids=("source-a", "source-b"),
+            observed_state=(source_a, source_b),
+            prepared_state=(source_b, source_a),
+        )
+
+
+def test_rejected_run_instrument_provision_has_no_state_evidence() -> None:
+    source = InstrumentStateSnapshot(instrument_id="source-a")
+    problem = Problem(
+        code="instrument_unavailable",
+        phase=ProblemPhase.EXECUTION,
+        message="instrument unavailable",
+    )
+
+    receipt = RunInstrumentProvisionReceipt(
+        run_id="run-1",
+        operation_id="lifecycle.provide-instruments",
+        status="rejected",
+        instrument_ids=("source-a",),
+        problems=(problem,),
+    )
+
+    assert receipt.observed_state == ()
+    assert receipt.prepared_state == ()
+    with pytest.raises(ValidationError, match="cannot expose state evidence"):
+        RunInstrumentProvisionReceipt(
+            run_id="run-1",
+            operation_id="lifecycle.provide-instruments",
+            status="rejected",
+            instrument_ids=("source-a",),
+            problems=(problem,),
+            observed_state=(source,),
         )
 
 

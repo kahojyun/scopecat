@@ -1,5 +1,5 @@
 {
-  "format_version": "scopecat.config_snapshot.v2",
+  "format_version": "scopecat.config_snapshot.v3",
   "id": "simple-scan-profile",
   "system": {
     "id": "simple-scan-system",
@@ -27,6 +27,9 @@
           "driver_id": "tests.signal_instrument",
           "connection": {
             "kind": "virtual"
+          },
+          "run_preparation": {
+            "kind": "preserve"
           }
         }
       ]

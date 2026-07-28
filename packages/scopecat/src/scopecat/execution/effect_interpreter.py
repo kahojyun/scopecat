@@ -63,7 +63,8 @@ class RunEffectInterpreter:
         )
         self.logical_points: dict[int, LogicalPointId] = {}
         self.run_points: dict[int, RunPoint] = {}
-        self.initial_state = list(instruments.initial_state)
+        self.observed_state = list(instruments.observed_state)
+        self.prepared_state = list(instruments.prepared_state)
         self.final_state: list[InstrumentStateSnapshot] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
@@ -310,7 +311,8 @@ class RunEffectInterpreter:
     def _result(self) -> effect_result.RunEffectResult:
         return effect_result.RunEffectResult(
             problems=tuple(self._journal.problems),
-            initial_state=tuple(self.initial_state),
+            observed_state=tuple(self.observed_state),
+            prepared_state=tuple(self.prepared_state),
             final_state=tuple(self.final_state),
             admitted_points=self.point_ledger.points,
             indeterminate=self._journal.indeterminate,

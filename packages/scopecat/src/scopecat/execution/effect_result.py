@@ -22,7 +22,8 @@ class RunEffectResult:
     """Facts observed while interpreting effects; not a terminal run outcome."""
 
     problems: tuple[Problem, ...]
-    initial_state: tuple[InstrumentStateSnapshot, ...]
+    observed_state: tuple[InstrumentStateSnapshot, ...]
+    prepared_state: tuple[InstrumentStateSnapshot, ...]
     final_state: tuple[InstrumentStateSnapshot, ...]
     admitted_points: tuple[RunPoint, ...] = ()
     indeterminate: bool = False

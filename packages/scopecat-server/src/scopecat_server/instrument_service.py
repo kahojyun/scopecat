@@ -48,6 +48,8 @@ from scopecat.kernel.problems import (
     RuntimeLocation,
     problem,
 )
+from scopecat.kernel.state import StateValue
+from scopecat.kernel.value_identity import scalar_identity
 from scopecat.planning.provider_validation import (
     describe_instruments,
     instrument_contract_fingerprint,
@@ -56,6 +58,7 @@ from scopecat.planning.provider_validation import (
 from scopecat.planning.system import ExperimentSystem, ExperimentSystemBuilder
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
+    ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
     InstrumentSpec,
     config_content_hash,
@@ -455,7 +458,7 @@ class InstrumentService:
             ) from error
 
         try:
-            initial_state = tuple(
+            observed_state = tuple(
                 _read_driver_state(
                     runtime.drivers[instrument_id],
                     description=runtime.descriptions[instrument_id],
@@ -467,25 +470,36 @@ class InstrumentService:
                 self._mark_run_unknown(
                     run_id,
                     token=command.lease_id,
-                    reason="run_instrument_initial_read_cleanup_failed",
+                    reason="run_instrument_observation_cleanup_failed",
                 )
                 raise BackendConflict(
-                    "instrument initial readback could not be released"
+                    "instrument observation could not be released"
                 ) from error
             return self._reject_run_provision(
                 run_id,
                 command,
                 problems=(
                     _provision_problem(
-                        "instrument_initial_read_failed",
-                        "instrument initial state could not be read",
+                        "instrument_observation_failed",
+                        "instrument state could not be observed",
                         run_id=run_id,
                         operation_id=command.operation_id,
                     ),
                 ),
             )
+        preparation = self._prepare_run_or_reject(
+            run_id=run_id,
+            command=command,
+            config=config,
+            instrument_ids=instrument_ids,
+            runtime=runtime,
+            observed_state=observed_state,
+        )
+        if isinstance(preparation, RunInstrumentProvisionReceipt):
+            return preparation
+        prepared_state = preparation
         runtime.assumed_states = {
-            state.instrument_id: state.model_copy(deep=True) for state in initial_state
+            state.instrument_id: state.model_copy(deep=True) for state in prepared_state
         }
 
         try:
@@ -513,7 +527,8 @@ class InstrumentService:
             status="ready",
             instrument_ids=instrument_ids,
             metadata=metadata,
-            initial_state=initial_state,
+            observed_state=observed_state,
+            prepared_state=prepared_state,
         )
         provision = _RunProvision(
             command=command,
@@ -552,6 +567,176 @@ class InstrumentService:
             ),
         )
         return receipt
+
+    def _prepare_run_or_reject(
+        self,
+        *,
+        run_id: str,
+        command: RunInstrumentProvisionCommand,
+        config: ConfigProfileSnapshot,
+        instrument_ids: tuple[str, ...],
+        runtime: _LiveDrivers,
+        observed_state: tuple[InstrumentStateSnapshot, ...],
+    ) -> tuple[InstrumentStateSnapshot, ...] | RunInstrumentProvisionReceipt:
+        try:
+            return self._prepare_run_state(
+                instrument_ids=instrument_ids,
+                specs={
+                    spec.id: spec for spec in config.instrument_registry.instruments
+                },
+                runtime=runtime,
+                observed_state=observed_state,
+                operation_id=command.operation_id,
+            )
+        except _RunPreparationRejected as error:
+            if error.changed_state:
+                _call_all(runtime.drivers.values(), _abort_driver)
+                _call_all(runtime.drivers.values(), _close_driver)
+                self._mark_run_unknown(
+                    run_id,
+                    token=command.lease_id,
+                    reason="run_instrument_preparation_partial",
+                )
+                raise BackendConflict(
+                    "instrument run preparation partially changed hardware"
+                ) from error
+            release_failed = _call_all(runtime.drivers.values(), _close_driver)
+            if release_failed:
+                self._mark_run_unknown(
+                    run_id,
+                    token=command.lease_id,
+                    reason="run_instrument_preparation_cleanup_failed",
+                )
+                raise BackendConflict(
+                    "instrument run preparation rejection could not be released"
+                ) from error
+            return self._reject_run_provision(
+                run_id,
+                command,
+                problems=error.problems,
+            )
+        except _RunPreparationUnknown as error:
+            _call_all(runtime.drivers.values(), _abort_driver)
+            _call_all(runtime.drivers.values(), _close_driver)
+            self._mark_run_unknown(
+                run_id,
+                token=command.lease_id,
+                reason="run_instrument_preparation_unknown",
+            )
+            raise BackendConflict(
+                "instrument run preparation failed with unknown state"
+            ) from error
+
+    @staticmethod
+    def _prepare_run_state(
+        *,
+        instrument_ids: tuple[str, ...],
+        specs: Mapping[str, InstrumentSpec],
+        runtime: _LiveDrivers,
+        observed_state: tuple[InstrumentStateSnapshot, ...],
+        operation_id: str,
+    ) -> tuple[InstrumentStateSnapshot, ...]:
+        observed = {
+            state.instrument_id: state.model_copy(deep=True) for state in observed_state
+        }
+        commands: list[InstrumentStateCommand] = []
+        for instrument_id in instrument_ids:
+            preparation = specs[instrument_id].run_preparation
+            if not isinstance(preparation, ApplyDefaultsRunPreparation):
+                continue
+            assignments = [
+                InstrumentStateAssignment(
+                    resource_id=instrument_id,
+                    interface_id=item.interface_id,
+                    component_path=list(item.component_path),
+                    property_id=item.property_id,
+                    value=item.value,
+                    entity_ids=list(item.entity_ids),
+                    channel_bindings=[
+                        binding.model_copy(deep=True)
+                        for binding in item.channel_bindings
+                    ],
+                )
+                for item in preparation.properties
+            ]
+            command = InstrumentStateCommand(
+                command_id=f"{operation_id}.prepare.{instrument_id}",
+                instrument_id=instrument_id,
+                assignments=assignments,
+            )
+            # Defaults must select their own case instead of depending on idle state.
+            contract_problems = validate_state_command(
+                command=command,
+                description=runtime.descriptions[instrument_id],
+                baseline=InstrumentStateSnapshot(instrument_id=instrument_id),
+            )
+            if contract_problems:
+                raise _RunPreparationRejected(
+                    problems=tuple(contract_problems),
+                    changed_state=False,
+                )
+            pending = [
+                assignment
+                for assignment in assignments
+                if not _state_assignment_satisfied(
+                    observed[instrument_id],
+                    assignment,
+                )
+            ]
+            if not pending:
+                continue
+            command = command.model_copy(update={"assignments": pending})
+            state_problems = validate_state_command(
+                command=command,
+                description=runtime.descriptions[instrument_id],
+                baseline=observed[instrument_id],
+            )
+            if state_problems:
+                raise _RunPreparationRejected(
+                    problems=tuple(state_problems),
+                    changed_state=False,
+                )
+            commands.append(command)
+
+        prepared = {
+            instrument_id: state.model_copy(deep=True)
+            for instrument_id, state in observed.items()
+        }
+        changed_state = False
+        for command in commands:
+            instrument_id = command.instrument_id
+            driver = runtime.drivers[instrument_id]
+            try:
+                receipt = driver.apply_state(command)
+            except Exception as error:
+                raise _RunPreparationUnknown from error
+            if receipt.status == "unknown":
+                raise _RunPreparationUnknown
+            if receipt.status != "applied":
+                raise _RunPreparationRejected(
+                    problems=receipt.problems,
+                    changed_state=changed_state,
+                )
+            changed_state = True
+            try:
+                state = receipt.state or _read_driver_state(
+                    driver,
+                    description=runtime.descriptions[instrument_id],
+                )
+            except Exception as error:
+                raise _RunPreparationUnknown from error
+            state_problems = validate_state_snapshot(
+                snapshot=state,
+                description=runtime.descriptions[instrument_id],
+            )
+            # The execution baseline is trusted only after defaults converge.
+            if state_problems or not all(
+                _state_assignment_satisfied(state, assignment)
+                for assignment in command.assignments
+            ):
+                raise _RunPreparationUnknown
+            prepared[instrument_id] = state.model_copy(deep=True)
+        return tuple(prepared[instrument_id] for instrument_id in instrument_ids)
 
     def execute_run_hardware(
         self,
@@ -816,7 +1001,7 @@ class InstrumentService:
         assignments = tuple(
             assignment
             for assignment in action.assignments
-            if _state_value(current, assignment) != assignment.value
+            if not _state_assignment_satisfied(current, assignment)
         )
         if not assignments:
             return {
@@ -1298,7 +1483,7 @@ class InstrumentService:
             ) from error
 
         try:
-            initial_state = tuple(
+            observed_state = tuple(
                 _read_driver_state(
                     runtime.drivers[instrument_id],
                     description=runtime.descriptions[instrument_id],
@@ -1310,18 +1495,16 @@ class InstrumentService:
             if close_failed:
                 self._mark_unknown(
                     session,
-                    reason="instrument_initial_read_cleanup_failed",
+                    reason="instrument_observation_cleanup_failed",
                 )
             else:
                 self._control.close_instrument_session(
                     session.session_id,
                     status="aborted",
                 )
-            raise BackendConflict(
-                "instrument initial state could not be read"
-            ) from error
+            raise BackendConflict("instrument state could not be observed") from error
         runtime.assumed_states = {
-            state.instrument_id: state.model_copy(deep=True) for state in initial_state
+            state.instrument_id: state.model_copy(deep=True) for state in observed_state
         }
         with self._sessions_lock:
             self._sessions[session.session_id] = runtime
@@ -2290,6 +2473,22 @@ class _ProvisioningUnknown(RuntimeError):
         super().__init__("instrument provisioning state is unknown")
 
 
+class _RunPreparationRejected(RuntimeError):
+    def __init__(
+        self,
+        *,
+        problems: tuple[Problem, ...],
+        changed_state: bool,
+    ) -> None:
+        self.problems = problems
+        self.changed_state = changed_state
+        super().__init__("instrument run preparation was rejected")
+
+
+class _RunPreparationUnknown(RuntimeError):
+    pass
+
+
 def _provide_drivers(
     provider: InstrumentProvider,
     *,
@@ -2463,7 +2662,7 @@ def _payload_codec_problems(
 def _state_value(
     current: InstrumentStateSnapshot,
     target: InstrumentStateAssignment,
-) -> object:
+) -> StateValue | None:
     identity = property_target_identity(
         target.interface_id,
         target.component_path,
@@ -2485,6 +2684,16 @@ def _state_value(
             == identity
         ),
         None,
+    )
+
+
+def _state_assignment_satisfied(
+    current: InstrumentStateSnapshot,
+    target: InstrumentStateAssignment,
+) -> bool:
+    actual = _state_value(current, target)
+    return actual is not None and (
+        scalar_identity(actual.root) == scalar_identity(target.value.root)
     )
 
 

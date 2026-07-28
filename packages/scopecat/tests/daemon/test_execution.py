@@ -38,6 +38,7 @@ from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
 )
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -99,6 +100,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                     run_id="run-1",
                     operation_id=command.operation_id,
                     status="ready",
+                    instrument_ids=("source-0",),
+                    observed_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
+                    prepared_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
                 )
             )
         if path.endswith("/hardware/execute"):
@@ -157,6 +161,12 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     journal = session.journal
     measurements = session.measurements
     instruments = session.instruments
+    assert instruments.observed_state == (
+        InstrumentStateSnapshot(instrument_id="source-0"),
+    )
+    assert instruments.prepared_state == (
+        InstrumentStateSnapshot(instrument_id="source-0"),
+    )
 
     batch = RunHardwareBatch(
         operation_id="hardware.batch-1",

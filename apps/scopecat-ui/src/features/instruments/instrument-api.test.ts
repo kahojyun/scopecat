@@ -69,11 +69,13 @@ describe("instrument configuration publishing", () => {
         id: "vna-1",
         driver_id: "keysight.pna",
         connection,
+        run_preparation: { kind: "preserve" },
       },
       {
         id: "fridge",
         driver_id: "virtual.temperature",
         connection: { kind: "virtual" },
+        run_preparation: { kind: "preserve" },
       },
     ]);
     expect(command.source.config.parameter_snapshot.values).toEqual([
@@ -350,11 +352,13 @@ function activeConfig(): ActiveConfig {
               port: 5025,
               timeout_seconds: 5,
             },
+            run_preparation: { kind: "preserve" },
           },
           {
             id: "fridge",
             driver_id: "virtual.temperature",
             connection: { kind: "virtual" },
+            run_preparation: { kind: "preserve" },
           },
         ],
       },

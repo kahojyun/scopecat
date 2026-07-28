@@ -61,7 +61,7 @@ class _VirtualInstrumentDriver:
         }
         self._state = {
             _decode_property_key(key): value
-            for key, value in profile.initial_state.items()
+            for key, value in profile.seed_state.items()
         }
 
     def describe(self) -> InstrumentDescription:
@@ -245,7 +245,7 @@ def _decode_property_key(key: str) -> tuple[str, str]:
     interface_id, separator, property_id = key.partition("::")
     if not separator or not interface_id or not property_id:
         raise ValueError(
-            "virtual device initial_state keys must use '<interface_id>::<property_id>'"
+            "virtual device seed_state keys must use '<interface_id>::<property_id>'"
         )
     return interface_id, property_id
 

@@ -741,6 +741,22 @@ export interface components {
             title: string;
         };
         /**
+         * ApplyDefaultsRunPreparation
+         * @description Synchronize, then reconcile declared defaults at run start.
+         */
+        ApplyDefaultsRunPreparation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "apply_defaults";
+            /** Properties */
+            properties: [
+                components["schemas"]["InstrumentPropertyState"],
+                ...components["schemas"]["InstrumentPropertyState"][]
+            ];
+        };
+        /**
          * ApplyReceipt
          * @description Outcome reported after one instrument state command.
          *
@@ -1447,6 +1463,7 @@ export interface components {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Output"][];
         };
+        InstrumentRunPreparation: components["schemas"]["PreserveRunPreparation"] | components["schemas"]["ApplyDefaultsRunPreparation"];
         /** InstrumentSessionEndReceipt */
         InstrumentSessionEndReceipt: {
             session_id: components["schemas"]["NonEmptyText"];
@@ -1498,6 +1515,7 @@ export interface components {
             driver_id: string;
             /** Id */
             id: string;
+            run_preparation: components["schemas"]["InstrumentRunPreparation"];
         };
         /** InstrumentSpec */
         "InstrumentSpec-Output": {
@@ -1506,6 +1524,7 @@ export interface components {
             driver_id: string;
             /** Id */
             id: string;
+            run_preparation: components["schemas"]["InstrumentRunPreparation"];
         };
         /** InstrumentStateAssignment */
         InstrumentStateAssignment: {
@@ -1932,6 +1951,17 @@ export interface components {
         };
         PersistableScalarWire: components["schemas"]["_PersistableScalarModel"];
         PersistableValueType: components["schemas"]["_PersistableValueTypeWire"];
+        /**
+         * PreserveRunPreparation
+         * @description Synchronize and retain observed settings at run start.
+         */
+        PreserveRunPreparation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "preserve";
+        };
         /**
          * Problem
          * @description One expected, structured finding without presentation policy.

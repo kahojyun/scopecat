@@ -245,8 +245,12 @@ class _DaemonRunInstrumentHost:
         return self._receipt().problems
 
     @property
-    def initial_state(self) -> tuple[InstrumentStateSnapshot, ...]:
-        return self._receipt().initial_state
+    def observed_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._receipt().observed_state
+
+    @property
+    def prepared_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._receipt().prepared_state
 
     def provision(self) -> RunInstrumentProvisionReceipt:
         with self._lock:

@@ -5,10 +5,13 @@ from __future__ import annotations
 from scopecat.authoring import QuantityType, ScalarType
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.state import StateValue
 from scopecat.records.config import (
+    ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
     InstrumentRegistry,
     InstrumentSpec,
+    PreserveRunPreparation,
     RoutingEndpointBinding,
     RoutingGraph,
     SystemSpec,
@@ -16,6 +19,7 @@ from scopecat.records.config import (
     VirtualInstrumentConnection,
     snapshot_config_profile,
 )
+from scopecat.records.instrument import InstrumentPropertyState
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterDefinition,
@@ -138,10 +142,49 @@ def _virtual_instrument(
     *,
     driver_id: str,
 ) -> InstrumentSpec:
+    run_preparation: PreserveRunPreparation | ApplyDefaultsRunPreparation
+    if driver_id == VIRTUAL_DC_SOURCE:
+        run_preparation = ApplyDefaultsRunPreparation(
+            properties=[
+                InstrumentPropertyState(
+                    interface_id=DC_SOURCE,
+                    property_id="source_mode",
+                    value=StateValue("voltage"),
+                ),
+                InstrumentPropertyState(
+                    interface_id=DC_SOURCE,
+                    property_id="voltage_range",
+                    value=StateValue(Quantity(1.0, "V")),
+                ),
+                InstrumentPropertyState(
+                    interface_id=DC_SOURCE,
+                    property_id="voltage_level",
+                    value=StateValue(Quantity(0.0, "V")),
+                ),
+                InstrumentPropertyState(
+                    interface_id=DC_SOURCE,
+                    property_id="voltage_protection",
+                    value=StateValue(Quantity(1.0, "V")),
+                ),
+                InstrumentPropertyState(
+                    interface_id=DC_SOURCE,
+                    property_id="current_protection",
+                    value=StateValue(Quantity(0.01, "A")),
+                ),
+                InstrumentPropertyState(
+                    interface_id=DC_SOURCE,
+                    property_id="output_enabled",
+                    value=StateValue(False),
+                ),
+            ]
+        )
+    else:
+        run_preparation = PreserveRunPreparation()
     return InstrumentSpec(
         id=instrument_id,
         driver_id=driver_id,
         connection=VirtualInstrumentConnection(),
+        run_preparation=run_preparation,
     )
 
 

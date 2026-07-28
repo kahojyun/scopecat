@@ -17,6 +17,10 @@ from pydantic import (
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.records.instrument import (
+    InstrumentPropertyState,
+    property_target_identity,
+)
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterSnapshot,
@@ -84,12 +88,52 @@ type InstrumentConnection = Annotated[
 ]
 
 
+class PreserveRunPreparation(BaseModel):
+    """Synchronize and retain observed settings at run start."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["preserve"] = "preserve"
+
+
+class ApplyDefaultsRunPreparation(BaseModel):
+    """Synchronize, then reconcile declared defaults at run start."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["apply_defaults"] = "apply_defaults"
+    properties: list[InstrumentPropertyState] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_targets(self) -> ApplyDefaultsRunPreparation:
+        identities = [
+            property_target_identity(
+                item.interface_id,
+                item.component_path,
+                item.property_id,
+                item.entity_ids,
+                item.channel_bindings,
+            )
+            for item in self.properties
+        ]
+        if len(identities) != len(set(identities)):
+            raise ValueError("run preparation property targets must be unique")
+        return self
+
+
+type InstrumentRunPreparation = Annotated[
+    PreserveRunPreparation | ApplyDefaultsRunPreparation,
+    Field(discriminator="kind"),
+]
+
+
 class InstrumentSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: Annotated[str, Field(min_length=1)]
     driver_id: Annotated[str, Field(min_length=1)]
     connection: InstrumentConnection
+    run_preparation: InstrumentRunPreparation
 
 
 class InstrumentRegistry(BaseModel):

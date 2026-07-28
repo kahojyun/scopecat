@@ -9,6 +9,7 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentRegistry,
     InstrumentSpec,
+    PreserveRunPreparation,
     SystemSpec,
     TcpipSocketInstrumentConnection,
     Topology,
@@ -84,6 +85,7 @@ def test_provider_probes_real_device_before_returning_driver() -> None:
                 host="127.0.0.1",
                 port=server.port,
             ),
+            run_preparation=PreserveRunPreparation(),
         )
     )
 
@@ -112,6 +114,7 @@ def test_provider_rejects_wrong_device_identity() -> None:
                 host="127.0.0.1",
                 port=server.port,
             ),
+            run_preparation=PreserveRunPreparation(),
         )
     )
 
@@ -130,11 +133,13 @@ def test_provider_subset_and_virtual_state_survive_sessions() -> None:
             id="flux",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
+            run_preparation=PreserveRunPreparation(),
         ),
         InstrumentSpec(
             id="unused",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
+            run_preparation=PreserveRunPreparation(),
         ),
     )
     provider = ConfiguredInstrumentProvider(seed=17)
@@ -166,11 +171,13 @@ def test_provider_returns_requested_subset_in_context_order() -> None:
             id="a",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
+            run_preparation=PreserveRunPreparation(),
         ),
         InstrumentSpec(
             id="b",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
+            run_preparation=PreserveRunPreparation(),
         ),
     )
     provider = ConfiguredInstrumentProvider()

@@ -117,6 +117,7 @@ describe("instrument workspace", () => {
               port: 5025,
               timeout_seconds: 5,
             },
+            run_preparation: { kind: "preserve" },
           },
           description: {
             instrument_id: "vna-1",
@@ -169,7 +170,7 @@ describe("instrument workspace", () => {
     expect(within(heading as HTMLElement).queryByText("v1")).not.toBeInTheDocument();
   });
 
-  it("connects explicitly, reads initial state, and closes on unmount", async () => {
+  it("connects explicitly, observes current state, and closes on unmount", async () => {
     const rendered = renderWorkspace();
 
     await screen.findByText("Drive source");
@@ -686,6 +687,7 @@ describe("instrument workspace", () => {
         id: "monitor",
         driver_id: "virtual.temperature",
         connection: { kind: "virtual" },
+        run_preparation: { kind: "preserve" },
       },
       description: {
         instrument_id: "monitor",
@@ -826,6 +828,7 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
       id: "drive-source",
       driver_id: "virtual.rf_source",
       connection: { kind: "virtual" },
+      run_preparation: { kind: "preserve" },
     },
     description: {
       instrument_id: "drive-source",

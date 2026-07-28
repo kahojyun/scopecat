@@ -249,8 +249,13 @@ def test_run_persists_measurements_and_run_files(
     assert persisted_config == config
     assert {
         snapshot.instrument_id
-        for snapshot in [*state_evidence.initial_state, *state_evidence.final_state]
+        for snapshot in [
+            *state_evidence.observed_state,
+            *state_evidence.prepared_state,
+            *state_evidence.final_state,
+        ]
     } == {"source-0"}
+    assert state_evidence.observed_state == state_evidence.prepared_state
     final_state_value = state_evidence.final_state[0].properties[0].value.root
     assert final_state_value == Quantity(value=5.1, unit="GHz")
     persisted_state_evidence = state_evidence.model_dump(mode="json")

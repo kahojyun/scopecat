@@ -60,6 +60,9 @@
         "driver_id": "quantum_lab_demo.virtual_lab.drive_stack",
         "connection": {
           "kind": "virtual"
+        },
+        "run_preparation": {
+          "kind": "preserve"
         }
       },
       {
@@ -67,6 +70,9 @@
         "driver_id": "quantum_lab_demo.virtual_lab.readout_stack",
         "connection": {
           "kind": "virtual"
+        },
+        "run_preparation": {
+          "kind": "preserve"
         }
       }
     ]
