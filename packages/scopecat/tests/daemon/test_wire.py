@@ -27,13 +27,14 @@ from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutorLease,
     MeasurementAppendCommand,
-    RunInstrumentApplyCommand,
-    RunInstrumentLifecycleCommand,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBatch
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.config import config_content_hash
@@ -42,7 +43,6 @@ from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
-from scopecat.sdk.instruments.contracts import InstrumentStateCommand
 from tests.testkit.workflow_fixtures import load_config
 
 
@@ -292,7 +292,7 @@ def test_transition_append_keeps_sequence_daemon_owned() -> None:
         )
 
 
-def test_run_instrument_commands_bind_fence_and_operation_identity() -> None:
+def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
     provision = RunInstrumentProvisionCommand(
         lease_id="lease-1",
         operation_id="lifecycle.provide-instruments",
@@ -302,18 +302,25 @@ def test_run_instrument_commands_bind_fence_and_operation_identity() -> None:
         operation_id=provision.operation_id,
         status="ready",
     )
-    apply = RunInstrumentApplyCommand(
-        lease_id="lease-1",
-        operation_id="point-0.apply.source-0",
-        command=InstrumentStateCommand(
-            operation_id="point-0.apply.source-0",
-            instrument_id="source-0",
+    batch = RunHardwareBatch(
+        operation_id="hardware.batch-1",
+        actions=(
+            RunHardwareApply(
+                operation_id="point-0.apply.source-0",
+                point_index=0,
+                instrument_id="source-0",
+                fields=(),
+            ),
         ),
     )
-    lifecycle = RunInstrumentLifecycleCommand(
+    execute = RunHardwareBatchCommand(
         lease_id="lease-1",
-        operation_id="lifecycle.close.source-0",
-        action="close",
+        batch=batch,
+    )
+    finish = RunHardwareFinishCommand(
+        lease_id="lease-1",
+        operation_id="hardware.finish",
+        failed=False,
     )
 
     assert (
@@ -324,12 +331,17 @@ def test_run_instrument_commands_bind_fence_and_operation_identity() -> None:
         RunInstrumentProvisionReceipt.model_validate_json(receipt.model_dump_json())
         == receipt
     )
-    assert lifecycle.action == "close"
-    with pytest.raises(ValidationError, match="operation ids must match"):
-        RunInstrumentApplyCommand(
-            lease_id="lease-1",
-            operation_id="different-operation",
-            command=apply.command,
+    assert (
+        RunHardwareBatchCommand.model_validate_json(execute.model_dump_json())
+        == execute
+    )
+    assert (
+        RunHardwareFinishCommand.model_validate_json(finish.model_dump_json()) == finish
+    )
+    with pytest.raises(ValidationError, match="action ids must be unique"):
+        RunHardwareBatch(
+            operation_id="hardware.duplicate",
+            actions=(batch.actions[0], batch.actions[0]),
         )
 
 

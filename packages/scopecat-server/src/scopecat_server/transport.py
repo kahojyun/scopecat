@@ -59,15 +59,16 @@ from scopecat.daemon.wire import (
     MeasurementSealCommand,
     RunAdmission,
     RunAttachmentCommand,
-    RunInstrumentApplyCommand,
-    RunInstrumentCollectCommand,
-    RunInstrumentLifecycleCommand,
-    RunInstrumentLifecycleReceipt,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
-    RunInstrumentReadCommand,
     RunSubmission,
     TerminalRunCommitCommand,
+)
+from scopecat.execution.ports.instruments import (
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
@@ -421,55 +422,19 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunInstrumentProvisionReceipt:
         return application.instruments.provision_run(run_id, command)
 
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/{{instrument_id}}/state/read")
-    def read_run_instrument_state(
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/hardware/execute")
+    def execute_run_hardware(
         run_id: str,
-        instrument_id: str,
-        command: RunInstrumentReadCommand,
-    ) -> InstrumentStateSnapshot:
-        return application.instruments.read_run_state(
-            run_id,
-            instrument_id,
-            command,
-        )
+        command: RunHardwareBatchCommand,
+    ) -> RunHardwareBatchReceipt:
+        return application.instruments.execute_run_hardware(run_id, command)
 
-    @app.post(
-        f"{_API_PREFIX}/runs/{{run_id}}/instruments/{{instrument_id}}/state/apply"
-    )
-    def apply_run_instrument_state(
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/hardware/finish")
+    def finish_run_hardware(
         run_id: str,
-        instrument_id: str,
-        command: RunInstrumentApplyCommand,
-    ) -> ApplyReceipt:
-        return application.instruments.apply_run_state(
-            run_id,
-            instrument_id,
-            command,
-        )
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/{{instrument_id}}/collect")
-    def collect_run_instrument(
-        run_id: str,
-        instrument_id: str,
-        command: RunInstrumentCollectCommand,
-    ) -> CollectReceipt:
-        return application.instruments.collect_run(
-            run_id,
-            instrument_id,
-            command,
-        )
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/instruments/{{instrument_id}}/lifecycle")
-    def run_instrument_lifecycle(
-        run_id: str,
-        instrument_id: str,
-        command: RunInstrumentLifecycleCommand,
-    ) -> RunInstrumentLifecycleReceipt:
-        return application.instruments.run_lifecycle(
-            run_id,
-            instrument_id,
-            command,
-        )
+        command: RunHardwareFinishCommand,
+    ) -> RunHardwareFinalizationReceipt:
+        return application.instruments.finish_run_hardware(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions")
     def append_transition(

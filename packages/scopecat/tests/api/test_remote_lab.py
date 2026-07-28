@@ -51,6 +51,7 @@ from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunManifest,
@@ -667,6 +668,10 @@ def _provisioning_receipt(
         provider_id=None if host is None else host.provider_id,
         instrument_ids=instrument_ids,
         descriptions=descriptions,
+        initial_state=tuple(
+            InstrumentStateSnapshot(instrument_id=instrument_id)
+            for instrument_id in instrument_ids
+        ),
     )
 
 

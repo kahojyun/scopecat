@@ -1,9 +1,4 @@
-"""Synchronous coverage orchestration for a provisioned ``RunProgram``.
-
-Concrete compute, instrument, measurement, journal, and lifecycle behavior
-lives in the corresponding :mod:`scopecat.execution.effects` components.
-This module retains only exact-order coverage and point-lifecycle sequencing.
-"""
+"""Synchronous coverage orchestration for a provisioned ``RunProgram``."""
 
 from __future__ import annotations
 
@@ -11,12 +6,14 @@ from collections.abc import Iterable, Sequence
 
 import scopecat.execution.effect_result as effect_result
 from scopecat.execution.effects.compute import ComputeEffectExecutor, PointEffectState
-from scopecat.execution.effects.dispatch import PointEffectDispatcher
 from scopecat.execution.effects.domain import execute_domain_job_values
+from scopecat.execution.effects.hardware import HardwareEffectExecutor
 from scopecat.execution.effects.journaled import JournaledEffectBoundary
-from scopecat.execution.effects.lifecycle import InstrumentLifecycle
-from scopecat.execution.effects.measurement import MeasurementEffectExecutor
-from scopecat.execution.effects.state import StateEffectExecutor
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    CollectOperation,
+    ComputeOperation,
+)
 from scopecat.execution.points import AdmittedPointLedger
 from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.program import (
@@ -53,7 +50,6 @@ class RunEffectInterpreter:
         *,
         run_id: str,
         coordinate_ids: Sequence[str],
-        resource_order: Sequence[str],
         instruments: RunInstrumentHost,
         journal: ExecutionJournal,
         coverage_observer: effect_result.CoverageMeasurementObserver | None = None,
@@ -64,7 +60,7 @@ class RunEffectInterpreter:
         )
         self.logical_points: dict[int, LogicalPointId] = {}
         self.run_points: dict[int, RunPoint] = {}
-        self.initial_state: list[InstrumentStateSnapshot] = []
+        self.initial_state = list(instruments.initial_state)
         self.final_state: list[InstrumentStateSnapshot] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
@@ -74,31 +70,12 @@ class RunEffectInterpreter:
 
         self._journal = JournaledEffectBoundary(run_id=run_id, journal=journal)
         self._compute = ComputeEffectExecutor(journal=self._journal)
-        self._state = StateEffectExecutor(
+        self._hardware = HardwareEffectExecutor(
             instruments=instruments,
-            journal=self._journal,
+            problems=self._journal,
         )
-        self._measurements = MeasurementEffectExecutor(
-            instruments=instruments,
-            journal=self._journal,
-            coverage_observer=coverage_observer,
-        )
-        self._dispatch = PointEffectDispatcher(
-            compute=self._compute,
-            state=self._state,
-            measurement=self._measurements,
-        )
-        self._lifecycle = InstrumentLifecycle(
-            resource_order=resource_order,
-            instruments=instruments,
-            journal=self._journal,
-        )
-
-    @property
-    def current_states(self) -> dict[str, InstrumentStateSnapshot]:
-        """Return the accepted state used to reconcile later writes."""
-
-        return self._state.current_states
+        self._coverage_observer = coverage_observer
+        self._instruments = instruments
 
     def run(
         self,
@@ -109,10 +86,6 @@ class RunEffectInterpreter:
         """Interpret the residual effect sequence exactly in program order."""
 
         try:
-            self.initial_state = self._lifecycle.read_states(phase="initial")
-            self._state.current_states = {
-                state.instrument_id: state for state in self.initial_state
-            }
             if not self._journal.problems:
                 admitted = self.point_ledger.admit(points)
                 self.run_points.update((point.ordinal, point) for point in admitted)
@@ -153,24 +126,64 @@ class RunEffectInterpreter:
                 self._complete_coverage(
                     tuple(sorted(self._active_point_indices)),
                 )
-            self._lifecycle.finalize()
             try:
-                self.final_state = self._lifecycle.read_states(phase="terminal")
-            finally:
-                self._lifecycle.close()
+                finished = self._instruments.finish(
+                    operation_id="hardware.finish",
+                    failed=(
+                        bool(self._journal.problems)
+                        or self._journal.indeterminate
+                        or self._journal.interruption is not None
+                        or self.domain_failure is not None
+                        or self.coverage_failure is not None
+                    ),
+                )
+                self.final_state = list(finished.final_state)
+                self._journal.problems.extend(finished.problems)
+                self._journal.indeterminate = (
+                    self._journal.indeterminate or finished.indeterminate
+                )
+            except Exception as error:
+                self._journal.indeterminate = True
+                self._journal.problems.append(
+                    self._journal.problem_from_exception(
+                        "hardware_finalization_unknown",
+                        "daemon hardware finalization outcome is unknown",
+                        error,
+                        operation_id="hardware.finish",
+                    )
+                )
         return self._result()
 
     def _execute_coverage_operations(
         self,
         operations: Iterable[RunCoveredOperation],
     ) -> None:
+        hardware: list[RunCoverageEffect] = []
         for operation in operations:
+            if isinstance(operation, RunCoverageEffect) and isinstance(
+                operation.operation, ApplyStateOperation | CollectOperation
+            ):
+                self._point_state(operation.point_index)
+                hardware.append(operation)
+                continue
+            if hardware:
+                if not self._hardware.execute(
+                    hardware,
+                    frame_for=self._point_state,
+                ):
+                    return
+                hardware.clear()
             if isinstance(operation, RunCoverageCheckpoint):
                 self._commit_coverage_checkpoint(operation)
                 continue
             self._execute_covered_operation(operation)
             if bool(self._journal.problems):
                 return
+        if hardware and not self._hardware.execute(
+            hardware,
+            frame_for=self._point_state,
+        ):
+            return
         remaining = tuple(
             point_index
             for point_index in self.logical_points
@@ -193,9 +206,22 @@ class RunEffectInterpreter:
     ) -> None:
         self._complete_coverage(point_indices)
         try:
-            self._measurements.commit_coverage(
-                tuple(self.run_points[point_index] for point_index in point_indices)
+            points = tuple(
+                self.run_points[point_index] for point_index in point_indices
             )
+            if self._coverage_observer is not None:
+                selected = frozenset(point_indices)
+                candidates = tuple(
+                    candidate
+                    for candidate in self._hardware.values
+                    if candidate.logical_point_id.logical_ordinal in selected
+                )
+                self._coverage_observer(points, candidates)
+                self._hardware.values[:] = (
+                    candidate
+                    for candidate in self._hardware.values
+                    if candidate.logical_point_id.logical_ordinal not in selected
+                )
         except BaseException as error:
             self.coverage_failure = error
             raise _CapturedCoverageFailure from error
@@ -210,9 +236,11 @@ class RunEffectInterpreter:
                 self._execute_coverage_effect(operation)
 
     def _execute_coverage_effect(self, covered: RunCoverageEffect) -> None:
-        self._dispatch.execute(
+        if not isinstance(covered.operation, ComputeOperation):
+            raise AssertionError("hardware effect bypassed batch execution")
+        self._compute.execute(
             self._point_state(covered.point_index),
-            covered.operation,
+            (covered.operation,),
         )
 
     def _execute_domain_job(self, job: RunDomainJob) -> None:
@@ -235,7 +263,7 @@ class RunEffectInterpreter:
             if pending:
                 self._complete_coverage(pending)
             raise _CapturedDomainEffectFailure(job.id) from error
-        self._measurements.values.extend(values)
+        self._hardware.values.extend(values)
 
     def _point_state(self, point_index: int) -> PointEffectState:
         if point_index in self._terminal_point_indices:

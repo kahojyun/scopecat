@@ -58,15 +58,16 @@ from scopecat.daemon.wire import (
     MeasurementSealCommand,
     RunAdmission,
     RunAttachmentCommand,
-    RunInstrumentApplyCommand,
-    RunInstrumentCollectCommand,
-    RunInstrumentLifecycleCommand,
-    RunInstrumentLifecycleReceipt,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
-    RunInstrumentReadCommand,
     RunSubmission,
     TerminalRunCommitCommand,
+)
+from scopecat.execution.ports.instruments import (
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
@@ -569,52 +570,26 @@ class DaemonClient:
             RunInstrumentProvisionReceipt,
         )
 
-    def read_run_instrument_state(
+    def execute_run_hardware(
         self,
         run_id: str,
-        instrument_id: str,
-        command: RunInstrumentReadCommand,
-    ) -> InstrumentStateSnapshot:
+        command: RunHardwareBatchCommand,
+    ) -> RunHardwareBatchReceipt:
         return self._post_idempotent_model(
-            self._run_instrument_path(run_id, instrument_id, "state/read"),
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/execute",
             command,
-            InstrumentStateSnapshot,
+            RunHardwareBatchReceipt,
         )
 
-    def apply_run_instrument_state(
+    def finish_run_hardware(
         self,
         run_id: str,
-        instrument_id: str,
-        command: RunInstrumentApplyCommand,
-    ) -> ApplyReceipt:
+        command: RunHardwareFinishCommand,
+    ) -> RunHardwareFinalizationReceipt:
         return self._post_idempotent_model(
-            self._run_instrument_path(run_id, instrument_id, "state/apply"),
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/finish",
             command,
-            ApplyReceipt,
-        )
-
-    def collect_run_instrument(
-        self,
-        run_id: str,
-        instrument_id: str,
-        command: RunInstrumentCollectCommand,
-    ) -> CollectReceipt:
-        return self._post_idempotent_model(
-            self._run_instrument_path(run_id, instrument_id, "collect"),
-            command,
-            CollectReceipt,
-        )
-
-    def run_instrument_lifecycle(
-        self,
-        run_id: str,
-        instrument_id: str,
-        command: RunInstrumentLifecycleCommand,
-    ) -> RunInstrumentLifecycleReceipt:
-        return self._post_idempotent_model(
-            self._run_instrument_path(run_id, instrument_id, "lifecycle"),
-            command,
-            RunInstrumentLifecycleReceipt,
+            RunHardwareFinalizationReceipt,
         )
 
     def append_transition(
@@ -680,17 +655,6 @@ class DaemonClient:
         return (
             f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/"
             f"instruments/{quote(instrument_id, safe='')}/{suffix}"
-        )
-
-    @staticmethod
-    def _run_instrument_path(
-        run_id: str,
-        instrument_id: str,
-        suffix: str,
-    ) -> str:
-        return (
-            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/instruments/"
-            f"{quote(instrument_id, safe='')}/{suffix}"
         )
 
     def _post_model[ModelT: BaseModel](

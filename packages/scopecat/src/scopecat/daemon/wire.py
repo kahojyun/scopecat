@@ -26,6 +26,7 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import RunPlanSummary
+from scopecat.execution.ports.instruments import RunHardwareBatch
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
@@ -35,6 +36,7 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
 )
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetSeal,
@@ -315,6 +317,7 @@ class RunInstrumentProvisionReceipt(_WireModel):
     descriptions: tuple[InstrumentDescription, ...] = ()
     problems: tuple[Problem, ...] = ()
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    initial_state: tuple[InstrumentStateSnapshot, ...] = ()
 
     @model_validator(mode="after")
     def validate_result(self) -> RunInstrumentProvisionReceipt:
@@ -332,6 +335,12 @@ class RunInstrumentProvisionReceipt(_WireModel):
                 raise ValueError(
                     "ready run instrument descriptions must match ids in order"
                 )
+            if tuple(state.instrument_id for state in self.initial_state) != (
+                self.instrument_ids
+            ):
+                raise ValueError(
+                    "ready run initial state must match instrument ids in order"
+                )
             if self.problems:
                 raise ValueError(
                     "ready run instrument provisioning cannot contain problems"
@@ -342,6 +351,10 @@ class RunInstrumentProvisionReceipt(_WireModel):
             raise ValueError(
                 "rejected run instrument provisioning cannot expose descriptions"
             )
+        elif self.initial_state:
+            raise ValueError(
+                "rejected run instrument provisioning cannot expose initial state"
+            )
         elif self.provider_id is not None:
             raise ValueError(
                 "rejected run instrument provisioning cannot expose a provider"
@@ -349,39 +362,12 @@ class RunInstrumentProvisionReceipt(_WireModel):
         return self
 
 
-class RunInstrumentReadCommand(_FencedOperationCommand):
-    """Idempotently read one daemon-owned run instrument."""
+class RunHardwareBatchCommand(_FencedCommand):
+    batch: RunHardwareBatch
 
 
-class RunInstrumentApplyCommand(_FencedOperationCommand):
-    command: InstrumentStateCommand
-
-    @model_validator(mode="after")
-    def validate_operation(self) -> RunInstrumentApplyCommand:
-        if self.command.operation_id != self.operation_id:
-            raise ValueError("run instrument apply command operation ids must match")
-        return self
-
-
-class RunInstrumentCollectCommand(_FencedOperationCommand):
-    command: CollectCommand
-
-    @model_validator(mode="after")
-    def validate_operation(self) -> RunInstrumentCollectCommand:
-        if self.command.operation_id != self.operation_id:
-            raise ValueError("run instrument collect command operation ids must match")
-        return self
-
-
-class RunInstrumentLifecycleCommand(_FencedOperationCommand):
-    action: Literal["cleanup", "abort", "close"]
-
-
-class RunInstrumentLifecycleReceipt(_WireModel):
-    run_id: NonEmptyText
-    instrument_id: NonEmptyText
-    operation_id: NonEmptyText
-    action: Literal["cleanup", "abort", "close"]
+class RunHardwareFinishCommand(_FencedOperationCommand):
+    failed: bool
 
 
 class ExecutionTransitionAppend(_FencedCommand):
@@ -558,13 +544,8 @@ __all__ = [
     "MeasurementSealCommand",
     "RunAdmission",
     "RunAttachmentCommand",
-    "RunInstrumentApplyCommand",
-    "RunInstrumentCollectCommand",
-    "RunInstrumentLifecycleCommand",
-    "RunInstrumentLifecycleReceipt",
     "RunInstrumentProvisionCommand",
     "RunInstrumentProvisionReceipt",
-    "RunInstrumentReadCommand",
     "RunSubmission",
     "TerminalModelWrite",
     "TerminalRunCommitCommand",

@@ -26,10 +26,6 @@ from scopecat.execution.measurement_recording import (
 from scopecat.execution.persistence import (
     validate_run_measurements,
 )
-from scopecat.execution.ports.instruments import (
-    InstrumentLifecycleAction,
-    RunInstrumentHost,
-)
 from scopecat.execution.program import RunDomainJob, RunProgram
 from scopecat.execution.services import (
     ExecutionSession,
@@ -301,11 +297,24 @@ def _execute_instrument_effects(
         )
     )
     if setup_problems:
-        release_problems, release_unknown = _release_instrument_setup(
-            run_id=session.run_id,
-            instruments=session.instruments,
-            descriptions=instruments.descriptions,
-        )
+        try:
+            finished = instruments.finish(
+                operation_id="hardware.reject-setup",
+                failed=True,
+            )
+            release_problems = list(finished.problems)
+            release_unknown = finished.indeterminate
+        except Exception as error:
+            release_problems = [
+                problem_from_exception(
+                    "instrument_setup_release_failed",
+                    "instrument setup could not be released",
+                    run_id=session.run_id,
+                    operation_id="hardware.reject-setup",
+                    error=error,
+                )
+            ]
+            release_unknown = True
         return RunEffectResult(
             problems=(*setup_problems, *release_problems),
             initial_state=(),
@@ -316,7 +325,6 @@ def _execute_instrument_effects(
     engine = RunEffectInterpreter(
         run_id=session.run_id,
         coordinate_ids=program.points.coordinate_ids,
-        resource_order=program.resource_order,
         instruments=instruments,
         journal=session.journal,
         coverage_observer=coverage_observer,
@@ -394,38 +402,6 @@ def _instrument_binding_problems(
                 )
             )
     return problems
-
-
-def _release_instrument_setup(
-    *,
-    run_id: str,
-    instruments: RunInstrumentHost,
-    descriptions: tuple[InstrumentDescription, ...],
-) -> tuple[list[Problem], bool]:
-    instrument_ids = tuple(description.instrument_id for description in descriptions)
-    problems: list[Problem] = []
-    actions: tuple[InstrumentLifecycleAction, ...] = ("abort", "close")
-    for action in actions:
-        for instrument_id in reversed(instrument_ids):
-            operation_id = f"lifecycle.setup-{action}.{instrument_id}"
-            try:
-                instruments.lifecycle(
-                    instrument_id,
-                    operation_id=operation_id,
-                    action=action,
-                )
-            except Exception as error:
-                problems.append(
-                    problem_from_exception(
-                        f"instrument_setup_{action}_failed",
-                        f"instrument setup {action} failed for {instrument_id}",
-                        run_id=run_id,
-                        operation_id=operation_id,
-                        instrument_id=instrument_id,
-                        error=error,
-                    )
-                )
-    return problems, bool(problems)
 
 
 def _effect_problems(

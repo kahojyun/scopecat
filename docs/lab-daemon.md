@@ -8,7 +8,8 @@ itself.
 GUI ─────────────────┐
                      ├─ HTTP + SSE ─ daemon ─ SQLite + object store
 notebook client ─────┘                    │
-  └─ client executor ──── fenced effects─┘
+  └─ client executor ──── fenced compute/results
+                         └─ hardware batches ─┘
 ```
 
 The daemon owns admission, run state, resource claims, executor leases,
@@ -25,10 +26,13 @@ snapshot.
 
 ## Execution boundary
 
-The notebook keeps its transient `RunProgram`, Python closures, and hardware
-provider, while the daemon admits the plan and persists every effect. Renewable
-executor leases carry a unique fencing identity, so an expired client cannot
-continue writing.
+The notebook keeps its transient `RunProgram` and Python closures, while the
+daemon admits the plan, hosts live drivers, and persists execution results.
+Hardware effects cross the boundary as ordered batches. The daemon reconciles
+desired state against its own current-state snapshot, executes driver calls,
+deduplicates whole batches, and owns final cleanup or abort. Renewable executor
+leases carry a unique fencing identity, so an expired client cannot continue
+writing.
 
 Admission and resource claims are durable before hardware access. The executor
 atomically acquires its control lease; all later journal, measurement, and

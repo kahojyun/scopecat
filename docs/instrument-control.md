@@ -199,9 +199,13 @@ in-memory retry window.
 The daemon is the sole live driver host for both interactive sessions and
 experiment runs. A notebook plans and interprets the experiment program, but
 after the daemon grants its fenced executor lease, the daemon provisions
-drivers from the run's accepted configuration snapshot and performs every
-read, apply, collect, cleanup, abort, and close operation. Planning may call the
-provider's pure description contract; it never provisions a live driver.
+drivers from the run's accepted configuration snapshot. The notebook submits
+ordered hardware batches; the daemon owns current-state reconciliation,
+driver calls, batch replay, and final cleanup or abort with terminal readback.
+Experiments therefore do not expose per-device lifecycle RPCs. Planning may
+call the provider's pure description contract; it never provisions a live
+driver. Fine-grained read, apply, and collect remain available only through an
+explicit interactive session.
 
 ## Initial superconducting-lab driver set
 

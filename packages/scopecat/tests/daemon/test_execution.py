@@ -18,15 +18,18 @@ from scopecat.daemon.wire import (
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
-    RunInstrumentApplyCommand,
-    RunInstrumentCollectCommand,
-    RunInstrumentLifecycleCommand,
-    RunInstrumentLifecycleReceipt,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
-    RunInstrumentReadCommand,
     RunSubmission,
     TerminalRunCommitCommand,
+)
+from scopecat.execution.ports.instruments import (
+    RunHardwareApply,
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
@@ -35,7 +38,6 @@ from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
 )
-from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -46,12 +48,6 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments.contracts import (
-    ApplyReceipt,
-    CollectCommand,
-    CollectReceipt,
-    InstrumentStateCommand,
-)
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -87,8 +83,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     fences: list[tuple[str, str]] = []
     transition_commands: list[ExecutionTransitionAppend] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
-    instrument_operation_ids: list[str] = []
-    instrument_state = InstrumentStateSnapshot(instrument_id="source-0")
+    hardware_operation_ids: list[str] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -106,31 +101,20 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                     status="ready",
                 )
             )
-        if path.endswith("/state/read"):
-            command = RunInstrumentReadCommand.model_validate_json(request.content)
+        if path.endswith("/hardware/execute"):
+            command = RunHardwareBatchCommand.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
-            instrument_operation_ids.append(command.operation_id)
-            return _model(instrument_state)
-        if path.endswith("/state/apply"):
-            command = RunInstrumentApplyCommand.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            instrument_operation_ids.append(command.operation_id)
-            return _model(ApplyReceipt(state=instrument_state))
-        if path.endswith("/collect"):
-            command = RunInstrumentCollectCommand.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            instrument_operation_ids.append(command.operation_id)
-            return _model(CollectReceipt(readback=InstrumentReadback()))
-        if path.endswith("/lifecycle"):
-            command = RunInstrumentLifecycleCommand.model_validate_json(request.content)
-            _remember_fence(fences, "run-1", command)
-            instrument_operation_ids.append(command.operation_id)
+            hardware_operation_ids.append(command.batch.operation_id)
             return _model(
-                RunInstrumentLifecycleReceipt(
-                    run_id="run-1",
-                    instrument_id="source-0",
+                RunHardwareBatchReceipt(operation_id=command.batch.operation_id)
+            )
+        if path.endswith("/hardware/finish"):
+            command = RunHardwareFinishCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            hardware_operation_ids.append(command.operation_id)
+            return _model(
+                RunHardwareFinalizationReceipt(
                     operation_id=command.operation_id,
-                    action=command.action,
                 )
             )
         if path.endswith("/transitions"):
@@ -174,37 +158,21 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     measurements = session.measurements
     instruments = session.instruments
 
-    assert (
-        instruments.read_state(
-            "source-0",
-            operation_id="lifecycle.initial-read-state.source-0",
-        )
-        == instrument_state
-    )
-    assert (
-        instruments.apply_state(
-            InstrumentStateCommand(
+    batch = RunHardwareBatch(
+        operation_id="hardware.batch-1",
+        actions=(
+            RunHardwareApply(
                 operation_id="point-0.apply.source-0",
-                instrument_id="source-0",
-            )
-        ).status
-        == "applied"
-    )
-    assert (
-        instruments.collect(
-            CollectCommand(
-                operation_id="point-0.collect.source-0",
-                instrument_id="source-0",
                 point_index=0,
-                point_count=1,
-            )
-        ).status
-        == "collected"
+                instrument_id="source-0",
+                fields=(),
+            ),
+        ),
     )
-    instruments.lifecycle(
-        "source-0",
-        operation_id="lifecycle.close.source-0",
-        action="close",
+    assert instruments.execute(batch).operation_id == batch.operation_id
+    assert (
+        instruments.finish(operation_id="hardware.finish", failed=False).operation_id
+        == "hardware.finish"
     )
 
     assert journal.append(transition) == committed_transition
@@ -244,11 +212,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     assert terminal_commands[0].models == ()
     assert fences
     assert set(fences) == {("run-1", "lease-1")}
-    assert instrument_operation_ids == [
-        "lifecycle.initial-read-state.source-0",
-        "point-0.apply.source-0",
-        "point-0.collect.source-0",
-        "lifecycle.close.source-0",
+    assert hardware_operation_ids == [
+        "hardware.batch-1",
+        "hardware.finish",
     ]
 
 

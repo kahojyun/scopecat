@@ -34,13 +34,17 @@ from scopecat.daemon.wire import (
     InstrumentSessionLease,
     InstrumentSessionOpenCommand,
     InstrumentSessionReadCommand,
-    RunInstrumentApplyCommand,
-    RunInstrumentCollectCommand,
-    RunInstrumentLifecycleCommand,
-    RunInstrumentLifecycleReceipt,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
-    RunInstrumentReadCommand,
+)
+from scopecat.execution.ports.instruments import (
+    RunHardwareApply,
+    RunHardwareBatchReceipt,
+    RunHardwareCollect,
+    RunHardwareFinalizationReceipt,
+    RunHardwareValue,
 )
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -59,7 +63,7 @@ from scopecat.records.config import (
     InstrumentSpec,
     config_content_hash,
 )
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateSnapshot, state_target_identity
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectCommand,
@@ -69,6 +73,8 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentStateCommand,
+    InstrumentStateCommandField,
+    apply_state_command_to_snapshot,
     validate_collect_command,
     validate_collect_receipt,
     validate_state_command,
@@ -91,7 +97,6 @@ class _OperationLedger:
     collect_failures: dict[str, tuple[CollectCommand, str]] = field(
         default_factory=dict
     )
-    run_operations: dict[str, _RunOperation] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -99,6 +104,7 @@ class _LiveDrivers:
     drivers: dict[str, InstrumentDriver]
     descriptions: dict[str, InstrumentDescription]
     ledger: _OperationLedger = field(default_factory=_OperationLedger)
+    current_states: dict[str, InstrumentStateSnapshot] = field(default_factory=dict)
     lock: RLock = field(default_factory=RLock)
 
     @property
@@ -124,31 +130,20 @@ class _EndedSession:
 
 
 @dataclass(frozen=True, slots=True)
-class _RunProvision:
-    command: RunInstrumentProvisionCommand
-    receipt: RunInstrumentProvisionReceipt
-    ledger: _OperationLedger = field(default_factory=_OperationLedger)
-    lock: RLock = field(default_factory=RLock, compare=False, repr=False)
+class _FinishedRunHardware:
+    command: RunHardwareFinishCommand
+    receipt: RunHardwareFinalizationReceipt
 
 
 @dataclass(frozen=True, slots=True)
-class _RunOperation:
-    kind: Literal["read", "apply", "collect", "lifecycle"]
-    instrument_id: str
-    command: (
-        RunInstrumentReadCommand
-        | RunInstrumentApplyCommand
-        | RunInstrumentCollectCommand
-        | RunInstrumentLifecycleCommand
-    )
-    result: (
-        InstrumentStateSnapshot
-        | ApplyReceipt
-        | CollectReceipt
-        | RunInstrumentLifecycleReceipt
-        | None
-    )
-    failure: str | None = None
+class _RunProvision:
+    command: RunInstrumentProvisionCommand
+    receipt: RunInstrumentProvisionReceipt
+    batches: dict[
+        str,
+        tuple[RunHardwareBatchCommand, RunHardwareBatchReceipt],
+    ] = field(default_factory=dict)
+    lock: RLock = field(default_factory=RLock, compare=False, repr=False)
 
 
 class InstrumentService:
@@ -171,6 +166,7 @@ class InstrumentService:
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
         self._sessions: dict[str, _LiveDrivers] = {}
         self._ended_sessions: OrderedDict[str, _EndedSession] = OrderedDict()
+        self._finished_runs: OrderedDict[str, _FinishedRunHardware] = OrderedDict()
         self._ended_session_limit = _ENDED_SESSION_LIMIT
         self._run_runtimes: dict[str, _LiveDrivers] = {}
         self._run_provisions: dict[str, _RunProvision] = {}
@@ -413,6 +409,40 @@ class InstrumentService:
             ) from error
 
         try:
+            initial_state = tuple(
+                _read_driver_state(
+                    runtime.drivers[instrument_id],
+                    instrument_id=instrument_id,
+                )
+                for instrument_id in instrument_ids
+            )
+        except BackendConflict as error:
+            if _call_all(runtime.drivers.values(), _close_driver):
+                self._mark_run_unknown(
+                    run_id,
+                    token=command.lease_id,
+                    reason="run_instrument_initial_read_cleanup_failed",
+                )
+                raise BackendConflict(
+                    "instrument initial readback could not be released"
+                ) from error
+            return self._reject_run_provision(
+                run_id,
+                command,
+                problems=(
+                    _provision_problem(
+                        "instrument_initial_read_failed",
+                        "instrument initial state could not be read",
+                        run_id=run_id,
+                        operation_id=command.operation_id,
+                    ),
+                ),
+            )
+        runtime.current_states = {
+            state.instrument_id: state.model_copy(deep=True) for state in initial_state
+        }
+
+        try:
             self._record_run_operation_event(
                 run_id,
                 token=command.lease_id,
@@ -439,13 +469,13 @@ class InstrumentService:
             instrument_ids=instrument_ids,
             descriptions=tuple(runtime.descriptions[item] for item in instrument_ids),
             metadata=metadata,
+            initial_state=initial_state,
         )
         provision = _RunProvision(
             command=command,
             receipt=receipt,
             lock=self._run_operation_lock(run_id),
         )
-        runtime.ledger = provision.ledger
         self._store_run_provision(run_id, provision, runtime=runtime)
         return receipt
 
@@ -472,366 +502,368 @@ class InstrumentService:
         )
         return receipt
 
-    def read_run_state(
+    def execute_run_hardware(
         self,
         run_id: str,
-        instrument_id: str,
-        command: RunInstrumentReadCommand,
-    ) -> InstrumentStateSnapshot:
-        with self._run_operation_lock(run_id):
-            provision, cached = self._begin_run_operation(
-                run_id,
-                instrument_id=instrument_id,
-                kind="read",
-                command=command,
-            )
-            if cached is not None:
-                if not isinstance(cached.result, InstrumentStateSnapshot):
-                    raise BackendConflict("run instrument read did not complete")
-                return cached.result
-            runtime, driver = self._run_driver(run_id, instrument_id)
-            with runtime.lock:
-                try:
-                    self._record_run_operation_event(
-                        run_id,
-                        token=command.lease_id,
-                        instrument_id=instrument_id,
-                        operation_id=command.operation_id,
-                        event_kind="run_instrument_read_started",
-                        status=None,
-                    )
-                    state = _read_driver_state(
-                        driver,
-                        instrument_id=instrument_id,
-                    )
-                    self._record_run_operation_event(
-                        run_id,
-                        token=command.lease_id,
-                        instrument_id=instrument_id,
-                        operation_id=command.operation_id,
-                        event_kind="run_instrument_read_finished",
-                        status="read",
-                    )
-                except BackendConflict as error:
-                    self._fail_run_operation(
-                        provision,
-                        command.operation_id,
-                        message=str(error),
-                    )
-                    raise
-                self._complete_run_operation(
-                    provision,
-                    command.operation_id,
-                    result=state,
-                )
-                return state
+        request: RunHardwareBatchCommand,
+    ) -> RunHardwareBatchReceipt:
+        """Execute one idempotent ordered hardware block under the run fence."""
 
-    def apply_run_state(
-        self,
-        run_id: str,
-        instrument_id: str,
-        request: RunInstrumentApplyCommand,
-    ) -> ApplyReceipt:
-        if request.command.instrument_id != instrument_id:
-            raise BackendConflict("instrument apply command does not match its route")
         with self._run_operation_lock(run_id):
-            provision, cached = self._begin_run_operation(
-                run_id,
-                instrument_id=instrument_id,
-                kind="apply",
-                command=request,
-            )
+            self._fence_run(run_id, request.lease_id)
+            provision = self._run_provision_state(run_id)
+            if provision is None or provision.receipt.status != "ready":
+                raise BackendConflict("run hardware is not ready")
+            cached = provision.batches.get(request.batch.operation_id)
             if cached is not None:
-                if not isinstance(cached.result, ApplyReceipt):
-                    raise BackendConflict("run instrument apply did not complete")
-                return cached.result
-            runtime, driver = self._run_driver(run_id, instrument_id)
+                cached_request, cached_receipt = cached
+                if cached_request != request:
+                    raise BackendConflict(
+                        "hardware batch id has different operation content"
+                    )
+                return cached_receipt
+            runtime = self._run_runtime_state(run_id)
+            if runtime is None:
+                raise BackendConflict("run has no live daemon instrument drivers")
+            values: list[RunHardwareValue] = []
+            problems: list[Problem] = []
             with runtime.lock:
-                try:
-                    receipt = self._apply_live(
-                        runtime,
-                        driver,
-                        command=request.command,
-                        conflict_scope="run",
-                        on_started=lambda: self._record_run_operation_event(
-                            run_id,
-                            token=request.lease_id,
-                            instrument_id=instrument_id,
-                            operation_id=request.operation_id,
-                            event_kind="run_instrument_apply_started",
-                            status=None,
-                        ),
-                        on_finished=lambda status: self._record_run_operation_event(
-                            run_id,
-                            token=request.lease_id,
-                            instrument_id=instrument_id,
-                            operation_id=request.operation_id,
-                            event_kind="run_instrument_apply_finished",
-                            status=status,
-                        ),
-                        on_unknown=lambda reason: self._lose_run_runtime(
-                            run_id,
-                            runtime,
-                            token=request.lease_id,
-                            reason=f"run_{reason}",
-                        ),
-                    )
-                except BackendConflict as error:
-                    self._fail_run_operation(
-                        provision,
-                        request.operation_id,
-                        message=str(error),
-                    )
-                    raise
-                self._complete_run_operation(
-                    provision,
-                    request.operation_id,
-                    result=receipt,
-                )
-                return receipt
-
-    def collect_run(
-        self,
-        run_id: str,
-        instrument_id: str,
-        request: RunInstrumentCollectCommand,
-    ) -> CollectReceipt:
-        if request.command.instrument_id != instrument_id:
-            raise BackendConflict("instrument collect command does not match its route")
-        with self._run_operation_lock(run_id):
-            provision, cached = self._begin_run_operation(
-                run_id,
-                instrument_id=instrument_id,
-                kind="collect",
-                command=request,
-            )
-            if cached is not None:
-                if not isinstance(cached.result, CollectReceipt):
-                    raise BackendConflict("run instrument collect did not complete")
-                return cached.result
-            runtime, driver = self._run_driver(run_id, instrument_id)
-            with runtime.lock:
-                try:
-                    receipt = self._collect_live(
-                        runtime,
-                        driver,
-                        command=request.command,
-                        conflict_scope="run",
-                        on_started=lambda: self._record_run_operation_event(
-                            run_id,
-                            token=request.lease_id,
-                            instrument_id=instrument_id,
-                            operation_id=request.operation_id,
-                            event_kind="run_instrument_collect_started",
-                            status=None,
-                        ),
-                        on_finished=lambda status: self._record_run_operation_event(
-                            run_id,
-                            token=request.lease_id,
-                            instrument_id=instrument_id,
-                            operation_id=request.operation_id,
-                            event_kind="run_instrument_collect_finished",
-                            status=status,
-                        ),
-                        on_unknown=lambda reason: self._lose_run_runtime(
-                            run_id,
-                            runtime,
-                            token=request.lease_id,
-                            reason=f"run_{reason}",
-                        ),
-                    )
-                except BackendConflict as error:
-                    self._fail_run_operation(
-                        provision,
-                        request.operation_id,
-                        message=str(error),
-                    )
-                    raise
-                self._complete_run_operation(
-                    provision,
-                    request.operation_id,
-                    result=receipt,
-                )
-                return receipt
-
-    def run_lifecycle(
-        self,
-        run_id: str,
-        instrument_id: str,
-        command: RunInstrumentLifecycleCommand,
-    ) -> RunInstrumentLifecycleReceipt:
-        with self._run_operation_lock(run_id):
-            provision, cached = self._begin_run_operation(
-                run_id,
-                instrument_id=instrument_id,
-                kind="lifecycle",
-                command=command,
-            )
-            if cached is not None:
-                if not isinstance(cached.result, RunInstrumentLifecycleReceipt):
-                    raise BackendConflict("run instrument lifecycle did not complete")
-                return cached.result
-            runtime, driver = self._run_driver(run_id, instrument_id)
-            with runtime.lock:
-                try:
-                    self._record_run_operation_event(
-                        run_id,
-                        token=command.lease_id,
-                        instrument_id=instrument_id,
-                        operation_id=command.operation_id,
-                        event_kind=f"run_instrument_{command.action}_started",
-                        status=None,
-                    )
+                for action in request.batch.actions:
                     try:
-                        _run_driver_lifecycle(driver, command.action)
+                        if isinstance(action, RunHardwareApply):
+                            self._execute_hardware_apply(
+                                run_id,
+                                request.lease_id,
+                                runtime,
+                                action,
+                            )
+                        else:
+                            values.extend(
+                                self._execute_hardware_collect(
+                                    run_id,
+                                    request.lease_id,
+                                    runtime,
+                                    action,
+                                )
+                            )
+                    except BackendConflict as error:
+                        if self._run_runtime_state(run_id) is not runtime:
+                            raise
+                        problems.append(
+                            _hardware_problem(
+                                "hardware_action_failed",
+                                str(error),
+                                run_id=run_id,
+                                operation_id=action.operation_id,
+                                instrument_id=action.instrument_id,
+                                point_index=action.point_index,
+                            )
+                        )
+                        break
+            receipt = RunHardwareBatchReceipt(
+                operation_id=request.batch.operation_id,
+                values=tuple(values),
+                problems=tuple(problems),
+            )
+            provision.batches[request.batch.operation_id] = (request, receipt)
+            return receipt
+
+    def _execute_hardware_apply(
+        self,
+        run_id: str,
+        token: str,
+        runtime: _LiveDrivers,
+        action: RunHardwareApply,
+    ) -> None:
+        current = runtime.current_states[action.instrument_id]
+        fields = tuple(
+            field
+            for field in action.fields
+            if _state_value(current, field) != field.value
+        )
+        if not fields:
+            return
+        command = InstrumentStateCommand(
+            operation_id=action.operation_id,
+            instrument_id=action.instrument_id,
+            fields=list(fields),
+            payloads=action.payloads,
+        )
+        validation_problems = validate_state_command(
+            command=command,
+            description=runtime.descriptions[action.instrument_id],
+        )
+        if validation_problems:
+            raise BackendConflict(
+                "; ".join(item.message for item in validation_problems)
+            )
+        _runtime, driver = self._run_driver(run_id, action.instrument_id)
+        self._record_run_operation_event(
+            run_id,
+            token=token,
+            instrument_id=action.instrument_id,
+            operation_id=action.operation_id,
+            event_kind="run_instrument_apply_started",
+            status=None,
+        )
+        try:
+            receipt = driver.apply_state(command)
+        except Exception as error:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_apply_unknown",
+            )
+            raise BackendConflict(
+                "instrument apply failed with unknown state"
+            ) from error
+        try:
+            self._record_run_operation_event(
+                run_id,
+                token=token,
+                instrument_id=action.instrument_id,
+                operation_id=action.operation_id,
+                event_kind="run_instrument_apply_finished",
+                status=receipt.status,
+            )
+        except BackendConflict:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_apply_audit_unknown",
+            )
+            raise
+        if receipt.status == "unknown":
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_apply_receipt_unknown",
+            )
+        if receipt.status != "applied":
+            raise BackendConflict(
+                "; ".join(item.message for item in receipt.problems)
+                or f"instrument apply returned {receipt.status}"
+            )
+        next_state = receipt.state or apply_state_command_to_snapshot(current, command)
+        if next_state.instrument_id != action.instrument_id:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_apply_state_mismatch",
+            )
+            raise BackendConflict("instrument apply returned state for another device")
+        runtime.current_states[action.instrument_id] = next_state.model_copy(deep=True)
+
+    def _execute_hardware_collect(
+        self,
+        run_id: str,
+        token: str,
+        runtime: _LiveDrivers,
+        action: RunHardwareCollect,
+    ) -> tuple[RunHardwareValue, ...]:
+        command = CollectCommand(
+            operation_id=action.operation_id,
+            instrument_id=action.instrument_id,
+            point_index=action.point_index,
+            point_count=action.point_count,
+            requests=list(action.requests),
+        )
+        validation_problems = validate_collect_command(
+            command=command,
+            description=runtime.descriptions[action.instrument_id],
+        )
+        if validation_problems:
+            raise BackendConflict(
+                "; ".join(item.message for item in validation_problems)
+            )
+        _runtime, driver = self._run_driver(run_id, action.instrument_id)
+        self._record_run_operation_event(
+            run_id,
+            token=token,
+            instrument_id=action.instrument_id,
+            operation_id=action.operation_id,
+            event_kind="run_instrument_collect_started",
+            status=None,
+        )
+        try:
+            receipt = driver.collect(command)
+        except Exception as error:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_collect_unknown",
+            )
+            raise BackendConflict(
+                "instrument collect failed with unknown state"
+            ) from error
+        receipt_problems = validate_collect_receipt(
+            command=command,
+            receipt=receipt,
+        )
+        status = "invalid_receipt" if receipt_problems else receipt.status
+        try:
+            self._record_run_operation_event(
+                run_id,
+                token=token,
+                instrument_id=action.instrument_id,
+                operation_id=action.operation_id,
+                event_kind="run_instrument_collect_finished",
+                status=status,
+            )
+        except BackendConflict:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_collect_audit_unknown",
+            )
+            raise
+        if receipt_problems:
+            raise BackendConflict("; ".join(item.message for item in receipt_problems))
+        if receipt.status == "unknown":
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_collect_receipt_unknown",
+            )
+        if receipt.status != "collected" or receipt.readback is None:
+            raise BackendConflict(
+                "; ".join(item.message for item in receipt.problems)
+                or f"instrument collect returned {receipt.status}"
+            )
+        bindings = {
+            binding.provider_key: binding.product_use_ids for binding in action.bindings
+        }
+        if set(receipt.readback.values) != set(bindings):
+            raise BackendConflict(
+                "instrument readback products do not match hardware batch bindings"
+            )
+        return tuple(
+            RunHardwareValue(
+                point_index=action.point_index,
+                product_use_id=product_use_id,
+                value=value,
+            )
+            for provider_key, value in receipt.readback.values.items()
+            for product_use_id in bindings[provider_key]
+        )
+
+    def finish_run_hardware(
+        self,
+        run_id: str,
+        command: RunHardwareFinishCommand,
+    ) -> RunHardwareFinalizationReceipt:
+        """Finalize every run driver once and return terminal readback."""
+
+        with self._run_lock:
+            cached = self._finished_runs.get(run_id)
+        if cached is not None:
+            if cached.command != command:
+                raise BackendConflict(
+                    "run hardware was finalized with different content"
+                )
+            return cached.receipt
+        with self._run_operation_lock(run_id):
+            with self._run_lock:
+                cached = self._finished_runs.get(run_id)
+            if cached is not None:
+                if cached.command != command:
+                    raise BackendConflict(
+                        "run hardware was finalized with different content"
+                    )
+                return cached.receipt
+            self._fence_run(run_id, command.lease_id)
+            runtime = self._run_runtime_state(run_id)
+            if runtime is None:
+                provision = self._run_provision_state(run_id)
+                if (
+                    provision is None
+                    or provision.receipt.status != "ready"
+                    or provision.receipt.instrument_ids
+                ):
+                    raise BackendConflict("run has no live daemon instrument drivers")
+                self._discard_run_state(run_id)
+                receipt = RunHardwareFinalizationReceipt(
+                    operation_id=command.operation_id,
+                )
+                with self._run_lock:
+                    self._finished_runs[run_id] = _FinishedRunHardware(
+                        command=command,
+                        receipt=receipt,
+                    )
+                return receipt
+            problems: list[Problem] = []
+            with runtime.lock:
+                action = "abort" if command.failed else "cleanup"
+                for instrument_id in reversed(tuple(runtime.drivers)):
+                    try:
+                        _run_driver_lifecycle(runtime.drivers[instrument_id], action)
                     except Exception as error:
                         self._lose_run_runtime(
                             run_id,
                             runtime,
                             token=command.lease_id,
-                            reason=f"run_instrument_{command.action}_unknown",
-                            skip_abort=(
-                                frozenset({instrument_id})
-                                if command.action == "abort"
-                                else frozenset()
-                            ),
-                            skip_close=(
-                                frozenset({instrument_id})
-                                if command.action == "close"
-                                else frozenset()
-                            ),
+                            reason=f"run_instrument_{action}_unknown",
                         )
                         raise BackendConflict(
-                            f"instrument {command.action} failed with unknown state"
+                            f"instrument {action} failed with unknown state"
                         ) from error
-                    if command.action == "close":
-                        runtime.drivers.pop(instrument_id)
-                    receipt = RunInstrumentLifecycleReceipt(
-                        run_id=run_id,
-                        instrument_id=instrument_id,
-                        operation_id=command.operation_id,
-                        action=command.action,
-                    )
+                final_state: list[InstrumentStateSnapshot] = []
+                for instrument_id, driver in runtime.drivers.items():
                     try:
-                        self._record_run_operation_event(
-                            run_id,
-                            token=command.lease_id,
-                            instrument_id=instrument_id,
-                            operation_id=command.operation_id,
-                            event_kind=f"run_instrument_{command.action}_finished",
-                            status="completed",
+                        final_state.append(
+                            _read_driver_state(driver, instrument_id=instrument_id)
                         )
-                    except BackendConflict:
+                    except BackendConflict as error:
+                        problems.append(
+                            _hardware_problem(
+                                "instrument_terminal_read_failed",
+                                str(error),
+                                run_id=run_id,
+                                operation_id=command.operation_id,
+                                instrument_id=instrument_id,
+                            )
+                        )
+                for instrument_id in reversed(tuple(runtime.drivers)):
+                    try:
+                        runtime.drivers[instrument_id].close()
+                    except Exception as error:
                         self._lose_run_runtime(
                             run_id,
                             runtime,
                             token=command.lease_id,
-                            reason=(f"run_instrument_{command.action}_audit_unknown"),
+                            reason="run_instrument_close_unknown",
                             skip_abort=(
-                                frozenset({instrument_id})
-                                if command.action == "abort"
+                                frozenset(runtime.drivers)
+                                if command.failed
                                 else frozenset()
                             ),
+                            skip_close=frozenset({instrument_id}),
                         )
-                        raise
-                except BackendConflict as error:
-                    self._fail_run_operation(
-                        provision,
-                        command.operation_id,
-                        message=str(error),
-                    )
-                    raise
-                self._complete_run_operation(
-                    provision,
-                    command.operation_id,
-                    result=receipt,
-                )
-                if command.action == "close" and not runtime.drivers:
-                    self._pop_run_runtime(run_id, expected=runtime)
-                return receipt
-
-    def _begin_run_operation(
-        self,
-        run_id: str,
-        *,
-        instrument_id: str,
-        kind: Literal["read", "apply", "collect", "lifecycle"],
-        command: (
-            RunInstrumentReadCommand
-            | RunInstrumentApplyCommand
-            | RunInstrumentCollectCommand
-            | RunInstrumentLifecycleCommand
-        ),
-    ) -> tuple[_RunProvision, _RunOperation | None]:
-        self._fence_run(run_id, command.lease_id)
-        if self._run_is_finalizing(run_id):
-            raise BackendConflict("run instrument host is finalizing")
-        provision = self._run_provision_state(run_id)
-        if provision is None:
-            raise BackendConflict("run instruments have not been provisioned")
-        if provision.receipt.status != "ready":
-            raise BackendConflict("run instrument provisioning was rejected")
-        if provision.command.operation_id == command.operation_id:
-            raise BackendConflict(
-                "run operation id was already used for instrument provisioning"
+                        raise BackendConflict(
+                            "instrument close failed with unknown state"
+                        ) from error
+            self._pop_run_runtime(run_id, expected=runtime)
+            self._discard_run_state(run_id)
+            receipt = RunHardwareFinalizationReceipt(
+                operation_id=command.operation_id,
+                final_state=tuple(final_state),
+                problems=tuple(problems),
             )
-        cached = provision.ledger.run_operations.get(command.operation_id)
-        if cached is not None:
-            if (
-                cached.kind != kind
-                or cached.instrument_id != instrument_id
-                or cached.command != command
-            ):
-                raise BackendConflict(
-                    "run operation id has different instrument operation content"
+            with self._run_lock:
+                self._finished_runs[run_id] = _FinishedRunHardware(
+                    command=command,
+                    receipt=receipt,
                 )
-            if cached.failure is not None:
-                raise BackendConflict(cached.failure)
-            return provision, cached
-        self._run_driver(run_id, instrument_id)
-        provision.ledger.run_operations[command.operation_id] = _RunOperation(
-            kind=kind,
-            instrument_id=instrument_id,
-            command=command,
-            result=None,
-        )
-        return provision, None
-
-    @staticmethod
-    def _complete_run_operation(
-        provision: _RunProvision,
-        operation_id: str,
-        *,
-        result: (
-            InstrumentStateSnapshot
-            | ApplyReceipt
-            | CollectReceipt
-            | RunInstrumentLifecycleReceipt
-        ),
-    ) -> None:
-        pending = provision.ledger.run_operations[operation_id]
-        provision.ledger.run_operations[operation_id] = _RunOperation(
-            kind=pending.kind,
-            instrument_id=pending.instrument_id,
-            command=pending.command,
-            result=result,
-        )
-
-    @staticmethod
-    def _fail_run_operation(
-        provision: _RunProvision,
-        operation_id: str,
-        *,
-        message: str,
-    ) -> None:
-        pending = provision.ledger.run_operations[operation_id]
-        provision.ledger.run_operations[operation_id] = _RunOperation(
-            kind=pending.kind,
-            instrument_id=pending.instrument_id,
-            command=pending.command,
-            result=None,
-            failure=message,
-        )
+                while len(self._finished_runs) > self._ended_session_limit:
+                    self._finished_runs.popitem(last=False)
+            return receipt
 
     def _run_operation_lock(self, run_id: str) -> RLock:
         with self._run_lock:
@@ -1996,6 +2028,54 @@ def _provision_problem(
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=location,
         details=details,
+    )
+
+
+def _hardware_problem(
+    code: str,
+    message: str,
+    *,
+    run_id: str,
+    operation_id: str,
+    instrument_id: str | None = None,
+    point_index: int | None = None,
+) -> Problem:
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
+        location=RuntimeLocation(
+            run_id=run_id,
+            operation_id=operation_id,
+            instrument_id=instrument_id,
+            point_index=point_index,
+        ),
+    )
+
+
+def _state_value(
+    current: InstrumentStateSnapshot,
+    target: InstrumentStateCommandField,
+) -> object:
+    identity = state_target_identity(
+        target.capability_id,
+        target.field_path,
+        target.entity_ids,
+        target.channel_bindings,
+    )
+    return next(
+        (
+            field.value
+            for field in current.fields
+            if state_target_identity(
+                field.capability_id,
+                field.field_path,
+                field.entity_ids,
+                field.channel_bindings,
+            )
+            == identity
+        ),
+        None,
     )
 
 

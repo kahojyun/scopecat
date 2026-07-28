@@ -17,18 +17,18 @@ from scopecat.daemon.wire import (
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
-    RunInstrumentApplyCommand,
-    RunInstrumentCollectCommand,
-    RunInstrumentLifecycleCommand,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
-    RunInstrumentReadCommand,
     RunSubmission,
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
 from scopecat.execution.ports.instruments import (
-    InstrumentLifecycleAction,
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
 )
 from scopecat.execution.services import ExecutionSession
 from scopecat.kernel.problems import Problem
@@ -42,13 +42,7 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments.contracts import (
-    ApplyReceipt,
-    CollectCommand,
-    CollectReceipt,
-    InstrumentDescription,
-    InstrumentStateCommand,
-)
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
 _PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
@@ -259,6 +253,10 @@ class _DaemonRunInstrumentHost:
     def setup_problems(self) -> tuple[Problem, ...]:
         return self._receipt().problems
 
+    @property
+    def initial_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._receipt().initial_state
+
     def provision(self) -> RunInstrumentProvisionReceipt:
         with self._lock:
             if self._provisioning is not None:
@@ -283,72 +281,29 @@ class _DaemonRunInstrumentHost:
                 self._provisioning = receipt
             return self._provisioning
 
-    def read_state(
+    def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
+        return self._authority.client.execute_run_hardware(
+            self._authority.run_id,
+            RunHardwareBatchCommand(
+                lease_id=self._authority.fence(),
+                batch=batch,
+            ),
+        )
+
+    def finish(
         self,
-        instrument_id: str,
         *,
         operation_id: str,
-    ) -> InstrumentStateSnapshot:
-        return self._authority.client.read_run_instrument_state(
+        failed: bool,
+    ) -> RunHardwareFinalizationReceipt:
+        return self._authority.client.finish_run_hardware(
             self._authority.run_id,
-            instrument_id,
-            RunInstrumentReadCommand(
+            RunHardwareFinishCommand(
                 lease_id=self._authority.fence(),
                 operation_id=operation_id,
+                failed=failed,
             ),
         )
-
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        operation_id = command.operation_id
-        if operation_id is None:
-            raise ValueError("run instrument apply requires an operation id")
-        return self._authority.client.apply_run_instrument_state(
-            self._authority.run_id,
-            command.instrument_id,
-            RunInstrumentApplyCommand(
-                lease_id=self._authority.fence(),
-                operation_id=operation_id,
-                command=command,
-            ),
-        )
-
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        operation_id = command.operation_id
-        if operation_id is None:
-            raise ValueError("run instrument collect requires an operation id")
-        return self._authority.client.collect_run_instrument(
-            self._authority.run_id,
-            command.instrument_id,
-            RunInstrumentCollectCommand(
-                lease_id=self._authority.fence(),
-                operation_id=operation_id,
-                command=command,
-            ),
-        )
-
-    def lifecycle(
-        self,
-        instrument_id: str,
-        *,
-        operation_id: str,
-        action: InstrumentLifecycleAction,
-    ) -> None:
-        receipt = self._authority.client.run_instrument_lifecycle(
-            self._authority.run_id,
-            instrument_id,
-            RunInstrumentLifecycleCommand(
-                lease_id=self._authority.fence(),
-                operation_id=operation_id,
-                action=action,
-            ),
-        )
-        if (
-            receipt.run_id != self._authority.run_id
-            or receipt.instrument_id != instrument_id
-            or receipt.operation_id != operation_id
-            or receipt.action != action
-        ):
-            raise ValueError("run instrument lifecycle receipt does not match command")
 
     def _receipt(self) -> RunInstrumentProvisionReceipt:
         with self._lock:

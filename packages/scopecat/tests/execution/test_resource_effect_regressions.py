@@ -496,7 +496,6 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
     result = RunEffectInterpreter(
         run_id="scoped-same-field-run",
         coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
