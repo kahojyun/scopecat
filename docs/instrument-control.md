@@ -159,11 +159,14 @@ Operating-mode-dependent property sets use the interface's discriminated state
 model. The discriminator and common properties are valid in every case, while
 each case declares its own additional property set. A mode is mutable state, so
 routing never selects a different interface merely because the device changed
-mode. The current `scopecat.dc_source/v2` contract uses this model for voltage
-and current source modes. Named startup profiles likewise remain configuration
-that resolves to partial property assignments; omitted experiment properties
-preserve freshly observed device state unless an explicit profile policy says
-otherwise.
+mode. A patch within the observed case may remain sparse. A patch that changes
+case must set the discriminator and every writable property in the target case;
+otherwise hidden state from an earlier use of that mode would become active.
+Common properties may remain sparse. The current `scopecat.dc_source/v2`
+contract uses this model for voltage and current source modes. Named startup
+profiles likewise remain configuration that resolves to property assignments;
+omitted experiment properties preserve freshly observed device state unless an
+explicit profile policy says otherwise.
 
 ## Connection configuration
 
@@ -212,8 +215,8 @@ explicitly.
 Applying default state is not a factory reset. Settings outside the public
 interface remain driver-owned connection or profile configuration; experiments
 neither guess nor overwrite them. For a discriminated interface, defaults that
-set a case-specific property must also set the discriminator, so startup does
-not depend on whichever mode the device happened to be using while idle.
+select a case must set its discriminator and every writable property in that
+case, so startup does not activate values left by an earlier use of that mode.
 
 A hardware reset or preset is an explicit `OperationSpec`, not a connection
 hook or session-open flag. It therefore participates in normal argument

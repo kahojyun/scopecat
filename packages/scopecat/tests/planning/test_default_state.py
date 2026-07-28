@@ -127,7 +127,24 @@ def test_case_local_default_requires_explicit_discriminator() -> None:
     ]
 
 
-def test_explicit_discriminator_makes_case_local_default_authoritative() -> None:
+def test_explicit_discriminator_requires_a_complete_default_case() -> None:
+    result = _resolve_catalog(
+        _config_with_default_state(
+            InstrumentPropertyState(
+                interface_id="test.mode/v1",
+                property_id="mode",
+                value=StateValue("voltage"),
+            ),
+        ),
+        _ModeProvider(),
+    )
+
+    assert [issue.code for issue in result.problems] == [
+        "instrument_driver_state_case_incomplete"
+    ]
+
+
+def test_complete_explicit_case_default_is_authoritative() -> None:
     result = _resolve_catalog(
         _config_with_default_state(
             InstrumentPropertyState(

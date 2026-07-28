@@ -1941,6 +1941,19 @@ def _validate_state_case_assignments(
         if explicit is not None and isinstance(explicit.value.root, str)
         else None
     )
+    discriminator = next(
+        (
+            property_state
+            for property_state in baseline_properties or ()
+            if property_state.property_id == state.discriminator_property_id
+        ),
+        None,
+    )
+    baseline_case = (
+        discriminator.value.root
+        if discriminator is not None and isinstance(discriminator.value.root, str)
+        else None
+    )
     if explicit_case is not None:
         if referenced_cases and explicit_case not in referenced_cases:
             return [
@@ -1951,12 +1964,22 @@ def _validate_state_case_assignments(
                     "assignments",
                 )
             ]
+        if baseline_case != explicit_case:
+            return _incomplete_state_case_problems(
+                explicit_case,
+                by_property=by_property,
+                component_spec=component_spec,
+            )
         return []
     if not referenced_cases:
         return []
     if baseline_properties is None:
         if not require_explicit_state_case:
-            return []
+            return _incomplete_state_case_problems(
+                next(iter(referenced_cases)),
+                by_property=by_property,
+                component_spec=component_spec,
+            )
         return [
             _problem(
                 "instrument_driver_state_case_unknown",
@@ -1965,19 +1988,6 @@ def _validate_state_case_assignments(
                 state.discriminator_property_id,
             )
         ]
-    discriminator = next(
-        (
-            property_state
-            for property_state in baseline_properties
-            if property_state.property_id == state.discriminator_property_id
-        ),
-        None,
-    )
-    baseline_case = (
-        discriminator.value.root
-        if discriminator is not None and isinstance(discriminator.value.root, str)
-        else None
-    )
     referenced_case = next(iter(referenced_cases))
     if baseline_case is None:
         return [
@@ -1999,6 +2009,42 @@ def _validate_state_case_assignments(
             )
         ]
     return []
+
+
+def _incomplete_state_case_problems(
+    case_value: str,
+    *,
+    by_property: Mapping[str, InstrumentStateAssignment],
+    component_spec: InterfaceSpec | ComponentSpec,
+) -> list[Problem]:
+    state = component_spec.state
+    if state is None:
+        return []
+    selected_case = next(
+        (state_case for state_case in state.cases if state_case.value == case_value),
+        None,
+    )
+    if selected_case is None:
+        return []
+    property_specs = {
+        property_spec.id: property_spec for property_spec in component_spec.properties
+    }
+    missing = [
+        property_id
+        for property_id in selected_case.property_ids
+        if property_specs[property_id].access != "read_only"
+        and property_id not in by_property
+    ]
+    if not missing:
+        return []
+    return [
+        _problem(
+            "instrument_driver_state_case_incomplete",
+            f"state case {case_value!r} requires all writable case properties "
+            f"without a matching baseline; missing {missing!r}",
+            "assignments",
+        )
+    ]
 
 
 def _validate_snapshot_scope(

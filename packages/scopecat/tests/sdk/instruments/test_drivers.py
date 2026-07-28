@@ -942,6 +942,67 @@ def test_state_command_uses_observed_discriminator_for_partial_patches() -> None
     ] == ["instrument_driver_state_case_mismatch"]
 
 
+def test_state_command_requires_a_complete_case_without_a_matching_baseline() -> None:
+    description = _variant_description()
+    voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
+    incomplete_switch = _variant_command(("mode", "current"))
+    incomplete_without_baseline = _variant_command(("current_level", 0.02))
+
+    without_baseline = validate_state_command(
+        command=incomplete_without_baseline,
+        description=description,
+    )
+    switching_case = validate_state_command(
+        command=incomplete_switch,
+        description=description,
+        baseline=voltage,
+    )
+
+    assert [item.code for item in without_baseline] == [
+        "instrument_driver_state_case_incomplete"
+    ]
+    assert [item.code for item in switching_case] == [
+        "instrument_driver_state_case_incomplete"
+    ]
+    assert "current_range" in without_baseline[0].message
+    assert "current_level" in switching_case[0].message
+
+
+def test_state_command_allows_complete_switches_and_sparse_same_case_patches() -> None:
+    description = _variant_description()
+    voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
+    current = _variant_snapshot("current", "current_level", 0.01)
+    complete_switch = _variant_command(
+        ("mode", "current"),
+        ("current_range", 0.1),
+        ("current_level", 0.02),
+    )
+
+    assert (
+        validate_state_command(
+            command=complete_switch,
+            description=description,
+        )
+        == []
+    )
+    assert (
+        validate_state_command(
+            command=complete_switch,
+            description=description,
+            baseline=voltage,
+        )
+        == []
+    )
+    assert (
+        validate_state_command(
+            command=_variant_command(("mode", "current")),
+            description=description,
+            baseline=current,
+        )
+        == []
+    )
+
+
 def test_state_command_uses_physical_discriminator_across_logical_targets() -> None:
     description = _variant_description()
     baseline = InstrumentStateSnapshot(
@@ -951,6 +1012,11 @@ def test_state_command_uses_physical_discriminator_across_logical_targets() -> N
                 interface_id="test.dc/v1",
                 property_id="mode",
                 value=StateValue("current"),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id="current_range",
+                value=StateValue(0.1),
             ),
             RecordInstrumentPropertyState(
                 interface_id="test.dc/v1",
@@ -1195,6 +1261,7 @@ def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
         voltage,
         _variant_command(
             ("mode", "current"),
+            ("current_range", 0.1),
             ("current_level", 0.02),
         ),
         description=description,
@@ -1202,6 +1269,7 @@ def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
     properties = {item.property_id: item.value.root for item in switched.properties}
     assert properties == {
         "current_level": 0.02,
+        "current_range": 0.1,
         "mode": "current",
         "output_enabled": False,
     }
@@ -1566,7 +1634,9 @@ def _variant_description() -> InstrumentDescription:
                 "test.dc/v1",
                 properties=[
                     enum_property("mode", choices=("voltage", "current")),
+                    float_property("voltage_range"),
                     float_property("voltage_level"),
+                    float_property("current_range"),
                     float_property("current_level"),
                     bool_property("output_enabled"),
                 ],
@@ -1576,11 +1646,11 @@ def _variant_description() -> InstrumentDescription:
                     cases=(
                         state_case(
                             "voltage",
-                            property_ids=("voltage_level",),
+                            property_ids=("voltage_range", "voltage_level"),
                         ),
                         state_case(
                             "current",
-                            property_ids=("current_level",),
+                            property_ids=("current_range", "current_level"),
                         ),
                     ),
                 ),
@@ -1594,6 +1664,7 @@ def _variant_snapshot(
     property_id: str,
     value: float,
 ) -> InstrumentStateSnapshot:
+    range_property_id = "voltage_range" if mode == "voltage" else "current_range"
     return InstrumentStateSnapshot(
         instrument_id="source-0",
         properties=[
@@ -1601,6 +1672,11 @@ def _variant_snapshot(
                 interface_id="test.dc/v1",
                 property_id="mode",
                 value=StateValue(mode),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id=range_property_id,
+                value=StateValue(1.0),
             ),
             RecordInstrumentPropertyState(
                 interface_id="test.dc/v1",
