@@ -77,14 +77,6 @@ class ComputeEffectExecutor:
                         codec_version=encoded.codec_version,
                         media_type=encoded.media_type,
                         content=encoded.content,
-                        operation_id=operation.operation_id,
-                        semantic_operation_id=operation.semantic_operation_id,
-                        implementation_id=operation.implementation_id,
-                        point_index=(
-                            frame.point_index
-                            if isinstance(frame, PointEffectState)
-                            else None
-                        ),
                     )
                 else:
                     payload = None

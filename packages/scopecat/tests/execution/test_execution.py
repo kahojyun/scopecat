@@ -889,10 +889,6 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         payload_id.endswith(".compute.build-program.payload")
         for payload_id in payload_ids
     )
-    assert {payload.semantic_operation_id for payload in payloads} == {"build-program"}
-    assert [payload.implementation_id for payload in payloads] == [
-        "python.build-program.v1"
-    ] * 6
     assert [payload_codecs.decode(payload) for payload in payloads] == [
         {"value": {"value": 4.9, "unit": "GHz"}},
         {"value": {"value": 4.9, "unit": "GHz"}},

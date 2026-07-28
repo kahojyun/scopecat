@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
-from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Annotated, Literal
 
@@ -12,7 +11,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    JsonValue,
     field_validator,
     model_validator,
 )
@@ -122,11 +120,6 @@ class CommandPayload(BaseModel):
     content_hash: Sha256ContentHash
     size_bytes: int = Field(ge=0)
     body: CommandPayloadBody
-    operation_id: str | None = None
-    semantic_operation_id: str | None = None
-    implementation_id: str | None = None
-    point_index: int | None = Field(default=None, ge=0)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_inline_content(self) -> CommandPayload:
@@ -159,11 +152,6 @@ def command_payload_from_bytes(
     media_type: str,
     content: bytes,
     blob_ref: str | None = None,
-    operation_id: str | None = None,
-    semantic_operation_id: str | None = None,
-    implementation_id: str | None = None,
-    point_index: int | None = None,
-    metadata: Mapping[str, JsonValue] | None = None,
 ) -> CommandPayload:
     """Build an inline or externally stored envelope from exact encoded bytes."""
 
@@ -181,11 +169,6 @@ def command_payload_from_bytes(
         content_hash=sha256_content_hash(content),
         size_bytes=len(content),
         body=body,
-        operation_id=operation_id,
-        semantic_operation_id=semantic_operation_id,
-        implementation_id=implementation_id,
-        point_index=point_index,
-        metadata=dict(metadata or {}),
     )
 
 

@@ -22,8 +22,6 @@ def _inline_payload() -> CommandPayload:
         codec_version=1,
         media_type="application/octet-stream",
         content=_CONTENT,
-        operation_id="point.compute.program",
-        point_index=3,
     )
 
 
