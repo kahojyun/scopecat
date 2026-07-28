@@ -45,19 +45,19 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
   const activeConfigQuery = useQuery({
     queryKey: ["config", "active"],
     queryFn: ({ signal }) => getActiveConfig(signal),
-    enabled: !daemonUnavailable,
+    enabled: !daemonUnavailable && configInstrumentId !== undefined,
   });
 
   const instruments = instrumentsQuery.data?.items ?? EMPTY_INSTRUMENTS;
-  const selected = instruments.find((instrument) => instrument.spec.id === selectedId);
+  const selected = instruments.find((instrument) => instrument.instrument_id === selectedId);
 
   useEffect(() => {
     if (instruments.length === 0) {
       setSelectedId(undefined);
       return;
     }
-    if (!selectedId || !instruments.some((instrument) => instrument.spec.id === selectedId)) {
-      setSelectedId(instruments[0]?.spec.id);
+    if (!selectedId || !instruments.some((instrument) => instrument.instrument_id === selectedId)) {
+      setSelectedId(instruments[0]?.instrument_id);
     }
   }, [instruments, selectedId]);
 
@@ -183,7 +183,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
   useEffect(() => {
     if (!session) return;
     const sessionInstrument = instruments.find((instrument) =>
-      session.instrument_ids.includes(instrument.spec.id),
+      session.instrument_ids.includes(instrument.instrument_id),
     );
     if (!sessionInstrument) return;
     const ownerChanged =
@@ -214,12 +214,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
         <div className="instrument-config-identity">
           <span>Active configuration</span>
           {instrumentsQuery.data ? (
-            <>
-              <code>{instrumentsQuery.data.config_entry_id}</code>
-              <small title={instrumentsQuery.data.config_content_hash}>
-                {shortHash(instrumentsQuery.data.config_content_hash)}
-              </small>
-            </>
+            <code>{instrumentsQuery.data.config_entry_id}</code>
           ) : (
             <small>Waiting for daemon</small>
           )}
@@ -285,11 +280,11 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             <div className="instrument-list">
               {instruments.map((instrument) => (
                 <InstrumentListItem
-                  key={instrument.spec.id}
+                  key={instrument.instrument_id}
                   instrument={instrument}
-                  selected={instrument.spec.id === selected?.spec.id}
-                  connected={session?.instrument_ids.includes(instrument.spec.id)}
-                  onSelect={() => selectInstrument(instrument.spec.id)}
+                  selected={instrument.instrument_id === selected?.instrument_id}
+                  connected={session?.instrument_ids.includes(instrument.instrument_id)}
+                  onSelect={() => selectInstrument(instrument.instrument_id)}
                 />
               ))}
             </div>
@@ -298,16 +293,19 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
 
         {selected ? (
           <InstrumentInspector
-            key={selected.spec.id}
+            key={selected.instrument_id}
             instrument={selected}
             session={session}
             actor={actor}
             sessionError={sessionError}
             connectPending={
               connectMutation.isPending &&
-              connectMutation.variables?.instrumentId === selected.spec.id
+              connectMutation.variables?.instrumentId === selected.instrument_id
             }
             closePending={endMutation.isPending}
+            editConnectionPending={
+              configInstrumentId === selected.instrument_id && activeConfigQuery.isFetching
+            }
             onActorChange={(nextActor) => {
               if (nextActor !== actor) {
                 openAttemptRef.current = undefined;
@@ -315,7 +313,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
               }
               setActor(nextActor);
             }}
-            onConnect={() => connectCurrent(selected.spec.id)}
+            onConnect={() => connectCurrent(selected.instrument_id)}
             onClose={closeCurrent}
             onSessionLost={loseCurrent}
             onDisconnectOwner={() => {
@@ -328,11 +326,8 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
               }
             }}
             onEditConnection={() => {
-              if (activeConfigQuery.isError) {
-                setSessionError(errorMessage(activeConfigQuery.error));
-              } else {
-                setConfigInstrumentId(selected.spec.id);
-              }
+              setSessionError(undefined);
+              setConfigInstrumentId(selected.instrument_id);
             }}
           />
         ) : (
@@ -346,21 +341,24 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
         )}
       </div>
 
-      {configInstrumentId && activeConfigQuery.data && (
-        <InstrumentConnectionDialog
-          key={`${configInstrumentId}-${activeConfigQuery.data.activation.generation}`}
-          active={activeConfigQuery.data}
-          instrumentId={configInstrumentId}
-          onCancel={() => setConfigInstrumentId(undefined)}
-          onPublished={async () => {
-            setConfigInstrumentId(undefined);
-            await Promise.all([
-              queryClient.invalidateQueries({ queryKey: ["config"] }),
-              queryClient.invalidateQueries({ queryKey: ["instruments"] }),
-            ]);
-          }}
-        />
-      )}
+      {configInstrumentId &&
+        activeConfigQuery.data &&
+        !activeConfigQuery.isFetching &&
+        !activeConfigQuery.isError && (
+          <InstrumentConnectionDialog
+            key={`${configInstrumentId}-${activeConfigQuery.data.activation.generation}`}
+            active={activeConfigQuery.data}
+            instrumentId={configInstrumentId}
+            onCancel={() => setConfigInstrumentId(undefined)}
+            onPublished={async () => {
+              setConfigInstrumentId(undefined);
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["config"] }),
+                queryClient.invalidateQueries({ queryKey: ["instruments"] }),
+              ]);
+            }}
+          />
+        )}
     </section>
   );
 }
@@ -376,28 +374,28 @@ function InstrumentListItem({
   connected?: boolean;
   onSelect: () => void;
 }) {
-  const label = instrument.description?.label ?? instrument.spec.id;
+  const label = instrument.description?.label ?? instrument.instrument_id;
   return (
     <button
       type="button"
       className={`instrument-list-item ${selected ? "selected" : ""}`}
       aria-current={selected ? "true" : undefined}
-      title={`Inspect instrument ${instrument.spec.id}`}
+      title={`Inspect instrument ${instrument.instrument_id}`}
       onClick={onSelect}
     >
       <span className="instrument-list-title">
         <strong>{label}</strong>
         <AvailabilityBadge availability={instrument.availability} connected={connected} />
       </span>
-      <code>{instrument.spec.id}</code>
+      <code>{instrument.instrument_id}</code>
       <dl>
         <div>
           <dt>Driver</dt>
-          <dd>{instrument.spec.driver_id}</dd>
+          <dd>{instrument.driver_id}</dd>
         </div>
         <div>
           <dt>Connection</dt>
-          <dd>{connectionSummary(instrument.spec.connection)}</dd>
+          <dd>{connectionSummary(instrument.connection)}</dd>
         </div>
       </dl>
       {instrument.owner_id && (
@@ -434,8 +432,4 @@ function InstrumentListMessage({
       <p>{detail}</p>
     </div>
   );
-}
-
-function shortHash(value: string): string {
-  return value.length > 21 ? `${value.slice(0, 14)}…${value.slice(-6)}` : value;
 }

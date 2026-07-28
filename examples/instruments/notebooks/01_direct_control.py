@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # %%
 with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
     inventory = [
-        (item.spec.id, item.availability) for item in lab.instruments.list().items
+        (item.instrument_id, item.availability) for item in lab.instruments.list().items
     ]
 
     with lab.instruments.open(

@@ -228,7 +228,7 @@ export async function publishInstrumentConnection({
   });
 }
 
-export function connectionSummary(connection: InstrumentView["spec"]["connection"]): string {
+export function connectionSummary(connection: InstrumentView["connection"]): string {
   switch (connection.kind) {
     case "virtual":
       return "Virtual · local simulator";

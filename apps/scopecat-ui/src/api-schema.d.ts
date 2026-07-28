@@ -1374,6 +1374,7 @@ export interface components {
         };
         "InstrumentConnection-Input": components["schemas"]["VirtualInstrumentConnection-Input"] | components["schemas"]["TcpipSocketInstrumentConnection-Input"];
         "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"];
+        InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"];
         /** InstrumentDescription */
         InstrumentDescription: {
             /** Description */
@@ -1391,7 +1392,6 @@ export interface components {
         };
         /** InstrumentListView */
         InstrumentListView: {
-            config_content_hash: components["schemas"]["ConfigContentHash"];
             /** Config Entry Id */
             config_entry_id: string;
             /**
@@ -1488,7 +1488,10 @@ export interface components {
             opened_at: string;
             session_id: components["schemas"]["NonEmptyText"];
         };
-        /** InstrumentSpec */
+        /**
+         * InstrumentSpec
+         * @description Keep reusable default state independent from the run-start policy.
+         */
         "InstrumentSpec-Input": {
             connection: components["schemas"]["InstrumentConnection-Input"];
             /** Default State */
@@ -1499,7 +1502,10 @@ export interface components {
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
         };
-        /** InstrumentSpec */
+        /**
+         * InstrumentSpec
+         * @description Keep reusable default state independent from the run-start policy.
+         */
         "InstrumentSpec-Output": {
             connection: components["schemas"]["InstrumentConnection-Output"];
             /** Default State */
@@ -1544,7 +1550,7 @@ export interface components {
         };
         /**
          * InstrumentView
-         * @description Configured instrument, pure driver ABI, and current exclusive ownership.
+         * @description Instrument status without exposing configuration policy or driver options.
          */
         InstrumentView: {
             /**
@@ -1552,7 +1558,12 @@ export interface components {
              * @enum {string}
              */
             availability: "available" | "active" | "quarantined" | "unavailable";
+            connection: components["schemas"]["InstrumentConnectionSummary"];
             description?: components["schemas"]["InstrumentDescription"] | null;
+            /** Driver Id */
+            driver_id: string;
+            /** Instrument Id */
+            instrument_id: string;
             /** Owner Actor */
             owner_actor?: string | null;
             /** Owner Id */
@@ -1563,7 +1574,6 @@ export interface components {
              * @default []
              */
             problems: components["schemas"]["Problem-Output"][];
-            spec: components["schemas"]["InstrumentSpec-Output"];
         };
         InterfaceId: string;
         /**
@@ -2468,6 +2478,18 @@ export interface components {
              */
             timeout_seconds: number;
         };
+        /** TcpipSocketInstrumentConnectionSummary */
+        TcpipSocketInstrumentConnectionSummary: {
+            /** Host */
+            host: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tcpip_socket";
+            /** Port */
+            port: number;
+        };
         /** Topology */
         "Topology-Input": {
             /** Entities */
@@ -2534,6 +2556,14 @@ export interface components {
             options?: {
                 [key: string]: components["schemas"]["pydantic__types__JsonValue"];
             };
+        };
+        /** VirtualInstrumentConnectionSummary */
+        VirtualInstrumentConnectionSummary: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "virtual";
         };
     };
     responses: never;

@@ -23,7 +23,13 @@ from scopecat.control.models import (
     InstrumentSession,
     ResourceClaim,
 )
-from scopecat.daemon.views import InstrumentListView, InstrumentView
+from scopecat.daemon.views import (
+    InstrumentConnectionSummary,
+    InstrumentListView,
+    InstrumentView,
+    TcpipSocketInstrumentConnectionSummary,
+    VirtualInstrumentConnectionSummary,
+)
 from scopecat.daemon.wire import (
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
@@ -59,7 +65,9 @@ from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
+    InstrumentConnection,
     InstrumentSpec,
+    VirtualInstrumentConnection,
     config_content_hash,
     instrument_bindings,
 )
@@ -246,7 +254,6 @@ class InstrumentService:
         )
         return InstrumentListView(
             config_entry_id=active.entry.id,
-            config_content_hash=active.entry.content_hash,
             items=items,
             problems=global_problems,
         )
@@ -272,7 +279,7 @@ class InstrumentService:
     def get_instrument(self, instrument_id: str) -> InstrumentView:
         instruments = self.list_instruments()
         for item in instruments.items:
-            if item.spec.id == instrument_id:
+            if item.instrument_id == instrument_id:
                 return item
         raise BackendNotFound(f"instrument was not found: {instrument_id}")
 
@@ -2557,7 +2564,9 @@ class InstrumentService:
         else:
             availability = "available"
         return InstrumentView(
-            spec=spec,
+            instrument_id=spec.id,
+            driver_id=spec.driver_id,
+            connection=_instrument_connection_summary(spec.connection),
             description=description,
             availability=availability,
             owner_kind=None if claim is None else claim.owner_kind,
@@ -2565,6 +2574,17 @@ class InstrumentService:
             owner_actor=owner_actor,
             problems=problems,
         )
+
+
+def _instrument_connection_summary(
+    connection: InstrumentConnection,
+) -> InstrumentConnectionSummary:
+    if isinstance(connection, VirtualInstrumentConnection):
+        return VirtualInstrumentConnectionSummary()
+    return TcpipSocketInstrumentConnectionSummary(
+        host=connection.host,
+        port=connection.port,
+    )
 
 
 class _DefaultStateReconciliationRejected(RuntimeError):

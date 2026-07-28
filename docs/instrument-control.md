@@ -52,6 +52,11 @@ the in-process implementation is a test seam behind the same API.
 and may retain a matching worker handle while the instrument is idle. It accepts
 only the driver backend ABI and never treats idle state as observed.
 
+The normal instrument list is a separate safe projection: identity, driver id,
+connection kind, and TCP/IP host/port. It excludes driver options, timeouts,
+default state, run-start policy, and config hashes. The GUI loads the complete
+active config only after a user explicitly opens configuration editing.
+
 `InstrumentSession` and an admitted run are ownership epochs, not connections.
 The daemon pins the config revision, claims all requested instruments, and
 acquires their actors until release or abort. Owner-scoped state and replay
@@ -234,7 +239,7 @@ import scopecat as sc
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
-        print(item.spec.id, item.availability, item.owner_actor)
+        print(item.instrument_id, item.availability, item.owner_actor)
 
     with lab.instruments.open("readout-vna") as vna:
         print(vna.describe())

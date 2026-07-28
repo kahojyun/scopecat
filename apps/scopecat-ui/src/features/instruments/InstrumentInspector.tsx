@@ -57,6 +57,7 @@ export function InstrumentInspector({
   sessionError,
   connectPending,
   closePending,
+  editConnectionPending,
   onActorChange,
   onConnect,
   onClose,
@@ -70,6 +71,7 @@ export function InstrumentInspector({
   sessionError?: string;
   connectPending: boolean;
   closePending: boolean;
+  editConnectionPending: boolean;
   onActorChange: (actor: string) => void;
   onConnect: () => void;
   onClose: () => void;
@@ -78,9 +80,9 @@ export function InstrumentInspector({
   onEditConnection: () => void;
 }) {
   const queryClient = useQueryClient();
-  const instrumentId = instrument.spec.id;
+  const instrumentId = instrument.instrument_id;
   const connected = session?.instrument_ids.includes(instrumentId) ?? false;
-  const connectionEditable = instrument.spec.connection.kind === "tcpip_socket";
+  const connectionEditable = instrument.connection.kind === "tcpip_socket";
   const interactionEnabled = connected && !closePending;
   const description =
     session?.descriptions.find((candidate) => candidate.instrument_id === instrumentId) ??
@@ -369,6 +371,7 @@ export function InstrumentInspector({
           disabled={
             !connectionEditable ||
             connected ||
+            editConnectionPending ||
             instrument.availability === "active" ||
             instrument.availability === "quarantined"
           }
@@ -382,8 +385,12 @@ export function InstrumentInspector({
                   : undefined
           }
         >
-          <Pencil size={14} />
-          Edit connection
+          {editConnectionPending ? (
+            <LoaderCircle className="spin" size={14} />
+          ) : (
+            <Pencil size={14} />
+          )}
+          {editConnectionPending ? "Loading configuration" : "Edit connection"}
         </button>
       </header>
 

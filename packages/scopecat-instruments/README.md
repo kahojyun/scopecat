@@ -20,7 +20,7 @@ import scopecat as sc
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
-        print(item.spec.id, item.availability)
+        print(item.instrument_id, item.availability)
 
     with lab.instruments.open("readout-vna") as vna:
         print(vna.describe())

@@ -69,8 +69,17 @@ describe("instrument configuration publishing", () => {
         id: "vna-1",
         driver_id: "keysight.pna",
         connection,
-        default_state: [],
-        run_start: "preserve",
+        default_state: [
+          {
+            interface_id: "scopecat.network_sweep/v1",
+            component_path: [],
+            property_id: "center_frequency",
+            value: { value: 6.2, unit: "GHz" },
+            entity_ids: [],
+            channel_bindings: [],
+          },
+        ],
+        run_start: "apply_default_state",
       },
       {
         id: "fridge",
@@ -89,16 +98,27 @@ describe("instrument configuration publishing", () => {
       port: 5025,
       timeout_seconds: 5,
     });
+    expect(active.config.system.instrument_registry.instruments[0]?.default_state).toEqual([
+      {
+        interface_id: "scopecat.network_sweep/v1",
+        component_path: [],
+        property_id: "center_frequency",
+        value: { value: 6.2, unit: "GHz" },
+        entity_ids: [],
+        channel_bindings: [],
+      },
+    ]);
+    expect(active.config.system.instrument_registry.instruments[0]?.run_start).toBe(
+      "apply_default_state",
+    );
   });
 
-  it("summarizes a TCP endpoint without rendering driver options", () => {
+  it("summarizes a TCP endpoint", () => {
     expect(
       connectionSummary({
         kind: "tcpip_socket",
         host: "192.0.2.24",
         port: 5025,
-        timeout_seconds: 5,
-        options: { termination: "lf" },
       }),
     ).toBe("TCP/IP · 192.0.2.24:5025");
   });
@@ -362,8 +382,17 @@ function activeConfig(): ActiveConfig {
               port: 5025,
               timeout_seconds: 5,
             },
-            default_state: [],
-            run_start: "preserve",
+            default_state: [
+              {
+                interface_id: "scopecat.network_sweep/v1",
+                component_path: [],
+                property_id: "center_frequency",
+                value: { value: 6.2, unit: "GHz" },
+                entity_ids: [],
+                channel_bindings: [],
+              },
+            ],
+            run_start: "apply_default_state",
           },
           {
             id: "fridge",

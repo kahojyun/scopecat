@@ -5,7 +5,7 @@ from __future__ import annotations
 from base64 import b64decode
 from binascii import Error as BinasciiError
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -24,7 +24,6 @@ from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
-    InstrumentSpec,
     config_content_hash,
 )
 from scopecat.records.measurement import MeasurementRecord
@@ -93,10 +92,28 @@ class ConfigDraftPreview(_ViewModel):
     problems: tuple[Problem, ...] = ()
 
 
-class InstrumentView(_ViewModel):
-    """Configured instrument, pure driver ABI, and current exclusive ownership."""
+class VirtualInstrumentConnectionSummary(_ViewModel):
+    kind: Literal["virtual"] = "virtual"
 
-    spec: InstrumentSpec
+
+class TcpipSocketInstrumentConnectionSummary(_ViewModel):
+    kind: Literal["tcpip_socket"] = "tcpip_socket"
+    host: str
+    port: int
+
+
+type InstrumentConnectionSummary = Annotated[
+    VirtualInstrumentConnectionSummary | TcpipSocketInstrumentConnectionSummary,
+    Field(discriminator="kind"),
+]
+
+
+class InstrumentView(_ViewModel):
+    """Instrument status without exposing configuration policy or driver options."""
+
+    instrument_id: str
+    driver_id: str
+    connection: InstrumentConnectionSummary
     description: InstrumentDescription | None = None
     availability: Literal["available", "active", "quarantined", "unavailable"]
     owner_kind: ResourceOwnerKind | None = None
@@ -125,7 +142,6 @@ class InstrumentView(_ViewModel):
 
 class InstrumentListView(_ViewModel):
     config_entry_id: str
-    config_content_hash: ConfigContentHash
     items: tuple[InstrumentView, ...] = ()
     problems: tuple[Problem, ...] = ()
 
@@ -283,6 +299,7 @@ __all__ = [
     "ConfigEntryView",
     "ConfigRegistryView",
     "DaemonHealth",
+    "InstrumentConnectionSummary",
     "InstrumentListView",
     "InstrumentView",
     "MeasurementPage",
@@ -297,4 +314,6 @@ __all__ = [
     "RunResourceView",
     "RunSummary",
     "RunSummaryPage",
+    "TcpipSocketInstrumentConnectionSummary",
+    "VirtualInstrumentConnectionSummary",
 ]

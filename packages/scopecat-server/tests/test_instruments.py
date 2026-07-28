@@ -25,6 +25,7 @@ from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
+    TcpipSocketInstrumentConnection,
     config_content_hash,
     instrument_bindings,
 )
@@ -425,6 +426,43 @@ class _ScopedProblemProvider(_ProblemProvider):
                 if item.code == "source_zero_problem"
             ),
         )
+
+
+def test_instrument_views_expose_only_safe_configuration_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _config_with_private_instrument_settings()
+    with (
+        _runtime(tmp_path, _TrackingProvider(), config=config) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        list_response = transport.get("/api/v1/instruments")
+        detail_response = transport.get("/api/v1/instruments/source-0")
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    payload = list_response.json()
+    assert set(payload) == {"config_entry_id", "items", "problems"}
+    by_id = {item["instrument_id"]: item for item in payload["items"]}
+    assert by_id["source-0"]["driver_id"] == "tests.signal_instrument"
+    assert by_id["source-0"]["connection"] == {
+        "kind": "tcpip_socket",
+        "host": "instrument.example",
+        "port": 5025,
+    }
+    assert by_id["source-1"]["connection"] == {"kind": "virtual"}
+    assert detail_response.json() == by_id["source-0"]
+    for forbidden in (
+        "spec",
+        "config_content_hash",
+        "timeout_seconds",
+        "options",
+        "default_state",
+        "run_start",
+        "private-token",
+    ):
+        assert forbidden not in list_response.text
+        assert forbidden not in detail_response.text
 
 
 def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
@@ -1373,7 +1411,7 @@ def test_provider_problems_are_scoped_without_polluting_healthy_views(
         with TestClient(runtime.app()) as transport:
             instruments = _daemon_client(transport).list_instruments()
 
-    by_id = {item.spec.id: item for item in instruments.items}
+    by_id = {item.instrument_id: item for item in instruments.items}
     assert [item.code for item in by_id["source-0"].problems] == ["source_zero_problem"]
     assert [item.code for item in by_id["source-1"].problems] == ["source_one_problem"]
     assert [item.code for item in instruments.problems] == ["provider_global_problem"]
@@ -1547,6 +1585,37 @@ def _config_with_default_state(
     )
     registry = config.instrument_registry.model_copy(
         update={"instruments": [configured]}
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
+
+
+def _config_with_private_instrument_settings() -> ConfigProfileSnapshot:
+    config = _two_instrument_config()
+    source, virtual = config.instrument_registry.instruments
+    configured = source.model_copy(
+        update={
+            "connection": TcpipSocketInstrumentConnection(
+                host="instrument.example",
+                port=5025,
+                timeout_seconds=17.0,
+                options={"api_token": "private-token"},
+            ),
+            "default_state": [
+                InstrumentPropertyState(
+                    interface_id="test.set_frequency/v1",
+                    property_id="frequency",
+                    value=StateValue(Quantity(value=5.0, unit="GHz")),
+                )
+            ],
+            "run_start": "apply_default_state",
+        }
+    )
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured, virtual]}
     )
     return config.model_copy(
         update={

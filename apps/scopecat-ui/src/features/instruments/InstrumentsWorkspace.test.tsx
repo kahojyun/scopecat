@@ -44,7 +44,6 @@ vi.mock("./instrument-api", async (importOriginal) => ({
 beforeEach(() => {
   vi.mocked(getInstruments).mockResolvedValue({
     config_entry_id: "lab-default",
-    config_content_hash: "sha256:active",
     problems: [],
     items: [instrument()],
   });
@@ -82,7 +81,6 @@ describe("instrument workspace", () => {
   it("shows unscoped provider problems at workspace level", async () => {
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [
         {
           code: "provider_unavailable",
@@ -103,22 +101,16 @@ describe("instrument workspace", () => {
   it("lists connection and ownership without connecting on selection", async () => {
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [
         instrument(),
         instrument({
-          spec: {
-            id: "vna-1",
-            driver_id: "keysight.pna",
-            connection: {
-              kind: "tcpip_socket",
-              host: "192.0.2.12",
-              port: 5025,
-              timeout_seconds: 5,
-            },
-            default_state: [],
-            run_start: "preserve",
+          instrument_id: "vna-1",
+          driver_id: "keysight.pna",
+          connection: {
+            kind: "tcpip_socket",
+            host: "192.0.2.12",
+            port: 5025,
           },
           description: {
             instrument_id: "vna-1",
@@ -158,7 +150,6 @@ describe("instrument workspace", () => {
     };
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [prefixed],
     });
@@ -205,7 +196,6 @@ describe("instrument workspace", () => {
   it("allows an operator to disconnect a daemon-owned interactive session", async () => {
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [
         instrument({
@@ -265,7 +255,6 @@ describe("instrument workspace", () => {
     const variantInstrument = instrumentWithDiscriminatedState();
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [variantInstrument],
     });
@@ -301,7 +290,6 @@ describe("instrument workspace", () => {
     const variantInstrument = instrumentWithDiscriminatedState();
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [variantInstrument],
     });
@@ -394,7 +382,6 @@ describe("instrument workspace", () => {
     const variantInstrument = instrumentWithDiscriminatedState();
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [variantInstrument],
     });
@@ -435,7 +422,6 @@ describe("instrument workspace", () => {
     const withOperations = instrumentWithOperations();
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [withOperations],
     });
@@ -507,7 +493,6 @@ describe("instrument workspace", () => {
     const withOperations = instrumentWithOperations();
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [withOperations],
     });
@@ -634,7 +619,6 @@ describe("instrument workspace", () => {
     };
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [mixedAxisInstrument],
     });
@@ -684,13 +668,9 @@ describe("instrument workspace", () => {
 
   it("stays on the connected instrument when closing before selection fails", async () => {
     const monitor = instrument({
-      spec: {
-        id: "monitor",
-        driver_id: "virtual.temperature",
-        connection: { kind: "virtual" },
-        default_state: [],
-        run_start: "preserve",
-      },
+      instrument_id: "monitor",
+      driver_id: "virtual.temperature",
+      connection: { kind: "virtual" },
       description: {
         instrument_id: "monitor",
         implementation_id: "virtual.temperature",
@@ -701,7 +681,6 @@ describe("instrument workspace", () => {
     });
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [instrument(), monitor],
     });
@@ -723,6 +702,49 @@ describe("instrument workspace", () => {
     expect(vi.mocked(closeInstrumentSession).mock.calls[1]).toEqual(["session-1"]);
   });
 
+  it("loads the active config only after connection editing is requested", async () => {
+    const active = activeConfig();
+    active.config.system.instrument_registry.instruments[0]!.driver_id = "keysight.pna";
+    active.config.system.instrument_registry.instruments[0]!.connection = {
+      kind: "tcpip_socket",
+      host: "192.0.2.20",
+      port: 5025,
+      timeout_seconds: 5,
+    };
+    const tcpInstrument = instrument({
+      driver_id: "keysight.pna",
+      connection: {
+        kind: "tcpip_socket",
+        host: "192.0.2.20",
+        port: 5025,
+      },
+    });
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      problems: [],
+      items: [tcpInstrument],
+    });
+    let resolveConfig: ((value: Awaited<ReturnType<typeof getActiveConfig>>) => void) | undefined;
+    vi.mocked(getActiveConfig).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveConfig = resolve;
+        }),
+    );
+    renderWorkspace();
+
+    await screen.findByText("Drive source");
+    expect(getActiveConfig).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit connection" }));
+
+    await waitFor(() => expect(getActiveConfig).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: "Loading configuration" })).toBeDisabled();
+    if (!resolveConfig) throw new Error("Expected the active config request to be pending.");
+    resolveConfig(active);
+    expect(await screen.findByRole("dialog")).toBeVisible();
+  });
+
   it("edits only endpoint fields while keeping driver and connection kind fixed", async () => {
     const active = activeConfig();
     active.config.system.instrument_registry.instruments[0]!.driver_id = "keysight.pna";
@@ -734,10 +756,14 @@ describe("instrument workspace", () => {
       options: { termination: "lf" },
     };
     const tcpInstrument = instrument();
-    tcpInstrument.spec = active.config.system.instrument_registry.instruments[0]!;
+    tcpInstrument.driver_id = "keysight.pna";
+    tcpInstrument.connection = {
+      kind: "tcpip_socket",
+      host: "192.0.2.20",
+      port: 5025,
+    };
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [tcpInstrument],
     });
@@ -789,7 +815,6 @@ describe("instrument workspace", () => {
   it("shows quarantined ownership and the operator resolution action", async () => {
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
-      config_content_hash: "sha256:active",
       problems: [],
       items: [
         instrument({
@@ -826,13 +851,9 @@ function renderWorkspace() {
 
 function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
   return {
-    spec: {
-      id: "drive-source",
-      driver_id: "virtual.rf_source",
-      connection: { kind: "virtual" },
-      default_state: [],
-      run_start: "preserve",
-    },
+    instrument_id: "drive-source",
+    driver_id: "virtual.rf_source",
+    connection: { kind: "virtual" },
     description: {
       instrument_id: "drive-source",
       implementation_id: "virtual.rf_source",
@@ -1127,12 +1148,22 @@ function activeConfig(): Awaited<ReturnType<typeof getActiveConfig>> {
         id: "system",
         primary_entity_id: "q0",
         topology: { entities: [] },
-        instrument_registry: { instruments: [instrument().spec] },
+        instrument_registry: { instruments: [configuredInstrument()] },
         routing: { bindings: [] },
         domain_target: null,
         parameter_catalog: { id: "parameters", definitions: [] },
       },
       parameter_snapshot: { id: "parameters", values: [] },
     },
+  };
+}
+
+function configuredInstrument() {
+  return {
+    id: "drive-source",
+    driver_id: "virtual.rf_source",
+    connection: { kind: "virtual" as const },
+    default_state: [],
+    run_start: "preserve" as const,
   };
 }
