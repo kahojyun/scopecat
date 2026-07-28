@@ -667,7 +667,10 @@ export interface components {
             /** Label */
             label?: string | null;
             /** Results */
-            results?: components["schemas"]["AcquisitionResultSpec"][];
+            results: [
+                components["schemas"]["AcquisitionResultSpec"],
+                ...components["schemas"]["AcquisitionResultSpec"][]
+            ];
         };
         /**
          * ActiveConfigView
@@ -739,22 +742,6 @@ export interface components {
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Title */
             title: string;
-        };
-        /**
-         * ApplyDefaultsRunPreparation
-         * @description Synchronize, then reconcile declared defaults at run start.
-         */
-        ApplyDefaultsRunPreparation: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "apply_defaults";
-            /** Properties */
-            properties: [
-                components["schemas"]["InstrumentPropertyState"],
-                ...components["schemas"]["InstrumentPropertyState"][]
-            ];
         };
         /**
          * ApplyReceipt
@@ -1455,7 +1442,8 @@ export interface components {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Output"][];
         };
-        InstrumentRunPreparation: components["schemas"]["PreserveRunPreparation"] | components["schemas"]["ApplyDefaultsRunPreparation"];
+        /** @enum {string} */
+        InstrumentRunStartPolicy: "preserve" | "apply_default_state";
         /** InstrumentSessionEndReceipt */
         InstrumentSessionEndReceipt: {
             session_id: components["schemas"]["NonEmptyText"];
@@ -1503,20 +1491,24 @@ export interface components {
         /** InstrumentSpec */
         "InstrumentSpec-Input": {
             connection: components["schemas"]["InstrumentConnection-Input"];
+            /** Default State */
+            default_state?: components["schemas"]["InstrumentPropertyState"][];
             /** Driver Id */
             driver_id: string;
             /** Id */
             id: string;
-            run_preparation: components["schemas"]["InstrumentRunPreparation"];
+            run_start: components["schemas"]["InstrumentRunStartPolicy"];
         };
         /** InstrumentSpec */
         "InstrumentSpec-Output": {
             connection: components["schemas"]["InstrumentConnection-Output"];
+            /** Default State */
+            default_state?: components["schemas"]["InstrumentPropertyState"][];
             /** Driver Id */
             driver_id: string;
             /** Id */
             id: string;
-            run_preparation: components["schemas"]["InstrumentRunPreparation"];
+            run_start: components["schemas"]["InstrumentRunStartPolicy"];
         };
         /** InstrumentStateAssignment */
         InstrumentStateAssignment: {
@@ -1945,17 +1937,6 @@ export interface components {
         };
         PersistableScalarWire: components["schemas"]["_PersistableScalarModel"];
         PersistableValueType: components["schemas"]["_PersistableValueTypeWire"];
-        /**
-         * PreserveRunPreparation
-         * @description Synchronize and retain observed settings at run start.
-         */
-        PreserveRunPreparation: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "preserve";
-        };
         /**
          * Problem
          * @description One expected, structured finding without presentation policy.

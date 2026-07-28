@@ -23,7 +23,6 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import (
-    ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
     config_content_hash,
@@ -1212,9 +1211,11 @@ def test_acquisition_cleanup_failure_quarantines_the_durable_owner(
         assert instrument.availability == "quarantined"
 
 
-def test_direct_session_observes_without_applying_run_defaults(tmp_path: Path) -> None:
+def test_direct_session_observes_without_applying_default_state(
+    tmp_path: Path,
+) -> None:
     provider = _TrackingProvider()
-    config = _config_with_defaults(
+    config = _config_with_default_state(
         InstrumentPropertyState(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
@@ -1533,17 +1534,20 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
     )
 
 
-def _config_with_defaults(
+def _config_with_default_state(
     *properties: InstrumentPropertyState,
 ) -> ConfigProfileSnapshot:
     config = load_config()
     [instrument] = config.instrument_registry.instruments
-    prepared = instrument.model_copy(
+    configured = instrument.model_copy(
         update={
-            "run_preparation": ApplyDefaultsRunPreparation(properties=list(properties))
+            "run_start": "apply_default_state",
+            "default_state": list(properties),
         }
     )
-    registry = config.instrument_registry.model_copy(update={"instruments": [prepared]})
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured]}
+    )
     return config.model_copy(
         update={
             "system": config.system.model_copy(update={"instrument_registry": registry})

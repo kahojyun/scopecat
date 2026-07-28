@@ -55,29 +55,27 @@ Virtual instrument:
   "connection": {
     "kind": "virtual"
   },
-  "run_preparation": {
-    "kind": "apply_defaults",
-    "properties": [
-      {
-        "interface_id": "scopecat.dc_source/v2",
-        "property_id": "source_mode",
-        "value": "voltage"
-      },
-      {
-        "interface_id": "scopecat.dc_source/v2",
-        "property_id": "voltage_level",
-        "value": {
-          "value": 0,
-          "unit": "V"
-        }
-      },
-      {
-        "interface_id": "scopecat.dc_source/v2",
-        "property_id": "output_enabled",
-        "value": false
+  "default_state": [
+    {
+      "interface_id": "scopecat.dc_source/v2",
+      "property_id": "source_mode",
+      "value": "voltage"
+    },
+    {
+      "interface_id": "scopecat.dc_source/v2",
+      "property_id": "voltage_level",
+      "value": {
+        "value": 0,
+        "unit": "V"
       }
-    ]
-  }
+    },
+    {
+      "interface_id": "scopecat.dc_source/v2",
+      "property_id": "output_enabled",
+      "value": false
+    }
+  ],
+  "run_start": "apply_default_state"
 }
 ```
 
@@ -93,15 +91,13 @@ TCP/IP instrument:
     "port": 5025,
     "timeout_seconds": 5
   },
-  "run_preparation": {
-    "kind": "preserve"
-  }
+  "run_start": "preserve"
 }
 ```
 
 Every run first synchronizes the device. `preserve` retains that observed
-state; `apply_defaults` then applies declared interface properties. It does not
-perform a factory reset.
+state; `apply_default_state` then applies the saved partial public state.
+Unspecified and private driver settings remain untouched.
 
 Connection `options` are intentionally narrow:
 

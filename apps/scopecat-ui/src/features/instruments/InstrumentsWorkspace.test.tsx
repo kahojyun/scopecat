@@ -117,7 +117,8 @@ describe("instrument workspace", () => {
               port: 5025,
               timeout_seconds: 5,
             },
-            run_preparation: { kind: "preserve" },
+            default_state: [],
+            run_start: "preserve",
           },
           description: {
             instrument_id: "vna-1",
@@ -687,7 +688,8 @@ describe("instrument workspace", () => {
         id: "monitor",
         driver_id: "virtual.temperature",
         connection: { kind: "virtual" },
-        run_preparation: { kind: "preserve" },
+        default_state: [],
+        run_start: "preserve",
       },
       description: {
         instrument_id: "monitor",
@@ -828,7 +830,8 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
       id: "drive-source",
       driver_id: "virtual.rf_source",
       connection: { kind: "virtual" },
-      run_preparation: { kind: "preserve" },
+      default_state: [],
+      run_start: "preserve",
     },
     description: {
       instrument_id: "drive-source",

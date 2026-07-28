@@ -898,6 +898,41 @@ def validate_state_assignments(
 ) -> list[Problem]:
     """Validate persistent property assignments against one driver contract."""
 
+    return _validate_state_assignments(
+        instrument_id=instrument_id,
+        assignments=assignments,
+        description=description,
+        baseline=baseline,
+        require_observable=False,
+    )
+
+
+def validate_reconciled_state_assignments(
+    *,
+    instrument_id: str,
+    assignments: Sequence[InstrumentStateAssignment],
+    description: InstrumentDescription,
+    baseline: _InstrumentStateSnapshot | None = None,
+) -> list[Problem]:
+    """Validate desired state that must be observable after it is applied."""
+
+    return _validate_state_assignments(
+        instrument_id=instrument_id,
+        assignments=assignments,
+        description=description,
+        baseline=baseline,
+        require_observable=True,
+    )
+
+
+def _validate_state_assignments(
+    *,
+    instrument_id: str,
+    assignments: Sequence[InstrumentStateAssignment],
+    description: InstrumentDescription,
+    baseline: _InstrumentStateSnapshot | None,
+    require_observable: bool,
+) -> list[Problem]:
     problems: list[Problem] = []
     if instrument_id != description.instrument_id:
         problems.append(
@@ -995,6 +1030,16 @@ def validate_state_assignments(
                 _problem(
                     "instrument_driver_read_only_property",
                     f"{instrument_id} property {assignment.property_id} is read-only",
+                    "property_id",
+                )
+            )
+            continue
+        if require_observable and property_spec.access == "write_only":
+            problems.append(
+                _problem(
+                    "instrument_driver_write_only_property",
+                    f"{instrument_id} property {assignment.property_id} "
+                    "is write-only and cannot be reconciled",
                     "property_id",
                 )
             )

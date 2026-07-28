@@ -57,7 +57,6 @@ from scopecat.planning.provider_validation import (
 )
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
-    ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
     InstrumentSpec,
@@ -87,6 +86,7 @@ from scopecat.sdk.instruments.contracts import (
     validate_collect_command,
     validate_collect_receipt,
     validate_invoke_command,
+    validate_reconciled_state_assignments,
     validate_state_command,
     validate_state_snapshot,
 )
@@ -491,7 +491,7 @@ class InstrumentService:
                     ),
                 ),
             )
-        preparation = self._prepare_run_or_reject(
+        run_start_state = self._reconcile_run_start_or_reject(
             run_id=run_id,
             command=command,
             config=config,
@@ -499,9 +499,9 @@ class InstrumentService:
             runtime=runtime,
             observed_state=observed_state,
         )
-        if isinstance(preparation, RunInstrumentProvisionReceipt):
-            return preparation
-        prepared_state = preparation
+        if isinstance(run_start_state, RunInstrumentProvisionReceipt):
+            return run_start_state
+        prepared_state = run_start_state
         for state in prepared_state:
             runtime.instruments[state.instrument_id].adopt_state(state)
 
@@ -662,7 +662,7 @@ class InstrumentService:
             },
         )
 
-    def _prepare_run_or_reject(
+    def _reconcile_run_start_or_reject(
         self,
         *,
         run_id: str,
@@ -673,7 +673,7 @@ class InstrumentService:
         observed_state: tuple[InstrumentStateSnapshot, ...],
     ) -> tuple[InstrumentStateSnapshot, ...] | RunInstrumentProvisionReceipt:
         try:
-            return self._prepare_run_state(
+            return self._reconcile_run_start(
                 instrument_ids=instrument_ids,
                 specs={
                     spec.id: spec for spec in config.instrument_registry.instruments
@@ -682,39 +682,42 @@ class InstrumentService:
                 observed_state=observed_state,
                 operation_id=command.operation_id,
             )
-        except _RunPreparationRejected as error:
+        except _DefaultStateReconciliationRejected as error:
             if error.changed_state:
                 _fault_ownership(runtime, abort=True)
                 self._mark_run_unknown(
                     run_id,
                     token=command.lease_id,
-                    reason="run_instrument_preparation_partial",
+                    reason="run_instrument_default_reconciliation_partial",
                 )
                 raise BackendConflict(
-                    "instrument run preparation partially changed hardware"
+                    "instrument default-state reconciliation at run start "
+                    "partially changed hardware"
                 ) from error
             if _release_instruments(runtime.instruments.values()):
                 raise BackendConflict(
-                    "instrument run preparation rejection could not be released"
+                    "instrument default-state reconciliation rejection "
+                    "could not be released"
                 ) from error
             return self._reject_run_provision(
                 run_id,
                 command,
                 problems=error.problems,
             )
-        except _RunPreparationUnknown as error:
+        except _DefaultStateReconciliationUnknown as error:
             _fault_ownership(runtime, abort=True)
             self._mark_run_unknown(
                 run_id,
                 token=command.lease_id,
-                reason="run_instrument_preparation_unknown",
+                reason="run_instrument_default_reconciliation_unknown",
             )
             raise BackendConflict(
-                "instrument run preparation failed with unknown state"
+                "instrument default-state reconciliation at run start "
+                "failed with unknown state"
             ) from error
 
     @staticmethod
-    def _prepare_run_state(
+    def _reconcile_run_start(
         *,
         instrument_ids: tuple[str, ...],
         specs: Mapping[str, InstrumentSpec],
@@ -727,8 +730,8 @@ class InstrumentService:
         }
         commands: list[InstrumentStateCommand] = []
         for instrument_id in instrument_ids:
-            preparation = specs[instrument_id].run_preparation
-            if not isinstance(preparation, ApplyDefaultsRunPreparation):
+            spec = specs[instrument_id]
+            if spec.run_start != "apply_default_state":
                 continue
             assignments = [
                 InstrumentStateAssignment(
@@ -743,21 +746,22 @@ class InstrumentService:
                         for binding in item.channel_bindings
                     ],
                 )
-                for item in preparation.properties
+                for item in spec.default_state
             ]
             command = InstrumentStateCommand(
-                command_id=f"{operation_id}.prepare.{instrument_id}",
+                command_id=f"{operation_id}.default_state.{instrument_id}",
                 instrument_id=instrument_id,
                 assignments=assignments,
             )
-            # Defaults must select their own case instead of depending on idle state.
-            contract_problems = validate_state_command(
-                command=command,
+            # Default state must select its own case instead of depending on idle state.
+            contract_problems = validate_reconciled_state_assignments(
+                instrument_id=instrument_id,
+                assignments=command.assignments,
                 description=runtime.instruments[instrument_id].description,
                 baseline=InstrumentStateSnapshot(instrument_id=instrument_id),
             )
             if contract_problems:
-                raise _RunPreparationRejected(
+                raise _DefaultStateReconciliationRejected(
                     problems=tuple(contract_problems),
                     changed_state=False,
                 )
@@ -772,19 +776,20 @@ class InstrumentService:
             if not pending:
                 continue
             command = command.model_copy(update={"assignments": pending})
-            state_problems = validate_state_command(
-                command=command,
+            state_problems = validate_reconciled_state_assignments(
+                instrument_id=instrument_id,
+                assignments=command.assignments,
                 description=runtime.instruments[instrument_id].description,
                 baseline=observed[instrument_id],
             )
             if state_problems:
-                raise _RunPreparationRejected(
+                raise _DefaultStateReconciliationRejected(
                     problems=tuple(state_problems),
                     changed_state=False,
                 )
             commands.append(command)
 
-        prepared = {
+        reconciled = {
             instrument_id: state.model_copy(deep=True)
             for instrument_id, state in observed.items()
         }
@@ -795,11 +800,11 @@ class InstrumentService:
             try:
                 receipt = instrument.apply_state(lower_driver_apply_request(command))
             except Exception as error:
-                raise _RunPreparationUnknown from error
+                raise _DefaultStateReconciliationUnknown from error
             if receipt.status == "unknown":
-                raise _RunPreparationUnknown
+                raise _DefaultStateReconciliationUnknown
             if receipt.status != "applied":
-                raise _RunPreparationRejected(
+                raise _DefaultStateReconciliationRejected(
                     problems=receipt.problems,
                     changed_state=changed_state,
                 )
@@ -807,7 +812,7 @@ class InstrumentService:
             try:
                 state = receipt.state or _observe_instrument(instrument)
             except Exception as error:
-                raise _RunPreparationUnknown from error
+                raise _DefaultStateReconciliationUnknown from error
             state_problems = validate_state_snapshot(
                 snapshot=state,
                 description=instrument.description,
@@ -817,9 +822,9 @@ class InstrumentService:
                 _state_assignment_satisfied(state, assignment)
                 for assignment in command.assignments
             ):
-                raise _RunPreparationUnknown
-            prepared[instrument_id] = state.model_copy(deep=True)
-        return tuple(prepared[instrument_id] for instrument_id in instrument_ids)
+                raise _DefaultStateReconciliationUnknown
+            reconciled[instrument_id] = state.model_copy(deep=True)
+        return tuple(reconciled[instrument_id] for instrument_id in instrument_ids)
 
     def execute_run_hardware(
         self,
@@ -2562,7 +2567,7 @@ class InstrumentService:
         )
 
 
-class _RunPreparationRejected(RuntimeError):
+class _DefaultStateReconciliationRejected(RuntimeError):
     def __init__(
         self,
         *,
@@ -2571,10 +2576,10 @@ class _RunPreparationRejected(RuntimeError):
     ) -> None:
         self.problems = problems
         self.changed_state = changed_state
-        super().__init__("instrument run preparation was rejected")
+        super().__init__("instrument default-state reconciliation was rejected")
 
 
-class _RunPreparationUnknown(RuntimeError):
+class _DefaultStateReconciliationUnknown(RuntimeError):
     pass
 
 

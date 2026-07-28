@@ -98,24 +98,26 @@ class InstrumentBindingSpec(BaseModel):
     connection: InstrumentConnection
 
 
-class PreserveRunPreparation(BaseModel):
-    """Synchronize and retain observed settings at run start."""
+type InstrumentRunStartPolicy = Literal["preserve", "apply_default_state"]
+
+
+class InstrumentSpec(BaseModel):
+    """Keep reusable default state independent from the run-start policy."""
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["preserve"] = "preserve"
+    id: Annotated[str, Field(min_length=1)]
+    driver_id: Annotated[str, Field(min_length=1)]
+    connection: InstrumentConnection
+    default_state: list[InstrumentPropertyState] = Field(default_factory=list)
+    run_start: InstrumentRunStartPolicy
 
-
-class ApplyDefaultsRunPreparation(BaseModel):
-    """Synchronize, then reconcile declared defaults at run start."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["apply_defaults"] = "apply_defaults"
-    properties: list[InstrumentPropertyState] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_unique_targets(self) -> ApplyDefaultsRunPreparation:
+    @field_validator("default_state")
+    @classmethod
+    def validate_unique_default_targets(
+        cls,
+        value: list[InstrumentPropertyState],
+    ) -> list[InstrumentPropertyState]:
         identities = [
             property_target_identity(
                 item.interface_id,
@@ -124,26 +126,17 @@ class ApplyDefaultsRunPreparation(BaseModel):
                 item.entity_ids,
                 item.channel_bindings,
             )
-            for item in self.properties
+            for item in value
         ]
         if len(identities) != len(set(identities)):
-            raise ValueError("run preparation property targets must be unique")
+            raise ValueError("default state property targets must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def validate_run_start(self) -> InstrumentSpec:
+        if self.run_start == "apply_default_state" and not self.default_state:
+            raise ValueError("apply_default_state requires a non-empty default state")
         return self
-
-
-type InstrumentRunPreparation = Annotated[
-    PreserveRunPreparation | ApplyDefaultsRunPreparation,
-    Field(discriminator="kind"),
-]
-
-
-class InstrumentSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: Annotated[str, Field(min_length=1)]
-    driver_id: Annotated[str, Field(min_length=1)]
-    connection: InstrumentConnection
-    run_preparation: InstrumentRunPreparation
 
 
 class InstrumentRegistry(BaseModel):

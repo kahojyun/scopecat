@@ -17,7 +17,6 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.config import (
-    ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
     InstrumentSpec,
     config_content_hash,
@@ -29,7 +28,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentStateAssignment,
-    validate_state_assignments,
+    validate_reconciled_state_assignments,
 )
 
 from .provider_validation import preflight_problem_from_exception
@@ -214,21 +213,18 @@ def _validate_described_instruments(
         if configured_item is not None:
             config_index, instrument = configured_item
             problems.extend(
-                _validate_run_preparation(
+                _validate_default_state(
                     instrument=instrument,
                     config_index=config_index,
                     description=description,
                 )
             )
     for instrument_id, (config_index, instrument) in configured.items():
-        if (
-            isinstance(instrument.run_preparation, ApplyDefaultsRunPreparation)
-            and instrument_id not in described_ids
-        ):
+        if instrument.default_state and instrument_id not in described_ids:
             problems.append(
                 problem(
-                    "instrument_run_preparation_description_missing",
-                    f"instrument {instrument_id} defaults cannot be validated "
+                    "instrument_default_state_description_missing",
+                    f"instrument {instrument_id} default state cannot be validated "
                     "without an advertised description",
                     phase=ProblemPhase.PROVIDER_PREFLIGHT,
                     location=model_location(
@@ -237,21 +233,20 @@ def _validate_described_instruments(
                         "instrument_registry",
                         "instruments",
                         config_index,
-                        "run_preparation",
+                        "default_state",
                     ),
                 )
             )
     return problems
 
 
-def _validate_run_preparation(
+def _validate_default_state(
     *,
     instrument: InstrumentSpec,
     config_index: int,
     description: InstrumentDescription,
 ) -> list[Problem]:
-    preparation = instrument.run_preparation
-    if not isinstance(preparation, ApplyDefaultsRunPreparation):
+    if not instrument.default_state:
         return []
     assignments = [
         InstrumentStateAssignment(
@@ -265,10 +260,10 @@ def _validate_run_preparation(
                 binding.model_copy(deep=True) for binding in item.channel_bindings
             ],
         )
-        for item in preparation.properties
+        for item in instrument.default_state
     ]
     # An empty authoritative baseline requires case-local defaults to switch modes.
-    issues = validate_state_assignments(
+    issues = validate_reconciled_state_assignments(
         instrument_id=instrument.id,
         assignments=assignments,
         description=description,
@@ -280,7 +275,7 @@ def _validate_run_preparation(
         "instrument_registry",
         "instruments",
         config_index,
-        "run_preparation",
+        "default_state",
     )
     normalized: list[Problem] = []
     for issue in issues:

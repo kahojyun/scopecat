@@ -146,28 +146,29 @@ Example:
     "timeout_seconds": 10,
     "options": {}
   },
-  "run_preparation": {
-    "kind": "preserve"
-  }
+  "default_state": [],
+  "run_start": "preserve"
 }
 ```
 
-`run_preparation` is explicit for every instrument:
+`default_state` is a reusable partial public state profile. It may be saved
+independently of how runs start, so interactive tools can apply it explicitly.
+`run_start` is required for every instrument:
 
 - `preserve` reads the device after the run acquires exclusive ownership and
   keeps those settings.
-- `apply_defaults` reads first, then reconciles only the declared public
-  interface properties. Unspecified properties are preserved.
+- `apply_default_state` reads first, then reconciles only `default_state`.
+  Unspecified properties are preserved.
 
-`apply_defaults` is not a factory reset. Settings outside the public interface
-remain driver-owned connection or profile configuration; experiments neither
-guess nor overwrite them. For a discriminated interface, defaults that set a
-case-specific property must also set the discriminator, so preparation does not
-depend on whichever mode the device happened to be using while idle.
+Applying default state is not a factory reset. Settings outside the public
+interface remain driver-owned connection or profile configuration; experiments
+neither guess nor overwrite them. For a discriminated interface, defaults that
+set a case-specific property must also set the discriminator, so startup does
+not depend on whichever mode the device happened to be using while idle.
 
 Run evidence records both the fresh `observed_state` and the resulting
 `prepared_state`. Direct GUI and Notebook sessions always use fresh observation
-with preserve semantics; run defaults never change a device merely because a
+with preserve semantics; saved defaults never change a device merely because a
 user opened an interactive session.
 
 The GUI's connection editor follows the same immutable workflow as other

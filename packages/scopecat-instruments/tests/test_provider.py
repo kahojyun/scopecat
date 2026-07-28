@@ -12,7 +12,6 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentRegistry,
     InstrumentSpec,
-    PreserveRunPreparation,
     SystemSpec,
     TcpipSocketInstrumentConnection,
     Topology,
@@ -111,7 +110,7 @@ def test_provider_probes_real_device_before_returning_driver() -> None:
                 host="127.0.0.1",
                 port=server.port,
             ),
-            run_preparation=PreserveRunPreparation(),
+            run_start="preserve",
         )
     )
 
@@ -134,7 +133,7 @@ def test_provider_rejects_wrong_device_identity() -> None:
                 host="127.0.0.1",
                 port=server.port,
             ),
-            run_preparation=PreserveRunPreparation(),
+            run_start="preserve",
         )
     )
 
@@ -153,13 +152,13 @@ def test_virtual_state_survives_driver_recreation() -> None:
             id="flux",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
-            run_preparation=PreserveRunPreparation(),
+            run_start="preserve",
         ),
         InstrumentSpec(
             id="unused",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
-            run_preparation=PreserveRunPreparation(),
+            run_start="preserve",
         ),
     )
     provider = ConfiguredInstrumentProvider(seed=17)
@@ -192,13 +191,13 @@ def test_provider_connects_exact_requested_instrument() -> None:
             id="a",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
-            run_preparation=PreserveRunPreparation(),
+            run_start="preserve",
         ),
         InstrumentSpec(
             id="b",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
-            run_preparation=PreserveRunPreparation(),
+            run_start="preserve",
         ),
     )
     provider = ConfiguredInstrumentProvider()

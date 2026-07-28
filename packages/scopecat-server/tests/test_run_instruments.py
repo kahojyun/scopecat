@@ -30,8 +30,8 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.config import (
-    ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
+    InstrumentRunStartPolicy,
     config_content_hash,
 )
 from scopecat.records.run import (
@@ -382,11 +382,11 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         ]
 
 
-def test_run_preparation_applies_defaults_after_fresh_observation(
+def test_run_start_applies_default_state_after_fresh_observation(
     tmp_path: Path,
 ) -> None:
     provider = _Provider()
-    config = _config_with_defaults(
+    config = _config_with_default_state(
         InstrumentPropertyState(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
@@ -402,20 +402,47 @@ def test_run_preparation_applies_defaults_after_fresh_observation(
 
         assert replay == provision
         [observed] = provision.observed_state
-        [prepared] = provision.prepared_state
+        [reconciled] = provision.prepared_state
         assert observed.properties == []
-        assert {item.property_id: item.value.root for item in prepared.properties} == {
-            "frequency": Quantity(value=5.0, unit="GHz")
-        }
+        assert {
+            item.property_id: item.value.root for item in reconciled.properties
+        } == {"frequency": Quantity(value=5.0, unit="GHz")}
         [driver] = provider.drivers
         assert len(driver.applied) == 1
         [assignment] = driver.applied[0].assignments
         assert assignment.property_id == "frequency"
 
 
-def test_unknown_run_preparation_quarantines_the_run(tmp_path: Path) -> None:
+def test_run_start_preserves_observed_state_when_default_state_exists(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        ),
+        run_start="preserve",
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+
+        provision = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
+
+        assert provision.prepared_state == provision.observed_state
+        [driver] = provider.drivers
+        assert driver.applied == []
+
+
+def test_unknown_default_state_reconciliation_quarantines_the_run(
+    tmp_path: Path,
+) -> None:
     provider = _Provider(fail_action="apply")
-    config = _config_with_defaults(
+    config = _config_with_default_state(
         InstrumentPropertyState(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
@@ -425,7 +452,10 @@ def test_unknown_run_preparation_quarantines_the_run(tmp_path: Path) -> None:
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, config)
 
-        with pytest.raises(BackendConflict, match="preparation failed with unknown"):
+        with pytest.raises(
+            BackendConflict,
+            match=r"default-state reconciliation .* failed with unknown",
+        ):
             runtime.application.instruments.provision_run(
                 run_id,
                 _provision(lease_id),
@@ -434,15 +464,17 @@ def test_unknown_run_preparation_quarantines_the_run(tmp_path: Path) -> None:
         [driver] = provider.drivers
         assert driver.abort_count == 1
         assert driver.disconnect_count == 1
-        assert runtime.application.executor._control.get_run(run_id).state == (
-            "attention_required"
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state == "attention_required"
+        assert (
+            durable.attention_reason == "run_instrument_default_reconciliation_unknown"
         )
         _assert_run_state_discarded(runtime.application.instruments, run_id)
 
 
-def test_run_preparation_requires_defaults_to_converge(tmp_path: Path) -> None:
+def test_run_start_requires_default_state_to_converge(tmp_path: Path) -> None:
     provider = _Provider(driver_type=_NonConvergingDriver)
-    config = _config_with_defaults(
+    config = _config_with_default_state(
         InstrumentPropertyState(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
@@ -456,7 +488,10 @@ def test_run_preparation_requires_defaults_to_converge(tmp_path: Path) -> None:
             driver_type=_NonConvergingDriver,
         )
 
-        with pytest.raises(BackendConflict, match="preparation failed with unknown"):
+        with pytest.raises(
+            BackendConflict,
+            match=r"default-state reconciliation .* failed with unknown",
+        ):
             runtime.application.instruments.provision_run(
                 run_id,
                 _provision(lease_id),
@@ -466,14 +501,18 @@ def test_run_preparation_requires_defaults_to_converge(tmp_path: Path) -> None:
         assert len(driver.applied) == 1
         assert driver.abort_count == 1
         assert driver.disconnect_count == 1
-        assert runtime.application.executor._control.get_run(run_id).state == (
-            "attention_required"
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state == "attention_required"
+        assert (
+            durable.attention_reason == "run_instrument_default_reconciliation_unknown"
         )
 
 
-def test_rejected_run_preparation_closes_without_quarantine(tmp_path: Path) -> None:
+def test_rejected_default_state_reconciliation_closes_without_quarantine(
+    tmp_path: Path,
+) -> None:
     provider = _Provider(fail_action="reject_apply")
-    config = _config_with_defaults(
+    config = _config_with_default_state(
         InstrumentPropertyState(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
@@ -497,9 +536,9 @@ def test_rejected_run_preparation_closes_without_quarantine(tmp_path: Path) -> N
         assert run_id not in instruments._run_runtimes
 
 
-def test_partial_run_preparation_is_unknown(tmp_path: Path) -> None:
+def test_partial_default_state_reconciliation_is_unknown(tmp_path: Path) -> None:
     provider = _SecondRejectingProvider()
-    config = _two_instrument_config_with_defaults(
+    config = _two_instrument_config_with_default_state(
         InstrumentPropertyState(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
@@ -524,16 +563,18 @@ def test_partial_run_preparation_is_unknown(tmp_path: Path) -> None:
         assert second.applied == []
         assert [driver.abort_count for driver in provider.drivers] == [1, 1]
         assert [driver.disconnect_count for driver in provider.drivers] == [1, 1]
-        assert runtime.application.executor._control.get_run(run_id).state == (
-            "attention_required"
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state == "attention_required"
+        assert (
+            durable.attention_reason == "run_instrument_default_reconciliation_partial"
         )
 
 
-def test_run_preparation_skips_defaults_matching_observed_state(
+def test_run_start_skips_default_state_matching_observed_state(
     tmp_path: Path,
 ) -> None:
     provider = _Provider(driver_type=_VariantDriver)
-    config = _config_with_defaults(
+    config = _config_with_default_state(
         InstrumentPropertyState(
             interface_id="test.dc/v1",
             property_id="mode",
@@ -568,9 +609,9 @@ def test_run_preparation_skips_defaults_matching_observed_state(
         assert driver.applied == []
 
 
-def test_run_preparation_skips_unit_equivalent_defaults(tmp_path: Path) -> None:
+def test_run_start_skips_unit_equivalent_default_state(tmp_path: Path) -> None:
     provider = _Provider(driver_type=_EquivalentQuantityDriver)
-    config = _config_with_defaults(
+    config = _config_with_default_state(
         InstrumentPropertyState(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
@@ -1033,17 +1074,21 @@ def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:
         assert provider.connect_count == 0
 
 
-def _config_with_defaults(
+def _config_with_default_state(
     *properties: InstrumentPropertyState,
+    run_start: InstrumentRunStartPolicy = "apply_default_state",
 ) -> ConfigProfileSnapshot:
     config = load_config()
     [instrument] = config.instrument_registry.instruments
-    prepared = instrument.model_copy(
+    configured = instrument.model_copy(
         update={
-            "run_preparation": ApplyDefaultsRunPreparation(properties=list(properties))
+            "run_start": run_start,
+            "default_state": list(properties),
         }
     )
-    registry = config.instrument_registry.model_copy(update={"instruments": [prepared]})
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured]}
+    )
     return config.model_copy(
         update={
             "system": config.system.model_copy(update={"instrument_registry": registry})
@@ -1051,16 +1096,15 @@ def _config_with_defaults(
     )
 
 
-def _two_instrument_config_with_defaults(
+def _two_instrument_config_with_default_state(
     *properties: InstrumentPropertyState,
 ) -> ConfigProfileSnapshot:
     config = _two_instrument_config()
     instruments = [
         instrument.model_copy(
             update={
-                "run_preparation": ApplyDefaultsRunPreparation(
-                    properties=[item.model_copy(deep=True) for item in properties]
-                )
+                "run_start": "apply_default_state",
+                "default_state": [item.model_copy(deep=True) for item in properties],
             }
         )
         for instrument in config.instrument_registry.instruments

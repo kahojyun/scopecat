@@ -356,6 +356,36 @@ def test_instrument_driver_validator_rejects_writes_to_read_only_properties() ->
     assert [item.code for item in problems] == ["instrument_driver_read_only_property"]
 
 
+def test_instrument_driver_validator_allows_write_only_commands() -> None:
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.write_only_driver",
+        implementation_version="v0",
+        interfaces=[
+            interface(
+                "test.secret/v1",
+                properties=[
+                    string_property(
+                        "token",
+                        access="write_only",
+                    )
+                ],
+            )
+        ],
+    )
+
+    problems = validate_state_command(
+        command=_state_command(
+            interface_id="test.secret/v1",
+            property_id="token",
+            value=StateValue("configured"),
+        ),
+        description=description,
+    )
+
+    assert problems == []
+
+
 def test_instrument_driver_validator_applies_scalar_constraints() -> None:
     description = InstrumentDescription(
         instrument_id="source-0",
