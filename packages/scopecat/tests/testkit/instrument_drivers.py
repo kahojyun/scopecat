@@ -88,6 +88,9 @@ class SignalInstrumentDriver:
             )
         )
 
+    def close(self) -> None:
+        return None
+
     def cleanup(self) -> None:
         return None
 

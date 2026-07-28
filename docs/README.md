@@ -9,6 +9,8 @@ that should remain useful as the implementation changes.
   compiler, domain-lowering, effect-safety, and logical-result contract.
 - [Lab daemon](lab-daemon.md): durable ownership, admitted execution, and the
   client boundary.
+- [Instrument control](instrument-control.md): direct device sessions,
+  connection UX, notebook APIs, driver boundaries, and the shared virtual lab.
 
 Keep implementation architecture, package inventories, completed migration
 plans, and current capability lists close to the code and tests that own them.

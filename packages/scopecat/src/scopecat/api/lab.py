@@ -9,6 +9,7 @@ from typing import Self
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
+from scopecat.api._instruments import LabInstrumentOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.run import RunHandle, run_handle_id
@@ -104,6 +105,10 @@ class LabClient:
             operator=operator,
         )
         self._control = LabControlOperations(self._client)
+        self._instruments = LabInstrumentOperations(
+            self._client,
+            operator=operator,
+        )
         self._runner = _DaemonRunner(self._client, build_system)
 
     def __enter__(self) -> Self:
@@ -133,6 +138,10 @@ class LabClient:
     @property
     def control(self) -> LabControlOperations:
         return self._control
+
+    @property
+    def instruments(self) -> LabInstrumentOperations:
+        return self._instruments
 
     def health(self) -> DaemonHealth:
         return self._control.health()

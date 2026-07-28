@@ -7,6 +7,7 @@ requires-python = ">=3.14"
 dependencies = [
   "quantum-lab-demo",
   "scopecat",
+  "scopecat-instruments",
   "scopecat-quantum",
   "scopecat-server",
 ]
@@ -29,8 +30,12 @@ include = [
   "packages/scopecat/tests",
   "packages/scopecat-server/src",
   "packages/scopecat-server/tests",
+  "packages/scopecat-instruments/src",
+  "packages/scopecat-instruments/tests",
   "packages/scopecat-quantum/src",
   "packages/scopecat-quantum/tests",
+  "examples/instruments/src",
+  "examples/instruments/notebooks",
   "examples/quantum/support/src",
   "examples/quantum/support/tests",
   "examples/quantum",
@@ -49,8 +54,11 @@ extraPaths = [
   "packages/scopecat",
   "packages/scopecat/src",
   "packages/scopecat-server/src",
+  "packages/scopecat-instruments",
+  "packages/scopecat-instruments/src",
   "packages/scopecat-quantum",
   "packages/scopecat-quantum/src",
+  "examples/instruments/src",
   "examples/quantum/support",
   "examples/quantum/support/src",
   "examples/quantum",
@@ -92,6 +100,10 @@ root = "packages/scopecat-server/src"
 reportUnusedFunction = "none"
 
 [[tool.basedpyright.executionEnvironments]]
+root = "packages/scopecat-instruments/tests"
+reportPrivateUsage = "none"
+
+[[tool.basedpyright.executionEnvironments]]
 root = "packages/scopecat/tests"
 reportAny = "none"
 reportExplicitAny = "none"
@@ -100,6 +112,7 @@ reportPrivateUsage = "none"
 [tool.importlinter]
 root_packages = [
   "scopecat",
+  "scopecat_instruments",
   "scopecat_quantum",
   "scopecat_server",
 ]
@@ -172,11 +185,16 @@ depth = 0
 
 [tool.pytest]
 minversion = "9.0"
-pythonpath = ["packages/scopecat"]
+pythonpath = [
+  "packages/scopecat",
+  "packages/scopecat-instruments/src",
+]
 strict_config = true
 strict_markers = true
 testpaths = [
+  "examples/instruments/tests",
   "examples/quantum/tests/test_first_use.py",
+  "packages/scopecat-instruments/tests",
   "packages/scopecat-quantum/tests",
   "packages/scopecat-server/tests",
   "packages/scopecat/tests",
@@ -189,9 +207,13 @@ src = [
   "packages/scopecat/src",
   "packages/scopecat-server/src",
   "packages/scopecat-server/tests",
+  "packages/scopecat-instruments/src",
+  "packages/scopecat-instruments/tests",
   "packages/scopecat/tests",
   "packages/scopecat-quantum/src",
   "packages/scopecat-quantum/tests",
+  "examples/instruments/src",
+  "examples/instruments/notebooks",
   "examples/quantum/support/src",
   "examples/quantum/support/tests",
   "examples/quantum",
@@ -263,6 +285,7 @@ package = false
 
 [tool.uv.sources]
 scopecat = { workspace = true }
+scopecat-instruments = { workspace = true }
 scopecat-quantum = { workspace = true }
 scopecat-server = { workspace = true }
 quantum-lab-demo = { workspace = true }

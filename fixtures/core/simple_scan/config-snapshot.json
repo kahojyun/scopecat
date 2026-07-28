@@ -24,7 +24,10 @@
       "instruments": [
         {
           "id": "source-0",
-          "kind": "rf_source"
+          "driver_id": "tests.signal_instrument",
+          "connection": {
+            "kind": "virtual"
+          }
         }
       ]
     },

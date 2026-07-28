@@ -27,9 +27,14 @@ from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutorLease,
     MeasurementAppendCommand,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBatch
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.config import config_content_hash
@@ -208,6 +213,9 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             point_count=2,
             coordinate_ids=("bias",),
             record_ids=("signal",),
+            host_instrument_order=("scope-1",),
+            host_provider_id="tests.provider",
+            host_contract_fingerprint="0" * 64,
             run_resource_claims=(
                 ResourceKey(id="scope-1"),
                 ResourceKey(id="controller-1", kind="target"),
@@ -228,6 +236,20 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
                 ResourceKey(id="scope-1"),
                 ResourceKey(id="scope-1"),
             ),
+        )
+    RunPlanSummary(
+        experiment_id="scratch",
+        experiment_kind="scratch",
+        point_count=1,
+        run_resource_claims=(ResourceKey(id="scope-1"),),
+    )
+    with pytest.raises(ValidationError, match="host_instrument_order"):
+        RunPlanSummary(
+            experiment_id="scratch",
+            experiment_kind="scratch",
+            point_count=1,
+            host_instrument_order=("scope-2",),
+            run_resource_claims=(ResourceKey(id="scope-1"),),
         )
 
 
@@ -269,6 +291,59 @@ def test_transition_append_keeps_sequence_daemon_owned() -> None:
         ExecutionTransitionAppend(
             lease_id="lease-1",
             transition=_transition(sequence=1),
+        )
+
+
+def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
+    provision = RunInstrumentProvisionCommand(
+        lease_id="lease-1",
+        operation_id="lifecycle.provide-instruments",
+    )
+    receipt = RunInstrumentProvisionReceipt(
+        run_id="run-1",
+        operation_id=provision.operation_id,
+        status="ready",
+    )
+    batch = RunHardwareBatch(
+        operation_id="hardware.batch-1",
+        actions=(
+            RunHardwareApply(
+                effect_id="point-0.apply.source-0",
+                point_index=0,
+                instrument_id="source-0",
+                fields=(),
+            ),
+        ),
+    )
+    execute = RunHardwareBatchCommand(
+        lease_id="lease-1",
+        batch=batch,
+    )
+    finish = RunHardwareFinishCommand(
+        lease_id="lease-1",
+        operation_id="hardware.finish",
+        failed=False,
+    )
+
+    assert (
+        RunInstrumentProvisionCommand.model_validate_json(provision.model_dump_json())
+        == provision
+    )
+    assert (
+        RunInstrumentProvisionReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    assert (
+        RunHardwareBatchCommand.model_validate_json(execute.model_dump_json())
+        == execute
+    )
+    assert (
+        RunHardwareFinishCommand.model_validate_json(finish.model_dump_json()) == finish
+    )
+    with pytest.raises(ValidationError, match="effect ids must be unique"):
+        RunHardwareBatch(
+            operation_id="hardware.duplicate",
+            actions=(batch.actions[0], batch.actions[0]),
         )
 
 

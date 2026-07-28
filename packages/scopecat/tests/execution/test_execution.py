@@ -31,6 +31,7 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
 )
 from scopecat.execution.local.program import CollectOperation
+from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.program import RunHostBinding
 from scopecat.graph.relations.model import (
     lit,
@@ -125,10 +126,16 @@ def test_execution_builds_one_bound_session(
         run_id: str,
         *,
         runs: SQLiteRunRepository | None = None,
+        instruments: RunInstrumentHost | None = None,
     ):
         nonlocal session_count
         session_count += 1
-        return sqlite_execution_session(project_root, run_id, runs=runs)
+        return sqlite_execution_session(
+            project_root,
+            run_id,
+            runs=runs,
+            instruments=instruments,
+        )
 
     monkeypatch.setattr(
         "tests.testkit.execution.sqlite_execution_session",

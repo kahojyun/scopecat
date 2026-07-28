@@ -34,7 +34,6 @@ from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
-from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,
@@ -49,6 +48,7 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
+from tests.testkit.instrument_host import TestRunInstrumentHost
 from tests.testkit.local_materialization import LocalEffectInspection
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.run_operations import complete_coverage_operations
@@ -78,8 +78,7 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     result = RunEffectInterpreter(
         run_id="incremental-source-run",
         coordinate_ids=(),
-        resource_order=(),
-        drivers={},
+        instruments=TestRunInstrumentHost(),
         journal=FakeExecutionJournal(),
         coverage_observer=lambda selected, _candidates: delivered.append(
             tuple(point.ordinal for point in selected)
@@ -240,8 +239,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
     result = RunEffectInterpreter(
         run_id="normalized-output-run",
         coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={},
+        instruments=TestRunInstrumentHost(),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -295,8 +293,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
     result = RunEffectInterpreter(
         run_id="implementation-cache-run",
         coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={},
+        instruments=TestRunInstrumentHost(),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
@@ -338,41 +335,12 @@ class _UnknownAppliedStateDriver(SignalInstrumentDriver):
         )
 
 
-class _FinalizationFailureDriver(SignalInstrumentDriver):
-    def __init__(self, *, instrument_id: str = "source-0") -> None:
-        super().__init__(instrument_id=instrument_id)
-        self.abort_count = 0
-        self.read_count = 0
-
-    @override
-    def read_state(self) -> InstrumentStateSnapshot:
-        self.read_count += 1
-        return super().read_state()
-
-    @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        super().apply_state(command)
-        return ApplyReceipt(
-            status="unknown",
-            problems=(
-                problem(
-                    "instrument_driver_outcome_unknown",
-                    "driver could not establish the state-write outcome",
-                    phase=ProblemPhase.EXECUTION,
-                    location=model_location("instrument", self.instrument_id),
-                ),
-            ),
-        )
-
-    @override
-    def abort(self) -> None:
-        self.abort_count += 1
-
-
 class _FinalizationTrackingDriver(SignalInstrumentDriver):
     def __init__(self, *, instrument_id: str) -> None:
         super().__init__(instrument_id=instrument_id)
         self.abort_count = 0
+        self.close_count = 0
+        self.read_count_when_closed: int | None = None
         self.read_count = 0
 
     @override
@@ -384,13 +352,17 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
     def abort(self) -> None:
         self.abort_count += 1
 
-
-class _BrokenFinalizationJournal(FakeExecutionJournal):
     @override
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        if entry.stage == "abort":
-            raise RuntimeError("lifecycle journal unavailable")
-        return super().append(entry)
+    def close(self) -> None:
+        self.close_count += 1
+        self.read_count_when_closed = self.read_count
+
+
+class _CloseFailureDriver(_FinalizationTrackingDriver):
+    @override
+    def close(self) -> None:
+        super().close()
+        raise RuntimeError("socket close failed")
 
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
@@ -433,8 +405,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     result = RunEffectInterpreter(
         run_id="shared-readback-run",
         coordinate_ids=tuple(point.coordinates),
-        resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
+        instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
         coverage_observer=lambda _block, candidates: observed_candidates.append(
             candidates
@@ -456,85 +427,25 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     ]
 
 
-def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> None:
-    first = _FinalizationFailureDriver(instrument_id="source-a")
-    second = _FinalizationTrackingDriver(instrument_id="source-b")
+def test_driver_close_failure_is_reported_after_terminal_read() -> None:
+    driver = _CloseFailureDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("finalization-journal-point"), {}),
-        (
-            _gain_operation("source-a", 1.0),
-            _gain_operation("source-b", 2.0),
-        ),
-        resource_order=("source-a", "source-b"),
-        resource_claims=_claims("source-a", "source-b"),
-    )
-
-    result = RunEffectInterpreter(
-        run_id="finalization-journal-run",
-        coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={"source-a": first, "source-b": second},
-        journal=_BrokenFinalizationJournal(),
-    ).run(complete_coverage_operations(program), points=program.points)
-
-    assert result.indeterminate
-    assert first.abort_count == 1
-    assert second.abort_count == 1
-    assert first.read_count == 2
-    assert second.read_count == 2
-    assert {state.instrument_id for state in result.final_state} == {
-        "source-a",
-        "source-b",
-    }
-    assert "execution_journal_commit_failed" in {
-        problem.code for problem in result.problems
-    }
-
-
-class _ReceiptEvidenceStateDriver(SignalInstrumentDriver):
-    @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        super().apply_state(command)
-        return ApplyReceipt(
-            status="applied",
-            state=self.read_state(),
-            metadata={
-                "controller": {"sequence": 17, "confirmed": True},
-            },
-        )
-
-
-def test_apply_journal_persists_full_receipt_evidence() -> None:
-    driver = _ReceiptEvidenceStateDriver()
-    program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("apply-receipt-evidence-point"), {}),
-        (_gain_operation("source-0", 2.0),),
+        RunPoint(_logical_point_id("close-failure-point"), {}),
+        (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_claims=_claims("source-0"),
     )
-    journal = FakeExecutionJournal()
 
     result = RunEffectInterpreter(
-        run_id="apply-receipt-evidence-run",
+        run_id="close-failure-run",
         coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
-        journal=journal,
+        instruments=TestRunInstrumentHost((driver,)),
+        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
-    assert not result.problems and not result.indeterminate
-    completed = next(
-        entry
-        for entry in journal.entries
-        if entry.stage == "apply_state" and entry.state == "completed"
-    )
-    receipt = completed.evidence["receipt"]
-    assert isinstance(receipt, dict)
-    assert receipt["status"] == "applied"
-    assert receipt["metadata"] == {"controller": {"sequence": 17, "confirmed": True}}
-    receipt_state = receipt["state"]
-    assert isinstance(receipt_state, dict)
-    assert receipt_state["instrument_id"] == "source-0"
+    assert driver.close_count == 1
+    assert driver.read_count_when_closed == 2
+    assert "hardware_finalization_unknown" in {item.code for item in result.problems}
 
 
 def test_state_apply_stops_on_blocking_result_without_committing_state() -> None:
@@ -549,16 +460,11 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
-    journal = FakeExecutionJournal()
     engine = RunEffectInterpreter(
         run_id="blocking-state-run",
         coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={
-            first.instrument_id: first,
-            second.instrument_id: second,
-        },
-        journal=journal,
+        instruments=TestRunInstrumentHost((first, second)),
+        journal=FakeExecutionJournal(),
     )
 
     result = engine.run(complete_coverage_operations(program), points=program.points)
@@ -569,31 +475,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert (
-        tuple(
-            engine.current_states[instrument_id]
-            for instrument_id in program.resource_order
-        )
-        == result.initial_state
-    )
     assert result.final_state == result.initial_state
-    assert [
-        (entry.operation_id, entry.state)
-        for entry in journal.entries
-        if entry.stage == "apply_state"
-    ] == [
-        ("blocking-state-point.state.source-a", "started"),
-        ("blocking-state-point.state.source-a", "failed"),
-    ]
-    started = next(
-        entry
-        for entry in journal.entries
-        if entry.operation_id == "blocking-state-point.state.source-a"
-        and entry.state == "started"
-    )
-    command = started.evidence["command"]
-    assert isinstance(command, dict)
-    assert command["operation_id"] == started.operation_id
 
 
 class _UnexpectedProductDriver(SignalInstrumentDriver):
@@ -610,7 +492,7 @@ class _UnexpectedProductDriver(SignalInstrumentDriver):
         )
 
 
-def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> None:
+def test_unexpected_product_stops_later_collection() -> None:
     first = _UnexpectedProductDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     point_uid = "blocking-collect-point"
@@ -622,16 +504,11 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
-    journal = FakeExecutionJournal()
     result = RunEffectInterpreter(
         run_id="blocking-collect-run",
         coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={
-            first.instrument_id: first,
-            second.instrument_id: second,
-        },
-        journal=journal,
+        instruments=TestRunInstrumentHost((first, second)),
+        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert result.problems and not result.indeterminate
@@ -640,14 +517,6 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     ]
     assert len(first.collect_commands) == 1
     assert second.collect_commands == []
-    assert [
-        (entry.operation_id, entry.state)
-        for entry in journal.entries
-        if entry.stage == "collect"
-    ] == [
-        (first_operation.operation_id, "started"),
-        (first_operation.operation_id, "failed"),
-    ]
 
 
 def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
@@ -682,16 +551,11 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
-    journal = FakeExecutionJournal()
     engine = RunEffectInterpreter(
         run_id="conflicting-applied-state-run",
         coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={
-            first.instrument_id: first,
-            second.instrument_id: second,
-        },
-        journal=journal,
+        instruments=TestRunInstrumentHost((first, second)),
+        journal=FakeExecutionJournal(),
     )
 
     result = engine.run(complete_coverage_operations(program), points=program.points)
@@ -702,17 +566,8 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert engine.current_states["source-a"] == result.initial_state[0]
     assert result.final_state[0] != result.initial_state[0]
     assert result.final_state[0].fields[0].value == StateValue(1.0)
-    assert [
-        (entry.operation_id, entry.state)
-        for entry in journal.entries
-        if entry.stage == "apply_state"
-    ] == [
-        ("conflicting-applied-state-point.state.source-a", "started"),
-        ("conflicting-applied-state-point.state.source-a", "unknown"),
-    ]
 
 
 def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:

@@ -42,6 +42,10 @@ vi.mock("./features/config/ConfigWorkspace", () => ({
   ),
 }));
 
+vi.mock("./features/instruments/InstrumentsWorkspace", () => ({
+  InstrumentsWorkspace: () => <div>Instrument workspace</div>,
+}));
+
 vi.mock("./features/proposals/RunProposals", () => ({
   RunProposals: () => <div>Proposal details</div>,
 }));
@@ -100,6 +104,36 @@ afterEach(() => {
 });
 
 describe("config provenance navigation", () => {
+  it("restores and updates the Instruments hash route", async () => {
+    window.history.replaceState(null, "", "/#instruments");
+    renderApp();
+
+    expect(await screen.findByText("Instrument workspace")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Instruments" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(getRuns).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
+    expect(window.location.hash).toBe("#configuration");
+    fireEvent.click(screen.getByRole("button", { name: "Instruments" }));
+    expect(window.location.hash).toBe("#instruments");
+  });
+
+  it("invalidates instrument queries after project events", async () => {
+    window.history.replaceState(null, "", "/#instruments");
+    const queryClient = createQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    renderApp(queryClient);
+    await screen.findByText("Instrument workspace");
+    await waitFor(() => expect(projectEventListener).toBeDefined());
+
+    act(() => emitProjectEvent("run-1", "instrument_session_opened"));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["instruments"] }));
+  });
+
   it("does not mount the run browser while configuration is active", async () => {
     renderApp();
 

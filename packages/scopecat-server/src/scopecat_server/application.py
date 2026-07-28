@@ -16,6 +16,7 @@ from scopecat.daemon.wire import (
 from .admission_service import AdmissionService
 from .config_service import ConfigService
 from .executor_service import ExecutorService
+from .instrument_service import InstrumentService
 from .lease_supervisor import ExecutorLeaseSupervisor
 from .run_service import RunService
 
@@ -33,6 +34,7 @@ class DaemonApplication:
         runs: RunService,
         admission: AdmissionService,
         executor: ExecutorService,
+        instruments: InstrumentService,
         lease_supervisor: ExecutorLeaseSupervisor,
     ) -> None:
         self.project_root = Path(project_root).resolve()
@@ -42,6 +44,7 @@ class DaemonApplication:
         self.runs = runs
         self._admission = admission
         self.executor = executor
+        self.instruments = instruments
         self._lease_supervisor = lease_supervisor
 
     def start(self) -> None:
@@ -71,4 +74,7 @@ class DaemonApplication:
         self,
         run_id: str,
     ) -> AttentionResolutionReceipt:
-        return self._admission.resolve_attention(run_id)
+        return self.instruments.resolve_run_attention(
+            run_id,
+            self._admission.resolve_attention,
+        )

@@ -1,0 +1,163 @@
+"""Client-side assembly of concrete daemon hardware batches."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+
+from scopecat.execution.effects.compute import PointEffectState
+from scopecat.execution.effects.journaled import JournaledEffectBoundary
+from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
+from scopecat.execution.ports.instruments import (
+    RunHardwareAction,
+    RunHardwareApply,
+    RunHardwareBatch,
+    RunHardwareCollect,
+    RunHardwareCollectBinding,
+    RunInstrumentHost,
+)
+from scopecat.execution.program import RunCoverageEffect
+from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.state import PayloadRef
+from scopecat.measurements.values import MeasurementValueCandidate
+from scopecat.sdk.runtime_problems import contextualize_problems
+
+
+class HardwareEffectExecutor:
+    """Submit maximal concrete hardware blocks to the daemon."""
+
+    def __init__(
+        self,
+        *,
+        instruments: RunInstrumentHost,
+        problems: JournaledEffectBoundary,
+    ) -> None:
+        self.instruments = instruments
+        self.problems = problems
+        self.values: list[MeasurementValueCandidate] = []
+
+    def execute(
+        self,
+        effects: Sequence[RunCoverageEffect],
+        *,
+        frame_for: Callable[[int], PointEffectState],
+    ) -> bool:
+        actions = tuple(
+            _action(effect, frame=frame_for(effect.point_index)) for effect in effects
+        )
+        batch = RunHardwareBatch(
+            operation_id="hardware."
+            + stable_content_hash(
+                [action.model_dump(mode="json") for action in actions]
+            ),
+            actions=actions,
+        )
+        try:
+            receipt = self.instruments.execute(batch)
+        except Exception as error:
+            self.problems.indeterminate = True
+            self.problems.problems.append(
+                self.problems.problem_from_exception(
+                    "hardware_batch_unknown",
+                    "daemon hardware batch outcome is unknown",
+                    error,
+                    operation_id=batch.operation_id,
+                )
+            )
+            return False
+        if receipt.operation_id != batch.operation_id:
+            self.problems.indeterminate = True
+            self.problems.problems.append(
+                self.problems.problem(
+                    "hardware_batch_receipt_mismatch",
+                    "daemon returned a receipt for another hardware batch",
+                    operation_id=batch.operation_id,
+                )
+            )
+            return False
+        self.problems.problems.extend(
+            contextualize_problems(
+                receipt.problems,
+                run_id=self.problems.run_id,
+                operation_id=batch.operation_id,
+            )
+        )
+        self.problems.indeterminate = (
+            self.problems.indeterminate or receipt.indeterminate
+        )
+        if receipt.problems:
+            return False
+        for value in receipt.values:
+            frame = frame_for(value.point_index)
+            product_use_id = ProductUseId(value.product_use_id)
+            if product_use_id in frame.product_use_ids:
+                self.problems.problems.append(
+                    self.problems.problem(
+                        "instrument_duplicate_product_use",
+                        "point received more than one result for a logical product use",
+                        operation_id=batch.operation_id,
+                        point_index=value.point_index,
+                    )
+                )
+                continue
+            frame.product_use_ids.add(product_use_id)
+            self.values.append(
+                MeasurementValueCandidate(
+                    logical_point_id=frame.logical_id,
+                    product_use_id=product_use_id,
+                    value=value.value,
+                )
+            )
+        return not self.problems.problems
+
+
+def _action(
+    effect: RunCoverageEffect,
+    *,
+    frame: PointEffectState,
+) -> RunHardwareAction:
+    operation = effect.operation
+    if isinstance(operation, ApplyStateOperation):
+        fields = tuple(
+            target.command_field(resource_id=operation.instrument_id)
+            for target in operation.targets
+        )
+        payload_ids = {
+            value.payload_id
+            for field in fields
+            if isinstance((value := field.value.root), PayloadRef)
+        }
+        return RunHardwareApply(
+            effect_id=operation.operation_id,
+            point_index=effect.point_index,
+            instrument_id=operation.instrument_id,
+            fields=fields,
+            payloads={
+                payload_id: frame.payloads[payload_id]
+                for payload_id in payload_ids
+                if payload_id in frame.payloads
+            },
+        )
+    if isinstance(operation, CollectOperation):
+        command = operation.command
+        return RunHardwareCollect(
+            effect_id=operation.operation_id,
+            point_index=effect.point_index,
+            instrument_id=operation.instrument_id,
+            point_count=command.point_count,
+            requests=tuple(command.requests),
+            bindings=tuple(
+                RunHardwareCollectBinding(
+                    provider_key=binding.provider_key,
+                    product_use_ids=tuple(
+                        product_use_id.value
+                        for product_use_id in binding.product_use_ids
+                    ),
+                )
+                for binding in operation.result_bindings
+            ),
+        )
+    raise TypeError(f"operation is not a hardware effect: {type(operation).__name__}")
+
+
+__all__ = ["HardwareEffectExecutor"]

@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated, Protocol
+from typing import Annotated, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.records.parameter import (
@@ -53,11 +60,35 @@ class Topology(BaseModel):
         return None
 
 
+class _InstrumentConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    options: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class VirtualInstrumentConnection(_InstrumentConnection):
+    kind: Literal["virtual"] = "virtual"
+
+
+class TcpipSocketInstrumentConnection(_InstrumentConnection):
+    kind: Literal["tcpip_socket"] = "tcpip_socket"
+    host: Annotated[str, Field(min_length=1)]
+    port: int = Field(ge=1, le=65535)
+    timeout_seconds: float = Field(default=5.0, gt=0)
+
+
+type InstrumentConnection = Annotated[
+    VirtualInstrumentConnection | TcpipSocketInstrumentConnection,
+    Field(discriminator="kind"),
+]
+
+
 class InstrumentSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    kind: str
+    id: Annotated[str, Field(min_length=1)]
+    driver_id: Annotated[str, Field(min_length=1)]
+    connection: InstrumentConnection
 
 
 class InstrumentRegistry(BaseModel):

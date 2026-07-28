@@ -16,10 +16,7 @@ from scopecat.sdk.instruments.contracts import (
     CollectReceipt,
 )
 from tests.testkit.execution import execute_bound_run
-from tests.testkit.runtime import (
-    sqlite_execution_session,
-    sqlite_run_repository,
-)
+from tests.testkit.runtime import sqlite_run_repository
 from tests.testkit.signal_instruments import TestSignalInstrument
 from tests.testkit.workflow_fixtures import load_config, load_experiment
 
@@ -172,7 +169,7 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
             project_root=tmp_path,
         )
 
-    assert "instrument_collect_unknown" in {
+    assert "hardware_batch_unknown" in {
         problem.code for problem in error.value.problems
     }
     manifests = sqlite_run_repository(tmp_path).list_runs()
@@ -182,7 +179,7 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
     assert manifests[0].outcome.result == "failed"
     assert manifests[0].outcome.certainty == "indeterminate"
     assert {problem.code for problem in manifests[0].outcome.problems} >= {
-        "instrument_collect_unknown"
+        "hardware_batch_unknown"
     }
 
 
@@ -220,14 +217,6 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     assert "execution_interrupted" in {
         problem.code for problem in manifest.outcome.problems
     }
-    journal_entries = sqlite_execution_session(
-        tmp_path,
-        manifest.run_id,
-    ).journal.entries()
-    collect_states = [
-        entry.state for entry in journal_entries if entry.stage == "collect"
-    ]
-    assert collect_states == ["started", "unknown"]
 
 
 def test_failed_run_publishes_committed_prefix_as_incomplete_dataset(

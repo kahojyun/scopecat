@@ -132,24 +132,34 @@ class RunService:
             with self._control.transaction() as connection:
                 control = self._control.get_run_in_transaction(connection, run_id)
                 manifest = self._runs.read_manifest_in_transaction(connection, run_id)
-                leases = {
-                    (lease.resource.kind, lease.resource.id): lease
-                    for lease in self._control.list_resource_leases_in_transaction(
+                claims = {
+                    (claim.resource.kind, claim.resource.id): claim
+                    for claim in self._control.list_resource_claims_in_transaction(
                         connection
                     )
-                    if lease.run_id == run_id
+                    if claim.owner_kind == "run" and claim.owner_id == run_id
                 }
+                executor_lease = self._control.executor_lease_for_run_in_transaction(
+                    connection,
+                    run_id,
+                )
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
         resources = tuple(
             RunResourceView(
                 resource=resource,
                 status=(
-                    lease.status
-                    if (lease := leases.get((resource.kind, resource.id))) is not None
+                    claim.status
+                    if (claim := claims.get((resource.kind, resource.id))) is not None
                     else ("released" if control.state == "closed" else "required")
                 ),
-                expires_at=None if lease is None else lease.expires_at,
+                expires_at=(
+                    executor_lease.expires_at
+                    if claim is not None
+                    and claim.status == "active"
+                    and executor_lease is not None
+                    else None
+                ),
             )
             for resource in control.admission.resource_claims
         )

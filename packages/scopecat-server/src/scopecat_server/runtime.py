@@ -31,6 +31,7 @@ from .services import (
     DaemonApplication,
     ExecutorLeaseSupervisor,
     ExecutorService,
+    InstrumentService,
     RunService,
 )
 from .transport import create_app
@@ -64,11 +65,13 @@ class LocalDaemonRuntime:
         database = self.state_dir / "control.sqlite3"
         objects = self.state_dir / "objects"
         application_bootstrap: BootstrapConfigFactory | None = None
+        build_system = None
 
         try:
             if application_factory is not None:
-                application = application_factory(self.project_root)
-                application_bootstrap = application.bootstrap_config
+                lab_application = application_factory(self.project_root)
+                application_bootstrap = lab_application.bootstrap_config
+                build_system = lab_application.build_system
 
             control = SQLiteControlPlane(database)
             runs = SQLiteRunRepository(database, objects)
@@ -80,11 +83,6 @@ class LocalDaemonRuntime:
             project_store = SQLiteProjectStore(database, objects)
             project_store.bootstrap()
 
-            executor = ExecutorService(
-                control=control,
-                runs=runs,
-                lease_ttl=lease_ttl,
-            )
             services = ProjectStateServices(
                 runs=runs,
                 config_registry=config_registry.unit_of_work,
@@ -104,9 +102,22 @@ class LocalDaemonRuntime:
                 control=control,
                 runs=runs,
             )
+            instruments = InstrumentService(
+                control=control,
+                runs=runs,
+                config=config_service,
+                build_system=build_system,
+            )
+            executor = ExecutorService(
+                control=control,
+                runs=runs,
+                instruments=instruments,
+                lease_ttl=lease_ttl,
+            )
             project_id = _project_id(self.project_root)
             lease_supervisor = ExecutorLeaseSupervisor(
                 control=control,
+                instruments=instruments,
             )
             application = DaemonApplication(
                 project_root=self.project_root,
@@ -116,6 +127,7 @@ class LocalDaemonRuntime:
                 runs=run_service,
                 admission=admission,
                 executor=executor,
+                instruments=instruments,
                 lease_supervisor=lease_supervisor,
             )
             try:

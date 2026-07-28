@@ -26,7 +26,9 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import RunPlanSummary
+from scopecat.execution.ports.instruments import RunHardwareBatch
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
@@ -34,6 +36,7 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
 )
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetSeal,
@@ -47,6 +50,7 @@ from scopecat.records.run import (
     RunManifest,
 )
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -292,6 +296,55 @@ class _FencedCommand(_WireModel):
     lease_id: NonEmptyText
 
 
+class _FencedOperationCommand(_FencedCommand):
+    operation_id: NonEmptyText
+
+
+class RunInstrumentProvisionCommand(_FencedOperationCommand):
+    """Provision daemon-owned drivers from the admitted run snapshot."""
+
+
+class RunInstrumentProvisionReceipt(_WireModel):
+    run_id: NonEmptyText
+    operation_id: NonEmptyText
+    status: Literal["ready", "rejected"]
+    instrument_ids: tuple[NonEmptyText, ...] = ()
+    problems: tuple[Problem, ...] = ()
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    initial_state: tuple[InstrumentStateSnapshot, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_result(self) -> RunInstrumentProvisionReceipt:
+        if len(self.instrument_ids) != len(set(self.instrument_ids)):
+            raise ValueError("run instrument provisioning ids must be unique")
+        if self.status == "ready":
+            if tuple(state.instrument_id for state in self.initial_state) != (
+                self.instrument_ids
+            ):
+                raise ValueError(
+                    "ready run initial state must match instrument ids in order"
+                )
+            if self.problems:
+                raise ValueError(
+                    "ready run instrument provisioning cannot contain problems"
+                )
+        elif not self.problems:
+            raise ValueError("rejected run instrument provisioning requires a problem")
+        elif self.initial_state:
+            raise ValueError(
+                "rejected run instrument provisioning cannot expose initial state"
+            )
+        return self
+
+
+class RunHardwareBatchCommand(_FencedCommand):
+    batch: RunHardwareBatch
+
+
+class RunHardwareFinishCommand(_FencedOperationCommand):
+    failed: bool
+
+
 class ExecutionTransitionAppend(_FencedCommand):
     """Append one transition using its content hash as the retry identity."""
 
@@ -331,6 +384,50 @@ class AttentionResolutionReceipt(_WireModel):
     released_resource_count: int = Field(ge=0)
 
 
+class InstrumentSessionOpenCommand(_WireModel):
+    """Acquire and connect one or more instruments against the active config."""
+
+    operation_id: NonEmptyText
+    actor: NonEmptyText
+    instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+
+    @field_validator("instrument_ids")
+    @classmethod
+    def validate_instrument_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("instrument session ids must be unique")
+        return value
+
+
+class InstrumentSessionOpenReceipt(_WireModel):
+    """Daemon-owned direct-control session opened against one config revision."""
+
+    session_id: NonEmptyText
+    actor: NonEmptyText
+    config_entry_id: NonEmptyText
+    config_content_hash: ConfigContentHash
+    instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+    descriptions: tuple[InstrumentDescription, ...]
+    opened_at: datetime
+
+    @model_validator(mode="after")
+    def validate_descriptions(self) -> InstrumentSessionOpenReceipt:
+        _aware_datetime(self.opened_at, field_name="opened_at")
+        described_ids = tuple(
+            description.instrument_id for description in self.descriptions
+        )
+        if described_ids != self.instrument_ids:
+            raise ValueError(
+                "instrument session descriptions must match instrument_ids in order"
+            )
+        return self
+
+
+class InstrumentSessionEndReceipt(_WireModel):
+    session_id: NonEmptyText
+    status: Literal["closed", "aborted"]
+
+
 def _aware_datetime(value: datetime, *, field_name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must include a UTC offset")
@@ -366,11 +463,16 @@ __all__ = [
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",
+    "InstrumentSessionEndReceipt",
+    "InstrumentSessionOpenCommand",
+    "InstrumentSessionOpenReceipt",
     "ManualConfigDraftRevisionSource",
     "MeasurementAppendCommand",
     "MeasurementSealCommand",
     "RunAdmission",
     "RunAttachmentCommand",
+    "RunInstrumentProvisionCommand",
+    "RunInstrumentProvisionReceipt",
     "RunSubmission",
     "TerminalModelWrite",
     "TerminalRunCommitCommand",

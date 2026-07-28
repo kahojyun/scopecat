@@ -8,7 +8,8 @@ itself.
 GUI ─────────────────┐
                      ├─ HTTP + SSE ─ daemon ─ SQLite + object store
 notebook client ─────┘                    │
-  └─ client executor ──── fenced effects─┘
+  └─ client executor ──── fenced compute/results
+                         └─ hardware batches ─┘
 ```
 
 The daemon owns admission, run state, resource claims, executor leases,
@@ -25,19 +26,25 @@ snapshot.
 
 ## Execution boundary
 
-The notebook keeps its transient `RunProgram`, Python closures, and hardware
-provider, while the daemon admits the plan and persists every effect. Renewable
-executor leases carry a unique fencing identity, so an expired client cannot
-continue writing.
+The notebook keeps its transient `RunProgram` and Python closures, while the
+daemon admits the plan, hosts live drivers, and persists execution results.
+Hardware effects cross the boundary as ordered batches. The daemon reconciles
+desired state against its own current-state snapshot, executes driver calls,
+deduplicates whole batches, records concise command and receipt evidence, and
+owns final cleanup or abort. Admission binds the expected provider and
+instrument-description fingerprint; provisioning verifies that contract before
+opening drivers. Renewable executor leases carry a unique fencing identity, so
+an expired client cannot continue writing.
 
 Admission and resource claims are durable before hardware access. The executor
 atomically acquires its control lease; all later journal, measurement, and
 terminal commands carry the lease identity. A measurement executor may also
 read durable append identities to reconcile an ambiguous append response.
 Lease validation, the effect receipt, and its durable event commit in one
-SQLite transaction. Heartbeats update lease and resource deadlines in place;
-they do not append project timeline events. Lease grant, loss, and resource
-quarantine remain durable state-change events.
+SQLite transaction. Heartbeats update only the executor lease deadline; the
+run's resource claims refer to their owner instead of copying token or expiry
+state. Heartbeats do not append project timeline events. Lease grant, loss,
+and resource quarantine remain durable state-change events.
 
 The executor does not publish a second, process-local observation stream.
 Run and event views refresh from replayable project SSE; each initial
@@ -98,12 +105,13 @@ source of truth.
 
 A single process-owner lock prevents two daemons opening the same lab instance.
 Inside that boundary, SQLite transactions and fencing tokens coordinate all
-durable state changes.
+durable executor effects. Interactive instrument drivers already run inside
+the daemon and use explicit daemon-owned sessions instead of a second lease.
 
 The process-owner lock answers only “which daemon owns this lab instance?” It is
-not a run coordination mechanism. Resource claims coordinate experiments,
-executor leases coordinate client execution, and SQLite transactions make
-durable commits atomic.
+not a run coordination mechanism. Resource claims coordinate experiments and
+direct sessions, executor leases fence external run execution, and SQLite
+transactions make durable commits atomic.
 
 The default transport is a same-user local control plane. It binds to loopback
 and restricts accepted host names; it is not an authenticated remote service.

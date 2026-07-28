@@ -21,6 +21,8 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     RunAdmission,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
     RunSubmission,
 )
 from scopecat.records.run import RunManifest
@@ -71,6 +73,42 @@ def test_executor_start_rejects_receipt_for_another_run() -> None:
                 executor_id="notebook-1",
             ),
         )
+
+
+def test_run_instrument_provision_retries_the_same_operation_after_response_loss() -> (
+    None
+):
+    requests: list[httpx2.Request] = []
+    command = RunInstrumentProvisionCommand(
+        lease_id="lease-1",
+        operation_id="lifecycle.provide-instruments",
+    )
+    receipt = RunInstrumentProvisionReceipt(
+        run_id="run-1",
+        operation_id=command.operation_id,
+        status="ready",
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx2.ReadError("response was lost", request=request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.provision_run_instruments("run-1", command) == receipt
+    assert [request.url.path for request in requests] == [
+        "/api/v1/runs/run-1/instruments/provision",
+        "/api/v1/runs/run-1/instruments/provision",
+    ]
+    assert [
+        RunInstrumentProvisionCommand.model_validate_json(request.content)
+        for request in requests
+    ] == [command, command]
 
 
 def test_not_found_and_conflict_are_typed_and_other_http_errors_raise() -> None:

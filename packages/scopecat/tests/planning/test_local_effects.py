@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -153,6 +155,60 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
+
+
+def test_separated_state_groups_have_distinct_operation_ids() -> None:
+    points = _point_domain("index", Scalar(Int()), (0,))
+    bindings = RelationTypeBindings(
+        point_row=RowType.from_table(points.value_type),
+    )
+    drive = logical_resource_port_id("drive")
+    enabled = set_state_field(
+        "drive",
+        capability_id="drive",
+        field_path="output_enabled",
+        value=True,
+        bindings=bindings,
+    )
+    disabled = set_state_field(
+        "drive",
+        capability_id="drive",
+        field_path="output_enabled",
+        value=False,
+        bindings=bindings,
+    )
+    product = observable_product("signal", unit="ratio")
+    acquisition = instrument_acquisition(
+        product,
+        resource_port_id=drive,
+        capability="drive",
+    )
+    product_use, record_use = record_product(product)
+    spec = typed_program(
+        id="state-around-acquisition",
+        kind="problem",
+        point_domain=points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=drive,
+                capabilities=("drive",),
+            ),
+        ),
+        product_defs=[product],
+        product_uses=[product_use],
+        record_uses=[record_use],
+    )
+    spec = replace(spec, effects=(enabled, acquisition, disabled))
+
+    preview = materialized_effects_contract(
+        spec,
+        _parameters(),
+        config=config_with_physical_resources({"drive-a": ("drive",)}),
+    )
+
+    states = operations_of_type(preview, ApplyStateOperation, point_index=0)
+    assert len(states) == 2
+    assert states[0].operation_id != states[1].operation_id
 
 
 def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> None:

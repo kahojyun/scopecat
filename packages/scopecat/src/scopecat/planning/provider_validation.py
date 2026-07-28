@@ -1,9 +1,10 @@
-"""Driver discovery and lifecycle helpers outside the program interpreter."""
+"""Validate provider descriptions and concrete provisioning results."""
 
 from __future__ import annotations
 
 import logging
 
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
@@ -12,17 +13,29 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     DriverFault,
     InstrumentDescription,
     InstrumentDriver,
 )
-from scopecat.sdk.journal import ExecutionJournal, commit_transition
-from scopecat.sdk.runtime_problems import problem_from_exception, runtime_problem
 
 logger = logging.getLogger(__name__)
+
+
+def instrument_contract_fingerprint(
+    provider_id: str,
+    descriptions: tuple[InstrumentDescription, ...],
+) -> str:
+    """Identify the ordered daemon-hosted contract admitted for a run."""
+
+    return stable_content_hash(
+        {
+            "provider_id": provider_id,
+            "instruments": [
+                description.model_dump(mode="json") for description in descriptions
+            ],
+        }
+    )
 
 
 def validate_instruments(
@@ -30,6 +43,8 @@ def validate_instruments(
     config: ConfigProfileSnapshot,
     instruments: list[InstrumentDriver],
 ) -> list[Problem]:
+    """Validate the identity of concrete drivers returned by a provider."""
+
     problems: list[Problem] = []
     configured_ids = {
         instrument.id for instrument in config.instrument_registry.instruments
@@ -95,6 +110,8 @@ def validate_instruments(
 def describe_instruments(
     instruments: list[InstrumentDriver],
 ) -> tuple[list[InstrumentDescription], list[Problem]]:
+    """Describe concrete drivers and validate their declared identities."""
+
     descriptions: list[InstrumentDescription] = []
     problems: list[Problem] = []
     for instrument in instruments:
@@ -143,163 +160,14 @@ def describe_instruments(
     return descriptions, problems
 
 
-def cleanup_after_setup_failure(
-    instruments: list[InstrumentDriver],
-    problems: list[Problem],
-    *,
-    run_id: str,
-    journal: ExecutionJournal,
-) -> tuple[list[InstrumentStateSnapshot], BaseException | None]:
-    """Release provisioned drivers and capture their terminal state."""
-
-    interruption: BaseException | None = None
-    managed = [(instrument.instrument_id, instrument) for instrument in instruments]
-
-    for cleanup_index, (instrument_id, instrument) in enumerate(reversed(managed)):
-        entry = ExecutionTransition(
-            run_id=run_id,
-            operation_id=(f"lifecycle.setup-cleanup.{cleanup_index}.{instrument_id}"),
-            stage="setup_cleanup",
-            effect="lifecycle",
-            state="started",
-            instrument_id=instrument_id,
-        )
-        interruption = _first_interruption(
-            interruption,
-            _commit_setup_transition(
-                journal,
-                entry,
-                problems,
-            ),
-        )
-        try:
-            instrument.cleanup()
-        except Exception as error:
-            problem = problem_from_exception(
-                "instrument_cleanup_failed",
-                f"instrument cleanup failed for {instrument_id}",
-                run_id=run_id,
-                operation_id=entry.operation_id,
-                instrument_id=instrument_id,
-                error=error,
-            )
-            problems.append(problem)
-            interruption = _first_interruption(
-                interruption,
-                _commit_setup_transition(
-                    journal,
-                    entry.model_copy(
-                        update={"state": "failed", "problems": (problem,)}
-                    ),
-                    problems,
-                ),
-            )
-            continue
-        except BaseException as error:
-            interruption = _first_interruption(interruption, error)
-            problem = _interruption_problem(
-                error,
-                run_id=run_id,
-                operation_id=entry.operation_id,
-                instrument_id=instrument_id,
-            )
-            problems.append(problem)
-            interruption = _first_interruption(
-                interruption,
-                _commit_setup_transition(
-                    journal,
-                    entry.model_copy(
-                        update={"state": "failed", "problems": (problem,)}
-                    ),
-                    problems,
-                ),
-            )
-            continue
-        interruption = _first_interruption(
-            interruption,
-            _commit_setup_transition(
-                journal,
-                entry.model_copy(update={"state": "completed"}),
-                problems,
-            ),
-        )
-    states: list[InstrumentStateSnapshot] = []
-    for read_index, (instrument_id, instrument) in enumerate(managed):
-        operation_id = (
-            f"lifecycle.setup-terminal-read-state.{read_index}.{instrument_id}"
-        )
-        try:
-            state = instrument.read_state().model_copy(deep=True)
-            if state.instrument_id != instrument_id:
-                raise ValueError("read state belongs to a different instrument")
-        except Exception as error:
-            problem = problem_from_exception(
-                "instrument_readback_failed",
-                f"instrument terminal readback failed for {instrument_id}",
-                run_id=run_id,
-                operation_id=operation_id,
-                instrument_id=instrument_id,
-                error=error,
-            )
-            problems.append(problem)
-            continue
-        except BaseException as error:
-            interruption = _first_interruption(interruption, error)
-            problem = _interruption_problem(
-                error,
-                run_id=run_id,
-                operation_id=operation_id,
-                instrument_id=instrument_id,
-            )
-            problems.append(problem)
-            continue
-        states.append(state)
-    return states, interruption
-
-
-def _commit_setup_transition(
-    journal: ExecutionJournal,
-    entry: ExecutionTransition,
-    problems: list[Problem],
-) -> BaseException | None:
-    try:
-        commit_transition(journal, entry)
-    except Exception as error:
-        problems.append(
-            problem_from_exception(
-                "execution_journal_commit_failed",
-                f"failed to journal {entry.operation_id}",
-                run_id=entry.run_id,
-                operation_id=entry.operation_id,
-                error=error,
-                phase=ProblemPhase.PERSISTENCE,
-            )
-        )
-    except BaseException as error:
-        problems.append(
-            _interruption_problem(
-                error,
-                run_id=entry.run_id,
-                operation_id=entry.operation_id,
-            )
-        )
-        return error
-    return None
-
-
-def _first_interruption(
-    current: BaseException | None,
-    candidate: BaseException | None,
-) -> BaseException | None:
-    return current if current is not None else candidate
-
-
 def preflight_problem_from_exception(
     code: str,
     message: str,
     path: tuple[LocationPathItem, ...],
     error: Exception,
 ) -> Problem:
+    """Normalize provider and driver description errors as preflight problems."""
+
     if isinstance(error, DriverFault):
         source = error.problem
         related_locations = source.related_locations
@@ -328,25 +196,6 @@ def preflight_problem_from_exception(
     )
 
 
-def _interruption_problem(
-    error: BaseException,
-    *,
-    run_id: str,
-    operation_id: str | None = None,
-    instrument_id: str | None = None,
-) -> Problem:
-    return runtime_problem(
-        "execution_interrupted",
-        f"execution interrupted by {type(error).__name__}",
-        run_id=run_id,
-        operation_id=operation_id,
-        instrument_id=instrument_id,
-        details={
-            "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
-        },
-    )
-
-
 def _preflight_problem(
     code: str,
     message: str,
@@ -358,3 +207,11 @@ def _preflight_problem(
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("instrument_provider", *path),
     )
+
+
+__all__ = [
+    "describe_instruments",
+    "instrument_contract_fingerprint",
+    "preflight_problem_from_exception",
+    "validate_instruments",
+]

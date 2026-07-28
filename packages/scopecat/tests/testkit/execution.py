@@ -22,6 +22,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderDescription,
     InstrumentProviderResult,
 )
+from tests.testkit.instrument_host import provision_test_instrument_host
 from tests.testkit.runtime import (
     admit_test_run,
     sqlite_execution_session,
@@ -107,9 +108,13 @@ def execute_invocation_run(
             project_root,
             accepted.run_id,
             runs=repository,
-        ),
-        instrument_provider=(
-            planned.system.provider if planned.system is not None else None
+            instruments=provision_test_instrument_host(
+                None if planned.system is None else planned.system.provider,
+                context=InstrumentProviderContext(
+                    config=planned.config,
+                    instrument_ids=planned.program.resource_order,
+                ),
+            ),
         ),
     )
 
@@ -141,8 +146,14 @@ def execute_program_run(
             project_root,
             accepted.run_id,
             runs=repository,
+            instruments=provision_test_instrument_host(
+                instrument_provider,
+                context=InstrumentProviderContext(
+                    config=config,
+                    instrument_ids=program.resource_order,
+                ),
+            ),
         ),
-        instrument_provider=instrument_provider,
     )
     return manifest
 

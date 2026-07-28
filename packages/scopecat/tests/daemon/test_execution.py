@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 import httpx2
+import pytest
 from pydantic import BaseModel
 
 from scopecat.control.models import RunPlanSummary
@@ -17,8 +18,18 @@ from scopecat.daemon.wire import (
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
+)
+from scopecat.execution.ports.instruments import (
+    RunHardwareApply,
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
@@ -72,6 +83,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     fences: list[tuple[str, str]] = []
     transition_commands: list[ExecutionTransitionAppend] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
+    hardware_operation_ids: list[str] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
@@ -79,6 +91,32 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
             command = ExecutorStartRequest.model_validate_json(request.content)
             assert command.executor_id == "notebook-1"
             return _model(_lease())
+        if path.endswith("/instruments/provision"):
+            command = RunInstrumentProvisionCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            return _model(
+                RunInstrumentProvisionReceipt(
+                    run_id="run-1",
+                    operation_id=command.operation_id,
+                    status="ready",
+                )
+            )
+        if path.endswith("/hardware/execute"):
+            command = RunHardwareBatchCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            hardware_operation_ids.append(command.batch.operation_id)
+            return _model(
+                RunHardwareBatchReceipt(operation_id=command.batch.operation_id)
+            )
+        if path.endswith("/hardware/finish"):
+            command = RunHardwareFinishCommand.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            hardware_operation_ids.append(command.operation_id)
+            return _model(
+                RunHardwareFinalizationReceipt(
+                    operation_id=command.operation_id,
+                )
+            )
         if path.endswith("/transitions"):
             command = ExecutionTransitionAppend.model_validate_json(request.content)
             _remember_fence(fences, "run-1", command)
@@ -114,11 +152,28 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
         executor_id="notebook-1",
     )
     accepted = session.accepted
-    assert session.config == submission.config
     assert session.begin() is None
 
     journal = session.journal
     measurements = session.measurements
+    instruments = session.instruments
+
+    batch = RunHardwareBatch(
+        operation_id="hardware.batch-1",
+        actions=(
+            RunHardwareApply(
+                effect_id="point-0.apply.source-0",
+                point_index=0,
+                instrument_id="source-0",
+                fields=(),
+            ),
+        ),
+    )
+    assert instruments.execute(batch).operation_id == batch.operation_id
+    assert (
+        instruments.finish(operation_id="hardware.finish", failed=False).operation_id
+        == "hardware.finish"
+    )
 
     assert journal.append(transition) == committed_transition
     assert (
@@ -157,6 +212,54 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     assert terminal_commands[0].models == ()
     assert fences
     assert set(fences) == {("run-1", "lease-1")}
+    assert hardware_operation_ids == [
+        "hardware.batch-1",
+        "hardware.finish",
+    ]
+
+
+def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> None:
+    submission = RunSubmission(
+        submission_id="submission-1",
+        config=load_config(),
+        request=RunRequest(experiment_id="scratch"),
+        plan=RunPlanSummary(
+            experiment_id="scratch",
+            experiment_kind="scratch",
+            point_count=1,
+        ),
+    )
+    admission = RunAdmission(
+        submission_id=submission.submission_id,
+        manifest=RunManifest(
+            run_id="run-1",
+            created_at=_NOW,
+            config_content_hash=config_content_hash(submission.config),
+        ),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/executor/start"):
+            return _model(_lease())
+        if request.url.path.endswith("/instruments/provision"):
+            return _model(
+                RunInstrumentProvisionReceipt(
+                    run_id="run-1",
+                    operation_id="another-operation",
+                    status="ready",
+                )
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    session = daemon_execution_session(
+        _client(handler),
+        submission,
+        admission,
+        executor_id="notebook-1",
+    )
+
+    with pytest.raises(ValueError, match="does not match command"):
+        session.begin()
 
 
 def _client(

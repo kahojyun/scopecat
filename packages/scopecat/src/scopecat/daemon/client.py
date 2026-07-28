@@ -20,6 +20,8 @@ from scopecat.daemon.views import (
     ConfigEntryView,
     ConfigRegistryView,
     DaemonHealth,
+    InstrumentListView,
+    InstrumentView,
     MeasurementPage,
     ParameterProposalListView,
     RunAnalysisListView,
@@ -44,15 +46,27 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentSessionEndReceipt,
+    InstrumentSessionOpenCommand,
+    InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
     RunAttachmentCommand,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.ports.instruments import (
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
+)
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
@@ -60,6 +74,12 @@ from scopecat.runs.data import (
     RunArtifactTextResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
+)
+from scopecat.sdk.instruments.contracts import (
+    ApplyReceipt,
+    CollectCommand,
+    CollectReceipt,
+    InstrumentStateCommand,
 )
 
 _API_PREFIX = "/api/v1"
@@ -178,6 +198,105 @@ class DaemonClient:
             command,
             ConfigActivationReceipt,
         )
+
+    def list_instruments(self) -> InstrumentListView:
+        return self._get_model(
+            f"{_API_PREFIX}/instruments",
+            InstrumentListView,
+        )
+
+    def get_instrument(self, instrument_id: str) -> InstrumentView:
+        return self._get_model(
+            f"{_API_PREFIX}/instruments/{quote(instrument_id, safe='')}",
+            InstrumentView,
+        )
+
+    def open_instrument_session(
+        self,
+        command: InstrumentSessionOpenCommand,
+    ) -> InstrumentSessionOpenReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/instrument-sessions",
+            command,
+            InstrumentSessionOpenReceipt,
+        )
+
+    def read_instrument_state(
+        self,
+        session_id: str,
+        instrument_id: str,
+    ) -> InstrumentStateSnapshot:
+        return self._get_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "state",
+            ),
+            InstrumentStateSnapshot,
+        )
+
+    def apply_instrument_state(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateCommand,
+    ) -> ApplyReceipt:
+        return self._post_idempotent_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "state/apply",
+            ),
+            command,
+            ApplyReceipt,
+        )
+
+    def collect_instrument(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: CollectCommand,
+    ) -> CollectReceipt:
+        return self._post_idempotent_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "collect",
+            ),
+            command,
+            CollectReceipt,
+        )
+
+    def close_instrument_session(
+        self,
+        session_id: str,
+    ) -> InstrumentSessionEndReceipt:
+        return self._post_empty_idempotent_model(
+            (f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/close"),
+            InstrumentSessionEndReceipt,
+        )
+
+    def abort_instrument_session(
+        self,
+        session_id: str,
+    ) -> InstrumentSessionEndReceipt:
+        return self._post_empty_idempotent_model(
+            (f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/abort"),
+            InstrumentSessionEndReceipt,
+        )
+
+    def resolve_instrument_session_attention(
+        self,
+        session_id: str,
+    ) -> InstrumentSessionEndReceipt:
+        response = self._request(
+            "POST",
+            (
+                f"{_API_PREFIX}/instrument-sessions/"
+                f"{quote(session_id, safe='')}/attention"
+            ),
+        )
+        return InstrumentSessionEndReceipt.model_validate_json(response.content)
 
     def list_runs(
         self,
@@ -420,6 +539,39 @@ class DaemonClient:
             ExecutorLease,
         )
 
+    def provision_run_instruments(
+        self,
+        run_id: str,
+        command: RunInstrumentProvisionCommand,
+    ) -> RunInstrumentProvisionReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/instruments/provision",
+            command,
+            RunInstrumentProvisionReceipt,
+        )
+
+    def execute_run_hardware(
+        self,
+        run_id: str,
+        command: RunHardwareBatchCommand,
+    ) -> RunHardwareBatchReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/execute",
+            command,
+            RunHardwareBatchReceipt,
+        )
+
+    def finish_run_hardware(
+        self,
+        run_id: str,
+        command: RunHardwareFinishCommand,
+    ) -> RunHardwareFinalizationReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/finish",
+            command,
+            RunHardwareFinalizationReceipt,
+        )
+
     def append_transition(
         self,
         run_id: str,
@@ -474,6 +626,17 @@ class DaemonClient:
         response = self._request("GET", path, params=params)
         return model.model_validate_json(response.content)
 
+    @staticmethod
+    def _instrument_session_path(
+        session_id: str,
+        instrument_id: str,
+        suffix: str,
+    ) -> str:
+        return (
+            f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/"
+            f"instruments/{quote(instrument_id, safe='')}/{suffix}"
+        )
+
     def _post_model[ModelT: BaseModel](
         self,
         path: str,
@@ -485,6 +648,32 @@ class DaemonClient:
             path,
             json=body.model_dump(mode="json"),
         )
+        return model.model_validate_json(response.content)
+
+    def _post_idempotent_model[ModelT: BaseModel](
+        self,
+        path: str,
+        body: BaseModel,
+        model: type[ModelT],
+    ) -> ModelT:
+        """Retry one transport failure with the exact operation command."""
+
+        try:
+            return self._post_model(path, body, model)
+        except httpx2.TransportError:
+            return self._post_model(path, body, model)
+
+    def _post_empty_idempotent_model[ModelT: BaseModel](
+        self,
+        path: str,
+        model: type[ModelT],
+    ) -> ModelT:
+        """Retry one transport failure against an idempotent empty command."""
+
+        try:
+            response = self._request("POST", path)
+        except httpx2.TransportError:
+            response = self._request("POST", path)
         return model.model_validate_json(response.content)
 
     def _request(

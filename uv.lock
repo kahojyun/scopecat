@@ -10,6 +10,7 @@ exclude-newer-span = "P14D"
 members = [
     "quantum-lab-demo",
     "scopecat",
+    "scopecat-instruments",
     "scopecat-quantum",
     "scopecat-server",
     "scopecat-workspace",
@@ -816,6 +817,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "scopecat-instruments"
+version = "0.1.0"
+source = { editable = "packages/scopecat-instruments" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "scopecat" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "scopecat", editable = "packages/scopecat" },
+]
+
+[[package]]
 name = "scopecat-quantum"
 version = "0.1.0"
 source = { editable = "packages/scopecat-quantum" }
@@ -868,6 +884,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "quantum-lab-demo" },
     { name = "scopecat" },
+    { name = "scopecat-instruments" },
     { name = "scopecat-quantum" },
     { name = "scopecat-server" },
 ]
@@ -888,6 +905,7 @@ notebook = [
 requires-dist = [
     { name = "quantum-lab-demo", editable = "examples/quantum/support" },
     { name = "scopecat", editable = "packages/scopecat" },
+    { name = "scopecat-instruments", editable = "packages/scopecat-instruments" },
     { name = "scopecat-quantum", editable = "packages/scopecat-quantum" },
     { name = "scopecat-server", editable = "packages/scopecat-server" },
 ]

@@ -36,6 +36,7 @@ type JournalEntryState = Literal[
 type ExecutionStage = Literal[
     "provide_instruments",
     "setup_cleanup",
+    "setup_close",
     "setup_terminal_readback",
     "initial_readback",
     "point",
@@ -46,6 +47,7 @@ type ExecutionStage = Literal[
     "seal_measurement",
     "abort",
     "cleanup",
+    "close",
     "terminal_readback",
     "domain_submit",
     "domain_fetch",

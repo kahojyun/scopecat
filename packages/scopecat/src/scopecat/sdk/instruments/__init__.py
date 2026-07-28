@@ -45,6 +45,8 @@ if TYPE_CHECKING:
         product_axis,
         quantity_field,
         string_field,
+        validate_collect_command,
+        validate_collect_receipt,
         validate_state_command,
     )
 
@@ -125,6 +127,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "validate_state_command": (
         "scopecat.sdk.instruments.contracts",
         "validate_state_command",
+    ),
+    "validate_collect_command": (
+        "scopecat.sdk.instruments.contracts",
+        "validate_collect_command",
+    ),
+    "validate_collect_receipt": (
+        "scopecat.sdk.instruments.contracts",
+        "validate_collect_receipt",
     ),
     "PayloadRef": ("scopecat.kernel.state", "PayloadRef"),
     "StateValue": ("scopecat.kernel.state", "StateValue"),

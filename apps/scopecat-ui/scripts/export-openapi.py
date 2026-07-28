@@ -14,6 +14,7 @@ OUTPUT = Path(__file__).parent.parent / ".generated" / "ui-api.openapi.json"
 _OPERATIONS = {
     ("/api/v1/config-registry", "get"),
     ("/api/v1/config-registry/activations", "get"),
+    ("/api/v1/config-registry/active", "get"),
     ("/api/v1/config-registry/active", "post"),
     ("/api/v1/config-registry/default", "post"),
     ("/api/v1/config-registry/drafts/preview", "post"),
@@ -21,6 +22,25 @@ _OPERATIONS = {
     ("/api/v1/config-registry/undo", "post"),
     ("/api/v1/events", "get"),
     ("/api/v1/health", "get"),
+    ("/api/v1/instruments", "get"),
+    ("/api/v1/instruments/{instrument_id}", "get"),
+    ("/api/v1/instrument-sessions", "post"),
+    ("/api/v1/instrument-sessions/{session_id}/abort", "post"),
+    ("/api/v1/instrument-sessions/{session_id}/attention", "post"),
+    ("/api/v1/instrument-sessions/{session_id}/close", "post"),
+    (
+        "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect",
+        "post",
+    ),
+    (
+        "/api/v1/instrument-sessions/{session_id}/instruments/"
+        "{instrument_id}/state/apply",
+        "post",
+    ),
+    (
+        "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state",
+        "get",
+    ),
     ("/api/v1/runs", "get"),
     ("/api/v1/runs/{run_id}", "get"),
     ("/api/v1/runs/{run_id}/analyses", "get"),

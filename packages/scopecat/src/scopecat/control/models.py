@@ -21,7 +21,11 @@ type ControlRunState = Literal[
     "closed",
 ]
 type ResourceKind = Literal["target", "instrument"]
-type ResourceLeaseStatus = Literal["active", "quarantined"]
+type ResourceClaimStatus = Literal["active", "quarantined"]
+type ResourceOwnerKind = Literal["run", "instrument_session"]
+type InstrumentSessionState = Literal["active", "attention_required", "closed"]
+type InstrumentOperationKind = Literal["apply", "collect"]
+type InstrumentSessionEndStatus = Literal["closed", "aborted"]
 
 
 def utc_now() -> datetime:
@@ -51,10 +55,18 @@ class RunPlanSummary(_ControlModel):
     coordinate_ids: tuple[str, ...] = ()
     record_ids: tuple[str, ...] = ()
     run_resource_claims: tuple[ResourceKey, ...] = ()
+    host_instrument_order: tuple[str, ...] = ()
+    host_provider_id: str | None = Field(default=None, min_length=1)
+    host_contract_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
-    @field_validator("coordinate_ids", "record_ids")
+    @field_validator("coordinate_ids", "record_ids", "host_instrument_order")
     @classmethod
     def validate_unique_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item for item in value):
+            raise ValueError("run plan ids must be non-empty")
         if len(value) != len(set(value)):
             raise ValueError("run plan summary ids must be unique")
         return value
@@ -69,6 +81,23 @@ class RunPlanSummary(_ControlModel):
         if len(identities) != len(set(identities)):
             raise ValueError("run plan resource claims must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_host_instrument_order(self) -> RunPlanSummary:
+        claimed = {
+            claim.id for claim in self.run_resource_claims if claim.kind == "instrument"
+        }
+        # Domain-owned instruments are claimed without a daemon-hosted driver.
+        if not set(self.host_instrument_order).issubset(claimed):
+            raise ValueError(
+                "run plan host_instrument_order must reference instrument claims"
+            )
+        has_host = bool(self.host_instrument_order)
+        if has_host != (self.host_provider_id is not None):
+            raise ValueError("host provider identity must match hosted instruments")
+        if has_host != (self.host_contract_fingerprint is not None):
+            raise ValueError("host contract fingerprint must match hosted instruments")
+        return self
 
 
 class RunAdmissionRecord(_ControlModel):
@@ -161,21 +190,65 @@ class ExecutorLease(_ControlModel):
         return self
 
 
-class ResourceLease(_ControlModel):
+class ResourceClaim(_ControlModel):
     resource: ResourceKey
-    run_id: str
-    executor_token: str | None
-    status: ResourceLeaseStatus
+    owner_kind: ResourceOwnerKind
+    owner_id: str = Field(min_length=1)
+    status: ResourceClaimStatus
     acquired_at: datetime
-    expires_at: datetime | None
+
+
+class InstrumentSession(_ControlModel):
+    """Durable daemon state for one explicit direct-control session."""
+
+    session_id: str = Field(min_length=1)
+    open_operation_id: str = Field(min_length=1)
+    actor: str = Field(min_length=1)
+    config_entry_id: str = Field(min_length=1)
+    config_content_hash: str = Field(min_length=1)
+    instrument_ids: tuple[str, ...] = Field(min_length=1)
+    state: InstrumentSessionState
+    acquired_at: datetime
+    attention_reason: str | None = None
+    active_operation_id: str | None = None
+    active_operation_kind: InstrumentOperationKind | None = None
+    end_status: InstrumentSessionEndStatus | None = None
+
+    @field_validator("instrument_ids")
+    @classmethod
+    def validate_instrument_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not instrument_id for instrument_id in value):
+            raise ValueError("instrument session ids must be non-empty")
+        if len(value) != len(set(value)):
+            raise ValueError("instrument session ids must be unique")
+        return value
 
     @model_validator(mode="after")
-    def validate_ownership(self) -> ResourceLease:
-        if self.status == "active":
-            if self.executor_token is None or self.expires_at is None:
-                msg = "an active resource lease requires an executor and expiry"
-                raise ValueError(msg)
-        elif self.executor_token is not None or self.expires_at is not None:
-            msg = "a quarantined resource lease cannot remain executor-owned"
-            raise ValueError(msg)
+    def validate_state(self) -> InstrumentSession:
+        if self.state == "active":
+            if self.attention_reason is not None:
+                raise ValueError("active instrument session cannot require attention")
+            if self.end_status is not None:
+                raise ValueError("active instrument session cannot have an end status")
+        elif self.state == "attention_required":
+            if not self.attention_reason:
+                raise ValueError("attention-required session requires a reason")
+            if self.end_status is not None:
+                raise ValueError(
+                    "attention-required instrument session cannot have an end status"
+                )
+        else:
+            if self.attention_reason is not None:
+                raise ValueError("closed instrument session cannot require attention")
+            if self.end_status is None:
+                raise ValueError("closed instrument session requires an end status")
+            if (
+                self.active_operation_id is not None
+                or self.active_operation_kind is not None
+            ):
+                raise ValueError("closed instrument session cannot retain an operation")
+        if (self.active_operation_id is None) != (self.active_operation_kind is None):
+            raise ValueError(
+                "instrument session operation id and kind must be present together"
+            )
         return self

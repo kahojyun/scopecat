@@ -45,7 +45,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get Active Config */
+        get: operations["get_active_config_api_v1_config_registry_active_get"];
         put?: never;
         /** Activate Config Entry */
         post: operations["activate_config_entry_api_v1_config_registry_active_post"];
@@ -149,6 +150,159 @@ export interface paths {
         };
         /** Health */
         get: operations["health_api_v1_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open Instrument Session */
+        post: operations["open_instrument_session_api_v1_instrument_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Abort Instrument Session */
+        post: operations["abort_instrument_session_api_v1_instrument_sessions__session_id__abort_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Instrument Session Attention */
+        post: operations["resolve_instrument_session_attention_api_v1_instrument_sessions__session_id__attention_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close Instrument Session */
+        post: operations["close_instrument_session_api_v1_instrument_sessions__session_id__close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Collect Instrument */
+        post: operations["collect_instrument_api_v1_instrument_sessions__session_id__instruments__instrument_id__collect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Instrument State */
+        get: operations["read_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Instrument State */
+        post: operations["apply_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instruments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Instruments */
+        get: operations["list_instruments_api_v1_instruments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instruments/{instrument_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Instrument */
+        get: operations["get_instrument_api_v1_instruments__instrument_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -339,6 +493,7 @@ export interface components {
              */
             type: "bool";
         };
+        _CapabilityScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_PayloadWire"];
         _Choices: [
             string,
             ...string[]
@@ -401,8 +556,18 @@ export interface components {
              */
             type: "int";
         };
+        _NonEmptyId: string;
         _NonEmptyString: string;
         _ParameterId: string;
+        /** _PayloadWire */
+        _PayloadWire: {
+            schema_id: components["schemas"]["_NonEmptyString"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "payload";
+        };
         _PersistableScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_EntityWire"];
         /** _PersistableScalarTypeWire */
         _PersistableScalarTypeWire: {
@@ -443,6 +608,15 @@ export interface components {
              * @enum {string}
              */
             type: "string";
+        };
+        /**
+         * ActiveConfigView
+         * @description The active registry identity and its resolved immutable snapshot.
+         */
+        ActiveConfigView: {
+            activation: components["schemas"]["ConfigRegistryActivationRecord"];
+            config: components["schemas"]["ConfigProfileSnapshot-Output"];
+            entry: components["schemas"]["ConfigRegistryEntry"];
         };
         /**
          * AnalysisCandidateRunConfigSource
@@ -506,6 +680,29 @@ export interface components {
             /** Title */
             title: string;
         };
+        /**
+         * ApplyReceipt
+         * @description Outcome reported after one instrument state command.
+         *
+         *     ``unknown`` is intentionally distinct from failure.  A driver can lose the
+         *     response after the hardware accepted a command, so the execution engine must
+         *     reconcile state before it can safely issue another command or retry.
+         */
+        ApplyReceipt: {
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            state?: components["schemas"]["InstrumentStateSnapshot"] | null;
+            /**
+             * Status
+             * @default applied
+             * @enum {string}
+             */
+            status: "applied" | "not_applied" | "unknown";
+        };
         /** AttentionResolutionReceipt */
         AttentionResolutionReceipt: {
             /** Released Resource Count */
@@ -539,6 +736,155 @@ export interface components {
             kind: "candidate_config";
             proposal_id: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
+        };
+        /** CapabilityDescription */
+        CapabilityDescription: {
+            /** Description */
+            description?: string | null;
+            /** Fields */
+            fields?: components["schemas"]["CapabilityField"][];
+            /** Id */
+            id: string;
+            /** Label */
+            label?: string | null;
+            /** Products */
+            products?: components["schemas"]["ProductDescription"][];
+        };
+        /** CapabilityField */
+        CapabilityField: {
+            /**
+             * Access
+             * @default read_write
+             * @enum {string}
+             */
+            access: "read_only" | "write_only" | "read_write";
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+            /** Label */
+            label?: string | null;
+            value_type: components["schemas"]["CapabilityScalarWire"];
+        };
+        CapabilityScalarWire: components["schemas"]["_CapabilityScalarModel"];
+        /** CollectAxisRequest */
+        CollectAxisRequest: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            metadata?: components["schemas"]["JsonMetadata-Input"];
+            /** Size */
+            size: number;
+            /** Unit */
+            unit?: string | null;
+        };
+        /** CollectCommand */
+        CollectCommand: {
+            /** Instrument Id */
+            instrument_id: string;
+            metadata?: components["schemas"]["JsonMetadata-Input"];
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Point Count */
+            point_count: number;
+            /** Point Index */
+            point_index: number;
+            /** Requests */
+            requests?: components["schemas"]["CollectProductRequest"][];
+        };
+        /**
+         * CollectProductRequest
+         * @description One explicitly capability-scoped provider product request.
+         *
+         *     Capability identity is required because a provider must not infer ownership
+         *     from a product key or from accidental global uniqueness. Planning derives
+         *     it from the same logical resource contract used for physical binding.
+         */
+        CollectProductRequest: {
+            capability_id: components["schemas"]["_NonEmptyId"];
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            /** Dimensions */
+            dimensions?: components["schemas"]["CollectAxisRequest"][];
+            /**
+             * Dtype
+             * @default float64
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            /** Id */
+            id: string;
+            metadata?: components["schemas"]["JsonMetadata-Input"];
+            /** Unit */
+            unit?: string | null;
+        };
+        /**
+         * CollectReceipt
+         * @description Explicit outcome reported after one collection command.
+         *
+         *     ``not_collected`` proves that collection did not occur; ``unknown`` means it
+         *     may have occurred. The distinction prevents automatic retry from silently
+         *     duplicating an external acquisition.
+         */
+        CollectReceipt: {
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            readback?: components["schemas"]["InstrumentReadback"] | null;
+            /**
+             * Status
+             * @default collected
+             * @enum {string}
+             */
+            status: "collected" | "not_collected" | "unknown";
+        };
+        /** CommandChannelBinding */
+        CommandChannelBinding: {
+            capability?: components["schemas"]["_NonEmptyId"] | null;
+            channel_id: components["schemas"]["_NonEmptyId"];
+            entity_id: components["schemas"]["_NonEmptyId"];
+        };
+        /**
+         * CommandPayload
+         * @description Runtime command payload referenced by instrument state commands.
+         */
+        CommandPayload: {
+            /** Content Hash */
+            content_hash?: string | null;
+            /** Id */
+            id: string;
+            /** Implementation Id */
+            implementation_id?: string | null;
+            /** Media Type */
+            media_type?: string | null;
+            metadata?: components["schemas"]["JsonMetadata-Input"];
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Payload */
+            payload?: unknown | null;
+            /** Point Index */
+            point_index?: number | null;
+            /** Schema Id */
+            schema_id: string;
+            /** Semantic Operation Id */
+            semantic_operation_id?: string | null;
+            /** Uri */
+            uri?: string | null;
+        };
+        /** ComplexQuantity */
+        ComplexQuantity: {
+            /** Imag */
+            imag: number;
+            /** Real */
+            real: number;
+            /** Unit */
+            unit: string;
         };
         /** ConfigActivationHistoryView */
         ConfigActivationHistoryView: {
@@ -938,21 +1284,194 @@ export interface components {
                 }[]
             ];
         };
+        "InstrumentConnection-Input": components["schemas"]["VirtualInstrumentConnection-Input"] | components["schemas"]["TcpipSocketInstrumentConnection-Input"];
+        "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"];
+        /** InstrumentDescription */
+        InstrumentDescription: {
+            /** Capabilities */
+            capabilities?: components["schemas"]["CapabilityDescription"][];
+            /** Description */
+            description?: string | null;
+            /** Implementation Id */
+            implementation_id: string;
+            /** Implementation Version */
+            implementation_version: string;
+            /** Instrument Id */
+            instrument_id: string;
+            /** Label */
+            label?: string | null;
+        };
+        /** InstrumentListView */
+        InstrumentListView: {
+            config_content_hash: components["schemas"]["ConfigContentHash"];
+            /** Config Entry Id */
+            config_entry_id: string;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["InstrumentView"][];
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+        };
+        /** InstrumentReadback */
+        InstrumentReadback: {
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Values */
+            values?: {
+                [key: string]: components["schemas"]["MeasurementValue-Output"];
+            };
+        };
         /** InstrumentRegistry */
-        InstrumentRegistry: {
+        "InstrumentRegistry-Input": {
             /** Instruments */
-            instruments: components["schemas"]["InstrumentSpec"][];
+            instruments: components["schemas"]["InstrumentSpec-Input"][];
+        };
+        /** InstrumentRegistry */
+        "InstrumentRegistry-Output": {
+            /** Instruments */
+            instruments: components["schemas"]["InstrumentSpec-Output"][];
+        };
+        /** InstrumentSessionEndReceipt */
+        InstrumentSessionEndReceipt: {
+            session_id: components["schemas"]["NonEmptyText"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "closed" | "aborted";
+        };
+        /**
+         * InstrumentSessionOpenCommand
+         * @description Acquire and connect one or more instruments against the active config.
+         */
+        InstrumentSessionOpenCommand: {
+            actor: components["schemas"]["NonEmptyText"];
+            /** Instrument Ids */
+            instrument_ids: [
+                components["schemas"]["NonEmptyText"],
+                ...components["schemas"]["NonEmptyText"][]
+            ];
+            operation_id: components["schemas"]["NonEmptyText"];
+        };
+        /**
+         * InstrumentSessionOpenReceipt
+         * @description Daemon-owned direct-control session opened against one config revision.
+         */
+        InstrumentSessionOpenReceipt: {
+            actor: components["schemas"]["NonEmptyText"];
+            config_content_hash: components["schemas"]["ConfigContentHash"];
+            config_entry_id: components["schemas"]["NonEmptyText"];
+            /** Descriptions */
+            descriptions: components["schemas"]["InstrumentDescription"][];
+            /** Instrument Ids */
+            instrument_ids: [
+                components["schemas"]["NonEmptyText"],
+                ...components["schemas"]["NonEmptyText"][]
+            ];
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            session_id: components["schemas"]["NonEmptyText"];
         };
         /** InstrumentSpec */
-        InstrumentSpec: {
+        "InstrumentSpec-Input": {
+            connection: components["schemas"]["InstrumentConnection-Input"];
+            /** Driver Id */
+            driver_id: string;
             /** Id */
             id: string;
-            /** Kind */
-            kind: string;
+        };
+        /** InstrumentSpec */
+        "InstrumentSpec-Output": {
+            connection: components["schemas"]["InstrumentConnection-Output"];
+            /** Driver Id */
+            driver_id: string;
+            /** Id */
+            id: string;
+        };
+        /** InstrumentStateCommand */
+        InstrumentStateCommand: {
+            /** Fields */
+            fields?: components["schemas"]["InstrumentStateCommandField"][];
+            /** Instrument Id */
+            instrument_id: string;
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Payloads */
+            payloads?: {
+                [key: string]: components["schemas"]["CommandPayload"];
+            };
+        };
+        /** InstrumentStateCommandField */
+        InstrumentStateCommandField: {
+            /** Capability Id */
+            capability_id: string;
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            /** Field Path */
+            field_path: string;
+            /** Resource Id */
+            resource_id: string;
+            value: components["schemas"]["StateValue"];
+        };
+        /** InstrumentStateField */
+        InstrumentStateField: {
+            /** Capability Id */
+            capability_id: string;
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            /** Field Path */
+            field_path: string;
+            value: components["schemas"]["StateValue"];
+        };
+        /** InstrumentStateSnapshot */
+        InstrumentStateSnapshot: {
+            /** Fields */
+            fields?: components["schemas"]["InstrumentStateField"][];
+            /** Instrument Id */
+            instrument_id: string;
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+        };
+        /**
+         * InstrumentView
+         * @description Configured instrument, pure driver ABI, and current exclusive ownership.
+         */
+        InstrumentView: {
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "active" | "quarantined" | "unavailable";
+            description?: components["schemas"]["InstrumentDescription"] | null;
+            /** Owner Actor */
+            owner_actor?: string | null;
+            /** Owner Id */
+            owner_id?: string | null;
+            owner_kind?: components["schemas"]["ResourceOwnerKind"] | null;
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            spec: components["schemas"]["InstrumentSpec-Output"];
+        };
+        "JsonMetadata-Input": {
+            [key: string]: components["schemas"]["JsonValue-Input"];
         };
         "JsonMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
+        "JsonValue-Input": unknown;
         LocationPathItem: string | number;
         /**
          * ManualConfigDraftRegistrySource
@@ -979,6 +1498,25 @@ export interface components {
              * @enum {string}
              */
             kind: "manual_parameter_updates";
+        };
+        /** MeasurementArray */
+        "MeasurementArray-Output": {
+            /**
+             * Dtype
+             * @default float64
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Shape */
+            shape: [
+                number,
+                ...number[]
+            ];
+            /** Unit */
+            unit?: string | null;
+            /** Values */
+            values: unknown[];
         };
         /** MeasurementDataset */
         MeasurementDataset: {
@@ -1040,6 +1578,7 @@ export interface components {
             next_offset?: number | null;
         };
         "MeasurementRecord-Output": unknown;
+        "MeasurementValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["ComplexQuantity"] | components["schemas"]["MeasurementArray-Output"];
         /** MeasurementVariable */
         MeasurementVariable: {
             /** Dims */
@@ -1209,6 +1748,14 @@ export interface components {
             /** Parameter Id */
             parameter_id: string;
         };
+        /**
+         * PayloadRef
+         * @description Reference to one command-local payload.
+         */
+        PayloadRef: {
+            /** Payload Id */
+            payload_id: string;
+        };
         PersistableScalarWire: components["schemas"]["_PersistableScalarModel"];
         PersistableValueType: components["schemas"]["_PersistableValueTypeWire"];
         /**
@@ -1239,6 +1786,40 @@ export interface components {
          * @enum {string}
          */
         ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis";
+        /** ProductAxisDescription */
+        ProductAxisDescription: {
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label?: string | null;
+            /** Size */
+            size?: number | null;
+            /** Unit */
+            unit?: string | null;
+        };
+        /** ProductDescription */
+        ProductDescription: {
+            /** Axes */
+            axes?: components["schemas"]["ProductAxisDescription"][];
+            /** Description */
+            description?: string | null;
+            /**
+             * Dtype
+             * @default float64
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /** Key */
+            key: string;
+            /** Label */
+            label?: string | null;
+            /** Unit */
+            unit?: string | null;
+        };
         pydantic__types__JsonValue: unknown;
         /**
          * ReplaceParameter
@@ -1264,6 +1845,8 @@ export interface components {
         };
         /** @enum {string} */
         ResourceKind: "target" | "instrument";
+        /** @enum {string} */
+        ResourceOwnerKind: "run" | "instrument_session";
         /**
          * RoutingEndpointBinding
          * @description Accepted physical ownership fact for one instrument endpoint.
@@ -1459,6 +2042,15 @@ export interface components {
             experiment_id: string;
             /** Experiment Kind */
             experiment_kind: string;
+            /** Host Contract Fingerprint */
+            host_contract_fingerprint?: string | null;
+            /**
+             * Host Instrument Order
+             * @default []
+             */
+            host_instrument_order: string[];
+            /** Host Provider Id */
+            host_provider_id?: string | null;
             /** Point Count */
             point_count: number;
             /**
@@ -1573,6 +2165,12 @@ export interface components {
             /** Value */
             value: number;
         };
+        StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
+        /**
+         * StateValue
+         * @description A concrete primitive, finite quantity, or command-local payload reference.
+         */
+        StateValue: components["schemas"]["StateLiteral"];
         /**
          * StorageLocation
          * @description A location in project storage or one durable run namespace.
@@ -1603,7 +2201,7 @@ export interface components {
             domain_target: components["schemas"]["DomainTargetBinding"] | null;
             /** Id */
             id: string;
-            instrument_registry: components["schemas"]["InstrumentRegistry"];
+            instrument_registry: components["schemas"]["InstrumentRegistry-Input"];
             parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
@@ -1618,7 +2216,7 @@ export interface components {
             domain_target: components["schemas"]["DomainTargetBinding"] | null;
             /** Id */
             id: string;
-            instrument_registry: components["schemas"]["InstrumentRegistry"];
+            instrument_registry: components["schemas"]["InstrumentRegistry-Output"];
             parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
@@ -1658,6 +2256,48 @@ export interface components {
              * @enum {string}
              */
             shape: "table";
+        };
+        /** TcpipSocketInstrumentConnection */
+        "TcpipSocketInstrumentConnection-Input": {
+            /** Host */
+            host: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tcpip_socket";
+            /** Options */
+            options?: {
+                [key: string]: components["schemas"]["JsonValue-Input"];
+            };
+            /** Port */
+            port: number;
+            /**
+             * Timeout Seconds
+             * @default 5
+             */
+            timeout_seconds: number;
+        };
+        /** TcpipSocketInstrumentConnection */
+        "TcpipSocketInstrumentConnection-Output": {
+            /** Host */
+            host: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tcpip_socket";
+            /** Options */
+            options?: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
+            /** Port */
+            port: number;
+            /**
+             * Timeout Seconds
+             * @default 5
+             */
+            timeout_seconds: number;
         };
         /** Topology */
         "Topology-Input": {
@@ -1701,6 +2341,30 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VirtualInstrumentConnection */
+        "VirtualInstrumentConnection-Input": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "virtual";
+            /** Options */
+            options?: {
+                [key: string]: components["schemas"]["JsonValue-Input"];
+            };
+        };
+        /** VirtualInstrumentConnection */
+        "VirtualInstrumentConnection-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "virtual";
+            /** Options */
+            options?: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
         };
     };
     responses: never;
@@ -1747,6 +2411,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigActivationHistoryView"];
+                };
+            };
+        };
+    };
+    get_active_config_api_v1_config_registry_active_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActiveConfigView"];
                 };
             };
         };
@@ -1964,6 +2648,287 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DaemonHealth"];
+                };
+            };
+        };
+    };
+    open_instrument_session_api_v1_instrument_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentSessionOpenCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentSessionOpenReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    abort_instrument_session_api_v1_instrument_sessions__session_id__abort_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentSessionEndReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_instrument_session_attention_api_v1_instrument_sessions__session_id__attention_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentSessionEndReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_instrument_session_api_v1_instrument_sessions__session_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentSessionEndReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    collect_instrument_api_v1_instrument_sessions__session_id__instruments__instrument_id__collect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentStateSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentStateCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_instruments_api_v1_instruments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentListView"];
+                };
+            };
+        };
+    };
+    get_instrument_api_v1_instruments__instrument_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

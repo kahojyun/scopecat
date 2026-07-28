@@ -1,4 +1,4 @@
-"""Validate a local effect block against live driver descriptions."""
+"""Validate an effect block against provider-advertised descriptions."""
 
 from __future__ import annotations
 
@@ -91,27 +91,12 @@ def validate_local_effect_block_instruments(
             if description is None:
                 continue
             for request in operation.command.requests:
-                products = _matching_products(
+                product = _matching_product(
                     description,
                     capability_id=request.capability_id,
                     product_key=request.id,
                 )
-                if len(products) > 1:
-                    problems.append(
-                        _problem(
-                            "instrument_product_ambiguous",
-                            f"instrument {operation.instrument_id} product "
-                            f"{request.id} has multiple provider declarations "
-                            f"under capability {request.capability_id!r}",
-                            "operations",
-                            operation.operation_id,
-                            "requests",
-                            request.id,
-                            "capability_id",
-                        )
-                    )
-                    continue
-                if not products:
+                if product is None:
                     problems.append(
                         _problem(
                             "instrument_product_unsupported",
@@ -125,7 +110,6 @@ def validate_local_effect_block_instruments(
                         )
                     )
                     continue
-                product = products[0]
                 problems.extend(
                     _validate_product(
                         operation_id=operation.operation_id,
@@ -171,18 +155,29 @@ def _referenced_payloads(
     return selected
 
 
-def _matching_products(
+def _matching_product(
     description: InstrumentDescription,
     *,
     capability_id: str,
     product_key: str,
-) -> tuple[ProductDescription, ...]:
-    return tuple(
-        product
-        for capability in description.capabilities
-        if capability.id == capability_id
-        for product in capability.products
-        if product.key == product_key
+) -> ProductDescription | None:
+    selected_capability = next(
+        (
+            capability
+            for capability in description.capabilities
+            if capability.id == capability_id
+        ),
+        None,
+    )
+    if selected_capability is None:
+        return None
+    return next(
+        (
+            product
+            for product in selected_capability.products
+            if product.key == product_key
+        ),
+        None,
     )
 
 

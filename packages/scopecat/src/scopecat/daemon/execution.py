@@ -17,13 +17,24 @@ from scopecat.daemon.wire import (
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
+    RunHardwareBatchCommand,
+    RunHardwareFinishCommand,
+    RunInstrumentProvisionCommand,
+    RunInstrumentProvisionReceipt,
     RunSubmission,
     TerminalModelWrite,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.ports.instruments import (
+    RunHardwareBatch,
+    RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
+)
 from scopecat.execution.services import ExecutionSession
+from scopecat.kernel.problems import Problem
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
@@ -33,6 +44,7 @@ from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
+_PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
 
 
 class ExecutorLeaseLostError(RuntimeError):
@@ -72,13 +84,19 @@ def daemon_execution_session(
         executor_id=executor_id,
         lease_supervisor=lease_supervisor,
     )
+    instruments = _DaemonRunInstrumentHost(authority)
+
+    def begin() -> None:
+        authority.start()
+        instruments.provision()
+
     return ExecutionSession(
         accepted=admission.manifest,
-        config=submission.config,
-        begin=authority.start,
+        begin=begin,
         commit_terminal=authority.commit_terminal,
         journal=_DaemonExecutionJournal(authority),
         measurements=_DaemonMeasurementRepository(authority),
+        instruments=instruments,
     )
 
 
@@ -208,6 +226,82 @@ class _DaemonMeasurementRepository:
                 seal=seal,
             ),
         )
+
+
+class _DaemonRunInstrumentHost:
+    """Typed transport proxy for drivers retained by the project daemon."""
+
+    def __init__(self, authority: _LeaseAuthority) -> None:
+        self._authority = authority
+        self._provisioning: RunInstrumentProvisionReceipt | None = None
+        self._lock = Lock()
+
+    @property
+    def ready(self) -> bool:
+        return self._receipt().status == "ready"
+
+    @property
+    def setup_problems(self) -> tuple[Problem, ...]:
+        return self._receipt().problems
+
+    @property
+    def initial_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._receipt().initial_state
+
+    def provision(self) -> RunInstrumentProvisionReceipt:
+        with self._lock:
+            if self._provisioning is not None:
+                return self._provisioning
+        lease_id = self._authority.fence()
+        receipt = self._authority.client.provision_run_instruments(
+            self._authority.run_id,
+            RunInstrumentProvisionCommand(
+                lease_id=lease_id,
+                operation_id=_PROVISION_OPERATION_ID,
+            ),
+        )
+        if (
+            receipt.run_id != self._authority.run_id
+            or receipt.operation_id != _PROVISION_OPERATION_ID
+        ):
+            raise ValueError(
+                "run instrument provisioning receipt does not match command"
+            )
+        with self._lock:
+            if self._provisioning is None:
+                self._provisioning = receipt
+            return self._provisioning
+
+    def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
+        return self._authority.client.execute_run_hardware(
+            self._authority.run_id,
+            RunHardwareBatchCommand(
+                lease_id=self._authority.fence(),
+                batch=batch,
+            ),
+        )
+
+    def finish(
+        self,
+        *,
+        operation_id: str,
+        failed: bool,
+    ) -> RunHardwareFinalizationReceipt:
+        return self._authority.client.finish_run_hardware(
+            self._authority.run_id,
+            RunHardwareFinishCommand(
+                lease_id=self._authority.fence(),
+                operation_id=operation_id,
+                failed=failed,
+            ),
+        )
+
+    def _receipt(self) -> RunInstrumentProvisionReceipt:
+        with self._lock:
+            receipt = self._provisioning
+        if receipt is None:
+            raise RuntimeError("run instruments have not been provisioned")
+        return receipt
 
 
 def _json_document(model: BaseModel) -> dict[str, JsonValue]:

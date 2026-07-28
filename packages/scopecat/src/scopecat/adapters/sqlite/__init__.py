@@ -9,6 +9,7 @@ from scopecat.adapters.sqlite.control_plane import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
+    InstrumentSessionNotActive,
     SQLiteControlPlane,
 )
 from scopecat.adapters.sqlite.execution import (
@@ -31,6 +32,7 @@ __all__ = [
     "ControlPlaneNotFound",
     "ExecutorLeaseNotHeld",
     "ImmutableObjectStore",
+    "InstrumentSessionNotActive",
     "ProjectStoreError",
     "SQLiteConfigRegistryRepository",
     "SQLiteConfigRegistryStore",

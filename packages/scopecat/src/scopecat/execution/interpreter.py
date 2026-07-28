@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from scopecat.execution.effect_result import RunEffectResult
+from scopecat.execution.effect_interpreter import RunEffectInterpreter
+from scopecat.execution.effect_result import (
+    CoverageMeasurementObserver,
+    RunEffectResult,
+)
 from scopecat.execution.effects.domain import (
     domain_runtime_terminal_problem,
     measurement_recording_terminal_problem,
@@ -12,7 +16,6 @@ from scopecat.execution.evidence import (
     build_terminal_contents,
     instrument_state_evidence_ref,
 )
-from scopecat.execution.local.executor import execute_run_operations
 from scopecat.execution.measurement_postprocessors import (
     execute_measurement_postprocessors,
 )
@@ -46,13 +49,11 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
-from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunModelWrite,
     TerminalRunCommit,
 )
-from scopecat.sdk.instruments.contracts import InstrumentProvider
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
     problem_from_exception,
@@ -64,7 +65,6 @@ def execute_admitted_run(
     *,
     program: RunProgram,
     session: ExecutionSession,
-    instrument_provider: InstrumentProvider | None = None,
 ) -> RunManifest:
     """Execute a transient program against its authoritative accepted snapshot."""
 
@@ -77,19 +77,15 @@ def execute_admitted_run(
         raise ValueError(msg)
     session.begin()
     return _execute_run(
-        config=session.config,
         program=program,
         session=session,
-        instrument_provider=instrument_provider,
     )
 
 
 def _execute_run(
     *,
-    config: ConfigProfileSnapshot,
     program: RunProgram,
     session: ExecutionSession,
-    instrument_provider: InstrumentProvider | None,
 ) -> RunManifest:
     host = program.host
     projection = program.measurements
@@ -139,12 +135,9 @@ def _execute_run(
             committed_measurement_count += len(projected.records)
             append_content_hashes.append(receipt.dataset_content_hash)
 
-    effect_result = execute_run_operations(
-        config=config,
+    effect_result = _execute_instrument_effects(
         program=program,
-        run_id=run_id,
-        journal=journal,
-        instrument_provider=instrument_provider,
+        session=session,
         coverage_observer=commit_coverage,
     )
 
@@ -279,6 +272,60 @@ def _execute_run(
     return manifest
 
 
+def _execute_instrument_effects(
+    *,
+    program: RunProgram,
+    session: ExecutionSession,
+    coverage_observer: CoverageMeasurementObserver,
+) -> RunEffectResult:
+    instruments = session.instruments
+    setup_problems = list(instruments.setup_problems)
+    if not instruments.ready:
+        return RunEffectResult(
+            problems=tuple(setup_problems),
+            initial_state=(),
+            final_state=(),
+        )
+
+    if setup_problems:
+        try:
+            finished = instruments.finish(
+                operation_id="hardware.reject-setup",
+                failed=True,
+            )
+            release_problems = list(finished.problems)
+            release_unknown = finished.indeterminate
+        except Exception as error:
+            release_problems = [
+                problem_from_exception(
+                    "instrument_setup_release_failed",
+                    "instrument setup could not be released",
+                    run_id=session.run_id,
+                    operation_id="hardware.reject-setup",
+                    error=error,
+                )
+            ]
+            release_unknown = True
+        return RunEffectResult(
+            problems=(*setup_problems, *release_problems),
+            initial_state=(),
+            final_state=(),
+            indeterminate=release_unknown,
+        )
+
+    engine = RunEffectInterpreter(
+        run_id=session.run_id,
+        coordinate_ids=program.points.coordinate_ids,
+        instruments=instruments,
+        journal=session.journal,
+        coverage_observer=coverage_observer,
+    )
+    return engine.run(
+        program.coverage,
+        points=program.points.points,
+    )
+
+
 def _effect_problems(
     *,
     result: RunEffectResult,
@@ -288,7 +335,7 @@ def _effect_problems(
         contextualize_problems(
             result.problems,
             run_id=run_id,
-            operation_id="execution-plan.local",
+            operation_id="execution-plan.effects",
         )
     )
 

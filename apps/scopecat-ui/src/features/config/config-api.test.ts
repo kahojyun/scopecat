@@ -257,7 +257,13 @@ function configProfile(id: string): ConfigProfileSnapshot {
         entities: [{ id: "q0", kind: "logical_qubit", metadata: {} }],
       },
       instrument_registry: {
-        instruments: [{ id: "signal", kind: "signal_generator" }],
+        instruments: [
+          {
+            id: "signal",
+            driver_id: "virtual.signal_generator",
+            connection: { kind: "virtual" },
+          },
+        ],
       },
       routing: { bindings: [] },
       domain_target: null,
