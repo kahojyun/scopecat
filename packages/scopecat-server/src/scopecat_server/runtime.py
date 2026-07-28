@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from datetime import timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -26,6 +27,7 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
 from .instrument_actor import InstrumentActorRegistry
+from .instrument_backend import LocalInstrumentBackendEndpoint
 from .services import (
     AdmissionService,
     CommandPayloadService,
@@ -67,7 +69,7 @@ class LocalDaemonRuntime:
         database = self.state_dir / "control.sqlite3"
         objects = self.state_dir / "objects"
         application_bootstrap: BootstrapConfigFactory | None = None
-        instrument_backend = None
+        instrument_endpoint = None
 
         try:
             if application_factory is not None:
@@ -75,7 +77,9 @@ class LocalDaemonRuntime:
                 application_bootstrap = lab_application.bootstrap_config
                 create_instrument_backend = lab_application.create_instrument_backend
                 if create_instrument_backend is not None:
-                    instrument_backend = create_instrument_backend()
+                    instrument_endpoint = LocalInstrumentBackendEndpoint(
+                        create_instrument_backend()
+                    )
 
             control = SQLiteControlPlane(database)
             runs = SQLiteRunRepository(database, objects)
@@ -113,7 +117,7 @@ class LocalDaemonRuntime:
                 control=control,
                 runs=runs,
                 config=config_service,
-                backend=instrument_backend,
+                endpoint=instrument_endpoint,
                 payloads=payloads,
                 actors=instrument_actors,
             )
@@ -160,6 +164,9 @@ class LocalDaemonRuntime:
                 raise
             self.application = application
         except BaseException:
+            if instrument_endpoint is not None:
+                with suppress(Exception):
+                    instrument_endpoint.shutdown()
             self._owner_lock.release()
             raise
 

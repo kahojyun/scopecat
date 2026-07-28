@@ -14,13 +14,18 @@ from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
     InstrumentDescription,
-    InstrumentDriver,
     InvokeReceipt,
 )
 from scopecat.sdk.instruments.driver import (
     DriverApplyRequest,
     DriverCollectRequest,
     DriverInvokeRequest,
+)
+
+from .instrument_backend import (
+    ConnectedInstrument,
+    InstrumentBackendEndpoint,
+    InstrumentHandle,
 )
 
 
@@ -38,7 +43,7 @@ class InstrumentActorShutdown(InstrumentActorError):
 
 @dataclass(frozen=True, slots=True)
 class InstrumentBindingKey:
-    """Identify the config-specific driver generation behind one actor."""
+    """Identify the config-specific backend binding behind one actor."""
 
     provider_id: str
     config_content_hash: str
@@ -54,10 +59,8 @@ class InstrumentOwnerKey:
     fence: str | None = None
 
 
-type InstrumentConnector = Callable[
-    [],
-    tuple[InstrumentDriver, InstrumentDescription],
-]
+type InstrumentConnector = Callable[[], ConnectedInstrument]
+type InstrumentConnection = tuple[InstrumentBackendEndpoint, InstrumentHandle]
 
 
 class OwnedInstrument:
@@ -163,7 +166,8 @@ class _InstrumentActor:
         self._lock = RLock()
         self._binding: InstrumentBindingKey | None = None
         self._description: InstrumentDescription | None = None
-        self._driver: InstrumentDriver | None = None
+        self._endpoint: InstrumentBackendEndpoint | None = None
+        self._handle: InstrumentHandle | None = None
         self._owned: OwnedInstrument | None = None
         self._assumed_state: InstrumentStateSnapshot | None = None
         self._epoch = 0
@@ -175,6 +179,7 @@ class _InstrumentActor:
         *,
         binding: InstrumentBindingKey,
         owner: InstrumentOwnerKey,
+        endpoint: InstrumentBackendEndpoint,
         connect: InstrumentConnector,
         retire_on_release: bool,
     ) -> OwnedInstrument:
@@ -184,22 +189,25 @@ class _InstrumentActor:
                     f"instrument actor is shut down: {self.instrument_id}"
                 )
             if self._owned is not None:
-                if self._binding != binding:
+                if self._binding != binding or self._endpoint is not endpoint:
                     raise InstrumentActorConflict(
-                        "owned instrument cannot change driver binding"
+                        "owned instrument cannot change backend binding"
                     )
                 raise InstrumentActorConflict(
                     f"instrument is already owned: {self.instrument_id}"
                 )
-            if self._driver is not None and (
-                self._binding != binding or self._retire_on_release
+            if self._handle is not None and (
+                self._binding != binding
+                or self._endpoint is not endpoint
+                or self._retire_on_release
             ):
                 self._disconnect_idle()
-            reused_connection = self._driver is not None
-            if self._driver is None:
-                driver, description = connect()
-                self._driver = driver
-                self._description = description
+            reused_connection = self._handle is not None
+            if self._handle is None:
+                connected = connect()
+                self._endpoint = endpoint
+                self._handle = connected.handle
+                self._description = connected.description
                 self._binding = binding
             self._retire_on_release = retire_on_release
             description = self._description
@@ -218,10 +226,10 @@ class _InstrumentActor:
 
     def read_state(self, owned: OwnedInstrument) -> InstrumentStateSnapshot:
         with self._lock:
-            driver = self._require_owned(owned)
+            endpoint, handle = self._require_owned(owned)
             # A failed refresh must not leave a previously observed baseline usable.
             self._assumed_state = None
-            return driver.read_state()
+            return endpoint.read_state(handle)
 
     def assumed_state(
         self,
@@ -253,10 +261,10 @@ class _InstrumentActor:
         request: DriverApplyRequest,
     ) -> ApplyReceipt:
         with self._lock:
-            driver = self._require_owned(owned)
+            endpoint, handle = self._require_owned(owned)
             previous = self._assumed_state
             self._assumed_state = None
-            receipt = driver.apply_state(request)
+            receipt = endpoint.apply_state(handle, request)
             if receipt.status == "not_applied":
                 self._assumed_state = previous
             return receipt
@@ -267,10 +275,10 @@ class _InstrumentActor:
         request: DriverInvokeRequest,
     ) -> InvokeReceipt:
         with self._lock:
-            driver = self._require_owned(owned)
+            endpoint, handle = self._require_owned(owned)
             previous = self._assumed_state
             self._assumed_state = None
-            receipt = driver.invoke(request)
+            receipt = endpoint.invoke(handle, request)
             if receipt.status == "not_invoked":
                 self._assumed_state = previous
             return receipt
@@ -281,9 +289,9 @@ class _InstrumentActor:
         request: DriverCollectRequest,
     ) -> CollectReceipt:
         with self._lock:
-            driver = self._require_owned(owned)
+            endpoint, handle = self._require_owned(owned)
             try:
-                receipt = driver.collect(request)
+                receipt = endpoint.collect(handle, request)
             except Exception:
                 self._assumed_state = None
                 raise
@@ -293,9 +301,9 @@ class _InstrumentActor:
 
     def abort(self, owned: OwnedInstrument) -> None:
         with self._lock:
-            driver = self._require_owned(owned)
+            endpoint, handle = self._require_owned(owned)
             self._assumed_state = None
-            driver.abort()
+            endpoint.abort(handle)
 
     def release(self, owned: OwnedInstrument) -> None:
         with self._lock:
@@ -313,9 +321,10 @@ class _InstrumentActor:
             self._owned = None
             self._epoch += 1
             self._assumed_state = None
-            driver = self._detach_connection()
-            if driver is not None:
-                driver.disconnect()
+            connection = self._detach_connection()
+            if connection is not None:
+                endpoint, handle = connection
+                endpoint.disconnect(handle)
 
     def shutdown(self) -> None:
         with self._lock:
@@ -326,9 +335,10 @@ class _InstrumentActor:
                 self._assumed_state = None
                 self._owned = None
                 self._epoch += 1
-            driver = self._detach_connection()
-            if driver is not None:
-                driver.disconnect()
+            connection = self._detach_connection()
+            if connection is not None:
+                endpoint, handle = connection
+                endpoint.disconnect(handle)
 
     def retire_config_generations_before(self, generation: int) -> None:
         """Disconnect stale idle bindings without interrupting their current owner."""
@@ -344,37 +354,44 @@ class _InstrumentActor:
             if self._owned is None:
                 self._disconnect_retired()
 
-    def _require_owned(self, owned: OwnedInstrument) -> InstrumentDriver:
+    def _require_owned(self, owned: OwnedInstrument) -> InstrumentConnection:
         if (
             self._owned is not owned
             or owned.epoch != self._epoch
-            or self._driver is None
+            or self._endpoint is None
+            or self._handle is None
         ):
             raise InstrumentActorConflict(
                 f"stale instrument ownership handle: {self.instrument_id}"
             )
-        return self._driver
+        return self._endpoint, self._handle
 
     def _disconnect_idle(self) -> None:
-        driver = self._detach_connection()
+        connection = self._detach_connection()
         self._epoch += 1
-        if driver is not None:
-            driver.disconnect()
+        if connection is not None:
+            endpoint, handle = connection
+            endpoint.disconnect(handle)
 
     def _disconnect_retired(self) -> None:
-        driver = self._detach_connection()
+        connection = self._detach_connection()
         self._epoch += 1
-        if driver is not None:
+        if connection is not None:
+            endpoint, handle = connection
             with suppress(Exception):
-                driver.disconnect()
+                endpoint.disconnect(handle)
 
-    def _detach_connection(self) -> InstrumentDriver | None:
-        driver = self._driver
-        self._driver = None
+    def _detach_connection(self) -> InstrumentConnection | None:
+        endpoint = self._endpoint
+        handle = self._handle
+        self._endpoint = None
+        self._handle = None
         self._description = None
         self._binding = None
         self._retire_on_release = False
-        return driver
+        if endpoint is None or handle is None:
+            return None
+        return endpoint, handle
 
 
 class InstrumentActorRegistry:
@@ -393,6 +410,7 @@ class InstrumentActorRegistry:
         *,
         binding: InstrumentBindingKey,
         owner: InstrumentOwnerKey,
+        endpoint: InstrumentBackendEndpoint,
         connect: InstrumentConnector,
     ) -> OwnedInstrument:
         with self._lock:
@@ -411,6 +429,7 @@ class InstrumentActorRegistry:
         owned = actor.acquire(
             binding=binding,
             owner=owner,
+            endpoint=endpoint,
             connect=connect,
             retire_on_release=retire_on_release,
         )

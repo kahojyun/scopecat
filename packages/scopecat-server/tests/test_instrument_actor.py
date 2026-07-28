@@ -3,17 +3,25 @@ from __future__ import annotations
 from collections.abc import Callable
 from threading import Event, Lock, Thread
 from typing import override
+from uuid import uuid4
 
 import pytest
 from scopecat.config.registry.records import ConfigRegistryActivationRecord
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
+    ApplyReceipt,
+    CollectReceipt,
     DriverApplyRequest,
     DriverCollectRequest,
     DriverCollectResult,
     DriverInvokeRequest,
     DriverPropertyWrite,
     InstrumentDescription,
+    InvokeReceipt,
 )
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,
     number_state,
@@ -26,6 +34,12 @@ from scopecat_server.instrument_actor import (
     InstrumentBindingKey,
     InstrumentOwnerKey,
     OwnedInstrument,
+)
+from scopecat_server.instrument_backend import (
+    ConnectedInstrument,
+    InstrumentBackendEndpoint,
+    InstrumentHandle,
+    InstrumentHandleInvalid,
 )
 
 
@@ -69,6 +83,121 @@ class _BlockingReadDriver(_TrackingDriver):
                 self._active -= 1
 
 
+class _DriverEndpoint(InstrumentBackendEndpoint):
+    def __init__(
+        self,
+        drivers: list[_TrackingDriver],
+        instrument_id: str = "source-0",
+        *,
+        driver_type: type[_TrackingDriver] = _TrackingDriver,
+    ) -> None:
+        self._drivers = drivers
+        self._instrument_id = instrument_id
+        self._driver_type = driver_type
+        self._endpoint_id = uuid4().hex
+        self._connections: dict[InstrumentHandle, _TrackingDriver] = {}
+        self._lock = Lock()
+
+    @property
+    @override
+    def provider_id(self) -> str:
+        return "tests.actor_provider"
+
+    @property
+    @override
+    def payload_codecs(self) -> PayloadCodecRegistry:
+        return EMPTY_PAYLOAD_CODECS
+
+    @override
+    def resolve_contracts(
+        self,
+        config: ConfigProfileSnapshot,
+    ) -> InstrumentContractCatalog:
+        del config
+        raise AssertionError("actor tests do not resolve instrument contracts")
+
+    @override
+    def connect(
+        self,
+        *,
+        config: ConfigProfileSnapshot,
+        instrument_id: str,
+        expected: InstrumentDescription,
+    ) -> ConnectedInstrument:
+        del config
+        connected = self.attach(self._driver_type(instrument_id))
+        assert connected.description == expected
+        return connected
+
+    def __call__(self) -> ConnectedInstrument:
+        return self.attach(self._driver_type(self._instrument_id))
+
+    def attach(self, driver: _TrackingDriver) -> ConnectedInstrument:
+        handle = InstrumentHandle(
+            endpoint_id=self._endpoint_id,
+            token=uuid4().hex,
+        )
+        with self._lock:
+            self._connections[handle] = driver
+            self._drivers.append(driver)
+        return ConnectedInstrument(handle=handle, description=driver.describe())
+
+    @override
+    def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
+        return self._driver(handle).read_state()
+
+    @override
+    def apply_state(
+        self,
+        handle: InstrumentHandle,
+        request: DriverApplyRequest,
+    ) -> ApplyReceipt:
+        return self._driver(handle).apply_state(request)
+
+    @override
+    def invoke(
+        self,
+        handle: InstrumentHandle,
+        request: DriverInvokeRequest,
+    ) -> InvokeReceipt:
+        return self._driver(handle).invoke(request)
+
+    @override
+    def collect(
+        self,
+        handle: InstrumentHandle,
+        request: DriverCollectRequest,
+    ) -> CollectReceipt:
+        return self._driver(handle).collect(request)
+
+    @override
+    def abort(self, handle: InstrumentHandle) -> None:
+        self._driver(handle).abort()
+
+    @override
+    def disconnect(self, handle: InstrumentHandle) -> None:
+        with self._lock:
+            driver = self._connections.pop(handle)
+        driver.disconnect()
+
+    @override
+    def shutdown(self) -> None:
+        with self._lock:
+            drivers = tuple(self._connections.values())
+            self._connections.clear()
+        for driver in drivers:
+            driver.disconnect()
+
+    def _driver(self, handle: InstrumentHandle) -> _TrackingDriver:
+        if handle.endpoint_id != self._endpoint_id:
+            raise InstrumentHandleInvalid("foreign instrument handle")
+        with self._lock:
+            try:
+                return self._connections[handle]
+            except KeyError as error:
+                raise InstrumentHandleInvalid("stale instrument handle") from error
+
+
 def _binding(
     revision: str = "a",
     *,
@@ -104,30 +233,30 @@ def _owner(
     return InstrumentOwnerKey(kind="instrument_session", owner_id=owner_id)
 
 
-def _connector(
+def _endpoint(
     drivers: list[_TrackingDriver],
     instrument_id: str = "source-0",
     *,
     driver_type: type[_TrackingDriver] = _TrackingDriver,
-) -> Callable[[], tuple[_TrackingDriver, InstrumentDescription]]:
-    def connect() -> tuple[_TrackingDriver, InstrumentDescription]:
-        driver = driver_type(instrument_id)
-        drivers.append(driver)
-        return driver, driver.describe()
-
-    return connect
+) -> _DriverEndpoint:
+    return _DriverEndpoint(
+        drivers,
+        instrument_id,
+        driver_type=driver_type,
+    )
 
 
 def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     registry = InstrumentActorRegistry()
     drivers: list[_TrackingDriver] = []
-    connect = _connector(drivers)
+    endpoint = _endpoint(drivers)
 
     first = registry.acquire(
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
-        connect=connect,
+        endpoint=endpoint,
+        connect=endpoint,
     )
     assert not first.reused_connection
     observed = first.read_state()
@@ -143,7 +272,8 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
         "source-0",
         binding=_binding(),
         owner=_owner("session-2"),
-        connect=connect,
+        endpoint=endpoint,
+        connect=endpoint,
     )
     assert second.reused_connection
     assert len(drivers) == 1
@@ -161,22 +291,26 @@ def test_binding_change_is_rejected_while_owned_and_rebinds_while_idle() -> None
     registry = InstrumentActorRegistry()
     old_drivers: list[_TrackingDriver] = []
     new_drivers: list[_TrackingDriver] = []
+    old_endpoint = _endpoint(old_drivers)
+    new_endpoint = _endpoint(new_drivers)
     first = registry.acquire(
         "source-0",
         binding=_binding("a"),
         owner=_owner("session-1"),
-        connect=_connector(old_drivers),
+        endpoint=old_endpoint,
+        connect=old_endpoint,
     )
 
     with pytest.raises(
         InstrumentActorConflict,
-        match="cannot change driver binding",
+        match="cannot change backend binding",
     ):
         registry.acquire(
             "source-0",
             binding=_binding("b"),
             owner=_owner("session-2"),
-            connect=_connector(new_drivers),
+            endpoint=new_endpoint,
+            connect=new_endpoint,
         )
     assert not new_drivers
     assert old_drivers[0].disconnect_count == 0
@@ -186,7 +320,8 @@ def test_binding_change_is_rejected_while_owned_and_rebinds_while_idle() -> None
         "source-0",
         binding=_binding("b"),
         owner=_owner("session-2"),
-        connect=_connector(new_drivers),
+        endpoint=new_endpoint,
+        connect=new_endpoint,
     )
     assert not second.reused_connection
     assert old_drivers[0].disconnect_count == 1
@@ -199,11 +334,13 @@ def test_activation_retires_idle_actor_even_when_content_hash_is_unchanged() -> 
     registry = InstrumentActorRegistry()
     registry.observe_config_activation(_activation(1, "a"))
     drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
     first = registry.acquire(
         "source-0",
         binding=_binding("a", generation=1),
         owner=_owner("session-1"),
-        connect=_connector(drivers),
+        endpoint=endpoint,
+        connect=endpoint,
     )
     first.release()
 
@@ -214,7 +351,8 @@ def test_activation_retires_idle_actor_even_when_content_hash_is_unchanged() -> 
         "source-0",
         binding=_binding("a", generation=2),
         owner=_owner("session-2"),
-        connect=_connector(drivers),
+        endpoint=endpoint,
+        connect=endpoint,
     )
     assert not second.reused_connection
     assert len(drivers) == 2
@@ -226,11 +364,13 @@ def test_activation_defers_owned_actor_retirement_until_release() -> None:
     registry = InstrumentActorRegistry()
     registry.observe_config_activation(_activation(1, "a"))
     drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
     owned = registry.acquire(
         "source-0",
         binding=_binding("a", generation=1),
         owner=_owner("session-1"),
-        connect=_connector(drivers),
+        endpoint=endpoint,
+        connect=endpoint,
     )
 
     registry.observe_config_activation(_activation(2, "b"))
@@ -246,11 +386,13 @@ def test_activation_notifications_are_generation_idempotent() -> None:
     registry = InstrumentActorRegistry()
     registry.observe_config_activation(_activation(1, "a"))
     drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
     owned = registry.acquire(
         "source-0",
         binding=_binding("a", generation=1),
         owner=_owner("session-1"),
-        connect=_connector(drivers),
+        endpoint=endpoint,
+        connect=endpoint,
     )
     owned.release()
 
@@ -266,11 +408,13 @@ def test_non_active_binding_always_retires_on_release() -> None:
     registry = InstrumentActorRegistry()
     registry.observe_config_activation(_activation(2, "b"))
     drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
     owned = registry.acquire(
         "source-0",
         binding=_binding("a", generation=None),
         owner=_owner("run-1", kind="run"),
-        connect=_connector(drivers),
+        endpoint=endpoint,
+        connect=endpoint,
     )
 
     owned.release()
@@ -282,12 +426,13 @@ def test_non_active_binding_always_retires_on_release() -> None:
 def test_owner_epoch_rejects_stale_handles_and_fault_discards_connection() -> None:
     registry = InstrumentActorRegistry()
     drivers: list[_TrackingDriver] = []
-    connect = _connector(drivers)
+    endpoint = _endpoint(drivers)
     first = registry.acquire(
         "source-0",
         binding=_binding(),
         owner=_owner("run-1", kind="run"),
-        connect=connect,
+        endpoint=endpoint,
+        connect=endpoint,
     )
     first.adopt_state(first.read_state())
     first.fault()
@@ -301,7 +446,8 @@ def test_owner_epoch_rejects_stale_handles_and_fault_discards_connection() -> No
         "source-0",
         binding=_binding(),
         owner=_owner("run-2", kind="run"),
-        connect=connect,
+        endpoint=endpoint,
+        connect=endpoint,
     )
     assert not second.reused_connection
     assert len(drivers) == 2
@@ -315,14 +461,16 @@ def test_owner_epoch_rejects_stale_handles_and_fault_discards_connection() -> No
 def test_handle_serializes_driver_calls_and_never_exposes_the_driver() -> None:
     registry = InstrumentActorRegistry()
     drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(
+        drivers,
+        driver_type=_BlockingReadDriver,
+    )
     owned = registry.acquire(
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
-        connect=_connector(
-            drivers,
-            driver_type=_BlockingReadDriver,
-        ),
+        endpoint=endpoint,
+        connect=endpoint,
     )
     driver = drivers[0]
     assert isinstance(driver, _BlockingReadDriver)
@@ -368,17 +516,18 @@ def test_unrelated_instruments_can_connect_concurrently() -> None:
     second_entered = Event()
     handles: list[OwnedInstrument] = []
     errors: list[BaseException] = []
+    endpoint = _endpoint([])
 
     def connector(
         instrument_id: str,
         entered: Event,
         peer_entered: Event,
-    ) -> Callable[[], tuple[_TrackingDriver, InstrumentDescription]]:
-        def connect() -> tuple[_TrackingDriver, InstrumentDescription]:
+    ) -> Callable[[], ConnectedInstrument]:
+        def connect() -> ConnectedInstrument:
             entered.set()
             assert peer_entered.wait(timeout=2)
             driver = _TrackingDriver(instrument_id)
-            return driver, driver.describe()
+            return endpoint.attach(driver)
 
         return connect
 
@@ -393,6 +542,7 @@ def test_unrelated_instruments_can_connect_concurrently() -> None:
                     instrument_id,
                     binding=_binding(),
                     owner=_owner(f"session-{instrument_id}"),
+                    endpoint=endpoint,
                     connect=connector(instrument_id, entered, peer_entered),
                 )
             )
@@ -424,11 +574,13 @@ def test_unrelated_instruments_can_connect_concurrently() -> None:
 def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     registry = InstrumentActorRegistry()
     drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
     owned = registry.acquire(
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
-        connect=_connector(drivers),
+        endpoint=endpoint,
+        connect=endpoint,
     )
     observed = owned.read_state()
     owned.adopt_state(observed)
@@ -474,11 +626,13 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
 def test_stop_accepting_fences_new_owners_without_interrupting_the_drain() -> None:
     registry = InstrumentActorRegistry()
     drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
     owned = registry.acquire(
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
-        connect=_connector(drivers),
+        endpoint=endpoint,
+        connect=endpoint,
     )
     registry.stop_accepting()
 
@@ -490,7 +644,8 @@ def test_stop_accepting_fences_new_owners_without_interrupting_the_drain() -> No
             "source-0",
             binding=_binding(),
             owner=_owner("session-2"),
-            connect=_connector(drivers),
+            endpoint=endpoint,
+            connect=endpoint,
         )
 
     registry.shutdown()
@@ -503,18 +658,22 @@ def test_shutdown_invalidates_owned_handles_closes_every_actor_and_gates_acquire
     registry = InstrumentActorRegistry()
     first_drivers: list[_TrackingDriver] = []
     second_drivers: list[_TrackingDriver] = []
+    first_endpoint = _endpoint(first_drivers)
+    second_endpoint = _endpoint(second_drivers, "source-1")
     first = registry.acquire(
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
-        connect=_connector(first_drivers),
+        endpoint=first_endpoint,
+        connect=first_endpoint,
     )
     first.adopt_state(first.read_state())
     second = registry.acquire(
         "source-1",
         binding=_binding(),
         owner=_owner("session-2"),
-        connect=_connector(second_drivers, "source-1"),
+        endpoint=second_endpoint,
+        connect=second_endpoint,
     )
     second.release()
 
@@ -527,9 +686,11 @@ def test_shutdown_invalidates_owned_handles_closes_every_actor_and_gates_acquire
     with pytest.raises(InstrumentActorConflict, match="stale"):
         first.read_state()
     with pytest.raises(InstrumentActorShutdown, match="registry"):
+        third_endpoint = _endpoint([])
         registry.acquire(
             "source-2",
             binding=_binding(),
             owner=_owner("session-3"),
-            connect=_connector([]),
+            endpoint=third_endpoint,
+            connect=third_endpoint,
         )

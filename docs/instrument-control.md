@@ -17,13 +17,15 @@ experiment-facing contract.
 flowchart LR
     C["InstrumentSpec<br/>immutable connection config"]
     D["InstrumentDescription<br/>interfaces and components"]
-    A["InstrumentActor<br/>process-long driver connection"]
+    B["InstrumentBackendEndpoint<br/>opaque connection handles"]
+    A["InstrumentActor<br/>ownership serialization"]
     S["InstrumentSession / run<br/>ownership epoch + claim"]
     R["ResourcePort<br/>logical experiment requirement"]
 
     C --> D
-    C --> A
-    D --> A
+    C --> B
+    D --> B
+    B --> A
     A --> S
     R -->|"planning and routing"| C
 ```
@@ -40,10 +42,12 @@ interface or nested component may contain persistent properties, atomic
 operations, and acquisitions with typed results. GUI controls and experiment
 validation are derived from this description.
 
-`InstrumentActor` is the process-local connection boundary. One actor
-serializes calls to one physical instrument and may retain a matching
-connection while the instrument is idle. It accepts only the driver backend
-ABI and never treats idle state as observed.
+`InstrumentBackendEndpoint` owns providers and raw drivers, returning only
+opaque connection handles. Its local implementation is the in-process endpoint;
+a worker-backed implementation can preserve the same service and actor API.
+`InstrumentActor` serializes one physical instrument and may retain a matching
+handle while the instrument is idle. It accepts only the driver backend ABI and
+never treats idle state as observed.
 
 `InstrumentSession` and an admitted run are ownership epochs, not connections.
 The daemon pins the config revision, claims all requested instruments, and
@@ -57,10 +61,10 @@ Every new owner reads the device before its first write, including when it
 reuses an idle connection. This accepts legitimate front-panel changes without
 background polling or pretending the daemon observed idle hardware. If that
 refresh fails on a reused connection, the actor retires it and retries once
-with a new driver. Normal release leaves a healthy connection available; an
-unknown hardware outcome faults and disconnects it. Daemon shutdown first
-fences new owners, then drains durable ownership, and finally disconnects all
-remaining actors.
+with a new connection. Normal release leaves a healthy connection available;
+an unknown hardware outcome faults and disconnects it. Daemon shutdown first
+fences new owners, then drains durable ownership, disconnects actor handles,
+and shuts down the endpoint.
 
 An explicit state refresh is read-only. If it fails, or the driver returns an
 invalid snapshot, the daemon ends the whole multi-instrument ownership epoch

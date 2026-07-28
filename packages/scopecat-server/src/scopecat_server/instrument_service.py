@@ -51,13 +51,8 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_identity import scalar_identity
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.planning.provider_binding import (
-    resolve_instrument_contract_catalog,
-)
 from scopecat.planning.provider_validation import (
-    describe_instruments,
     instrument_contract_fingerprint,
-    validate_instruments,
 )
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
@@ -72,7 +67,6 @@ from scopecat.records.instrument import (
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.sdk.instruments.backend import (
-    InstrumentBackend,
     lower_driver_apply_request,
     lower_driver_collect_request,
     lower_driver_invoke_request,
@@ -81,11 +75,7 @@ from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
-    DriverFault,
-    InstrumentConnectionContext,
     InstrumentDescription,
-    InstrumentDriver,
-    InstrumentProvider,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InvokeCommand,
@@ -112,6 +102,11 @@ from .instrument_actor import (
     InstrumentBindingKey,
     InstrumentOwnerKey,
     OwnedInstrument,
+)
+from .instrument_backend import (
+    InstrumentBackendEndpoint,
+    InstrumentBackendRejected,
+    InstrumentBackendUnavailable,
 )
 from .payload_service import CommandPayloadService
 
@@ -172,14 +167,14 @@ class InstrumentService:
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
         config: ConfigService,
-        backend: InstrumentBackend | None,
+        endpoint: InstrumentBackendEndpoint | None,
         payloads: CommandPayloadService,
         actors: InstrumentActorRegistry,
     ) -> None:
         self._control = control
         self._runs = runs
         self._config = config
-        self._backend = backend
+        self._endpoint = endpoint
         self._payloads = payloads
         self._actors = actors
         self._sessions: dict[str, _OwnershipRuntime] = {}
@@ -250,16 +245,13 @@ class InstrumentService:
     ) -> InstrumentContractCatalog:
         """Resolve contracts against exactly the supplied config snapshot."""
 
-        backend = self._backend
-        if backend is None:
+        endpoint = self._endpoint
+        if endpoint is None:
             return InstrumentContractCatalog(
                 config_content_hash=config_content_hash(config),
                 provider_id=None,
             )
-        return resolve_instrument_contract_catalog(
-            config=config,
-            instrument_provider=backend.provider,
-        )
+        return endpoint.resolve_contracts(config)
 
     def get_instrument(self, instrument_id: str) -> InstrumentView:
         instruments = self.list_instruments()
@@ -347,8 +339,8 @@ class InstrumentService:
             if isinstance(config_source, ConfigRegistryRunConfigSource)
             else None
         )
-        backend = self._backend
-        if backend is None:
+        endpoint = self._endpoint
+        if endpoint is None:
             return self._reject_run_provision(
                 run_id,
                 command,
@@ -376,7 +368,6 @@ class InstrumentService:
                     ),
                 ),
             )
-        provider = backend.provider
         global_problems, instrument_problems = _scope_provider_problems(
             config.instrument_registry.instruments,
             catalog.problems,
@@ -439,7 +430,7 @@ class InstrumentService:
 
         try:
             runtime, observed_state = self._open_ownership(
-                provider=provider,
+                endpoint=endpoint,
                 config=config,
                 config_content_hash=manifest.config_content_hash,
                 config_registry_generation=config_registry_generation,
@@ -450,15 +441,15 @@ class InstrumentService:
                 ),
                 instrument_ids=instrument_ids,
                 expected=advertised,
-                payload_codecs=backend.payload_codecs,
+                payload_codecs=endpoint.payload_codecs,
             )
-        except _ProvisioningRejected as error:
+        except InstrumentBackendRejected as error:
             return self._reject_run_provision(
                 run_id,
                 command,
                 problems=error.problems,
             )
-        except _ConnectionFailed:
+        except InstrumentBackendUnavailable:
             return self._reject_run_provision(
                 run_id,
                 command,
@@ -565,7 +556,7 @@ class InstrumentService:
     def _open_ownership(
         self,
         *,
-        provider: InstrumentProvider,
+        endpoint: InstrumentBackendEndpoint,
         config: ConfigProfileSnapshot,
         config_content_hash: str,
         config_registry_generation: int | None,
@@ -576,7 +567,7 @@ class InstrumentService:
     ) -> tuple[_OwnershipRuntime, tuple[InstrumentStateSnapshot, ...]]:
         for attempt in range(2):
             runtime = self._acquire_ownership(
-                provider=provider,
+                endpoint=endpoint,
                 config=config,
                 config_content_hash=config_content_hash,
                 config_registry_generation=config_registry_generation,
@@ -607,7 +598,7 @@ class InstrumentService:
     def _acquire_ownership(
         self,
         *,
-        provider: InstrumentProvider,
+        endpoint: InstrumentBackendEndpoint,
         config: ConfigProfileSnapshot,
         config_content_hash: str,
         config_registry_generation: int | None,
@@ -617,7 +608,7 @@ class InstrumentService:
         payload_codecs: PayloadCodecRegistry,
     ) -> _OwnershipRuntime:
         binding = InstrumentBindingKey(
-            provider_id=provider.provider_id,
+            provider_id=endpoint.provider_id,
             config_content_hash=config_content_hash,
             config_registry_generation=config_registry_generation,
         )
@@ -628,22 +619,24 @@ class InstrumentService:
                     instrument_id,
                     binding=binding,
                     owner=owner,
-                    connect=lambda instrument_id=instrument_id: _provide_driver(
-                        provider,
+                    endpoint=endpoint,
+                    connect=lambda instrument_id=instrument_id: endpoint.connect(
                         config=config,
                         instrument_id=instrument_id,
                         expected=expected[instrument_id],
                     ),
                 )
-        except _ProvisioningRejected:
+        except InstrumentBackendRejected:
             _release_instruments(instruments.values())
             raise
-        except _ConnectionFailed:
+        except InstrumentBackendUnavailable:
             _release_instruments(instruments.values())
             raise
         except Exception as error:
             _release_instruments(instruments.values())
-            raise _ConnectionFailed from error
+            raise InstrumentBackendUnavailable(
+                "instrument connection could not be established"
+            ) from error
         return _OwnershipRuntime(
             instruments=instruments,
             payload_codecs=payload_codecs,
@@ -1510,13 +1503,12 @@ class InstrumentService:
         )
         if missing:
             raise BackendNotFound(f"instrument was not found: {', '.join(missing)}")
-        backend = self._backend
-        if backend is None:
+        endpoint = self._endpoint
+        if endpoint is None:
             raise BackendConflict(
                 "project application does not configure an instrument backend"
             )
         catalog = self.resolve_instrument_contracts(active.config)
-        provider = backend.provider
         descriptions = self._selected_descriptions(
             catalog,
             config=active.config,
@@ -1539,7 +1531,7 @@ class InstrumentService:
 
         try:
             runtime, _observed_state = self._open_ownership(
-                provider=provider,
+                endpoint=endpoint,
                 config=active.config,
                 config_content_hash=active.entry.content_hash,
                 config_registry_generation=active.activation.generation,
@@ -1549,12 +1541,12 @@ class InstrumentService:
                 ),
                 instrument_ids=command.instrument_ids,
                 expected=descriptions,
-                payload_codecs=backend.payload_codecs,
+                payload_codecs=endpoint.payload_codecs,
             )
-        except _ProvisioningRejected as error:
+        except InstrumentBackendRejected as error:
             self._abort_open_session(session)
             raise BackendConflict(str(error)) from error
-        except _ConnectionFailed as error:
+        except InstrumentBackendUnavailable as error:
             self._abort_open_session(session)
             raise BackendConflict(
                 "instrument connection could not be established"
@@ -2166,6 +2158,10 @@ class InstrumentService:
             )
         with suppress(Exception):
             self._actors.shutdown()
+        endpoint = self._endpoint
+        if endpoint is not None:
+            with suppress(Exception):
+                endpoint.shutdown()
 
     def _end_session(
         self,
@@ -2507,21 +2503,6 @@ class InstrumentService:
         )
 
 
-class _ProvisioningRejected(RuntimeError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        problems: tuple[Problem, ...],
-    ) -> None:
-        self.problems = problems
-        super().__init__(message)
-
-
-class _ConnectionFailed(RuntimeError):
-    pass
-
-
 class _RunPreparationRejected(RuntimeError):
     def __init__(
         self,
@@ -2536,61 +2517,6 @@ class _RunPreparationRejected(RuntimeError):
 
 class _RunPreparationUnknown(RuntimeError):
     pass
-
-
-def _provide_driver(
-    provider: InstrumentProvider,
-    *,
-    config: ConfigProfileSnapshot,
-    instrument_id: str,
-    expected: InstrumentDescription,
-) -> tuple[InstrumentDriver, InstrumentDescription]:
-    driver: InstrumentDriver | None = None
-    try:
-        driver = provider.connect(
-            InstrumentConnectionContext(
-                config=config,
-                instrument_id=instrument_id,
-            )
-        )
-        problems = validate_instruments(
-            config=config,
-            instruments=[driver],
-        )
-        actual, description_problems = describe_instruments([driver])
-        problems.extend(description_problems)
-        actual_description = actual[0] if actual else None
-        if actual_description is not None and actual_description != expected:
-            problems.append(
-                _provision_problem(
-                    "instrument_description_changed",
-                    "instrument description changed while provisioning "
-                    f"{instrument_id}",
-                    instrument_id=instrument_id,
-                )
-            )
-        if problems:
-            with suppress(Exception):
-                driver.disconnect()
-            raise _ProvisioningRejected(
-                "instrument provider returned an invalid driver",
-                problems=tuple(problems),
-            )
-        if actual_description is None:
-            raise AssertionError("validated instrument connection has no description")
-        return driver, actual_description
-    except DriverFault as error:
-        raise _ProvisioningRejected(
-            "instrument provider rejected connection",
-            problems=(error.problem,),
-        ) from error
-    except _ProvisioningRejected:
-        raise
-    except Exception as error:
-        if driver is not None:
-            with suppress(Exception):
-                driver.disconnect()
-        raise _ConnectionFailed from error
 
 
 def _provision_problem(
