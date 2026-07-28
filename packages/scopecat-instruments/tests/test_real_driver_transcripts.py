@@ -4,55 +4,76 @@ import pytest
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
+    AcquisitionRef,
+    AcquisitionResultRef,
     DriverApplyRequest,
     DriverCollectRequest,
     DriverCollectResult,
     DriverPropertyWrite,
+    PropertyRef,
 )
 
-from scopecat_instruments._support import LinearSweepSettings
+from scopecat_instruments._support import (
+    LinearSweepSettings,
+    state_properties_by_target,
+)
 from scopecat_instruments.drivers import (
     KeysightE5080B,
     LakeShore372,
     RohdeSchwarzSGS100A,
     YokogawaGS200,
 )
-from scopecat_instruments.interfaces import (
-    DC_MONITOR,
-    DC_SOURCE,
-    NETWORK_SWEEP,
-    RF_OUTPUT,
+from scopecat_instruments.members import (
+    DC_MONITOR_ACQUISITION,
+    DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_VOLTAGE_RESULT,
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_PROTECTION,
+    DC_SOURCE_CURRENT_RANGE,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_RANGE,
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
+    RF_OUTPUT_POWER,
+    RF_OUTPUT_REFERENCE_SOURCE,
 )
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 
 
 def _apply_request(
-    interface_id: str,
-    properties: list[tuple[str, bool | str | Quantity]],
+    properties: list[tuple[PropertyRef, bool | str | Quantity]],
 ) -> DriverApplyRequest:
     return DriverApplyRequest(
         assignments=tuple(
             DriverPropertyWrite(
-                interface_id=interface_id,
-                property_id=property_id,
+                interface_id=target.interface_id,
+                component_path=target.component_path,
+                property_id=target.property_id,
                 value=StateValue(value),
             )
-            for property_id, value in properties
+            for target, value in properties
         ),
     )
 
 
 def _collect_request(
-    interface_id: str,
-    acquisition_id: str,
-    *result_ids: str,
+    acquisition: AcquisitionRef,
+    *results: AcquisitionResultRef,
 ) -> DriverCollectRequest:
     return DriverCollectRequest(
-        interface_id=interface_id,
-        acquisition_id=acquisition_id,
+        interface_id=acquisition.interface_id,
+        component_path=acquisition.component_path,
+        acquisition_id=acquisition.acquisition_id,
         results=tuple(
-            DriverCollectResult(request_id=result_id, result_id=result_id)
-            for result_id in result_ids
+            DriverCollectResult(
+                request_id=result.result_id,
+                result_id=result.result_id,
+            )
+            for result in results
         ),
     )
 
@@ -110,14 +131,17 @@ def test_gs200_source_and_monitor_transcript() -> None:
     driver.set_output(True)
     state = driver.read_state()
     receipt = driver.collect(
-        _collect_request(DC_MONITOR, "monitor", "monitored_current")
+        _collect_request(
+            DC_MONITOR_ACQUISITION,
+            DC_MONITOR_CURRENT_RESULT,
+        )
     )
 
     assert identity.model == "GS210"
     assert state.metadata["identity"] == identity.raw
     assert receipt.status == "collected"
     assert receipt.readback is not None
-    measured = receipt.readback.values["monitored_current"]
+    measured = receipt.readback.values[DC_MONITOR_CURRENT_RESULT.result_id]
     assert isinstance(measured, Quantity)
     assert measured.value == pytest.approx(1.25e-4)
     transport.assert_complete()
@@ -160,12 +184,11 @@ def test_gs200_apply_disables_live_output_while_switching_state(
 
     receipt = driver.apply_state(
         _apply_request(
-            DC_SOURCE,
             [
-                ("source_mode", "voltage"),
-                ("voltage_range", Quantity(1.0, "V")),
-                ("voltage_level", Quantity(0.125, "V")),
-                ("output_enabled", target_output),
+                (DC_SOURCE_MODE, "voltage"),
+                (DC_SOURCE_VOLTAGE_RANGE, Quantity(1.0, "V")),
+                (DC_SOURCE_VOLTAGE_LEVEL, Quantity(0.125, "V")),
+                (DC_SOURCE_OUTPUT_ENABLED, target_output),
             ],
         )
     )
@@ -201,23 +224,27 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
 
     applied = driver.apply_state(
         _apply_request(
-            DC_SOURCE,
             [
-                ("source_mode", "current"),
-                ("current_range", Quantity(0.01, "A")),
-                ("current_level", Quantity(0.001, "A")),
-                ("output_enabled", True),
+                (DC_SOURCE_MODE, "current"),
+                (DC_SOURCE_CURRENT_RANGE, Quantity(0.01, "A")),
+                (DC_SOURCE_CURRENT_LEVEL, Quantity(0.001, "A")),
+                (DC_SOURCE_OUTPUT_ENABLED, True),
             ],
         )
     )
     monitored = driver.collect(
-        _collect_request(DC_MONITOR, "monitor", "monitored_voltage")
+        _collect_request(
+            DC_MONITOR_ACQUISITION,
+            DC_MONITOR_VOLTAGE_RESULT,
+        )
     )
 
     assert applied.status == "applied"
     assert monitored.status == "collected"
     assert monitored.readback is not None
-    assert monitored.readback.values["monitored_voltage"] == Quantity(1.0, "V")
+    assert monitored.readback.values[DC_MONITOR_VOLTAGE_RESULT.result_id] == Quantity(
+        1.0, "V"
+    )
     transport.assert_complete()
 
 
@@ -244,8 +271,7 @@ def test_gs200_adjusts_compliance_without_interrupting_live_output() -> None:
 
     receipt = driver.apply_state(
         _apply_request(
-            DC_SOURCE,
-            [("current_protection", Quantity(0.005, "A"))],
+            [(DC_SOURCE_CURRENT_PROTECTION, Quantity(0.005, "A"))],
         )
     )
 
@@ -279,12 +305,9 @@ def test_sgs100a_cw_source_transcript() -> None:
     driver.set_output(True)
     state = driver.read_state()
 
-    properties = {
-        property_state.property_id: property_state.value.root
-        for property_state in state.properties
-    }
-    assert properties["reference_source"] == "external"
-    assert properties["output_enabled"] is True
+    properties = state_properties_by_target(state)
+    assert properties[RF_OUTPUT_REFERENCE_SOURCE].value.root == "external"
+    assert properties[RF_OUTPUT_ENABLED].value.root is True
     transport.assert_complete()
 
 
@@ -314,11 +337,10 @@ def test_sgs100a_apply_orders_output_around_frequency_and_power(
 
     receipt = driver.apply_state(
         _apply_request(
-            RF_OUTPUT,
             [
-                ("frequency", Quantity(5.0e9, "Hz")),
-                ("power", Quantity(-27.5, "dBm")),
-                ("output_enabled", enabled),
+                (RF_OUTPUT_FREQUENCY, Quantity(5.0e9, "Hz")),
+                (RF_OUTPUT_POWER, Quantity(-27.5, "dBm")),
+                (RF_OUTPUT_ENABLED, enabled),
             ],
         )
     )
@@ -420,7 +442,12 @@ def test_e5080b_collect_keeps_disabled_continuous_trigger_unchanged() -> None:
     )
     driver = KeysightE5080B("vna", transport)
 
-    receipt = driver.collect(_collect_request(NETWORK_SWEEP, "sweep", "s_parameter"))
+    receipt = driver.collect(
+        _collect_request(
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
+        )
+    )
 
     assert receipt.status == "collected"
     transport.assert_complete()
@@ -443,7 +470,12 @@ def test_e5080b_collect_restores_continuous_trigger_after_parse_failure() -> Non
     )
     driver = KeysightE5080B("vna", transport)
 
-    receipt = driver.collect(_collect_request(NETWORK_SWEEP, "sweep", "s_parameter"))
+    receipt = driver.collect(
+        _collect_request(
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
+        )
+    )
 
     assert receipt.status == "unknown"
     transport.assert_complete()

@@ -13,7 +13,9 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     DriverInvokeRequest,
     InstrumentPropertyState,
+    InstrumentStateSnapshot,
     InvokeReceipt,
+    PropertyRef,
 )
 from scopecat.sdk.problems import Problem, ProblemPhase, model_location, problem
 
@@ -129,15 +131,28 @@ def string_value(value: StateValue) -> str:
 
 
 def state_property(
-    interface_id: str,
-    property_id: str,
+    target: PropertyRef,
     value: bool | float | str | Quantity,
 ) -> InstrumentPropertyState:
     return InstrumentPropertyState(
-        interface_id=interface_id,
-        property_id=property_id,
+        interface_id=target.interface_id,
+        component_path=list(target.component_path),
+        property_id=target.property_id,
         value=StateValue(value),
     )
+
+
+def state_properties_by_target(
+    snapshot: InstrumentStateSnapshot,
+) -> dict[PropertyRef, InstrumentPropertyState]:
+    return {
+        PropertyRef(
+            property_state.interface_id,
+            tuple(property_state.component_path),
+            property_state.property_id,
+        ): property_state
+        for property_state in snapshot.properties
+    }
 
 
 def not_applied(problems: Iterable[Problem]) -> ApplyReceipt:
@@ -153,7 +168,7 @@ def unsupported_invoke(
         problems=(
             execution_problem(
                 "instrument_operation_not_implemented",
-                f"{instrument_id} does not implement {request.operation_id}",
+                f"{instrument_id} does not implement {request.target.operation_id}",
                 "driver_invoke_request",
                 "operation_id",
             ),

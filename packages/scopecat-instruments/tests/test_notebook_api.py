@@ -15,13 +15,18 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
 )
 from scopecat.sdk.instruments import (
+    AcquisitionResultRef,
     CollectCommand,
     CollectReceipt,
     InstrumentDescription,
 )
 
 from scopecat_instruments.drivers import YokogawaGS200
-from scopecat_instruments.interfaces import DC_MONITOR
+from scopecat_instruments.members import (
+    DC_MONITOR_ACQUISITION,
+    DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_VOLTAGE_RESULT,
+)
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 from scopecat_instruments.virtual import VirtualDcSource, VirtualLabWorld
 
@@ -100,7 +105,7 @@ def test_gs200_notebook_monitor_defaults_to_the_current_mode_result() -> None:
     _assert_default_monitor_result(
         driver.describe(),
         driver.read_state(),
-        expected_result_id="monitored_voltage",
+        expected_result=DC_MONITOR_VOLTAGE_RESULT,
     )
     transport.assert_complete()
 
@@ -111,7 +116,7 @@ def test_virtual_notebook_monitor_defaults_to_the_voltage_mode_result() -> None:
     _assert_default_monitor_result(
         driver.describe(),
         driver.read_state(),
-        expected_result_id="monitored_current",
+        expected_result=DC_MONITOR_CURRENT_RESULT,
     )
 
 
@@ -119,7 +124,7 @@ def _assert_default_monitor_result(
     description: InstrumentDescription,
     state: InstrumentStateSnapshot,
     *,
-    expected_result_id: str,
+    expected_result: AcquisitionResultRef,
 ) -> None:
     daemon = _CollectingDaemon(description, state)
     handle = InstrumentSessionHandle(
@@ -129,7 +134,7 @@ def _assert_default_monitor_result(
     )
 
     try:
-        receipt = handle.collect(DC_MONITOR, "monitor")
+        receipt = handle.collect(DC_MONITOR_ACQUISITION)
     finally:
         daemon.close()
 
@@ -137,5 +142,5 @@ def _assert_default_monitor_result(
     assert daemon.state_reads == 1
     assert daemon.collect_command is not None
     assert [request.result_id for request in daemon.collect_command.requests] == [
-        expected_result_id
+        expected_result.result_id
     ]

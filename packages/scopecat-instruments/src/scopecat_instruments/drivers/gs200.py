@@ -27,16 +27,25 @@ from scopecat_instruments._support import (
     parse_float,
     parse_identity,
     quantity_value,
+    state_properties_by_target,
     state_property,
     state_sync_failed,
     string_value,
     unsupported_invoke,
 )
 from scopecat_instruments.driver_ids import YOKOGAWA_GS200
-from scopecat_instruments.interfaces import (
-    DC_SOURCE,
-    dc_monitor_interface,
-    dc_source_interface,
+from scopecat_instruments.interfaces import dc_monitor_interface, dc_source_interface
+from scopecat_instruments.members import (
+    DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_VOLTAGE_RESULT,
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_PROTECTION,
+    DC_SOURCE_CURRENT_RANGE,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_PROTECTION,
+    DC_SOURCE_VOLTAGE_RANGE,
 )
 from scopecat_instruments.transport import ScpiTransport, TransportError
 
@@ -78,8 +87,12 @@ class YokogawaGS200:
     def read_state(self) -> InstrumentStateSnapshot:
         mode = self.source_mode()
         active_unit = "V" if mode == "voltage" else "A"
-        range_property = "voltage_range" if mode == "voltage" else "current_range"
-        level_property = "voltage_level" if mode == "voltage" else "current_level"
+        range_property = (
+            DC_SOURCE_VOLTAGE_RANGE if mode == "voltage" else DC_SOURCE_CURRENT_RANGE
+        )
+        level_property = (
+            DC_SOURCE_VOLTAGE_LEVEL if mode == "voltage" else DC_SOURCE_CURRENT_LEVEL
+        )
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Yokogawa",
             "model": "GS200",
@@ -90,28 +103,24 @@ class YokogawaGS200:
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
             properties=[
-                state_property(DC_SOURCE, "source_mode", mode),
+                state_property(DC_SOURCE_MODE, mode),
                 state_property(
-                    DC_SOURCE,
                     range_property,
                     Quantity(self.source_range(), active_unit),
                 ),
                 state_property(
-                    DC_SOURCE,
                     level_property,
                     Quantity(self.source_level(), active_unit),
                 ),
                 state_property(
-                    DC_SOURCE,
-                    "voltage_protection",
+                    DC_SOURCE_VOLTAGE_PROTECTION,
                     Quantity(self.voltage_protection(), "V"),
                 ),
                 state_property(
-                    DC_SOURCE,
-                    "current_protection",
+                    DC_SOURCE_CURRENT_PROTECTION,
                     Quantity(self.current_protection(), "A"),
                 ),
-                state_property(DC_SOURCE, "output_enabled", self.output_enabled()),
+                state_property(DC_SOURCE_OUTPUT_ENABLED, self.output_enabled()),
             ],
             metadata=metadata,
         )
@@ -127,22 +136,20 @@ class YokogawaGS200:
 
         try:
             selected_properties = {
-                assignment.property_id: assignment for assignment in request.assignments
+                assignment.target: assignment for assignment in request.assignments
             }
-            baseline_properties = {
-                property_state.property_id: property_state
-                for property_state in baseline.properties
-                if property_state.interface_id == DC_SOURCE
-            }
-            current_mode = string_value(baseline_properties["source_mode"].value)
-            current_output = bool_value(baseline_properties["output_enabled"].value)
-            mode_property = selected_properties.get("source_mode")
+            baseline_properties = state_properties_by_target(baseline)
+            current_mode = string_value(baseline_properties[DC_SOURCE_MODE].value)
+            current_output = bool_value(
+                baseline_properties[DC_SOURCE_OUTPUT_ENABLED].value
+            )
+            mode_property = selected_properties.get(DC_SOURCE_MODE)
             target_mode = (
                 string_value(mode_property.value)
                 if mode_property is not None
                 else current_mode
             )
-            output_property = selected_properties.get("output_enabled")
+            output_property = selected_properties.get(DC_SOURCE_OUTPUT_ENABLED)
             target_output = (
                 bool_value(output_property.value)
                 if output_property is not None
@@ -150,10 +157,10 @@ class YokogawaGS200:
             )
             changes_source_state = target_mode != current_mode or bool(
                 {
-                    "voltage_range",
-                    "current_range",
-                    "voltage_level",
-                    "current_level",
+                    DC_SOURCE_VOLTAGE_RANGE,
+                    DC_SOURCE_CURRENT_RANGE,
+                    DC_SOURCE_VOLTAGE_LEVEL,
+                    DC_SOURCE_CURRENT_LEVEL,
                 }
                 & selected_properties.keys()
             )
@@ -166,35 +173,47 @@ class YokogawaGS200:
                 self.set_output(False)
             if target_mode != current_mode:
                 self.set_source_mode(target_mode)
-            if "voltage_range" in selected_properties:
+            if DC_SOURCE_VOLTAGE_RANGE in selected_properties:
                 self.set_source_range(
-                    quantity_value(selected_properties["voltage_range"].value, "V")
-                )
-            if "current_range" in selected_properties:
-                self.set_source_range(
-                    quantity_value(selected_properties["current_range"].value, "A")
-                )
-            if "voltage_protection" in selected_properties:
-                self.set_voltage_protection(
                     quantity_value(
-                        selected_properties["voltage_protection"].value,
+                        selected_properties[DC_SOURCE_VOLTAGE_RANGE].value,
                         "V",
                     )
                 )
-            if "current_protection" in selected_properties:
-                self.set_current_protection(
+            if DC_SOURCE_CURRENT_RANGE in selected_properties:
+                self.set_source_range(
                     quantity_value(
-                        selected_properties["current_protection"].value,
+                        selected_properties[DC_SOURCE_CURRENT_RANGE].value,
                         "A",
                     )
                 )
-            if "voltage_level" in selected_properties:
-                self.set_source_level(
-                    quantity_value(selected_properties["voltage_level"].value, "V")
+            if DC_SOURCE_VOLTAGE_PROTECTION in selected_properties:
+                self.set_voltage_protection(
+                    quantity_value(
+                        selected_properties[DC_SOURCE_VOLTAGE_PROTECTION].value,
+                        "V",
+                    )
                 )
-            if "current_level" in selected_properties:
+            if DC_SOURCE_CURRENT_PROTECTION in selected_properties:
+                self.set_current_protection(
+                    quantity_value(
+                        selected_properties[DC_SOURCE_CURRENT_PROTECTION].value,
+                        "A",
+                    )
+                )
+            if DC_SOURCE_VOLTAGE_LEVEL in selected_properties:
                 self.set_source_level(
-                    quantity_value(selected_properties["current_level"].value, "A")
+                    quantity_value(
+                        selected_properties[DC_SOURCE_VOLTAGE_LEVEL].value,
+                        "V",
+                    )
+                )
+            if DC_SOURCE_CURRENT_LEVEL in selected_properties:
+                self.set_source_level(
+                    quantity_value(
+                        selected_properties[DC_SOURCE_CURRENT_LEVEL].value,
+                        "A",
+                    )
                 )
             effective_output = False if disabled_for_update else current_output
             if target_output != effective_output:
@@ -220,16 +239,21 @@ class YokogawaGS200:
             )
         try:
             mode = self.source_mode()
-            result_id = (
-                "monitored_current" if mode == "voltage" else "monitored_voltage"
+            active_result = (
+                DC_MONITOR_CURRENT_RESULT
+                if mode == "voltage"
+                else DC_MONITOR_VOLTAGE_RESULT
             )
-            requested_result_ids = {result.result_id for result in request.results}
-            if requested_result_ids != {result_id}:
+            requested_results = {
+                request.result_target(result) for result in request.results
+            }
+            if requested_results != {active_result}:
                 return not_collected(
                     [
                         execution_problem(
                             "gs200_monitor_result_inactive",
-                            f"{mode} source mode provides only {result_id}",
+                            f"{mode} source mode provides only "
+                            f"{active_result.result_id}",
                             "driver_collect_request",
                             "results",
                         )

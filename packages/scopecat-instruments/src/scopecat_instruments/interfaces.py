@@ -20,38 +20,34 @@ from scopecat.sdk.instruments import (
     state_discriminator_ref,
 )
 
-RF_OUTPUT = "scopecat.rf_output/v1"
-DC_SOURCE = "scopecat.dc_source/v2"
-DC_MONITOR = "scopecat.dc_monitor/v2"
-TEMPERATURE_READOUT = "scopecat.temperature_readout/v1"
-NETWORK_SWEEP = "scopecat.network_sweep/v1"
+import scopecat_instruments.members as member_refs
 
 
 def rf_output_interface() -> InterfaceSpec:
     return interface(
-        RF_OUTPUT,
+        member_refs.RF_OUTPUT.interface_id,
         label="RF output",
         description="Continuous-wave RF source controls independent of vendor syntax.",
         properties=[
             quantity_property(
-                "frequency",
+                member_refs.RF_OUTPUT_FREQUENCY.property_id,
                 unit="Hz",
                 label="CW frequency",
                 description="Continuous-wave carrier frequency.",
             ),
             quantity_property(
-                "power",
+                member_refs.RF_OUTPUT_POWER.property_id,
                 unit="dBm",
                 label="Output power",
                 description="Configured RF output level at the source connector.",
             ),
             bool_property(
-                "output_enabled",
+                member_refs.RF_OUTPUT_ENABLED.property_id,
                 label="RF output",
                 description="Whether the RF output connector is enabled.",
             ),
             enum_property(
-                "reference_source",
+                member_refs.RF_OUTPUT_REFERENCE_SOURCE.property_id,
                 choices=("internal", "external"),
                 label="Reference source",
                 description=(
@@ -64,7 +60,7 @@ def rf_output_interface() -> InterfaceSpec:
 
 def dc_source_interface() -> InterfaceSpec:
     return interface(
-        DC_SOURCE,
+        member_refs.DC_SOURCE.interface_id,
         label="DC source",
         description=(
             "DC voltage/current source controls with mode-specific level and range "
@@ -72,68 +68,74 @@ def dc_source_interface() -> InterfaceSpec:
         ),
         properties=[
             enum_property(
-                "source_mode",
+                member_refs.DC_SOURCE_MODE.property_id,
                 choices=("voltage", "current"),
                 label="Source mode",
                 description="Discriminator selecting voltage or current source state.",
             ),
             quantity_property(
-                "voltage_range",
+                member_refs.DC_SOURCE_VOLTAGE_RANGE.property_id,
                 unit="V",
                 label="Voltage range",
                 description="Voltage-source range, available in voltage mode.",
             ),
             quantity_property(
-                "current_range",
+                member_refs.DC_SOURCE_CURRENT_RANGE.property_id,
                 unit="A",
                 label="Current range",
                 description="Current-source range, available in current mode.",
             ),
             quantity_property(
-                "voltage_level",
+                member_refs.DC_SOURCE_VOLTAGE_LEVEL.property_id,
                 unit="V",
                 label="Voltage level",
                 description="Voltage-source level, available in voltage mode.",
             ),
             quantity_property(
-                "current_level",
+                member_refs.DC_SOURCE_CURRENT_LEVEL.property_id,
                 unit="A",
                 label="Current level",
                 description="Current-source level, available in current mode.",
             ),
             quantity_property(
-                "voltage_protection",
+                member_refs.DC_SOURCE_VOLTAGE_PROTECTION.property_id,
                 unit="V",
                 label="Voltage protection",
                 description="Absolute voltage limiter level.",
             ),
             quantity_property(
-                "current_protection",
+                member_refs.DC_SOURCE_CURRENT_PROTECTION.property_id,
                 unit="A",
                 label="Current protection",
                 description="Absolute current limiter level.",
             ),
             bool_property(
-                "output_enabled",
+                member_refs.DC_SOURCE_OUTPUT_ENABLED.property_id,
                 label="DC output",
                 description="Whether the source output is enabled.",
             ),
         ],
         state=discriminated_state(
-            "source_mode",
+            member_refs.DC_SOURCE_MODE.property_id,
             common_property_ids=(
-                "voltage_protection",
-                "current_protection",
-                "output_enabled",
+                member_refs.DC_SOURCE_VOLTAGE_PROTECTION.property_id,
+                member_refs.DC_SOURCE_CURRENT_PROTECTION.property_id,
+                member_refs.DC_SOURCE_OUTPUT_ENABLED.property_id,
             ),
             cases=(
                 state_case(
                     "voltage",
-                    property_ids=("voltage_range", "voltage_level"),
+                    property_ids=(
+                        member_refs.DC_SOURCE_VOLTAGE_RANGE.property_id,
+                        member_refs.DC_SOURCE_VOLTAGE_LEVEL.property_id,
+                    ),
                 ),
                 state_case(
                     "current",
-                    property_ids=("current_range", "current_level"),
+                    property_ids=(
+                        member_refs.DC_SOURCE_CURRENT_RANGE.property_id,
+                        member_refs.DC_SOURCE_CURRENT_LEVEL.property_id,
+                    ),
                 ),
             ),
         ),
@@ -142,24 +144,25 @@ def dc_source_interface() -> InterfaceSpec:
 
 def dc_monitor_interface() -> InterfaceSpec:
     return interface(
-        DC_MONITOR,
+        member_refs.DC_MONITOR.interface_id,
         label="DC monitor",
         description="Single-value voltage or current monitoring for a DC source.",
         acquisitions=[
             state_discriminated_acquisition(
-                "monitor",
+                member_refs.DC_MONITOR_ACQUISITION.acquisition_id,
                 label="Monitor output",
                 description="Read one monitor sample from the active source mode.",
                 discriminator=state_discriminator_ref(
-                    DC_SOURCE,
-                    "source_mode",
+                    member_refs.DC_SOURCE_MODE.interface_id,
+                    member_refs.DC_SOURCE_MODE.property_id,
+                    component_path=member_refs.DC_SOURCE_MODE.component_path,
                 ),
                 cases=[
                     acquisition_case(
                         "voltage",
                         results=[
                             acquisition_result(
-                                "monitored_current",
+                                member_refs.DC_MONITOR_CURRENT_RESULT.result_id,
                                 dtype="float64",
                                 unit="A",
                                 label="Monitored current",
@@ -171,7 +174,7 @@ def dc_monitor_interface() -> InterfaceSpec:
                         "current",
                         results=[
                             acquisition_result(
-                                "monitored_voltage",
+                                member_refs.DC_MONITOR_VOLTAGE_RESULT.result_id,
                                 dtype="float64",
                                 unit="V",
                                 label="Monitored voltage",
@@ -187,7 +190,7 @@ def dc_monitor_interface() -> InterfaceSpec:
 
 def temperature_readout_interface() -> InterfaceSpec:
     return interface(
-        TEMPERATURE_READOUT,
+        member_refs.TEMPERATURE_READOUT.interface_id,
         label="Temperature readout",
         description=(
             "Read-only sensor, scanner, and sample-heater telemetry. No heater "
@@ -195,7 +198,7 @@ def temperature_readout_interface() -> InterfaceSpec:
         ),
         properties=[
             int_property(
-                "scan_channel",
+                member_refs.TEMPERATURE_READOUT_SCAN_CHANNEL.property_id,
                 minimum=1,
                 maximum=16,
                 label="Scan channel",
@@ -203,27 +206,27 @@ def temperature_readout_interface() -> InterfaceSpec:
                 access="read_only",
             ),
             bool_property(
-                "autoscan_enabled",
+                member_refs.TEMPERATURE_READOUT_AUTOSCAN_ENABLED.property_id,
                 label="Autoscan",
                 description="Whether the input scanner is advancing automatically.",
                 access="read_only",
             ),
             quantity_property(
-                "temperature",
+                member_refs.TEMPERATURE_READOUT_TEMPERATURE.property_id,
                 unit="K",
                 label="Temperature",
                 description="Temperature reading for the active scan channel.",
                 access="read_only",
             ),
             quantity_property(
-                "resistance",
+                member_refs.TEMPERATURE_READOUT_RESISTANCE.property_id,
                 unit="Ohm",
                 label="Sensor resistance",
                 description="Resistance reading for the active scan channel.",
                 access="read_only",
             ),
             int_property(
-                "reading_status",
+                member_refs.TEMPERATURE_READOUT_READING_STATUS.property_id,
                 minimum=0,
                 maximum=255,
                 label="Reading status bits",
@@ -231,13 +234,13 @@ def temperature_readout_interface() -> InterfaceSpec:
                 access="read_only",
             ),
             float_property(
-                "heater_output",
+                member_refs.TEMPERATURE_READOUT_HEATER_OUTPUT.property_id,
                 label="Sample heater output",
                 description="Instrument-reported sample-heater telemetry value.",
                 access="read_only",
             ),
             int_property(
-                "heater_range",
+                member_refs.TEMPERATURE_READOUT_HEATER_RANGE.property_id,
                 minimum=0,
                 maximum=8,
                 label="Sample heater range",
@@ -245,7 +248,7 @@ def temperature_readout_interface() -> InterfaceSpec:
                 access="read_only",
             ),
             int_property(
-                "heater_status",
+                member_refs.TEMPERATURE_READOUT_HEATER_STATUS.property_id,
                 minimum=0,
                 maximum=3,
                 label="Sample heater status",
@@ -255,18 +258,18 @@ def temperature_readout_interface() -> InterfaceSpec:
         ],
         acquisitions=[
             acquisition(
-                "sample",
+                member_refs.TEMPERATURE_READOUT_SAMPLE.acquisition_id,
                 label="Sample telemetry",
                 description="Read telemetry for the active scan channel.",
                 results=[
                     acquisition_result(
-                        "temperature",
+                        member_refs.TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id,
                         unit="K",
                         label="Temperature",
                         description="Current scan-channel temperature.",
                     ),
                     acquisition_result(
-                        "resistance",
+                        member_refs.TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id,
                         unit="Ohm",
                         label="Resistance",
                         description="Current scan-channel sensor resistance.",
@@ -286,42 +289,42 @@ def network_sweep_interface() -> InterfaceSpec:
         description="Linear VNA stimulus frequency.",
     )
     return interface(
-        NETWORK_SWEEP,
+        member_refs.NETWORK_SWEEP.interface_id,
         label="Network sweep",
         description="Linear, single-trigger complex S-parameter sweep.",
         properties=[
             quantity_property(
-                "start_frequency",
+                member_refs.NETWORK_SWEEP_START_FREQUENCY.property_id,
                 unit="Hz",
                 label="Start frequency",
                 description="First stimulus frequency in the linear sweep.",
             ),
             quantity_property(
-                "stop_frequency",
+                member_refs.NETWORK_SWEEP_STOP_FREQUENCY.property_id,
                 unit="Hz",
                 label="Stop frequency",
                 description="Last stimulus frequency in the linear sweep.",
             ),
             int_property(
-                "points",
+                member_refs.NETWORK_SWEEP_POINTS.property_id,
                 minimum=2,
                 label="Sweep points",
                 description="Number of equally spaced frequency points.",
             ),
             quantity_property(
-                "if_bandwidth",
+                member_refs.NETWORK_SWEEP_IF_BANDWIDTH.property_id,
                 unit="Hz",
                 label="IF bandwidth",
                 description="Receiver intermediate-frequency bandwidth.",
             ),
             quantity_property(
-                "source_power",
+                member_refs.NETWORK_SWEEP_SOURCE_POWER.property_id,
                 unit="dBm",
                 label="Source power",
                 description="Stimulus power for the selected analyzer channel.",
             ),
             enum_property(
-                "s_parameter",
+                member_refs.NETWORK_SWEEP_S_PARAMETER.property_id,
                 choices=("S11", "S21", "S12", "S22"),
                 label="S-parameter",
                 description="Two-port S-parameter measured by the selected trace.",
@@ -329,12 +332,12 @@ def network_sweep_interface() -> InterfaceSpec:
         ],
         acquisitions=[
             acquisition(
-                "sweep",
+                member_refs.NETWORK_SWEEP_ACQUISITION.acquisition_id,
                 label="Acquire sweep",
                 description="Trigger and read the configured network sweep.",
                 results=[
                     acquisition_result(
-                        "frequency",
+                        member_refs.NETWORK_SWEEP_FREQUENCY_RESULT.result_id,
                         dtype="float64",
                         unit="Hz",
                         label="Frequency",
@@ -342,7 +345,7 @@ def network_sweep_interface() -> InterfaceSpec:
                         axes=[frequency_axis],
                     ),
                     acquisition_result(
-                        "s_parameter",
+                        member_refs.NETWORK_SWEEP_S_PARAMETER_RESULT.result_id,
                         dtype="complex128",
                         unit="ratio",
                         label="Complex S-parameter",
@@ -358,11 +361,6 @@ def network_sweep_interface() -> InterfaceSpec:
 
 
 __all__ = [
-    "DC_MONITOR",
-    "DC_SOURCE",
-    "NETWORK_SWEEP",
-    "RF_OUTPUT",
-    "TEMPERATURE_READOUT",
     "dc_monitor_interface",
     "dc_source_interface",
     "network_sweep_interface",

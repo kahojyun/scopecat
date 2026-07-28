@@ -29,7 +29,13 @@ from scopecat_instruments._support import (
     unsupported_invoke,
 )
 from scopecat_instruments.driver_ids import ROHDE_SCHWARZ_SGS100A
-from scopecat_instruments.interfaces import RF_OUTPUT, rf_output_interface
+from scopecat_instruments.interfaces import rf_output_interface
+from scopecat_instruments.members import (
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
+    RF_OUTPUT_POWER,
+    RF_OUTPUT_REFERENCE_SOURCE,
+)
 from scopecat_instruments.transport import ScpiTransport
 
 
@@ -68,19 +74,16 @@ class RohdeSchwarzSGS100A:
             instrument_id=self.instrument_id,
             properties=[
                 state_property(
-                    RF_OUTPUT,
-                    "frequency",
+                    RF_OUTPUT_FREQUENCY,
                     Quantity(self.frequency(), "Hz"),
                 ),
                 state_property(
-                    RF_OUTPUT,
-                    "power",
+                    RF_OUTPUT_POWER,
                     Quantity(self.power(), "dBm"),
                 ),
-                state_property(RF_OUTPUT, "output_enabled", self.output_enabled()),
+                state_property(RF_OUTPUT_ENABLED, self.output_enabled()),
                 state_property(
-                    RF_OUTPUT,
-                    "reference_source",
+                    RF_OUTPUT_REFERENCE_SOURCE,
                     self.reference_source(),
                 ),
             ],
@@ -89,23 +92,25 @@ class RohdeSchwarzSGS100A:
 
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         properties = {
-            assignment.property_id: assignment for assignment in request.assignments
+            assignment.target: assignment for assignment in request.assignments
         }
-        output_property = properties.get("output_enabled")
+        output_property = properties.get(RF_OUTPUT_ENABLED)
         target_output = (
             bool_value(output_property.value) if output_property is not None else None
         )
         try:
             if target_output is False:
                 self.set_output(False)
-            if "reference_source" in properties:
+            if RF_OUTPUT_REFERENCE_SOURCE in properties:
                 self.set_reference_source(
-                    string_value(properties["reference_source"].value)
+                    string_value(properties[RF_OUTPUT_REFERENCE_SOURCE].value)
                 )
-            if "frequency" in properties:
-                self.set_frequency(quantity_value(properties["frequency"].value, "Hz"))
-            if "power" in properties:
-                self.set_power(quantity_value(properties["power"].value, "dBm"))
+            if RF_OUTPUT_FREQUENCY in properties:
+                self.set_frequency(
+                    quantity_value(properties[RF_OUTPUT_FREQUENCY].value, "Hz")
+                )
+            if RF_OUTPUT_POWER in properties:
+                self.set_power(quantity_value(properties[RF_OUTPUT_POWER].value, "dBm"))
             if target_output is True:
                 self.set_output(True)
             return ApplyReceipt(status="applied", state=self.read_state())

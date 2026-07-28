@@ -14,7 +14,6 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
-from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
 from scopecat.records.artifact import CommandPayload
@@ -35,6 +34,12 @@ from scopecat.sdk.instruments.contracts import (
     InvokeCommand,
     InvokeReceipt,
     acquisition_results,
+)
+from scopecat.sdk.instruments.members import (
+    AcquisitionRef,
+    AcquisitionResultRef,
+    OperationRef,
+    PropertyRef,
 )
 
 type OperationArgumentValue = (
@@ -157,19 +162,13 @@ class InstrumentSessionHandle:
 
     def apply(
         self,
-        interface_id: InterfaceId,
-        values: Mapping[str, StateLiteral | StateValue] | None = None,
+        values: Mapping[PropertyRef, StateLiteral | StateValue],
         /,
         *,
-        component_path: tuple[str, ...] = (),
         instrument_id: str | None = None,
         command_id: str | None = None,
-        **properties: StateLiteral | StateValue,
     ) -> ApplyReceipt:
-        if values is not None and properties:
-            raise ValueError("pass properties as a mapping or keyword values")
-        selected_values = dict(values or properties)
-        if not selected_values:
+        if not values:
             raise ValueError("interactive apply requires at least one property")
         selected = self._selected_instrument_id(instrument_id)
         session = self._require_session()
@@ -184,14 +183,14 @@ class InstrumentSessionHandle:
             assignments=[
                 InstrumentStateAssignment(
                     resource_id=selected,
-                    interface_id=interface_id,
-                    component_path=list(component_path),
-                    property_id=property_id,
+                    interface_id=target.interface_id,
+                    component_path=list(target.component_path),
+                    property_id=target.property_id,
                     value=(
                         value if isinstance(value, StateValue) else StateValue(value)
                     ),
                 )
-                for property_id, value in selected_values.items()
+                for target, value in values.items()
             ],
         )
         return self._client.apply_instrument_state(
@@ -202,12 +201,10 @@ class InstrumentSessionHandle:
 
     def invoke(
         self,
-        interface_id: InterfaceId,
-        operation_id: str,
+        operation: OperationRef,
         arguments: Mapping[str, OperationArgumentValue] | None = None,
         /,
         *,
-        component_path: tuple[str, ...] = (),
         instrument_id: str | None = None,
         command_id: str | None = None,
         **argument_values: OperationArgumentValue,
@@ -234,9 +231,9 @@ class InstrumentSessionHandle:
             ),
             instrument_id=selected,
             resource_id=selected,
-            interface_id=interface_id,
-            component_path=list(component_path),
-            operation_id=operation_id,
+            interface_id=operation.interface_id,
+            component_path=list(operation.component_path),
+            operation_id=operation.operation_id,
             arguments=[
                 InstrumentOperationArgument(
                     id=argument_id,
@@ -262,52 +259,70 @@ class InstrumentSessionHandle:
 
     def collect(
         self,
-        interface_id: InterfaceId,
-        acquisition_id: str,
-        *result_ids: str,
-        component_path: tuple[str, ...] = (),
+        acquisition: AcquisitionRef,
+        *results: AcquisitionResultRef,
         instrument_id: str | None = None,
         command_id: str | None = None,
     ) -> CollectReceipt:
         selected = self._selected_instrument_id(instrument_id)
         description = self.describe(selected)
         interface = next(
-            (item for item in description.interfaces if item.id == interface_id),
+            (
+                item
+                for item in description.interfaces
+                if item.id == acquisition.interface_id
+            ),
             None,
         )
         if interface is None:
-            raise ValueError(f"instrument {selected} has no interface {interface_id!r}")
+            raise ValueError(
+                f"instrument {selected} has no interface {acquisition.interface_id!r}"
+            )
         component: InterfaceSpec | ComponentSpec = interface
-        for component_id in component_path:
+        for component_id in acquisition.component_path:
             nested = next(
                 (item for item in component.components if item.id == component_id),
                 None,
             )
             if nested is None:
                 raise ValueError(
-                    f"interface {interface_id!r} has no component path "
-                    f"{'/'.join(component_path)!r}"
+                    f"interface {acquisition.interface_id!r} has no component path "
+                    f"{'/'.join(acquisition.component_path)!r}"
                 )
             component = nested
-        acquisition = next(
-            (item for item in component.acquisitions if item.id == acquisition_id),
+        acquisition_spec = next(
+            (
+                item
+                for item in component.acquisitions
+                if item.id == acquisition.acquisition_id
+            ),
             None,
         )
-        if acquisition is None:
+        if acquisition_spec is None:
             raise ValueError(
-                f"interface {interface_id!r} has no acquisition {acquisition_id!r}"
+                f"interface {acquisition.interface_id!r} has no acquisition "
+                f"{acquisition.acquisition_id!r}"
             )
-        results = {item.id: item for item in acquisition_results(acquisition)}
-        selected_result_ids = result_ids or self._default_collect_result_ids(
+        declared_results = {
+            item.id: item for item in acquisition_results(acquisition_spec)
+        }
+        if any(result.acquisition != acquisition for result in results):
+            raise ValueError("collect results must belong to the selected acquisition")
+        selected_result_ids = tuple(
+            result.result_id for result in results
+        ) or self._default_collect_result_ids(
             selected,
-            acquisition,
+            acquisition_spec,
         )
         missing = tuple(
-            result_id for result_id in selected_result_ids if result_id not in results
+            result_id
+            for result_id in selected_result_ids
+            if result_id not in declared_results
         )
         if missing:
             raise ValueError(
-                f"acquisition {acquisition_id!r} has no results: {', '.join(missing)}"
+                f"acquisition {acquisition.acquisition_id!r} has no results: "
+                f"{', '.join(missing)}"
             )
         session = self._require_session()
         command = CollectCommand(
@@ -322,12 +337,12 @@ class InstrumentSessionHandle:
             requests=[
                 CollectResultRequest(
                     id=result_id,
-                    interface_id=interface_id,
-                    component_path=list(component_path),
-                    acquisition_id=acquisition_id,
+                    interface_id=acquisition.interface_id,
+                    component_path=list(acquisition.component_path),
+                    acquisition_id=acquisition.acquisition_id,
                     result_id=result_id,
-                    unit=results[result_id].unit,
-                    dtype=results[result_id].dtype,
+                    unit=declared_results[result_id].unit,
+                    dtype=declared_results[result_id].dtype,
                     dimensions=[
                         CollectAxisRequest(
                             id=axis.id,
@@ -335,7 +350,7 @@ class InstrumentSessionHandle:
                             size=axis.size,
                             unit=axis.unit,
                         )
-                        for axis in results[result_id].axes
+                        for axis in declared_results[result_id].axes
                         if axis.size is not None
                     ],
                 )

@@ -21,7 +21,7 @@ from scopecat.sdk.instruments import (
     StateValue,
 )
 from scopecat_instruments import ConfiguredInstrumentProvider
-from scopecat_instruments.interfaces import DC_SOURCE
+from scopecat_instruments.members import DC_SOURCE_OUTPUT_ENABLED
 from scopecat_instruments.virtual import VirtualLabWorld
 
 FLUX_SOURCE_ID = "flux-source"
@@ -103,8 +103,9 @@ class _BiasSafeDriver:
             DriverApplyRequest(
                 assignments=(
                     DriverPropertyWrite(
-                        interface_id=DC_SOURCE,
-                        property_id="output_enabled",
+                        interface_id=DC_SOURCE_OUTPUT_ENABLED.interface_id,
+                        component_path=DC_SOURCE_OUTPUT_ENABLED.component_path,
+                        property_id=DC_SOURCE_OUTPUT_ENABLED.property_id,
                         value=StateValue(False),
                     ),
                 ),

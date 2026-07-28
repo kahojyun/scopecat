@@ -24,15 +24,22 @@ from scopecat.records.parameter import (
     ParameterSnapshot,
     ScalarParameterValue,
 )
+from scopecat.sdk.instruments import PropertyRef
 from scopecat_instruments.driver_ids import (
     VIRTUAL_DC_SOURCE,
     VIRTUAL_RF_SOURCE,
     VIRTUAL_TEMPERATURE_MONITOR,
     VIRTUAL_VNA,
 )
-from scopecat_instruments.interfaces import (
+from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
+    DC_SOURCE_CURRENT_PROTECTION,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_PROTECTION,
+    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
@@ -77,23 +84,23 @@ def bootstrap_config() -> ConfigProfileSnapshot:
                 bindings=[
                     RoutingEndpointBinding(
                         instrument_id="pump-source",
-                        interface_id=RF_OUTPUT,
+                        interface_id=RF_OUTPUT.interface_id,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="flux-source",
-                        interface_id=DC_SOURCE,
+                        interface_id=DC_SOURCE.interface_id,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="flux-source",
-                        interface_id=DC_MONITOR,
+                        interface_id=DC_MONITOR.interface_id,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="mixing-chamber",
-                        interface_id=TEMPERATURE_READOUT,
+                        interface_id=TEMPERATURE_READOUT.interface_id,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="readout-vna",
-                        interface_id=NETWORK_SWEEP,
+                        interface_id=NETWORK_SWEEP.interface_id,
                     ),
                 ]
             ),
@@ -143,36 +150,24 @@ def _virtual_instrument(
     default_state: list[InstrumentPropertyState]
     if driver_id == VIRTUAL_DC_SOURCE:
         default_state = [
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE,
-                property_id="source_mode",
-                value=StateValue("voltage"),
+            _property_state(DC_SOURCE_MODE, StateValue("voltage")),
+            _property_state(
+                DC_SOURCE_VOLTAGE_RANGE,
+                StateValue(Quantity(1.0, "V")),
             ),
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE,
-                property_id="voltage_range",
-                value=StateValue(Quantity(1.0, "V")),
+            _property_state(
+                DC_SOURCE_VOLTAGE_LEVEL,
+                StateValue(Quantity(0.0, "V")),
             ),
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE,
-                property_id="voltage_level",
-                value=StateValue(Quantity(0.0, "V")),
+            _property_state(
+                DC_SOURCE_VOLTAGE_PROTECTION,
+                StateValue(Quantity(1.0, "V")),
             ),
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE,
-                property_id="voltage_protection",
-                value=StateValue(Quantity(1.0, "V")),
+            _property_state(
+                DC_SOURCE_CURRENT_PROTECTION,
+                StateValue(Quantity(0.01, "A")),
             ),
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE,
-                property_id="current_protection",
-                value=StateValue(Quantity(0.01, "A")),
-            ),
-            InstrumentPropertyState(
-                interface_id=DC_SOURCE,
-                property_id="output_enabled",
-                value=StateValue(False),
-            ),
+            _property_state(DC_SOURCE_OUTPUT_ENABLED, StateValue(False)),
         ]
     else:
         default_state = []
@@ -182,6 +177,18 @@ def _virtual_instrument(
         connection=VirtualInstrumentConnection(),
         default_state=default_state,
         run_start="apply_default_state" if default_state else "preserve",
+    )
+
+
+def _property_state(
+    target: PropertyRef,
+    value: StateValue,
+) -> InstrumentPropertyState:
+    return InstrumentPropertyState(
+        interface_id=target.interface_id,
+        component_path=list(target.component_path),
+        property_id=target.property_id,
+        value=value,
     )
 
 

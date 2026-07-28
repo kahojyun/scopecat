@@ -30,9 +30,17 @@ from scopecat_instruments._support import (
     unsupported_invoke,
 )
 from scopecat_instruments.driver_ids import LAKESHORE_372
-from scopecat_instruments.interfaces import (
-    TEMPERATURE_READOUT,
-    temperature_readout_interface,
+from scopecat_instruments.interfaces import temperature_readout_interface
+from scopecat_instruments.members import (
+    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+    TEMPERATURE_READOUT_HEATER_OUTPUT,
+    TEMPERATURE_READOUT_HEATER_RANGE,
+    TEMPERATURE_READOUT_HEATER_STATUS,
+    TEMPERATURE_READOUT_READING_STATUS,
+    TEMPERATURE_READOUT_RESISTANCE,
+    TEMPERATURE_READOUT_SCAN_CHANNEL,
+    TEMPERATURE_READOUT_TEMPERATURE,
+    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.transport import ScpiTransport
 
@@ -86,43 +94,35 @@ class LakeShore372:
             instrument_id=self.instrument_id,
             properties=[
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "scan_channel",
+                    TEMPERATURE_READOUT_SCAN_CHANNEL,
                     telemetry.scan_channel,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "autoscan_enabled",
+                    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
                     telemetry.autoscan_enabled,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "temperature",
+                    TEMPERATURE_READOUT_TEMPERATURE,
                     Quantity(telemetry.temperature_k, "K"),
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "resistance",
+                    TEMPERATURE_READOUT_RESISTANCE,
                     Quantity(telemetry.resistance_ohm, "Ohm"),
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "reading_status",
+                    TEMPERATURE_READOUT_READING_STATUS,
                     telemetry.reading_status,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "heater_output",
+                    TEMPERATURE_READOUT_HEATER_OUTPUT,
                     telemetry.heater_output,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "heater_range",
+                    TEMPERATURE_READOUT_HEATER_RANGE,
                     telemetry.heater_range,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "heater_status",
+                    TEMPERATURE_READOUT_HEATER_STATUS,
                     telemetry.heater_status,
                 ),
             ],
@@ -145,7 +145,8 @@ class LakeShore372:
             values: dict[str, MeasurementValue] = {
                 result.request_id: (
                     Quantity(telemetry.temperature_k, "K")
-                    if result.result_id == "temperature"
+                    if request.result_target(result)
+                    == TEMPERATURE_READOUT_TEMPERATURE_RESULT
                     else Quantity(telemetry.resistance_ohm, "Ohm")
                 )
                 for result in request.results

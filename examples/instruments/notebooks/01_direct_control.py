@@ -5,7 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat_instruments.interfaces import DC_SOURCE, NETWORK_SWEEP
+from scopecat_instruments.members import (
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,30 +32,27 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         "readout-vna",
     ) as instruments:
         instruments.apply(
-            DC_SOURCE,
             {
-                "source_mode": "voltage",
-                "voltage_level": sc.Quantity(0.05, "V"),
-                "output_enabled": True,
+                DC_SOURCE_MODE: "voltage",
+                DC_SOURCE_VOLTAGE_LEVEL: sc.Quantity(0.05, "V"),
+                DC_SOURCE_OUTPUT_ENABLED: True,
             },
             instrument_id="flux-source",
         )
         try:
             temperature = instruments.read_state("mixing-chamber")
             instruments.apply(
-                NETWORK_SWEEP,
                 {
-                    "start_frequency": sc.Quantity(4.8, "GHz"),
-                    "stop_frequency": sc.Quantity(5.2, "GHz"),
-                    "points": 201,
+                    NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(4.8, "GHz"),
+                    NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(5.2, "GHz"),
+                    NETWORK_SWEEP_POINTS: 201,
                 },
                 instrument_id="readout-vna",
             )
             trace = instruments.collect(
-                NETWORK_SWEEP,
-                "sweep",
-                "frequency",
-                "s_parameter",
+                NETWORK_SWEEP_ACQUISITION,
+                NETWORK_SWEEP_FREQUENCY_RESULT,
+                NETWORK_SWEEP_S_PARAMETER_RESULT,
                 instrument_id="readout-vna",
             )
             trace_results = (
@@ -58,8 +65,7 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
             )
         finally:
             instruments.apply(
-                DC_SOURCE,
-                {"output_enabled": False},
+                {DC_SOURCE_OUTPUT_ENABLED: False},
                 instrument_id="flux-source",
             )
 

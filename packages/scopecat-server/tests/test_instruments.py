@@ -52,6 +52,7 @@ from scopecat.sdk.instruments import (
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InterfaceRef,
     InvokeReceipt,
     acquisition_case,
     acquisition_result,
@@ -70,6 +71,14 @@ from tests.testkit.payload_codecs import json_payload_codecs
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
 from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
+
+_SET_FREQUENCY = InterfaceRef("test.set_frequency/v1").property("frequency")
+_PLAY_PROGRAM = InterfaceRef("test.play_program/v1").operation("play")
+_SAMPLE_SIGNAL = InterfaceRef("test.scalar_signal/v1").acquisition("sample")
+_DC = InterfaceRef("test.dc/v1")
+_DC_MODE = _DC.property("mode")
+_DC_VOLTAGE_LEVEL = _DC.property("voltage_level")
+_DC_CURRENT_LEVEL = _DC.property("current_level")
 
 
 class _TrackingDriver(SignalInstrumentDriver):
@@ -555,9 +564,8 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             with lab.instruments.open("source-0", actor="alice") as instrument:
                 description = instrument.describe()
                 state_receipt = instrument.apply(
-                    "test.set_frequency/v1",
+                    {_SET_FREQUENCY: Quantity(value=5.1, unit="GHz")},
                     command_id="notebook-apply-1",
-                    frequency=Quantity(value=5.1, unit="GHz"),
                 )
                 payload = command_payload_from_bytes(
                     id="program-1",
@@ -568,15 +576,13 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
                     content=b'{"samples":[0.0]}',
                 )
                 invoke_receipt = instrument.invoke(
-                    "test.play_program/v1",
-                    "play",
+                    _PLAY_PROGRAM,
                     command_id="notebook-invoke-1",
                     program=payload,
                 )
                 collect_receipt = instrument.collect(
-                    "test.scalar_signal/v1",
-                    "sample",
-                    "signal",
+                    _SAMPLE_SIGNAL,
+                    _SAMPLE_SIGNAL.result("signal"),
                     command_id="notebook-collect-1",
                 )
                 [owned] = lab.instruments.list().items
@@ -630,8 +636,7 @@ def test_invoke_without_reported_state_reads_back_before_returning(
             )
 
             receipt = handle.invoke(
-                "test.play_program/v1",
-                "play",
+                _PLAY_PROGRAM,
                 program=payload,
             )
             handle.close()
@@ -640,6 +645,31 @@ def test_invoke_without_reported_state_reads_back_before_returning(
             assert receipt.state is not None
             assert receipt.state.instrument_id == "source-0"
             assert driver.read_count == reads_before_invoke + 1
+
+
+def test_notebook_collect_rejects_a_result_from_another_acquisition(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            unrelated = (
+                InterfaceRef("test.other/v1").acquisition("sample").result("signal")
+            )
+
+            with pytest.raises(
+                ValueError,
+                match="results must belong to the selected acquisition",
+            ):
+                handle.collect(_SAMPLE_SIGNAL, unrelated)
+            handle.close()
+
+            [driver] = provider.drivers
+            assert driver.collect_requests == []
 
 
 def test_apply_without_reported_state_reads_back_before_returning(
@@ -658,8 +688,7 @@ def test_apply_without_reported_state_reads_back_before_returning(
             reads_before_apply = driver.read_count
 
             receipt = handle.apply(
-                "test.set_frequency/v1",
-                frequency=Quantity(value=5.1, unit="GHz"),
+                {_SET_FREQUENCY: Quantity(value=5.1, unit="GHz")},
             )
             handle.close()
 
@@ -713,32 +742,29 @@ def test_interactive_apply_tracks_observed_discriminated_state(
             _ = handle.session_id
 
             voltage = handle.apply(
-                "test.dc/v1",
+                {_DC_VOLTAGE_LEVEL: 0.2},
                 command_id="voltage-before-switch",
-                voltage_level=0.2,
             )
             with pytest.raises(DaemonConflictError, match="set mode explicitly"):
                 handle.apply(
-                    "test.dc/v1",
+                    {_DC_CURRENT_LEVEL: 0.02},
                     command_id="invalid-current-patch",
-                    current_level=0.02,
                 )
 
             switched = handle.apply(
-                "test.dc/v1",
+                {
+                    _DC_MODE: "current",
+                    _DC_CURRENT_LEVEL: 0.02,
+                },
                 command_id="switch-current",
-                mode="current",
-                current_level=0.02,
             )
             replay = handle.apply(
-                "test.dc/v1",
+                {_DC_VOLTAGE_LEVEL: 0.2},
                 command_id="voltage-before-switch",
-                voltage_level=0.2,
             )
             partial = handle.apply(
-                "test.dc/v1",
+                {_DC_CURRENT_LEVEL: 0.03},
                 command_id="adjust-current",
-                current_level=0.03,
             )
             handle.close()
 
@@ -1289,8 +1315,7 @@ def test_notebook_default_apply_retries_with_same_operation_after_response_loss(
             )
 
             receipt = handle.apply(
-                "test.set_frequency/v1",
-                frequency=Quantity(value=5.1, unit="GHz"),
+                {_SET_FREQUENCY: Quantity(value=5.1, unit="GHz")},
             )
             handle.close()
 
@@ -1315,9 +1340,8 @@ def test_notebook_default_collect_retries_with_same_operation_after_response_los
             )
 
             receipt = handle.collect(
-                "test.scalar_signal/v1",
-                "sample",
-                "signal",
+                _SAMPLE_SIGNAL,
+                _SAMPLE_SIGNAL.result("signal"),
             )
             handle.close()
 

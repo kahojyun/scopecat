@@ -40,9 +40,15 @@ from scopecat_instruments._support import (
     unsupported_invoke,
 )
 from scopecat_instruments.driver_ids import KEYSIGHT_E5080B
-from scopecat_instruments.interfaces import (
-    NETWORK_SWEEP,
-    network_sweep_interface,
+from scopecat_instruments.interfaces import network_sweep_interface
+from scopecat_instruments.members import (
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_IF_BANDWIDTH,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER,
+    NETWORK_SWEEP_SOURCE_POWER,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
 )
 from scopecat_instruments.transport import ScpiTransport
 
@@ -98,29 +104,24 @@ class KeysightE5080B:
             instrument_id=self.instrument_id,
             properties=[
                 state_property(
-                    NETWORK_SWEEP,
-                    "start_frequency",
+                    NETWORK_SWEEP_START_FREQUENCY,
                     Quantity(settings.start_frequency_hz, "Hz"),
                 ),
                 state_property(
-                    NETWORK_SWEEP,
-                    "stop_frequency",
+                    NETWORK_SWEEP_STOP_FREQUENCY,
                     Quantity(settings.stop_frequency_hz, "Hz"),
                 ),
-                state_property(NETWORK_SWEEP, "points", settings.points),
+                state_property(NETWORK_SWEEP_POINTS, settings.points),
                 state_property(
-                    NETWORK_SWEEP,
-                    "if_bandwidth",
+                    NETWORK_SWEEP_IF_BANDWIDTH,
                     Quantity(settings.if_bandwidth_hz, "Hz"),
                 ),
                 state_property(
-                    NETWORK_SWEEP,
-                    "source_power",
+                    NETWORK_SWEEP_SOURCE_POWER,
                     Quantity(settings.source_power_dbm, "dBm"),
                 ),
                 state_property(
-                    NETWORK_SWEEP,
-                    "s_parameter",
+                    NETWORK_SWEEP_S_PARAMETER,
                     settings.s_parameter,
                 ),
             ],
@@ -129,30 +130,44 @@ class KeysightE5080B:
 
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         properties = {
-            assignment.property_id: assignment for assignment in request.assignments
+            assignment.target: assignment for assignment in request.assignments
         }
         try:
             self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
-            if "start_frequency" in properties:
+            if NETWORK_SWEEP_START_FREQUENCY in properties:
                 self.set_start_frequency(
-                    quantity_value(properties["start_frequency"].value, "Hz")
+                    quantity_value(
+                        properties[NETWORK_SWEEP_START_FREQUENCY].value,
+                        "Hz",
+                    )
                 )
-            if "stop_frequency" in properties:
+            if NETWORK_SWEEP_STOP_FREQUENCY in properties:
                 self.set_stop_frequency(
-                    quantity_value(properties["stop_frequency"].value, "Hz")
+                    quantity_value(
+                        properties[NETWORK_SWEEP_STOP_FREQUENCY].value,
+                        "Hz",
+                    )
                 )
-            if "points" in properties:
-                self.set_points(int_value(properties["points"].value))
-            if "if_bandwidth" in properties:
+            if NETWORK_SWEEP_POINTS in properties:
+                self.set_points(int_value(properties[NETWORK_SWEEP_POINTS].value))
+            if NETWORK_SWEEP_IF_BANDWIDTH in properties:
                 self.set_if_bandwidth(
-                    quantity_value(properties["if_bandwidth"].value, "Hz")
+                    quantity_value(
+                        properties[NETWORK_SWEEP_IF_BANDWIDTH].value,
+                        "Hz",
+                    )
                 )
-            if "source_power" in properties:
+            if NETWORK_SWEEP_SOURCE_POWER in properties:
                 self.set_source_power(
-                    quantity_value(properties["source_power"].value, "dBm")
+                    quantity_value(
+                        properties[NETWORK_SWEEP_SOURCE_POWER].value,
+                        "dBm",
+                    )
                 )
-            if "s_parameter" in properties:
-                self.set_s_parameter(string_value(properties["s_parameter"].value))
+            if NETWORK_SWEEP_S_PARAMETER in properties:
+                self.set_s_parameter(
+                    string_value(properties[NETWORK_SWEEP_S_PARAMETER].value)
+                )
             return ApplyReceipt(status="applied", state=self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
@@ -165,7 +180,7 @@ class KeysightE5080B:
             trace = self.acquire_trace()
             values: dict[str, MeasurementValue] = {}
             for result in request.results:
-                if result.result_id == "frequency":
+                if request.result_target(result) == NETWORK_SWEEP_FREQUENCY_RESULT:
                     values[result.request_id] = MeasurementArray(
                         dtype="float64",
                         unit="Hz",

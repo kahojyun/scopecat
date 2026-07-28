@@ -29,6 +29,7 @@ from scopecat_instruments._support import (
     int_value,
     not_collected,
     quantity_value,
+    state_properties_by_target,
     state_property,
     string_value,
     unsupported_invoke,
@@ -40,15 +41,43 @@ from scopecat_instruments.driver_ids import (
     VIRTUAL_VNA,
 )
 from scopecat_instruments.interfaces import (
-    DC_SOURCE,
-    NETWORK_SWEEP,
-    RF_OUTPUT,
-    TEMPERATURE_READOUT,
     dc_monitor_interface,
     dc_source_interface,
     network_sweep_interface,
     rf_output_interface,
     temperature_readout_interface,
+)
+from scopecat_instruments.members import (
+    DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_VOLTAGE_RESULT,
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_PROTECTION,
+    DC_SOURCE_CURRENT_RANGE,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_PROTECTION,
+    DC_SOURCE_VOLTAGE_RANGE,
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_IF_BANDWIDTH,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER,
+    NETWORK_SWEEP_SOURCE_POWER,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
+    RF_OUTPUT_POWER,
+    RF_OUTPUT_REFERENCE_SOURCE,
+    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+    TEMPERATURE_READOUT_HEATER_OUTPUT,
+    TEMPERATURE_READOUT_HEATER_RANGE,
+    TEMPERATURE_READOUT_HEATER_STATUS,
+    TEMPERATURE_READOUT_READING_STATUS,
+    TEMPERATURE_READOUT_RESISTANCE,
+    TEMPERATURE_READOUT_SCAN_CHANNEL,
+    TEMPERATURE_READOUT_TEMPERATURE,
+    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.virtual.world import VirtualLabWorld
 
@@ -77,19 +106,16 @@ class VirtualRfSource:
             source = self.world.rf_source(self.instrument_id)
             properties = [
                 state_property(
-                    RF_OUTPUT,
-                    "frequency",
+                    RF_OUTPUT_FREQUENCY,
                     Quantity(source.frequency_hz, "Hz"),
                 ),
                 state_property(
-                    RF_OUTPUT,
-                    "power",
+                    RF_OUTPUT_POWER,
                     Quantity(source.power_dbm, "dBm"),
                 ),
-                state_property(RF_OUTPUT, "output_enabled", source.output_enabled),
+                state_property(RF_OUTPUT_ENABLED, source.output_enabled),
                 state_property(
-                    RF_OUTPUT,
-                    "reference_source",
+                    RF_OUTPUT_REFERENCE_SOURCE,
                     source.reference_source,
                 ),
             ]
@@ -101,11 +127,11 @@ class VirtualRfSource:
 
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         for assignment in request.assignments:
-            if assignment.property_id == "frequency":
+            if assignment.target == RF_OUTPUT_FREQUENCY:
                 self.set_frequency(quantity_value(assignment.value, "Hz"))
-            elif assignment.property_id == "power":
+            elif assignment.target == RF_OUTPUT_POWER:
                 self.set_power(quantity_value(assignment.value, "dBm"))
-            elif assignment.property_id == "output_enabled":
+            elif assignment.target == RF_OUTPUT_ENABLED:
                 self.set_output(bool_value(assignment.value))
             else:
                 self.set_reference_source(string_value(assignment.value))
@@ -187,49 +213,45 @@ class VirtualDcSource:
             mode = source.source_mode
             range_property = (
                 (
-                    "voltage_range",
+                    DC_SOURCE_VOLTAGE_RANGE,
                     Quantity(source.voltage_range_v, "V"),
                 )
                 if mode == "voltage"
                 else (
-                    "current_range",
+                    DC_SOURCE_CURRENT_RANGE,
                     Quantity(source.current_range_a, "A"),
                 )
             )
             level_property = (
                 (
-                    "voltage_level",
+                    DC_SOURCE_VOLTAGE_LEVEL,
                     Quantity(source.voltage_level_v, "V"),
                 )
                 if mode == "voltage"
                 else (
-                    "current_level",
+                    DC_SOURCE_CURRENT_LEVEL,
                     Quantity(source.current_level_a, "A"),
                 )
             )
             properties = [
-                state_property(DC_SOURCE, "source_mode", mode),
+                state_property(DC_SOURCE_MODE, mode),
                 state_property(
-                    DC_SOURCE,
                     range_property[0],
                     range_property[1],
                 ),
                 state_property(
-                    DC_SOURCE,
                     level_property[0],
                     level_property[1],
                 ),
                 state_property(
-                    DC_SOURCE,
-                    "voltage_protection",
+                    DC_SOURCE_VOLTAGE_PROTECTION,
                     Quantity(source.voltage_protection_v, "V"),
                 ),
                 state_property(
-                    DC_SOURCE,
-                    "current_protection",
+                    DC_SOURCE_CURRENT_PROTECTION,
                     Quantity(source.current_protection_a, "A"),
                 ),
-                state_property(DC_SOURCE, "output_enabled", source.output_enabled),
+                state_property(DC_SOURCE_OUTPUT_ENABLED, source.output_enabled),
             ]
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
@@ -240,22 +262,18 @@ class VirtualDcSource:
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         baseline = self.read_state()
         properties = {
-            assignment.property_id: assignment for assignment in request.assignments
+            assignment.target: assignment for assignment in request.assignments
         }
-        baseline_properties = {
-            property_state.property_id: property_state
-            for property_state in baseline.properties
-            if property_state.interface_id == DC_SOURCE
-        }
-        current_mode = string_value(baseline_properties["source_mode"].value)
-        current_output = bool_value(baseline_properties["output_enabled"].value)
-        mode_property = properties.get("source_mode")
+        baseline_properties = state_properties_by_target(baseline)
+        current_mode = string_value(baseline_properties[DC_SOURCE_MODE].value)
+        current_output = bool_value(baseline_properties[DC_SOURCE_OUTPUT_ENABLED].value)
+        mode_property = properties.get(DC_SOURCE_MODE)
         target_mode = (
             string_value(mode_property.value)
             if mode_property is not None
             else current_mode
         )
-        output_property = properties.get("output_enabled")
+        output_property = properties.get(DC_SOURCE_OUTPUT_ENABLED)
         target_output = (
             bool_value(output_property.value)
             if output_property is not None
@@ -263,10 +281,10 @@ class VirtualDcSource:
         )
         changes_source_state = target_mode != current_mode or bool(
             {
-                "voltage_range",
-                "current_range",
-                "voltage_level",
-                "current_level",
+                DC_SOURCE_VOLTAGE_RANGE,
+                DC_SOURCE_CURRENT_RANGE,
+                DC_SOURCE_VOLTAGE_LEVEL,
+                DC_SOURCE_CURRENT_LEVEL,
             }
             & properties.keys()
         )
@@ -277,29 +295,35 @@ class VirtualDcSource:
             self.set_output(False)
         if target_mode != current_mode:
             self.set_source_mode(target_mode)
-        if "voltage_range" in properties:
+        if DC_SOURCE_VOLTAGE_RANGE in properties:
             self.set_voltage_range(
-                quantity_value(properties["voltage_range"].value, "V")
+                quantity_value(properties[DC_SOURCE_VOLTAGE_RANGE].value, "V")
             )
-        if "current_range" in properties:
+        if DC_SOURCE_CURRENT_RANGE in properties:
             self.set_current_range(
-                quantity_value(properties["current_range"].value, "A")
+                quantity_value(properties[DC_SOURCE_CURRENT_RANGE].value, "A")
             )
-        if "voltage_protection" in properties:
+        if DC_SOURCE_VOLTAGE_PROTECTION in properties:
             self.set_voltage_protection(
-                quantity_value(properties["voltage_protection"].value, "V")
+                quantity_value(
+                    properties[DC_SOURCE_VOLTAGE_PROTECTION].value,
+                    "V",
+                )
             )
-        if "current_protection" in properties:
+        if DC_SOURCE_CURRENT_PROTECTION in properties:
             self.set_current_protection(
-                quantity_value(properties["current_protection"].value, "A")
+                quantity_value(
+                    properties[DC_SOURCE_CURRENT_PROTECTION].value,
+                    "A",
+                )
             )
-        if "voltage_level" in properties:
+        if DC_SOURCE_VOLTAGE_LEVEL in properties:
             self.set_voltage_level(
-                quantity_value(properties["voltage_level"].value, "V")
+                quantity_value(properties[DC_SOURCE_VOLTAGE_LEVEL].value, "V")
             )
-        if "current_level" in properties:
+        if DC_SOURCE_CURRENT_LEVEL in properties:
             self.set_current_level(
-                quantity_value(properties["current_level"].value, "A")
+                quantity_value(properties[DC_SOURCE_CURRENT_LEVEL].value, "A")
             )
         effective_output = False if disabled_for_update else current_output
         if target_output != effective_output:
@@ -312,18 +336,21 @@ class VirtualDcSource:
     def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
-            result_id = (
-                "monitored_current"
+            active_result = (
+                DC_MONITOR_CURRENT_RESULT
                 if source.source_mode == "voltage"
-                else "monitored_voltage"
+                else DC_MONITOR_VOLTAGE_RESULT
             )
-            requested_result_ids = {result.result_id for result in request.results}
-            if requested_result_ids != {result_id}:
+            requested_results = {
+                request.result_target(result) for result in request.results
+            }
+            if requested_results != {active_result}:
                 return not_collected(
                     [
                         execution_problem(
                             "virtual_dc_monitor_result_inactive",
-                            f"{source.source_mode} mode provides only {result_id}",
+                            f"{source.source_mode} mode provides only "
+                            f"{active_result.result_id}",
                             "driver_collect_request",
                             "results",
                         )
@@ -427,43 +454,35 @@ class VirtualTemperatureMonitor:
             instrument_id=self.instrument_id,
             properties=[
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "scan_channel",
+                    TEMPERATURE_READOUT_SCAN_CHANNEL,
                     telemetry.scan_channel,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "autoscan_enabled",
+                    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
                     telemetry.autoscan_enabled,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "temperature",
+                    TEMPERATURE_READOUT_TEMPERATURE,
                     Quantity(telemetry.temperature_k, "K"),
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "resistance",
+                    TEMPERATURE_READOUT_RESISTANCE,
                     Quantity(telemetry.resistance_ohm, "Ohm"),
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "reading_status",
+                    TEMPERATURE_READOUT_READING_STATUS,
                     telemetry.reading_status,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "heater_output",
+                    TEMPERATURE_READOUT_HEATER_OUTPUT,
                     telemetry.heater_output,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "heater_range",
+                    TEMPERATURE_READOUT_HEATER_RANGE,
                     telemetry.heater_range,
                 ),
                 state_property(
-                    TEMPERATURE_READOUT,
-                    "heater_status",
+                    TEMPERATURE_READOUT_HEATER_STATUS,
                     telemetry.heater_status,
                 ),
             ],
@@ -484,7 +503,8 @@ class VirtualTemperatureMonitor:
                 values={
                     result.request_id: (
                         Quantity(telemetry.temperature_k, "K")
-                        if result.result_id == "temperature"
+                        if request.result_target(result)
+                        == TEMPERATURE_READOUT_TEMPERATURE_RESULT
                         else Quantity(telemetry.resistance_ohm, "Ohm")
                     )
                     for result in request.results
@@ -547,29 +567,24 @@ class VirtualNetworkAnalyzer:
             instrument_id=self.instrument_id,
             properties=[
                 state_property(
-                    NETWORK_SWEEP,
-                    "start_frequency",
+                    NETWORK_SWEEP_START_FREQUENCY,
                     Quantity(settings.start_frequency_hz, "Hz"),
                 ),
                 state_property(
-                    NETWORK_SWEEP,
-                    "stop_frequency",
+                    NETWORK_SWEEP_STOP_FREQUENCY,
                     Quantity(settings.stop_frequency_hz, "Hz"),
                 ),
-                state_property(NETWORK_SWEEP, "points", settings.points),
+                state_property(NETWORK_SWEEP_POINTS, settings.points),
                 state_property(
-                    NETWORK_SWEEP,
-                    "if_bandwidth",
+                    NETWORK_SWEEP_IF_BANDWIDTH,
                     Quantity(settings.if_bandwidth_hz, "Hz"),
                 ),
                 state_property(
-                    NETWORK_SWEEP,
-                    "source_power",
+                    NETWORK_SWEEP_SOURCE_POWER,
                     Quantity(settings.source_power_dbm, "dBm"),
                 ),
                 state_property(
-                    NETWORK_SWEEP,
-                    "s_parameter",
+                    NETWORK_SWEEP_S_PARAMETER,
                     settings.s_parameter,
                 ),
             ],
@@ -580,24 +595,24 @@ class VirtualNetworkAnalyzer:
         with self.world.lock:
             state = self.world.vna(self.instrument_id)
             for assignment in request.assignments:
-                if assignment.property_id == "start_frequency":
+                if assignment.target == NETWORK_SWEEP_START_FREQUENCY:
                     state.start_frequency_hz = quantity_value(
                         assignment.value,
                         "Hz",
                     )
-                elif assignment.property_id == "stop_frequency":
+                elif assignment.target == NETWORK_SWEEP_STOP_FREQUENCY:
                     state.stop_frequency_hz = quantity_value(
                         assignment.value,
                         "Hz",
                     )
-                elif assignment.property_id == "points":
+                elif assignment.target == NETWORK_SWEEP_POINTS:
                     state.points = int_value(assignment.value)
-                elif assignment.property_id == "if_bandwidth":
+                elif assignment.target == NETWORK_SWEEP_IF_BANDWIDTH:
                     state.if_bandwidth_hz = quantity_value(
                         assignment.value,
                         "Hz",
                     )
-                elif assignment.property_id == "source_power":
+                elif assignment.target == NETWORK_SWEEP_SOURCE_POWER:
                     state.source_power_dbm = quantity_value(
                         assignment.value,
                         "dBm",
@@ -613,7 +628,7 @@ class VirtualNetworkAnalyzer:
         trace = self.acquire_trace()
         values: dict[str, MeasurementValue] = {}
         for result in request.results:
-            if result.result_id == "frequency":
+            if request.result_target(result) == NETWORK_SWEEP_FREQUENCY_RESULT:
                 values[result.request_id] = MeasurementArray(
                     dtype="float64",
                     unit="Hz",

@@ -7,8 +7,18 @@ from scopecat.sdk.instruments import (
     DriverPropertyWrite,
 )
 
-from scopecat_instruments._support import LinearSweepSettings
-from scopecat_instruments.interfaces import DC_SOURCE
+from scopecat_instruments._support import (
+    LinearSweepSettings,
+    state_properties_by_target,
+)
+from scopecat_instruments.members import (
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_RANGE,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_RANGE,
+)
 from scopecat_instruments.virtual import (
     VirtualDcSource,
     VirtualLabWorld,
@@ -35,10 +45,9 @@ def test_virtual_state_survives_driver_disconnect() -> None:
 
     assert second.output_enabled() is True
     assert world.flux_bias() == 0.5
-    level = {
-        property_state.property_id: property_state.value.root
-        for property_state in second.read_state().properties
-    }["voltage_level"]
+    level = state_properties_by_target(second.read_state())[
+        DC_SOURCE_VOLTAGE_LEVEL
+    ].value.root
     assert isinstance(level, Quantity)
     assert level.value == 0.125
 
@@ -51,23 +60,27 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
         DriverApplyRequest(
             assignments=(
                 DriverPropertyWrite(
-                    interface_id=DC_SOURCE,
-                    property_id="source_mode",
+                    interface_id=DC_SOURCE_MODE.interface_id,
+                    component_path=DC_SOURCE_MODE.component_path,
+                    property_id=DC_SOURCE_MODE.property_id,
                     value=StateValue("current"),
                 ),
                 DriverPropertyWrite(
-                    interface_id=DC_SOURCE,
-                    property_id="current_range",
+                    interface_id=DC_SOURCE_CURRENT_RANGE.interface_id,
+                    component_path=DC_SOURCE_CURRENT_RANGE.component_path,
+                    property_id=DC_SOURCE_CURRENT_RANGE.property_id,
                     value=StateValue(Quantity(0.01, "A")),
                 ),
                 DriverPropertyWrite(
-                    interface_id=DC_SOURCE,
-                    property_id="current_level",
+                    interface_id=DC_SOURCE_CURRENT_LEVEL.interface_id,
+                    component_path=DC_SOURCE_CURRENT_LEVEL.component_path,
+                    property_id=DC_SOURCE_CURRENT_LEVEL.property_id,
                     value=StateValue(Quantity(0.001, "A")),
                 ),
                 DriverPropertyWrite(
-                    interface_id=DC_SOURCE,
-                    property_id="output_enabled",
+                    interface_id=DC_SOURCE_OUTPUT_ENABLED.interface_id,
+                    component_path=DC_SOURCE_OUTPUT_ENABLED.component_path,
+                    property_id=DC_SOURCE_OUTPUT_ENABLED.property_id,
                     value=StateValue(True),
                 ),
             ),
@@ -76,11 +89,15 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
 
     assert receipt.status == "applied"
     assert receipt.state is not None
-    property_ids = {
-        property_state.property_id for property_state in receipt.state.properties
-    }
-    assert {"current_range", "current_level"} <= property_ids
-    assert {"voltage_range", "voltage_level"}.isdisjoint(property_ids)
+    property_targets = state_properties_by_target(receipt.state)
+    assert {
+        DC_SOURCE_CURRENT_RANGE,
+        DC_SOURCE_CURRENT_LEVEL,
+    } <= property_targets.keys()
+    assert {
+        DC_SOURCE_VOLTAGE_RANGE,
+        DC_SOURCE_VOLTAGE_LEVEL,
+    }.isdisjoint(property_targets)
     assert world.flux_bias() == 0.5
 
 
