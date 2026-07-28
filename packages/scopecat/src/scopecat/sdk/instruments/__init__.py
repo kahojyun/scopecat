@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         CollectReceipt,
         CollectResultRequest,
         ComponentSpec,
+        DiscriminatedStateSpec,
         DriverFault,
         InstrumentDescription,
         InstrumentDriver,
@@ -41,12 +42,14 @@ if TYPE_CHECKING:
         OperationArgumentSpec,
         OperationSpec,
         PropertySpec,
+        StateCaseSpec,
         acquisition,
         acquisition_axis,
         acquisition_result,
         apply_state_command_to_snapshot,
         bool_property,
         component,
+        discriminated_state,
         enum_property,
         float_property,
         int_property,
@@ -54,12 +57,14 @@ if TYPE_CHECKING:
         operation,
         operation_argument,
         quantity_property,
+        state_case,
         string_property,
         validate_collect_command,
         validate_collect_receipt,
         validate_invoke_command,
         validate_state_assignments,
         validate_state_command,
+        validate_state_snapshot,
     )
 
 
@@ -89,6 +94,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "CommandChannelBinding",
     ),
     "ComponentSpec": ("scopecat.sdk.instruments.contracts", "ComponentSpec"),
+    "DiscriminatedStateSpec": (
+        "scopecat.sdk.instruments.contracts",
+        "DiscriminatedStateSpec",
+    ),
     "DriverFault": ("scopecat.sdk.instruments.contracts", "DriverFault"),
     "InterfaceSpec": ("scopecat.sdk.instruments.contracts", "InterfaceSpec"),
     "InstrumentDescription": (
@@ -138,6 +147,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "OperationSpec": ("scopecat.sdk.instruments.contracts", "OperationSpec"),
     "PropertySpec": ("scopecat.sdk.instruments.contracts", "PropertySpec"),
+    "StateCaseSpec": ("scopecat.sdk.instruments.contracts", "StateCaseSpec"),
     "acquisition": ("scopecat.sdk.instruments.contracts", "acquisition"),
     "acquisition_axis": (
         "scopecat.sdk.instruments.contracts",
@@ -153,6 +163,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "bool_property": ("scopecat.sdk.instruments.contracts", "bool_property"),
     "component": ("scopecat.sdk.instruments.contracts", "component"),
+    "discriminated_state": (
+        "scopecat.sdk.instruments.contracts",
+        "discriminated_state",
+    ),
     "enum_property": ("scopecat.sdk.instruments.contracts", "enum_property"),
     "float_property": ("scopecat.sdk.instruments.contracts", "float_property"),
     "int_property": ("scopecat.sdk.instruments.contracts", "int_property"),
@@ -166,6 +180,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "quantity_property",
     ),
+    "state_case": ("scopecat.sdk.instruments.contracts", "state_case"),
     "string_property": ("scopecat.sdk.instruments.contracts", "string_property"),
     "validate_state_command": (
         "scopecat.sdk.instruments.contracts",
@@ -174,6 +189,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "validate_state_assignments": (
         "scopecat.sdk.instruments.contracts",
         "validate_state_assignments",
+    ),
+    "validate_state_snapshot": (
+        "scopecat.sdk.instruments.contracts",
+        "validate_state_snapshot",
     ),
     "validate_collect_command": (
         "scopecat.sdk.instruments.contracts",

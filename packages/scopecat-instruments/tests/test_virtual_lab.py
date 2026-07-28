@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.state import StateValue
+from scopecat.sdk.instruments import (
+    InstrumentStateAssignment,
+    InstrumentStateCommand,
+)
 
 from scopecat_instruments._support import LinearSweepSettings
+from scopecat_instruments.interfaces import DC_SOURCE
 from scopecat_instruments.virtual import (
     VirtualDcSource,
     VirtualLabWorld,
@@ -35,6 +41,61 @@ def test_virtual_state_survives_driver_session_close() -> None:
     }["voltage_level"]
     assert isinstance(level, Quantity)
     assert level.value == 0.125
+
+
+def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
+    world = VirtualLabWorld(seed=13)
+    driver = VirtualDcSource("flux", world)
+
+    receipt = driver.apply_state(
+        InstrumentStateCommand(
+            instrument_id="flux",
+            assignments=[
+                InstrumentStateAssignment(
+                    resource_id="flux",
+                    interface_id=DC_SOURCE,
+                    property_id="source_mode",
+                    value=StateValue("current"),
+                ),
+                InstrumentStateAssignment(
+                    resource_id="flux",
+                    interface_id=DC_SOURCE,
+                    property_id="current_range",
+                    value=StateValue(Quantity(0.01, "A")),
+                ),
+                InstrumentStateAssignment(
+                    resource_id="flux",
+                    interface_id=DC_SOURCE,
+                    property_id="current_level",
+                    value=StateValue(Quantity(0.001, "A")),
+                ),
+                InstrumentStateAssignment(
+                    resource_id="flux",
+                    interface_id=DC_SOURCE,
+                    property_id="output_enabled",
+                    value=StateValue(True),
+                ),
+            ],
+        )
+    )
+
+    assert receipt.status == "applied"
+    assert receipt.state is not None
+    property_ids = {
+        property_state.property_id for property_state in receipt.state.properties
+    }
+    assert {"current_range", "current_level"} <= property_ids
+    assert {"voltage_range", "voltage_level"}.isdisjoint(property_ids)
+    assert world.flux_bias() == 0.5
+
+
+def test_virtual_dc_case_local_setters_do_not_switch_mode() -> None:
+    driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
+
+    driver.set_current_range(0.01)
+    driver.set_current_level(0.001)
+
+    assert driver.source_mode() == "voltage"
 
 
 def test_virtual_network_noise_is_deterministic_for_seed() -> None:

@@ -8,15 +8,17 @@ from scopecat.sdk.instruments import (
     acquisition_axis,
     acquisition_result,
     bool_property,
+    discriminated_state,
     enum_property,
     float_property,
     int_property,
     interface,
     quantity_property,
+    state_case,
 )
 
 RF_OUTPUT = "scopecat.rf_output/v1"
-DC_SOURCE = "scopecat.dc_source/v1"
+DC_SOURCE = "scopecat.dc_source/v2"
 DC_MONITOR = "scopecat.dc_monitor/v1"
 TEMPERATURE_READOUT = "scopecat.temperature_readout/v1"
 NETWORK_SWEEP = "scopecat.network_sweep/v1"
@@ -62,39 +64,39 @@ def dc_source_interface() -> InterfaceSpec:
         DC_SOURCE,
         label="DC source",
         description=(
-            "DC voltage/current source controls. Voltage and current level/range "
-            "properties are explicit so their units remain stable."
+            "DC voltage/current source controls with mode-specific level and range "
+            "state."
         ),
         properties=[
             enum_property(
                 "source_mode",
                 choices=("voltage", "current"),
                 label="Source mode",
-                description="Select voltage or current sourcing.",
+                description="Discriminator selecting voltage or current source state.",
             ),
             quantity_property(
                 "voltage_range",
                 unit="V",
                 label="Voltage range",
-                description="Selecting this property also selects voltage source mode.",
+                description="Voltage-source range, available in voltage mode.",
             ),
             quantity_property(
                 "current_range",
                 unit="A",
                 label="Current range",
-                description="Selecting this property also selects current source mode.",
+                description="Current-source range, available in current mode.",
             ),
             quantity_property(
                 "voltage_level",
                 unit="V",
                 label="Voltage level",
-                description="Selecting this property also selects voltage source mode.",
+                description="Voltage-source level, available in voltage mode.",
             ),
             quantity_property(
                 "current_level",
                 unit="A",
                 label="Current level",
-                description="Selecting this property also selects current source mode.",
+                description="Current-source level, available in current mode.",
             ),
             quantity_property(
                 "voltage_protection",
@@ -114,6 +116,24 @@ def dc_source_interface() -> InterfaceSpec:
                 description="Whether the source output is enabled.",
             ),
         ],
+        state=discriminated_state(
+            "source_mode",
+            common_property_ids=(
+                "voltage_protection",
+                "current_protection",
+                "output_enabled",
+            ),
+            cases=(
+                state_case(
+                    "voltage",
+                    property_ids=("voltage_range", "voltage_level"),
+                ),
+                state_case(
+                    "current",
+                    property_ids=("current_range", "current_level"),
+                ),
+            ),
+        ),
     )
 
 

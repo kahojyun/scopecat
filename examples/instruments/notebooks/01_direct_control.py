@@ -24,6 +24,7 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         instruments.apply(
             DC_SOURCE,
             {
+                "source_mode": "voltage",
                 "voltage_level": sc.Quantity(0.05, "V"),
                 "output_enabled": True,
             },

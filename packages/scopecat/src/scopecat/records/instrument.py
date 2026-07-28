@@ -13,6 +13,12 @@ from scopecat.records._metadata import JsonMetadata
 from scopecat.records.measurement import MeasurementValue
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
+type StateTargetScopeIdentity = tuple[
+    str,
+    tuple[str, ...],
+    tuple[str, ...],
+    tuple[tuple[str, str, str | None], ...],
+]
 type PropertyTargetIdentity = tuple[
     str,
     tuple[str, ...],
@@ -54,17 +60,17 @@ def validate_entity_target(
         raise ValueError(msg)
 
 
-def property_target_identity(
+def state_target_scope_identity(
     interface_id: str,
     component_path: Sequence[str],
-    property_id: str,
     entity_ids: Sequence[str],
     channel_bindings: Sequence[CommandChannelBinding],
-) -> PropertyTargetIdentity:
+) -> StateTargetScopeIdentity:
+    """Identify one independently discriminated instrument-state scope."""
+
     return (
         interface_id,
         tuple(component_path),
-        property_id,
         tuple(entity_ids),
         tuple(
             (
@@ -74,6 +80,28 @@ def property_target_identity(
             )
             for binding in channel_bindings
         ),
+    )
+
+
+def property_target_identity(
+    interface_id: str,
+    component_path: Sequence[str],
+    property_id: str,
+    entity_ids: Sequence[str],
+    channel_bindings: Sequence[CommandChannelBinding],
+) -> PropertyTargetIdentity:
+    scope = state_target_scope_identity(
+        interface_id,
+        component_path,
+        entity_ids,
+        channel_bindings,
+    )
+    return (
+        scope[0],
+        scope[1],
+        property_id,
+        scope[2],
+        scope[3],
     )
 
 

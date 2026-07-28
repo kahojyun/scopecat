@@ -81,6 +81,7 @@ from scopecat.sdk.instruments.contracts import (
     validate_collect_receipt,
     validate_invoke_command,
     validate_state_command,
+    validate_state_snapshot,
 )
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
@@ -457,7 +458,7 @@ class InstrumentService:
             initial_state = tuple(
                 _read_driver_state(
                     runtime.drivers[instrument_id],
-                    instrument_id=instrument_id,
+                    description=runtime.descriptions[instrument_id],
                 )
                 for instrument_id in instrument_ids
             )
@@ -564,19 +565,6 @@ class InstrumentService:
             provision = self._run_provision_state(run_id)
             if provision is None or provision.receipt.status != "ready":
                 raise BackendConflict("run hardware is not ready")
-            runtime = self._run_runtime_state(run_id)
-            if runtime is None:
-                raise BackendConflict("run has no live daemon instrument drivers")
-            preflight_problems = self._preflight_hardware_batch(
-                run_id,
-                runtime,
-                request,
-            )
-            if preflight_problems:
-                return RunHardwareBatchReceipt(
-                    operation_id=request.batch.operation_id,
-                    problems=preflight_problems,
-                )
             canonical_request = self._payloads.canonicalize_hardware_command(request)
             cached = provision.batches.get(canonical_request.batch.operation_id)
             if cached is not None:
@@ -586,6 +574,19 @@ class InstrumentService:
                         "hardware batch id has different operation content"
                     )
                 return cached_receipt
+            runtime = self._run_runtime_state(run_id)
+            if runtime is None:
+                raise BackendConflict("run has no live daemon instrument drivers")
+            preflight_problems = self._preflight_hardware_batch(
+                run_id,
+                runtime,
+                canonical_request,
+            )
+            if preflight_problems:
+                return RunHardwareBatchReceipt(
+                    operation_id=canonical_request.batch.operation_id,
+                    problems=preflight_problems,
+                )
             driver_request = self._payloads.materialize_hardware_command(
                 canonical_request
             )
@@ -697,6 +698,10 @@ class InstrumentService:
         """Validate the complete batch before the first hardware side effect."""
 
         problems: list[Problem] = []
+        assumed_states: dict[str, InstrumentStateSnapshot | None] = {
+            instrument_id: state.model_copy(deep=True)
+            for instrument_id, state in runtime.assumed_states.items()
+        }
         for action in request.batch.actions:
             if (
                 action.instrument_id not in runtime.drivers
@@ -726,12 +731,33 @@ class InstrumentService:
                     instrument_id=action.instrument_id,
                     assignments=list(action.assignments),
                 )
-                problems.extend(
-                    validate_state_command(
-                        command=command,
-                        description=runtime.descriptions[action.instrument_id],
-                    )
+                description = runtime.descriptions[action.instrument_id]
+                baseline = assumed_states[action.instrument_id]
+                validation_baseline = (
+                    baseline
+                    if baseline is not None
+                    else InstrumentStateSnapshot(instrument_id=action.instrument_id)
                 )
+                action_problems = validate_state_command(
+                    command=command,
+                    description=description,
+                    baseline=validation_baseline,
+                )
+                problems.extend(action_problems)
+                if not action_problems:
+                    projected = apply_state_command_to_snapshot(
+                        validation_baseline,
+                        command,
+                        description=description,
+                    )
+                    assumed_states[action.instrument_id] = (
+                        None
+                        if validate_state_snapshot(
+                            snapshot=projected,
+                            description=description,
+                        )
+                        else projected
+                    )
             elif isinstance(action, RunHardwareInvoke):
                 command = InvokeCommand(
                     command_id=action.effect_id,
@@ -745,13 +771,11 @@ class InstrumentService:
                     entity_ids=list(action.entity_ids),
                     channel_bindings=list(action.channel_bindings),
                 )
-                problems.extend(
-                    validate_invoke_command(
-                        command=command,
-                        description=runtime.descriptions[action.instrument_id],
-                    )
+                action_problems = validate_invoke_command(
+                    command=command,
+                    description=runtime.descriptions[action.instrument_id],
                 )
-                problems.extend(
+                action_problems.extend(
                     _payload_codec_problems(
                         command.payloads,
                         runtime.payload_codecs,
@@ -761,6 +785,10 @@ class InstrumentService:
                         point_index=action.point_index,
                     )
                 )
+                problems.extend(action_problems)
+                if not action_problems:
+                    # Operations may mutate state without a projectable effect.
+                    assumed_states[action.instrument_id] = None
             else:
                 command = CollectCommand(
                     command_id=action.effect_id,
@@ -801,6 +829,16 @@ class InstrumentService:
             instrument_id=action.instrument_id,
             assignments=list(assignments),
         )
+        description = runtime.descriptions[action.instrument_id]
+        validation_problems = validate_state_command(
+            command=command,
+            description=description,
+            baseline=current,
+        )
+        if validation_problems:
+            raise BackendConflict(
+                "; ".join(item.message for item in validation_problems)
+            )
         _runtime, driver = self._run_driver(run_id, action.instrument_id)
         try:
             receipt = driver.apply_state(command)
@@ -826,15 +864,23 @@ class InstrumentService:
                 "; ".join(item.message for item in receipt.problems)
                 or f"instrument apply returned {receipt.status}"
             )
-        next_state = receipt.state or apply_state_command_to_snapshot(current, command)
-        if next_state.instrument_id != action.instrument_id:
+        next_state = receipt.state or apply_state_command_to_snapshot(
+            current,
+            command,
+            description=description,
+        )
+        snapshot_problems = validate_state_snapshot(
+            snapshot=next_state,
+            description=description,
+        )
+        if snapshot_problems:
             self._lose_run_runtime(
                 run_id,
                 runtime,
                 token=token,
                 reason="run_instrument_apply_state_mismatch",
             )
-            raise BackendConflict("instrument apply returned state for another device")
+            raise BackendConflict("; ".join(item.message for item in snapshot_problems))
         runtime.assumed_states[action.instrument_id] = next_state.model_copy(deep=True)
         return {
             "effect_id": action.effect_id,
@@ -889,7 +935,7 @@ class InstrumentService:
         try:
             next_state = receipt.state or _read_driver_state(
                 driver,
-                instrument_id=action.instrument_id,
+                description=runtime.descriptions[action.instrument_id],
             )
         except Exception as error:
             self._lose_run_runtime(
@@ -901,14 +947,18 @@ class InstrumentService:
             raise BackendConflict(
                 "instrument invoke completed but state synchronization failed"
             ) from error
-        if next_state.instrument_id != action.instrument_id:
+        snapshot_problems = validate_state_snapshot(
+            snapshot=next_state,
+            description=runtime.descriptions[action.instrument_id],
+        )
+        if snapshot_problems:
             self._lose_run_runtime(
                 run_id,
                 runtime,
                 token=token,
                 reason="run_instrument_invoke_state_mismatch",
             )
-            raise BackendConflict("instrument invoke returned state for another device")
+            raise BackendConflict("; ".join(item.message for item in snapshot_problems))
         runtime.assumed_states[action.instrument_id] = next_state.model_copy(deep=True)
         receipt = receipt.model_copy(update={"state": next_state})
         return {
@@ -1080,7 +1130,10 @@ class InstrumentService:
             for instrument_id, driver in runtime.drivers.items():
                 try:
                     final_state.append(
-                        _read_driver_state(driver, instrument_id=instrument_id)
+                        _read_driver_state(
+                            driver,
+                            description=runtime.descriptions[instrument_id],
+                        )
                     )
                 except BackendConflict as error:
                     problems.append(
@@ -1244,6 +1297,32 @@ class InstrumentService:
                 "instrument provider failed while connecting"
             ) from error
 
+        try:
+            initial_state = tuple(
+                _read_driver_state(
+                    runtime.drivers[instrument_id],
+                    description=runtime.descriptions[instrument_id],
+                )
+                for instrument_id in command.instrument_ids
+            )
+        except BackendConflict as error:
+            close_failed = _call_all(runtime.drivers.values(), _close_driver)
+            if close_failed:
+                self._mark_unknown(
+                    session,
+                    reason="instrument_initial_read_cleanup_failed",
+                )
+            else:
+                self._control.close_instrument_session(
+                    session.session_id,
+                    status="aborted",
+                )
+            raise BackendConflict(
+                "instrument initial state could not be read"
+            ) from error
+        runtime.assumed_states = {
+            state.instrument_id: state.model_copy(deep=True) for state in initial_state
+        }
         with self._sessions_lock:
             self._sessions[session.session_id] = runtime
         return self._wire_session(session, runtime)
@@ -1259,7 +1338,12 @@ class InstrumentService:
                 session_id,
                 instrument_id,
             )
-            return _read_driver_state(driver, instrument_id=instrument_id)
+            state = _read_driver_state(
+                driver,
+                description=runtime.descriptions[instrument_id],
+            )
+            runtime.assumed_states[instrument_id] = state.model_copy(deep=True)
+            return state
 
     def apply_state(
         self,
@@ -1397,14 +1481,6 @@ class InstrumentService:
         on_finished: Callable[[str], None],
         on_unknown: Callable[[str], None],
     ) -> ApplyReceipt:
-        validation_problems = validate_state_command(
-            command=command,
-            description=runtime.descriptions[command.instrument_id],
-        )
-        if validation_problems:
-            raise BackendConflict(
-                "; ".join(item.message for item in validation_problems)
-            )
         command_id = command.command_id
         assert command_id is not None
         cached = runtime.apply_receipts.get(command_id)
@@ -1423,6 +1499,17 @@ class InstrumentService:
             raise BackendConflict(
                 f"{conflict_scope} command id was already used for another command kind"
             )
+        description = runtime.descriptions[command.instrument_id]
+        current = runtime.assumed_states[command.instrument_id]
+        validation_problems = validate_state_command(
+            command=command,
+            description=description,
+            baseline=current,
+        )
+        if validation_problems:
+            raise BackendConflict(
+                "; ".join(item.message for item in validation_problems)
+            )
         on_started()
         try:
             receipt = driver.apply_state(command)
@@ -1431,6 +1518,31 @@ class InstrumentService:
             raise BackendConflict(
                 "instrument apply failed with unknown state"
             ) from error
+        if receipt.status == "applied":
+            try:
+                next_state = receipt.state or apply_state_command_to_snapshot(
+                    current,
+                    command,
+                    description=description,
+                )
+            except Exception as error:
+                on_unknown("instrument_apply_state_unknown")
+                raise BackendConflict(
+                    "instrument apply completed but state projection failed"
+                ) from error
+            snapshot_problems = validate_state_snapshot(
+                snapshot=next_state,
+                description=description,
+            )
+            if snapshot_problems:
+                on_unknown("instrument_apply_state_mismatch")
+                raise BackendConflict(
+                    "; ".join(item.message for item in snapshot_problems)
+                )
+            runtime.assumed_states[command.instrument_id] = next_state.model_copy(
+                deep=True
+            )
+            receipt = receipt.model_copy(update={"state": next_state})
         runtime.apply_receipts[command_id] = (command, receipt)
         try:
             on_finished(receipt.status)
@@ -1503,17 +1615,21 @@ class InstrumentService:
             try:
                 next_state = receipt.state or _read_driver_state(
                     driver,
-                    instrument_id=command.instrument_id,
+                    description=runtime.descriptions[command.instrument_id],
                 )
             except Exception as error:
                 on_unknown("instrument_invoke_state_unknown")
                 raise BackendConflict(
                     "instrument invoke completed but state synchronization failed"
                 ) from error
-            if next_state.instrument_id != command.instrument_id:
+            snapshot_problems = validate_state_snapshot(
+                snapshot=next_state,
+                description=runtime.descriptions[command.instrument_id],
+            )
+            if snapshot_problems:
                 on_unknown("instrument_invoke_state_mismatch")
                 raise BackendConflict(
-                    "instrument invoke returned state for another device"
+                    "; ".join(item.message for item in snapshot_problems)
                 )
             runtime.assumed_states[command.instrument_id] = next_state.model_copy(
                 deep=True
@@ -2396,14 +2512,18 @@ def _abort_driver(driver: InstrumentDriver) -> None:
 def _read_driver_state(
     driver: InstrumentDriver,
     *,
-    instrument_id: str,
+    description: InstrumentDescription,
 ) -> InstrumentStateSnapshot:
     try:
         state = driver.read_state()
     except Exception as error:
         raise BackendConflict("instrument state read failed") from error
-    if state.instrument_id != instrument_id:
-        raise BackendConflict("instrument returned state for another instrument")
+    problems = validate_state_snapshot(
+        snapshot=state,
+        description=description,
+    )
+    if problems:
+        raise BackendConflict("; ".join(item.message for item in problems))
     return state
 
 

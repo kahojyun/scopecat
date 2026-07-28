@@ -24,9 +24,12 @@ from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
+    ApplyReceipt,
     CollectCommand,
     CollectReceipt,
     CollectResultRequest,
+    InstrumentDescription,
+    InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
@@ -36,6 +39,12 @@ from scopecat.sdk.instruments import (
     InstrumentStateSnapshot,
     InvokeCommand,
     InvokeReceipt,
+    bool_property,
+    discriminated_state,
+    enum_property,
+    float_property,
+    interface,
+    state_case,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -156,6 +165,70 @@ class _StatefulDriver(_TrackingDriver):
     ) -> None:
         super().__init__(instrument_id)
         self._state = state
+
+
+class _VariantDriver(_TrackingDriver):
+    @override
+    def describe(self) -> InstrumentDescription:
+        base = super().describe()
+        return base.model_copy(
+            update={
+                "interfaces": [
+                    *base.interfaces,
+                    interface(
+                        "test.dc/v1",
+                        properties=[
+                            enum_property("mode", choices=("voltage", "current")),
+                            float_property("voltage_level"),
+                            float_property("current_level"),
+                            bool_property("output_enabled"),
+                        ],
+                        state=discriminated_state(
+                            "mode",
+                            common_property_ids=("output_enabled",),
+                            cases=(
+                                state_case(
+                                    "voltage",
+                                    property_ids=("voltage_level",),
+                                ),
+                                state_case(
+                                    "current",
+                                    property_ids=("current_level",),
+                                ),
+                            ),
+                        ),
+                    ),
+                ]
+            }
+        )
+
+    @override
+    def read_state(self) -> InstrumentStateSnapshot:
+        return InstrumentStateSnapshot(
+            instrument_id=self.instrument_id,
+            properties=[
+                InstrumentPropertyState(
+                    interface_id="test.dc/v1",
+                    property_id="mode",
+                    value=StateValue("voltage"),
+                ),
+                InstrumentPropertyState(
+                    interface_id="test.dc/v1",
+                    property_id="voltage_level",
+                    value=StateValue(0.1),
+                ),
+                InstrumentPropertyState(
+                    interface_id="test.dc/v1",
+                    property_id="output_enabled",
+                    value=StateValue(False),
+                ),
+            ],
+        )
+
+    @override
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        self.applied.append(command)
+        return ApplyReceipt(status="applied")
 
 
 class _StatefulProvider:
@@ -327,6 +400,63 @@ def test_invoke_without_reported_state_reads_back_before_returning(
             assert receipt.state is not None
             assert receipt.state.instrument_id == "source-0"
             assert driver.read_count == reads_before_invoke + 1
+
+
+def test_interactive_apply_tracks_observed_discriminated_state(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            _ = handle.session_id
+
+            voltage = handle.apply(
+                "test.dc/v1",
+                command_id="voltage-before-switch",
+                voltage_level=0.2,
+            )
+            with pytest.raises(DaemonConflictError, match="set mode explicitly"):
+                handle.apply(
+                    "test.dc/v1",
+                    command_id="invalid-current-patch",
+                    current_level=0.02,
+                )
+
+            switched = handle.apply(
+                "test.dc/v1",
+                command_id="switch-current",
+                mode="current",
+                current_level=0.02,
+            )
+            replay = handle.apply(
+                "test.dc/v1",
+                command_id="voltage-before-switch",
+                voltage_level=0.2,
+            )
+            partial = handle.apply(
+                "test.dc/v1",
+                command_id="adjust-current",
+                current_level=0.03,
+            )
+            handle.close()
+
+            assert switched.state is not None
+            switched_properties = {
+                item.property_id: item.value.root for item in switched.state.properties
+            }
+            assert switched_properties == {
+                "current_level": 0.02,
+                "mode": "current",
+                "output_enabled": False,
+            }
+            assert replay == voltage
+            assert partial.status == "applied"
+            [driver] = provider.drivers
+            assert len(driver.applied) == 3
 
 
 def test_operation_retry_is_deduplicated_and_conflicting_content_is_rejected(
@@ -559,30 +689,29 @@ def test_notebook_default_collect_retries_with_same_operation_after_response_los
             assert driver.collect_commands[0].command_id is not None
 
 
-def test_read_failure_keeps_session_active_and_does_not_quarantine(
+def test_initial_read_failure_aborts_session_without_quarantining(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider(_ReadFailDriver)
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            session = daemon.open_instrument_session(
-                InstrumentSessionOpenCommand(
-                    operation_id="open-read-failure",
-                    actor="alice",
-                    instrument_ids=("source-0",),
-                )
-            )
-
-            with pytest.raises(DaemonConflictError, match="state read failed"):
-                daemon.read_instrument_state(
-                    session.session_id,
-                    "source-0",
+            with pytest.raises(
+                DaemonConflictError,
+                match="initial state could not be read",
+            ):
+                daemon.open_instrument_session(
+                    InstrumentSessionOpenCommand(
+                        operation_id="open-read-failure",
+                        actor="alice",
+                        instrument_ids=("source-0",),
+                    )
                 )
 
             [instrument] = daemon.list_instruments().items
-            assert instrument.availability == "active"
-            daemon.close_instrument_session(session.session_id)
+            [driver] = provider.drivers
+            assert instrument.availability == "available"
+            assert driver.closed
 
 
 def test_invalid_collect_receipt_is_deduplicated_without_quarantining(

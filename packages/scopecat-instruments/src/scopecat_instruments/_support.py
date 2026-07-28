@@ -15,6 +15,7 @@ from scopecat.sdk.instruments import (
     InstrumentDescription,
     InstrumentPropertyState,
     InstrumentStateCommand,
+    InstrumentStateSnapshot,
     InvokeCommand,
     InvokeReceipt,
 )
@@ -155,8 +156,14 @@ def state_property(
 def validate_writable_command(
     command: InstrumentStateCommand,
     description: InstrumentDescription,
+    *,
+    baseline: InstrumentStateSnapshot | None = None,
 ) -> list[Problem]:
-    return validate_state_contract(command=command, description=description)
+    return validate_state_contract(
+        command=command,
+        description=description,
+        baseline=baseline,
+    )
 
 
 def validate_collect_command(
@@ -188,6 +195,19 @@ def unsupported_invoke(
             )
         ]
     return InvokeReceipt(status="not_invoked", problems=tuple(problems))
+
+
+def state_sync_failed(instrument_id: str, error: Exception) -> ApplyReceipt:
+    return not_applied(
+        [
+            execution_problem(
+                "instrument_state_sync_failed",
+                f"could not synchronize state from {instrument_id}",
+                "instrument_state_command",
+                details={"exception_type": _exception_type(error)},
+            )
+        ]
+    )
 
 
 def apply_unknown(instrument_id: str, error: Exception) -> ApplyReceipt:

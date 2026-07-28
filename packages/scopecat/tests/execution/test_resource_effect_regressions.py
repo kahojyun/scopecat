@@ -645,7 +645,11 @@ class _ScopedStateDriver:
 
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied.append(command)
-        self.state = apply_state_command_to_snapshot(self.state, command)
+        self.state = apply_state_command_to_snapshot(
+            self.state,
+            command,
+            description=self.describe(),
+        )
         return ApplyReceipt(status="applied")
 
     def invoke(self, command: InvokeCommand) -> InvokeReceipt:

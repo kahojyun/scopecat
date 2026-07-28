@@ -45,6 +45,9 @@ class TestRunInstrumentHost:
     ) -> None:
         selected = tuple(drivers)
         self._drivers = {driver.instrument_id: driver for driver in selected}
+        self._descriptions = {
+            driver.instrument_id: driver.describe() for driver in selected
+        }
         self._ready = ready
         self._setup_problems = setup_problems
         self._initial_state = tuple(driver.read_state() for driver in selected)
@@ -91,7 +94,12 @@ class TestRunInstrumentHost:
                     indeterminate = receipt.status == "unknown"
                     break
                 self._assumed_states[action.instrument_id] = (
-                    receipt.state or apply_state_command_to_snapshot(current, command)
+                    receipt.state
+                    or apply_state_command_to_snapshot(
+                        current,
+                        command,
+                        description=self._descriptions[action.instrument_id],
+                    )
                 )
                 continue
             if isinstance(action, RunHardwareInvoke):

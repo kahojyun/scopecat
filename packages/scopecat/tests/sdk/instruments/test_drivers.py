@@ -47,6 +47,7 @@ from scopecat.sdk.instruments import (
     acquisition_result,
     apply_state_command_to_snapshot,
     bool_property,
+    discriminated_state,
     enum_property,
     float_property,
     int_property,
@@ -54,11 +55,13 @@ from scopecat.sdk.instruments import (
     operation,
     operation_argument,
     quantity_property,
+    state_case,
     string_property,
     validate_collect_command,
     validate_collect_receipt,
     validate_invoke_command,
     validate_state_command,
+    validate_state_snapshot,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import (
@@ -264,7 +267,11 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     description = instrument.describe()
     current = instrument.read_state()
     result = instrument.apply_state(command)
-    updated = apply_state_command_to_snapshot(current, command)
+    updated = apply_state_command_to_snapshot(
+        current,
+        command,
+        description=description,
+    )
     no_change = _changed_state_command(updated, command)
 
     assert description.instrument_id == "source-0"
@@ -688,6 +695,176 @@ def test_instrument_description_rejects_duplicate_interface_members() -> None:
         )
 
 
+def test_discriminated_state_requires_an_exhaustive_property_partition() -> None:
+    with pytest.raises(ValidationError, match="unclassified properties"):
+        interface(
+            "test.dc/v1",
+            properties=[
+                enum_property("mode", choices=("voltage", "current")),
+                float_property("level"),
+            ],
+            state=discriminated_state(
+                "mode",
+                cases=(
+                    state_case("voltage"),
+                    state_case("current"),
+                ),
+            ),
+        )
+
+    with pytest.raises(ValidationError, match="choices exactly match case values"):
+        interface(
+            "test.dc/v1",
+            properties=[
+                enum_property("mode", choices=("voltage", "current")),
+            ],
+            state=discriminated_state(
+                "mode",
+                cases=(
+                    state_case("current"),
+                    state_case("voltage"),
+                ),
+            ),
+        )
+
+
+def test_state_command_uses_observed_discriminator_for_partial_patches() -> None:
+    description = _variant_description()
+    voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
+    current = _variant_snapshot("current", "current_level", 0.01)
+    voltage_patch = _variant_command(("voltage_level", 0.2))
+
+    assert (
+        validate_state_command(
+            command=voltage_patch,
+            description=description,
+            baseline=voltage,
+        )
+        == []
+    )
+    assert [
+        item.code
+        for item in validate_state_command(
+            command=voltage_patch,
+            description=description,
+            baseline=current,
+        )
+    ] == ["instrument_driver_state_case_mismatch"]
+
+
+def test_state_command_requires_a_discriminator_in_the_same_target_scope() -> None:
+    description = _variant_description()
+    baseline = InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id="mode",
+                value=StateValue("current"),
+                entity_ids=["channel-a"],
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id="current_level",
+                value=StateValue(0.01),
+                entity_ids=["channel-a"],
+            ),
+        ],
+    )
+    patch = InstrumentStateCommand(
+        instrument_id="source-0",
+        assignments=[
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.dc/v1",
+                property_id="current_level",
+                value=StateValue(0.02),
+                entity_ids=["channel-b"],
+            )
+        ],
+    )
+
+    assert [
+        item.code
+        for item in validate_state_command(
+            command=patch,
+            description=description,
+            baseline=baseline,
+        )
+    ] == ["instrument_driver_state_case_unknown"]
+
+
+def test_state_command_rejects_mixed_or_explicitly_mismatched_cases() -> None:
+    description = _variant_description()
+
+    mixed = validate_state_command(
+        command=_variant_command(
+            ("voltage_level", 0.2),
+            ("current_level", 0.01),
+        ),
+        description=description,
+    )
+    explicit_mismatch = validate_state_command(
+        command=_variant_command(
+            ("mode", "current"),
+            ("voltage_level", 0.2),
+        ),
+        description=description,
+    )
+
+    assert [item.code for item in mixed] == ["instrument_driver_mixed_state_cases"]
+    assert [item.code for item in explicit_mismatch] == [
+        "instrument_driver_state_case_mismatch"
+    ]
+
+
+def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
+    description = _variant_description()
+    voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
+    invalid = voltage.model_copy(
+        update={
+            "properties": [
+                *voltage.properties,
+                RecordInstrumentPropertyState(
+                    interface_id="test.dc/v1",
+                    property_id="current_level",
+                    value=StateValue(0.01),
+                ),
+            ]
+        }
+    )
+
+    assert [
+        item.code
+        for item in validate_state_snapshot(
+            snapshot=invalid,
+            description=description,
+        )
+    ] == ["instrument_driver_snapshot_inactive_state_property"]
+
+    switched = apply_state_command_to_snapshot(
+        voltage,
+        _variant_command(
+            ("mode", "current"),
+            ("current_level", 0.02),
+        ),
+        description=description,
+    )
+    properties = {item.property_id: item.value.root for item in switched.properties}
+    assert properties == {
+        "current_level": 0.02,
+        "mode": "current",
+        "output_enabled": False,
+    }
+    assert (
+        validate_state_snapshot(
+            snapshot=switched,
+            description=description,
+        )
+        == []
+    )
+
+
 def test_acquisition_result_rejects_duplicate_axis_ids() -> None:
     with pytest.raises(
         ValidationError,
@@ -896,6 +1073,83 @@ def _state_command(
                 property_id=property_id,
                 value=value,
             )
+        ],
+    )
+
+
+def _variant_description() -> InstrumentDescription:
+    return InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.variant",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.dc/v1",
+                properties=[
+                    enum_property("mode", choices=("voltage", "current")),
+                    float_property("voltage_level"),
+                    float_property("current_level"),
+                    bool_property("output_enabled"),
+                ],
+                state=discriminated_state(
+                    "mode",
+                    common_property_ids=("output_enabled",),
+                    cases=(
+                        state_case(
+                            "voltage",
+                            property_ids=("voltage_level",),
+                        ),
+                        state_case(
+                            "current",
+                            property_ids=("current_level",),
+                        ),
+                    ),
+                ),
+            )
+        ],
+    )
+
+
+def _variant_snapshot(
+    mode: str,
+    property_id: str,
+    value: float,
+) -> InstrumentStateSnapshot:
+    return InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id="mode",
+                value=StateValue(mode),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id=property_id,
+                value=StateValue(value),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id="output_enabled",
+                value=StateValue(False),
+            ),
+        ],
+    )
+
+
+def _variant_command(
+    *assignments: tuple[str, str | float],
+) -> InstrumentStateCommand:
+    return InstrumentStateCommand(
+        instrument_id="source-0",
+        assignments=[
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.dc/v1",
+                property_id=property_id,
+                value=StateValue(value),
+            )
+            for property_id, value in assignments
         ],
     )
 

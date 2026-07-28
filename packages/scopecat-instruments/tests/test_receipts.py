@@ -75,18 +75,46 @@ def test_invalid_gs200_mode_is_not_applied_without_io() -> None:
     assert receipt.problems[0].code == "instrument_driver_property_value_mismatch"
 
 
-def test_real_gs200_rejects_mixed_modes_without_io() -> None:
+def test_real_gs200_rejects_mixed_state_cases_without_io() -> None:
     transport = ScriptedTransport([])
     driver = YokogawaGS200("bias", transport)
 
     receipt = driver.apply_state(_mixed_dc_mode_command())
 
     assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "gs200_conflicting_source_modes"
+    assert receipt.problems[0].code == "instrument_driver_mixed_state_cases"
     assert transport.transcript == []
 
 
-def test_virtual_dc_rejects_mixed_modes_without_mutation() -> None:
+def test_real_gs200_rejects_explicit_state_case_mismatch_without_io() -> None:
+    transport = ScriptedTransport([])
+    driver = YokogawaGS200("bias", transport)
+    command = InstrumentStateCommand(
+        instrument_id="bias",
+        assignments=[
+            InstrumentStateAssignment(
+                resource_id="bias",
+                interface_id=DC_SOURCE,
+                property_id="source_mode",
+                value=StateValue("current"),
+            ),
+            InstrumentStateAssignment(
+                resource_id="bias",
+                interface_id=DC_SOURCE,
+                property_id="voltage_level",
+                value=StateValue(Quantity(0.1, "V")),
+            ),
+        ],
+    )
+
+    receipt = driver.apply_state(command)
+
+    assert receipt.status == "not_applied"
+    assert receipt.problems[0].code == "instrument_driver_state_case_mismatch"
+    assert transport.transcript == []
+
+
+def test_virtual_dc_rejects_mixed_state_cases_without_mutation() -> None:
     world = VirtualLabWorld(seed=3)
     driver = VirtualDcSource("bias", world)
     before = world.dc_source("bias")
@@ -100,12 +128,46 @@ def test_virtual_dc_rejects_mixed_modes_without_mutation() -> None:
     after = world.dc_source("bias")
 
     assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "virtual_dc_conflicting_source_modes"
+    assert receipt.problems[0].code == "instrument_driver_mixed_state_cases"
     assert (
         after.source_mode,
         after.voltage_level_v,
         after.current_level_a,
     ) == before_values
+
+
+def test_virtual_dc_requires_explicit_discriminator_to_switch_cases() -> None:
+    world = VirtualLabWorld(seed=3)
+    driver = VirtualDcSource("bias", world)
+
+    receipt = driver.apply_state(
+        InstrumentStateCommand(
+            instrument_id="bias",
+            assignments=[
+                InstrumentStateAssignment(
+                    resource_id="bias",
+                    interface_id=DC_SOURCE,
+                    property_id="current_level",
+                    value=StateValue(Quantity(1.0e-3, "A")),
+                )
+            ],
+        )
+    )
+
+    assert receipt.status == "not_applied"
+    assert receipt.problems[0].code == "instrument_driver_state_case_mismatch"
+    source = world.dc_source("bias")
+    assert source.source_mode == "voltage"
+    assert source.current_level_a == 0.0
+
+
+def test_gs200_state_sync_loss_is_not_applied() -> None:
+    driver = YokogawaGS200("bias", _FailingTransport())
+
+    receipt = driver.apply_state(InstrumentStateCommand(instrument_id="bias"))
+
+    assert receipt.status == "not_applied"
+    assert receipt.problems[0].code == "instrument_state_sync_failed"
 
 
 def test_apply_transport_loss_reports_unknown_not_not_applied() -> None:

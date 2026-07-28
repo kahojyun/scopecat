@@ -949,6 +949,7 @@ export interface components {
             operations?: components["schemas"]["OperationSpec"][];
             /** Properties */
             properties?: components["schemas"]["PropertySpec"][];
+            state?: components["schemas"]["DiscriminatedStateSpec"] | null;
         };
         /** ConfigActivationHistoryView */
         ConfigActivationHistoryView: {
@@ -1234,6 +1235,21 @@ export interface components {
              * @enum {string}
              */
             kind: "direct_config_profile";
+        };
+        /**
+         * DiscriminatedStateSpec
+         * @description An exhaustive property partition selected by one persistent property.
+         */
+        DiscriminatedStateSpec: {
+            /** Cases */
+            cases: [
+                components["schemas"]["StateCaseSpec"],
+                components["schemas"]["StateCaseSpec"],
+                ...components["schemas"]["StateCaseSpec"][]
+            ];
+            /** Common Property Ids */
+            common_property_ids?: components["schemas"]["_NonEmptyId"][];
+            discriminator_property_id: components["schemas"]["_NonEmptyId"];
         };
         /**
          * DomainTargetBinding
@@ -1563,6 +1579,7 @@ export interface components {
             operations?: components["schemas"]["OperationSpec"][];
             /** Properties */
             properties?: components["schemas"]["PropertySpec"][];
+            state?: components["schemas"]["DiscriminatedStateSpec"] | null;
         };
         /** InvokeCommand */
         InvokeCommand: {
@@ -2303,6 +2320,15 @@ export interface components {
             value: number;
         };
         Sha256ContentHash: string;
+        /**
+         * StateCaseSpec
+         * @description Properties available for one discriminator value.
+         */
+        StateCaseSpec: {
+            /** Property Ids */
+            property_ids?: components["schemas"]["_NonEmptyId"][];
+            value: components["schemas"]["_NonEmptyId"];
+        };
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**
          * StateValue

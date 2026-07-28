@@ -29,6 +29,7 @@ from scopecat_instruments._support import (
     parse_identity,
     quantity_value,
     state_property,
+    state_sync_failed,
     string_value,
     unsupported_invoke,
     validate_collect_command,
@@ -120,61 +121,68 @@ class YokogawaGS200:
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         description = self.describe()
         problems = validate_writable_command(command, description)
-        selected_properties = {
-            assignment.property_id: assignment for assignment in command.assignments
-        }
         if problems:
             return not_applied(problems)
-        implied_modes = {
-            "voltage"
-            for path in selected_properties
-            if path in {"voltage_range", "voltage_level"}
-        } | {
-            "current"
-            for path in selected_properties
-            if path in {"current_range", "current_level"}
-        }
-        explicit_mode_property = selected_properties.get("source_mode")
-        explicit_mode = (
-            string_value(explicit_mode_property.value)
-            if explicit_mode_property is not None
-            else None
-        )
-        if len(implied_modes) > 1 or (
-            explicit_mode is not None
-            and implied_modes
-            and explicit_mode not in implied_modes
-        ):
-            problems.append(
-                execution_problem(
-                    "gs200_conflicting_source_modes",
-                    "one command cannot mix voltage and current source properties",
-                    "instrument_state_command",
-                    "assignments",
-                )
-            )
-        if problems:
-            return not_applied(problems)
-        target_mode = explicit_mode or next(iter(implied_modes), None)
-        output_property = selected_properties.get("output_enabled")
-        target_output = (
-            bool_value(output_property.value) if output_property is not None else None
-        )
         try:
-            if target_output is False:
+            baseline = self.read_state()
+        except Exception as error:
+            return state_sync_failed(self.instrument_id, error)
+        problems = validate_writable_command(
+            command,
+            description,
+            baseline=baseline,
+        )
+        if problems:
+            return not_applied(problems)
+
+        try:
+            selected_properties = {
+                assignment.property_id: assignment for assignment in command.assignments
+            }
+            baseline_properties = {
+                property_state.property_id: property_state
+                for property_state in baseline.properties
+                if property_state.interface_id == DC_SOURCE
+            }
+            current_mode = string_value(baseline_properties["source_mode"].value)
+            current_output = bool_value(baseline_properties["output_enabled"].value)
+            mode_property = selected_properties.get("source_mode")
+            target_mode = (
+                string_value(mode_property.value)
+                if mode_property is not None
+                else current_mode
+            )
+            output_property = selected_properties.get("output_enabled")
+            target_output = (
+                bool_value(output_property.value)
+                if output_property is not None
+                else current_output
+            )
+            changes_source_state = target_mode != current_mode or bool(
+                {
+                    "voltage_range",
+                    "current_range",
+                    "voltage_level",
+                    "current_level",
+                }
+                & selected_properties.keys()
+            )
+            # Protection values are compliance controls designed for live adjustment.
+            disabled_for_update = current_output and (
+                not target_output or changes_source_state
+            )
+
+            if disabled_for_update:
                 self.set_output(False)
-            if target_mode is not None:
+            if target_mode != current_mode:
                 self.set_source_mode(target_mode)
-            range_path = (
-                "voltage_range" if target_mode == "voltage" else "current_range"
-            )
-            level_path = (
-                "voltage_level" if target_mode == "voltage" else "current_level"
-            )
-            unit = "V" if target_mode == "voltage" else "A"
-            if target_mode is not None and range_path in selected_properties:
+            if "voltage_range" in selected_properties:
                 self.set_source_range(
-                    quantity_value(selected_properties[range_path].value, unit)
+                    quantity_value(selected_properties["voltage_range"].value, "V")
+                )
+            if "current_range" in selected_properties:
+                self.set_source_range(
+                    quantity_value(selected_properties["current_range"].value, "A")
                 )
             if "voltage_protection" in selected_properties:
                 self.set_voltage_protection(
@@ -190,12 +198,17 @@ class YokogawaGS200:
                         "A",
                     )
                 )
-            if target_mode is not None and level_path in selected_properties:
+            if "voltage_level" in selected_properties:
                 self.set_source_level(
-                    quantity_value(selected_properties[level_path].value, unit)
+                    quantity_value(selected_properties["voltage_level"].value, "V")
                 )
-            if target_output is True:
-                self.set_output(True)
+            if "current_level" in selected_properties:
+                self.set_source_level(
+                    quantity_value(selected_properties["current_level"].value, "A")
+                )
+            effective_output = False if disabled_for_update else current_output
+            if target_output != effective_output:
+                self.set_output(target_output)
             return ApplyReceipt(status="applied", state=self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)

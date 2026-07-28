@@ -45,6 +45,25 @@ def _state_command(
     )
 
 
+def _gs200_state_readback(
+    *,
+    mode: str,
+    source_range: str,
+    source_level: str,
+    output_enabled: bool,
+    voltage_protection: str = "10",
+    current_protection: str = "0.01",
+) -> list[ScriptedExchange]:
+    return [
+        ScriptedExchange.query(":SOUR:FUNC?", mode),
+        ScriptedExchange.query(":SOUR:RANG?", source_range),
+        ScriptedExchange.query(":SOUR:LEV?", source_level),
+        ScriptedExchange.query(":SOUR:PROT:VOLT?", voltage_protection),
+        ScriptedExchange.query(":SOUR:PROT:CURR?", current_protection),
+        ScriptedExchange.query(":OUTP?", "1" if output_enabled else "0"),
+    ]
+
+
 def test_gs200_source_and_monitor_transcript() -> None:
     transport = ScriptedTransport(
         [
@@ -105,26 +124,37 @@ def test_gs200_source_and_monitor_transcript() -> None:
     transport.assert_complete()
 
 
-@pytest.mark.parametrize("enabled", [False, True], ids=["disable-first", "enable-last"])
-def test_gs200_apply_orders_output_around_level_changes(enabled: bool) -> None:
-    writes = [ScriptedExchange.write(":OUTP OFF")] if not enabled else []
-    writes.extend(
-        [
-            ScriptedExchange.write(":SOUR:FUNC VOLT"),
-            ScriptedExchange.write(":SOUR:LEV 0.125"),
-        ]
-    )
-    if enabled:
+@pytest.mark.parametrize(
+    "target_output",
+    [False, True],
+    ids=["leave-disabled", "restore-enabled"],
+)
+def test_gs200_apply_disables_live_output_while_switching_state(
+    target_output: bool,
+) -> None:
+    writes = [
+        ScriptedExchange.write(":OUTP OFF"),
+        ScriptedExchange.write(":SOUR:FUNC VOLT"),
+        ScriptedExchange.write(":SOUR:RANG 1"),
+        ScriptedExchange.write(":SOUR:LEV 0.125"),
+    ]
+    if target_output:
         writes.append(ScriptedExchange.write(":OUTP ON"))
     transport = ScriptedTransport(
         [
+            *_gs200_state_readback(
+                mode="CURR",
+                source_range="0.01",
+                source_level="0.001",
+                output_enabled=True,
+            ),
             *writes,
-            ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
-            ScriptedExchange.query(":SOUR:RANG?", "1"),
-            ScriptedExchange.query(":SOUR:LEV?", "0.125"),
-            ScriptedExchange.query(":SOUR:PROT:VOLT?", "10"),
-            ScriptedExchange.query(":SOUR:PROT:CURR?", "0.01"),
-            ScriptedExchange.query(":OUTP?", "1" if enabled else "0"),
+            *_gs200_state_readback(
+                mode="VOLT",
+                source_range="1",
+                source_level="0.125",
+                output_enabled=target_output,
+            ),
         ]
     )
     driver = YokogawaGS200("bias", transport)
@@ -135,9 +165,104 @@ def test_gs200_apply_orders_output_around_level_changes(enabled: bool) -> None:
             DC_SOURCE,
             [
                 ("source_mode", "voltage"),
+                ("voltage_range", Quantity(1.0, "V")),
                 ("voltage_level", Quantity(0.125, "V")),
-                ("output_enabled", enabled),
+                ("output_enabled", target_output),
             ],
+        )
+    )
+
+    assert receipt.status == "applied"
+    transport.assert_complete()
+
+
+def test_gs200_applies_and_monitors_current_source_case() -> None:
+    transport = ScriptedTransport(
+        [
+            *_gs200_state_readback(
+                mode="VOLT",
+                source_range="1",
+                source_level="0",
+                output_enabled=False,
+            ),
+            ScriptedExchange.write(":SOUR:FUNC CURR"),
+            ScriptedExchange.write(":SOUR:RANG 0.01"),
+            ScriptedExchange.write(":SOUR:LEV 0.001"),
+            ScriptedExchange.write(":OUTP ON"),
+            *_gs200_state_readback(
+                mode="CURR",
+                source_range="0.01",
+                source_level="0.001",
+                output_enabled=True,
+            ),
+            ScriptedExchange.query(":SOUR:FUNC?", "CURR"),
+            ScriptedExchange.query(":MEAS?", "1"),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport, monitor_option=True)
+
+    applied = driver.apply_state(
+        _state_command(
+            "bias",
+            DC_SOURCE,
+            [
+                ("source_mode", "current"),
+                ("current_range", Quantity(0.01, "A")),
+                ("current_level", Quantity(0.001, "A")),
+                ("output_enabled", True),
+            ],
+        )
+    )
+    monitored = driver.collect(
+        CollectCommand(
+            instrument_id="bias",
+            point_index=0,
+            point_count=1,
+            requests=[
+                CollectResultRequest(
+                    id="monitored_voltage",
+                    interface_id=DC_MONITOR,
+                    acquisition_id="monitor",
+                    result_id="monitored_voltage",
+                    unit="V",
+                )
+            ],
+        )
+    )
+
+    assert applied.status == "applied"
+    assert monitored.status == "collected"
+    assert monitored.readback is not None
+    assert monitored.readback.values["monitored_voltage"] == Quantity(1.0, "V")
+    transport.assert_complete()
+
+
+def test_gs200_adjusts_compliance_without_interrupting_live_output() -> None:
+    transport = ScriptedTransport(
+        [
+            *_gs200_state_readback(
+                mode="VOLT",
+                source_range="1",
+                source_level="0.125",
+                output_enabled=True,
+            ),
+            ScriptedExchange.write(":SOUR:PROT:CURR 0.005"),
+            *_gs200_state_readback(
+                mode="VOLT",
+                source_range="1",
+                source_level="0.125",
+                output_enabled=True,
+                current_protection="0.005",
+            ),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport)
+
+    receipt = driver.apply_state(
+        _state_command(
+            "bias",
+            DC_SOURCE,
+            [("current_protection", Quantity(0.005, "A"))],
         )
     )
 

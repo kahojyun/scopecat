@@ -89,6 +89,22 @@ def test_virtual_dc_source_exposes_source_and_monitor_interfaces() -> None:
     ]
 
 
+def test_dc_source_state_partitions_properties_by_source_mode() -> None:
+    state = dc_source_interface().state
+
+    assert state is not None
+    assert state.discriminator_property_id == "source_mode"
+    assert state.common_property_ids == [
+        "voltage_protection",
+        "current_protection",
+        "output_enabled",
+    ]
+    assert [(case.value, case.property_ids) for case in state.cases] == [
+        ("voltage", ["voltage_range", "voltage_level"]),
+        ("current", ["current_range", "current_level"]),
+    ]
+
+
 @pytest.mark.parametrize(
     "driver",
     [

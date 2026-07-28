@@ -33,15 +33,26 @@ from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
+    ApplyReceipt,
     CollectResultRequest,
+    InstrumentDescription,
     InstrumentOperationArgument,
+    InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InstrumentStateSnapshot,
     InvokeCommand,
     InvokeReceipt,
+    bool_property,
+    discriminated_state,
+    enum_property,
+    float_property,
+    interface,
+    operation,
+    state_case,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -108,6 +119,105 @@ class _Driver(SignalInstrumentDriver):
             raise RuntimeError("close failed")
 
 
+class _VariantDriver(_Driver):
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        fail_action: _FailAction = None,
+        apply_barrier: Barrier | None = None,
+    ) -> None:
+        super().__init__(
+            instrument_id,
+            fail_action=fail_action,
+            apply_barrier=apply_barrier,
+        )
+        self.mode = "voltage"
+        self.voltage_level = 0.1
+        self.current_level = 0.01
+
+    @override
+    def describe(self) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id=self.instrument_id,
+            implementation_id=self.implementation_id,
+            implementation_version=self.implementation_version,
+            interfaces=[
+                interface(
+                    "test.dc/v1",
+                    properties=[
+                        enum_property("mode", choices=("voltage", "current")),
+                        float_property("voltage_level"),
+                        float_property("current_level"),
+                        bool_property("output_enabled"),
+                    ],
+                    state=discriminated_state(
+                        "mode",
+                        common_property_ids=("output_enabled",),
+                        cases=(
+                            state_case(
+                                "voltage",
+                                property_ids=("voltage_level",),
+                            ),
+                            state_case(
+                                "current",
+                                property_ids=("current_level",),
+                            ),
+                        ),
+                    ),
+                    operations=[operation("select_current")],
+                )
+            ],
+        )
+
+    @override
+    def read_state(self) -> InstrumentStateSnapshot:
+        self.read_count += 1
+        level_property = "voltage_level" if self.mode == "voltage" else "current_level"
+        level = self.voltage_level if self.mode == "voltage" else self.current_level
+        return InstrumentStateSnapshot(
+            instrument_id=self.instrument_id,
+            properties=[
+                InstrumentPropertyState(
+                    interface_id="test.dc/v1",
+                    property_id="mode",
+                    value=StateValue(self.mode),
+                ),
+                InstrumentPropertyState(
+                    interface_id="test.dc/v1",
+                    property_id=level_property,
+                    value=StateValue(level),
+                ),
+                InstrumentPropertyState(
+                    interface_id="test.dc/v1",
+                    property_id="output_enabled",
+                    value=StateValue(False),
+                ),
+            ],
+        )
+
+    @override
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        self.applied.append(command)
+        for assignment in command.assignments:
+            if assignment.property_id == "mode":
+                assert isinstance(assignment.value.root, str)
+                self.mode = assignment.value.root
+            elif assignment.property_id == "voltage_level":
+                assert isinstance(assignment.value.root, float)
+                self.voltage_level = assignment.value.root
+            elif assignment.property_id == "current_level":
+                assert isinstance(assignment.value.root, float)
+                self.current_level = assignment.value.root
+        return ApplyReceipt(status="applied")
+
+    @override
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        self.invoked.append(command)
+        self.mode = "current"
+        return InvokeReceipt(status="invoked")
+
+
 class _Provider:
     provider_id = "tests.run_provider"
 
@@ -116,9 +226,11 @@ class _Provider:
         *,
         fail_action: _FailAction = None,
         apply_barrier: Barrier | None = None,
+        driver_type: type[_Driver] = _Driver,
     ) -> None:
         self.fail_action: _FailAction = fail_action
         self.apply_barrier = apply_barrier
+        self.driver_type = driver_type
         self.provide_count = 0
         self.drivers: list[_Driver] = []
 
@@ -130,7 +242,7 @@ class _Provider:
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
-                _Driver(item.id).describe()
+                self.driver_type(item.id).describe()
                 for item in context.config.instrument_registry.instruments
                 if item.id in selected
             ),
@@ -142,7 +254,7 @@ class _Provider:
     ) -> InstrumentProviderResult:
         self.provide_count += 1
         drivers = tuple(
-            _Driver(
+            self.driver_type(
                 instrument_id,
                 fail_action=self.fail_action,
                 apply_barrier=self.apply_barrier,
@@ -216,6 +328,96 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
                 },
             },
         ]
+
+
+def test_batch_retry_replays_before_state_dependent_preflight(tmp_path: Path) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        voltage = _batch_command(
+            lease_id,
+            "voltage-batch",
+            _variant_apply_action(
+                effect_id="voltage-level",
+                voltage_level=0.2,
+            ),
+        )
+
+        first = instruments.execute_run_hardware(run_id, voltage)
+        switched = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "current-batch",
+                _variant_apply_action(
+                    effect_id="switch-current",
+                    mode="current",
+                    current_level=0.02,
+                ),
+            ),
+        )
+        replay = instruments.execute_run_hardware(run_id, voltage)
+
+        assert not first.problems
+        assert not switched.problems
+        assert replay == first
+        assert len(driver.applied) == 2
+
+
+def test_invoke_makes_later_case_specific_preflight_require_discriminator(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        rejected = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "implicit-after-invoke",
+                _variant_invoke_action(effect_id="select-current"),
+                _variant_apply_action(
+                    effect_id="implicit-current-level",
+                    current_level=0.02,
+                ),
+            ),
+        )
+
+        assert [item.code for item in rejected.problems] == [
+            "instrument_driver_state_case_unknown"
+        ]
+        assert driver.invoked == []
+        accepted = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "explicit-after-invoke",
+                _variant_invoke_action(effect_id="select-current-explicit"),
+                _variant_apply_action(
+                    effect_id="explicit-current-level",
+                    mode="current",
+                    current_level=0.02,
+                ),
+            ),
+        )
+        assert not accepted.problems
+        assert len(driver.invoked) == 1
+        assert len(driver.applied) == 1
 
 
 def test_run_invoke_reads_back_state_before_later_actions(
@@ -560,12 +762,13 @@ def _start_run(
     host_instrument_order: tuple[str, ...] = ("source-0",),
     submission_id: str = "run-instruments",
     contract_fingerprint: str | None = None,
+    driver_type: type[_Driver] = _Driver,
 ) -> tuple[str, str]:
     admitted_fingerprint = (
         instrument_contract_fingerprint(
             _Provider.provider_id,
             tuple(
-                _Driver(instrument_id).describe()
+                driver_type(instrument_id).describe()
                 for instrument_id in host_instrument_order
             ),
         )
@@ -640,6 +843,46 @@ def _apply_action(
                 value=StateValue(Quantity(value=5.0, unit="GHz")),
             ),
         ),
+    )
+
+
+def _variant_apply_action(
+    *,
+    effect_id: str,
+    mode: str | None = None,
+    voltage_level: float | None = None,
+    current_level: float | None = None,
+) -> RunHardwareApply:
+    values = {
+        "mode": mode,
+        "voltage_level": voltage_level,
+        "current_level": current_level,
+    }
+    return RunHardwareApply(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        assignments=tuple(
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.dc/v1",
+                property_id=property_id,
+                value=StateValue(value),
+            )
+            for property_id, value in values.items()
+            if value is not None
+        ),
+    )
+
+
+def _variant_invoke_action(*, effect_id: str) -> RunHardwareInvoke:
+    return RunHardwareInvoke(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        resource_id="source-0",
+        interface_id="test.dc/v1",
+        operation_id="select_current",
     )
 
 

@@ -243,51 +243,56 @@ class VirtualDcSource:
         )
 
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
+        description = self.describe()
+        problems = validate_writable_command(command, description)
+        if problems:
+            return not_applied(problems)
+        baseline = self.read_state()
+        problems = validate_writable_command(
+            command,
+            description,
+            baseline=baseline,
+        )
+        if problems:
+            return not_applied(problems)
         properties = {
             assignment.property_id: assignment for assignment in command.assignments
         }
-        if problems:
-            return not_applied(problems)
-        implied_modes = {
-            "voltage"
-            for path in properties
-            if path in {"voltage_range", "voltage_level"}
-        } | {
-            "current"
-            for path in properties
-            if path in {"current_range", "current_level"}
+        baseline_properties = {
+            property_state.property_id: property_state
+            for property_state in baseline.properties
+            if property_state.interface_id == DC_SOURCE
         }
-        explicit_property = properties.get("source_mode")
-        explicit_mode = (
-            string_value(explicit_property.value)
-            if explicit_property is not None
-            else None
+        current_mode = string_value(baseline_properties["source_mode"].value)
+        current_output = bool_value(baseline_properties["output_enabled"].value)
+        mode_property = properties.get("source_mode")
+        target_mode = (
+            string_value(mode_property.value)
+            if mode_property is not None
+            else current_mode
         )
-        if len(implied_modes) > 1 or (
-            explicit_mode is not None
-            and implied_modes
-            and explicit_mode not in implied_modes
-        ):
-            problems.append(
-                execution_problem(
-                    "virtual_dc_conflicting_source_modes",
-                    "one command cannot mix voltage and current source properties",
-                    "instrument_state_command",
-                    "assignments",
-                )
-            )
-        if problems:
-            return not_applied(problems)
-        mode = explicit_mode or next(iter(implied_modes), None)
         output_property = properties.get("output_enabled")
         target_output = (
-            bool_value(output_property.value) if output_property is not None else None
+            bool_value(output_property.value)
+            if output_property is not None
+            else current_output
         )
-        if target_output is False:
+        changes_source_state = target_mode != current_mode or bool(
+            {
+                "voltage_range",
+                "current_range",
+                "voltage_level",
+                "current_level",
+            }
+            & properties.keys()
+        )
+        disabled_for_update = current_output and (
+            not target_output or changes_source_state
+        )
+        if disabled_for_update:
             self.set_output(False)
-        if mode is not None:
-            self.set_source_mode(mode)
+        if target_mode != current_mode:
+            self.set_source_mode(target_mode)
         if "voltage_range" in properties:
             self.set_voltage_range(
                 quantity_value(properties["voltage_range"].value, "V")
@@ -295,14 +300,6 @@ class VirtualDcSource:
         if "current_range" in properties:
             self.set_current_range(
                 quantity_value(properties["current_range"].value, "A")
-            )
-        if "voltage_level" in properties:
-            self.set_voltage_level(
-                quantity_value(properties["voltage_level"].value, "V")
-            )
-        if "current_level" in properties:
-            self.set_current_level(
-                quantity_value(properties["current_level"].value, "A")
             )
         if "voltage_protection" in properties:
             self.set_voltage_protection(
@@ -312,8 +309,17 @@ class VirtualDcSource:
             self.set_current_protection(
                 quantity_value(properties["current_protection"].value, "A")
             )
-        if target_output is True:
-            self.set_output(True)
+        if "voltage_level" in properties:
+            self.set_voltage_level(
+                quantity_value(properties["voltage_level"].value, "V")
+            )
+        if "current_level" in properties:
+            self.set_current_level(
+                quantity_value(properties["current_level"].value, "A")
+            )
+        effective_output = False if disabled_for_update else current_output
+        if target_output != effective_output:
+            self.set_output(target_output)
         return ApplyReceipt(status="applied", state=self.read_state())
 
     def invoke(self, command: InvokeCommand) -> InvokeReceipt:
@@ -368,27 +374,19 @@ class VirtualDcSource:
 
     def set_voltage_range(self, value_v: float) -> None:
         with self.world.lock:
-            source = self.world.dc_source(self.instrument_id)
-            source.source_mode = "voltage"
-            source.voltage_range_v = value_v
+            self.world.dc_source(self.instrument_id).voltage_range_v = value_v
 
     def set_current_range(self, value_a: float) -> None:
         with self.world.lock:
-            source = self.world.dc_source(self.instrument_id)
-            source.source_mode = "current"
-            source.current_range_a = value_a
+            self.world.dc_source(self.instrument_id).current_range_a = value_a
 
     def set_voltage_level(self, value_v: float) -> None:
         with self.world.lock:
-            source = self.world.dc_source(self.instrument_id)
-            source.source_mode = "voltage"
-            source.voltage_level_v = value_v
+            self.world.dc_source(self.instrument_id).voltage_level_v = value_v
 
     def set_current_level(self, value_a: float) -> None:
         with self.world.lock:
-            source = self.world.dc_source(self.instrument_id)
-            source.source_mode = "current"
-            source.current_level_a = value_a
+            self.world.dc_source(self.instrument_id).current_level_a = value_a
 
     def set_voltage_protection(self, value_v: float) -> None:
         with self.world.lock:
