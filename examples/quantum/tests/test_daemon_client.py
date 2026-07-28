@@ -14,7 +14,7 @@ from quantum_lab_demo.configuration import (
 from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
 from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.config import config_content_hash
+from scopecat.records.config import config_content_hash, instrument_bindings
 from scopecat.sdk.instruments import InstrumentProviderContext
 
 
@@ -63,7 +63,9 @@ def test_demo_application_loads_selected_project_system(tmp_path: Path) -> None:
 
     assert isinstance(provider, QuantumLabVirtualProvider)
     assert provider.profile.id == "selected-project-virtual-lab"
-    described = provider.describe(InstrumentProviderContext(config=bootstrap_config))
+    described = provider.describe(
+        InstrumentProviderContext(bindings=instrument_bindings(bootstrap_config))
+    )
     catalog = InstrumentContractCatalog(
         config_content_hash=config_content_hash(bootstrap_config),
         provider_id=described.provider_id,

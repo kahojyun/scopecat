@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+from scopecat.records.config import InstrumentBindingSpec, VirtualInstrumentConnection
 from scopecat.sdk.instruments import (
     DriverInvokeRequest,
     DriverOperationArgument,
     DriverPayload,
+    InstrumentConnectionContext,
+    InstrumentProviderContext,
     PayloadRef,
     StateValue,
 )
 
 from quantum_lab_demo.interfaces import PLAY_PULSE_PROGRAM
 from quantum_lab_demo.virtual_lab.profiles import load_virtual_lab_profile
-from quantum_lab_demo.virtual_lab.provider import QuantumDriveStack
+from quantum_lab_demo.virtual_lab.provider import (
+    QuantumDriveStack,
+    QuantumLabVirtualProvider,
+)
 
 from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
@@ -24,6 +30,23 @@ def test_virtual_lab_profile_loads_configured_devices() -> None:
         "drive-stack",
         "readout-stack",
     )
+
+
+def test_virtual_provider_catalog_and_connection_use_exact_bindings() -> None:
+    provider = QuantumLabVirtualProvider(EXPERIMENT_VIRTUAL_LAB_PROFILE)
+    binding = InstrumentBindingSpec(
+        id="drive-stack",
+        driver_id="quantum_lab_demo.virtual_lab.drive_stack",
+        connection=VirtualInstrumentConnection(),
+    )
+
+    described = provider.describe(InstrumentProviderContext(bindings=(binding,)))
+    connected = provider.connect(InstrumentConnectionContext(binding=binding))
+
+    assert [item.instrument_id for item in described.instruments] == ["drive-stack"]
+    assert connected.instrument_id == "drive-stack"
+    assert connected.implementation_id == binding.driver_id
+    connected.disconnect()
 
 
 def test_drive_program_is_an_invocation_not_persistent_state() -> None:

@@ -17,6 +17,7 @@ from scopecat.records.config import (
     TcpipSocketInstrumentConnection,
     Topology,
     VirtualInstrumentConnection,
+    instrument_bindings,
 )
 from scopecat.records.parameter import ParameterCatalog, ParameterSnapshot
 from scopecat.sdk.instruments import (
@@ -115,7 +116,7 @@ def test_provider_probes_real_device_before_returning_driver() -> None:
     )
 
     driver = ConfiguredInstrumentProvider().connect(
-        InstrumentConnectionContext(config=config, instrument_id="lo")
+        InstrumentConnectionContext(binding=instrument_bindings(config)[0])
     )
 
     assert driver.instrument_id == "lo"
@@ -139,7 +140,7 @@ def test_provider_rejects_wrong_device_identity() -> None:
 
     with pytest.raises(DriverFault) as caught:
         ConfiguredInstrumentProvider().connect(
-            InstrumentConnectionContext(config=config, instrument_id="lo")
+            InstrumentConnectionContext(binding=instrument_bindings(config)[0])
         )
 
     assert caught.value.problem.code == "instrument_connection_failed"
@@ -163,11 +164,12 @@ def test_virtual_state_survives_driver_recreation() -> None:
     )
     provider = ConfiguredInstrumentProvider(seed=17)
     context = InstrumentConnectionContext(
-        config=config,
-        instrument_id="flux",
+        binding=instrument_bindings(config)[0],
     )
 
-    description = provider.describe(InstrumentProviderContext(config=config))
+    description = provider.describe(
+        InstrumentProviderContext(bindings=instrument_bindings(config))
+    )
     first = provider.connect(context)
     assert isinstance(first, VirtualDcSource)
     first.set_voltage_level(0.2)
@@ -200,10 +202,9 @@ def test_provider_connects_exact_requested_instrument() -> None:
         ),
     )
     provider = ConfiguredInstrumentProvider()
-    description = provider.describe(InstrumentProviderContext(config=config))
-    driver = provider.connect(
-        InstrumentConnectionContext(config=config, instrument_id="b")
-    )
+    bindings = instrument_bindings(config)
+    description = provider.describe(InstrumentProviderContext(bindings=bindings))
+    driver = provider.connect(InstrumentConnectionContext(binding=bindings[1]))
 
     assert [item.instrument_id for item in description.instruments] == ["a", "b"]
     assert driver.instrument_id == "b"

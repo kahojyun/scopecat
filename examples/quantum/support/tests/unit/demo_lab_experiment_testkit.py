@@ -21,7 +21,7 @@ from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.selectors import RunSelector
 from scopecat.sdk.instruments import InstrumentBackend, InstrumentProviderContext
@@ -101,7 +101,9 @@ class InProcessPreparedExperiment:
                 accepted.run_id,
                 instruments=provision_test_instrument_host(
                     self.lab.instrument_backend.provider,
-                    context=InstrumentProviderContext(config=planned.config),
+                    context=InstrumentProviderContext(
+                        bindings=instrument_bindings(planned.config)
+                    ),
                     instrument_ids=planned.program.resource_order,
                 ),
             ),
@@ -151,11 +153,13 @@ class InProcessQuantumLab:
         self,
         config: ConfigProfileSnapshot,
     ) -> ExperimentSystem:
+        provider = self.instrument_backend.provider
         return quantum_lab_system(
             config=config,
             instrument_catalog=resolve_instrument_contract_catalog(
                 config=config,
-                instrument_provider=self.instrument_backend.provider,
+                provider_id=provider.provider_id,
+                describe=provider.describe,
             ),
         )
 

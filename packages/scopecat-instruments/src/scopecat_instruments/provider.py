@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import suppress
 
 from scopecat.records.config import (
-    InstrumentSpec,
+    InstrumentBindingSpec,
     TcpipSocketInstrumentConnection,
     VirtualInstrumentConnection,
 )
@@ -80,18 +80,17 @@ class ConfiguredInstrumentProvider:
         self,
         context: InstrumentProviderContext,
     ) -> InstrumentProviderDescription:
-        specifications = list(enumerate(context.config.instrument_registry.instruments))
         problems: list[Problem] = []
         descriptions: list[InstrumentDescription] = []
-        for index, spec in specifications:
+        for index, binding in enumerate(context.bindings):
             try:
                 driver = self._build_driver(
-                    spec,
-                    transport=self._transport_for(spec),
+                    binding,
+                    transport=self._transport_for(binding),
                 )
                 descriptions.append(driver.describe())
             except Exception as error:
-                problems.append(_configuration_problem(spec, index, error))
+                problems.append(_configuration_problem(binding, index, error))
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(descriptions),
@@ -102,24 +101,11 @@ class ConfiguredInstrumentProvider:
         self,
         context: InstrumentConnectionContext,
     ) -> InstrumentDriver:
-        indexed = list(enumerate(context.config.instrument_registry.instruments))
-        by_id = {spec.id: (index, spec) for index, spec in indexed}
-        selected = by_id.get(context.instrument_id)
-        if selected is None:
-            raise DriverFault(
-                provider_problem(
-                    "instrument_provider_unknown_instrument",
-                    f"configured instrument does not exist: {context.instrument_id}",
-                    "context",
-                    "instrument_id",
-                    details={"instrument_id": context.instrument_id},
-                )
-            )
-        index, spec = selected
+        binding = context.binding
         driver: _ConfiguredDriver | None = None
         try:
-            transport = self._transport_for(spec)
-            driver = self._build_driver(spec, transport=transport)
+            transport = self._transport_for(binding)
+            driver = self._build_driver(binding, transport=transport)
             self._probe_real_driver(driver)
             return driver
         except Exception as error:
@@ -128,19 +114,19 @@ class ConfiguredInstrumentProvider:
                     driver.disconnect()
             if isinstance(error, DriverFault):
                 raise
-            raise DriverFault(_connection_problem(spec, index, error)) from error
+            raise DriverFault(_connection_problem(binding, error)) from error
 
-    def _transport_for(self, spec: InstrumentSpec) -> ScpiTransport:
-        if spec.driver_id not in SUPPORTED_DRIVER_IDS:
-            raise ValueError(f"unsupported instrument driver_id {spec.driver_id!r}")
-        if spec.driver_id.startswith("scopecat.virtual."):
-            if not isinstance(spec.connection, VirtualInstrumentConnection):
-                raise ValueError(f"{spec.driver_id} requires a virtual connection")
+    def _transport_for(self, binding: InstrumentBindingSpec) -> ScpiTransport:
+        if binding.driver_id not in SUPPORTED_DRIVER_IDS:
+            raise ValueError(f"unsupported instrument driver_id {binding.driver_id!r}")
+        if binding.driver_id.startswith("scopecat.virtual."):
+            if not isinstance(binding.connection, VirtualInstrumentConnection):
+                raise ValueError(f"{binding.driver_id} requires a virtual connection")
             return _NoIoTransport()
-        connection = spec.connection
+        connection = binding.connection
         if not isinstance(connection, TcpipSocketInstrumentConnection):
             raise ValueError(
-                f"{spec.driver_id} v1 supports only tcpip_socket connections"
+                f"{binding.driver_id} v1 supports only tcpip_socket connections"
             )
         return TcpScpiTransport(
             connection.host,
@@ -150,52 +136,52 @@ class ConfiguredInstrumentProvider:
 
     def _build_driver(
         self,
-        spec: InstrumentSpec,
+        binding: InstrumentBindingSpec,
         *,
         transport: ScpiTransport,
     ) -> _ConfiguredDriver:
-        driver_id = spec.driver_id
+        driver_id = binding.driver_id
         if driver_id == YOKOGAWA_GS200:
-            _check_options(spec, {"monitor_option"})
+            _check_options(binding, {"monitor_option"})
             return YokogawaGS200(
-                spec.id,
+                binding.id,
                 transport,
                 monitor_option=_bool_option(
-                    spec,
+                    binding,
                     "monitor_option",
                     default=False,
                 ),
             )
         if driver_id == ROHDE_SCHWARZ_SGS100A:
-            _check_options(spec, set())
-            return RohdeSchwarzSGS100A(spec.id, transport)
+            _check_options(binding, set())
+            return RohdeSchwarzSGS100A(binding.id, transport)
         if driver_id == LAKESHORE_372:
-            _check_options(spec, set())
-            return LakeShore372(spec.id, transport)
+            _check_options(binding, set())
+            return LakeShore372(binding.id, transport)
         if driver_id == KEYSIGHT_E5080B:
-            _check_options(spec, {"channel", "measurement"})
+            _check_options(binding, {"channel", "measurement"})
             return KeysightE5080B(
-                spec.id,
+                binding.id,
                 transport,
-                channel=_int_option(spec, "channel", default=1),
-                measurement=_int_option(spec, "measurement", default=1),
+                channel=_int_option(binding, "channel", default=1),
+                measurement=_int_option(binding, "measurement", default=1),
             )
         if driver_id == VIRTUAL_RF_SOURCE:
-            _require_virtual(spec)
-            _check_options(spec, set())
-            return VirtualRfSource(spec.id, self.world)
+            _require_virtual(binding)
+            _check_options(binding, set())
+            return VirtualRfSource(binding.id, self.world)
         if driver_id == VIRTUAL_DC_SOURCE:
-            _require_virtual(spec)
-            _check_options(spec, set())
-            return VirtualDcSource(spec.id, self.world)
+            _require_virtual(binding)
+            _check_options(binding, set())
+            return VirtualDcSource(binding.id, self.world)
         if driver_id == VIRTUAL_TEMPERATURE_MONITOR:
-            _require_virtual(spec)
-            _check_options(spec, set())
-            return VirtualTemperatureMonitor(spec.id, self.world)
+            _require_virtual(binding)
+            _check_options(binding, set())
+            return VirtualTemperatureMonitor(binding.id, self.world)
         if driver_id == VIRTUAL_VNA:
-            _require_virtual(spec)
-            _check_options(spec, set())
-            return VirtualNetworkAnalyzer(spec.id, self.world)
+            _require_virtual(binding)
+            _check_options(binding, set())
+            return VirtualNetworkAnalyzer(binding.id, self.world)
         raise AssertionError(f"unreachable supported driver_id {driver_id!r}")
 
     @staticmethod
@@ -224,71 +210,75 @@ class _NoIoTransport:
         pass
 
 
-def _require_virtual(spec: InstrumentSpec) -> None:
-    if not isinstance(spec.connection, VirtualInstrumentConnection):
-        raise ValueError(f"{spec.driver_id} requires a virtual connection")
+def _require_virtual(binding: InstrumentBindingSpec) -> None:
+    if not isinstance(binding.connection, VirtualInstrumentConnection):
+        raise ValueError(f"{binding.driver_id} requires a virtual connection")
 
 
-def _check_options(spec: InstrumentSpec, supported: set[str]) -> None:
-    unknown = sorted(set(spec.connection.options) - supported)
+def _check_options(binding: InstrumentBindingSpec, supported: set[str]) -> None:
+    unknown = sorted(set(binding.connection.options) - supported)
     if unknown:
         raise ValueError(
-            f"unsupported {spec.driver_id} connection options: {', '.join(unknown)}"
+            f"unsupported {binding.driver_id} connection options: {', '.join(unknown)}"
         )
 
 
-def _bool_option(spec: InstrumentSpec, key: str, *, default: bool) -> bool:
-    value = spec.connection.options.get(key, default)
+def _bool_option(
+    binding: InstrumentBindingSpec,
+    key: str,
+    *,
+    default: bool,
+) -> bool:
+    value = binding.connection.options.get(key, default)
     if not isinstance(value, bool):
-        raise ValueError(f"{spec.driver_id} option {key!r} must be boolean")
+        raise ValueError(f"{binding.driver_id} option {key!r} must be boolean")
     return value
 
 
-def _int_option(spec: InstrumentSpec, key: str, *, default: int) -> int:
-    value = spec.connection.options.get(key, default)
+def _int_option(
+    binding: InstrumentBindingSpec,
+    key: str,
+    *,
+    default: int,
+) -> int:
+    value = binding.connection.options.get(key, default)
     if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{spec.driver_id} option {key!r} must be an integer")
+        raise ValueError(f"{binding.driver_id} option {key!r} must be an integer")
     return value
 
 
 def _configuration_problem(
-    spec: InstrumentSpec,
+    binding: InstrumentBindingSpec,
     index: int,
     error: Exception,
 ) -> Problem:
     return provider_problem(
         "instrument_driver_configuration_invalid",
-        f"invalid driver configuration for {spec.id} ({type(error).__name__})",
-        "config",
-        "system",
-        "instrument_registry",
-        "instruments",
+        f"invalid driver configuration for {binding.id} ({type(error).__name__})",
+        "context",
+        "bindings",
         index,
         details={
-            "instrument_id": spec.id,
-            "driver_id": spec.driver_id,
+            "instrument_id": binding.id,
+            "driver_id": binding.driver_id,
             "exception_type": (f"{type(error).__module__}.{type(error).__qualname__}"),
         },
     )
 
 
 def _connection_problem(
-    spec: InstrumentSpec,
-    index: int,
+    binding: InstrumentBindingSpec,
     error: Exception,
 ) -> Problem:
     return provider_problem(
         "instrument_connection_failed",
-        f"could not open and identify {spec.id} ({type(error).__name__})",
-        "config",
-        "system",
-        "instrument_registry",
-        "instruments",
-        index,
+        f"could not open and identify {binding.id} ({type(error).__name__})",
+        "context",
+        "binding",
         "connection",
         details={
-            "instrument_id": spec.id,
-            "driver_id": spec.driver_id,
+            "instrument_id": binding.id,
+            "driver_id": binding.driver_id,
             "exception_type": (f"{type(error).__module__}.{type(error).__qualname__}"),
         },
     )
