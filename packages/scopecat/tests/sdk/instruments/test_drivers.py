@@ -52,6 +52,7 @@ from scopecat.sdk.instruments import (
     float_property,
     int_property,
     interface,
+    lower_driver_apply_request,
     operation,
     operation_argument,
     quantity_property,
@@ -266,13 +267,13 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
 
     description = instrument.describe()
     current = instrument.read_state()
-    result = instrument.apply_state(command)
+    request = lower_driver_apply_request(command)
+    result = instrument.apply_state(request)
     updated = apply_state_command_to_snapshot(
         current,
         command,
         description=description,
     )
-    no_change = _changed_state_command(updated, command)
 
     assert description.instrument_id == "source-0"
     assert description.interfaces[0].properties[0].id == "frequency"
@@ -280,7 +281,7 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
         QuantityType(unit="GHz")
     )
     assert result.problems == ()
-    assert instrument.applied[0] == command
+    assert instrument.applied[0] == request
     assert updated.properties[0].value == quantity_state(5.0, "GHz")
     with pytest.raises(ValidationError):
         updated.properties[0].value.root = 1.0
@@ -288,7 +289,6 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     assert isinstance(updated_quantity, Quantity)
     with pytest.raises(ValidationError):
         updated_quantity.value = 6.0
-    assert no_change.assignments == []
 
 
 def test_instrument_driver_validator_checks_declared_property_shapes() -> None:
@@ -514,6 +514,7 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
     )
     with pytest.raises(ValidationError, match="missing referenced payload"):
         InvokeCommand(
+            command_id="missing-payload",
             instrument_id="source-0",
             resource_id="source-0",
             interface_id="test.play_program/v1",
@@ -528,6 +529,7 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
         )
     not_a_reference = validate_invoke_command(
         command=InvokeCommand(
+            command_id="non-reference-payload",
             instrument_id="source-0",
             resource_id="source-0",
             interface_id="test.play_program/v1",
@@ -662,10 +664,53 @@ def test_collect_command_rejects_duplicate_request_ids() -> None:
 
     with pytest.raises(ValidationError, match="request ids must be unique"):
         CollectCommand(
+            command_id="duplicate-results",
             instrument_id="source-0",
             point_index=0,
             point_count=1,
             requests=[request, request],
+        )
+
+
+def test_state_command_requires_one_assignment() -> None:
+    with pytest.raises(ValidationError, match="at least 1"):
+        InstrumentStateCommand(
+            command_id="empty-apply",
+            instrument_id="source-0",
+            assignments=[],
+        )
+
+
+def test_collect_command_requires_one_acquisition() -> None:
+    with pytest.raises(ValidationError, match="at least 1"):
+        CollectCommand(
+            command_id="empty-collect",
+            instrument_id="source-0",
+            point_index=0,
+            point_count=1,
+            requests=[],
+        )
+
+    with pytest.raises(ValidationError, match="exactly one acquisition"):
+        CollectCommand(
+            command_id="mixed-acquisitions",
+            instrument_id="source-0",
+            point_index=0,
+            point_count=1,
+            requests=[
+                CollectResultRequest(
+                    id="first",
+                    interface_id="test.scalar_signal/v1",
+                    acquisition_id="sample",
+                    result_id="signal",
+                ),
+                CollectResultRequest(
+                    id="second",
+                    interface_id="test.scalar_signal/v1",
+                    acquisition_id="alternate",
+                    result_id="signal",
+                ),
+            ],
         )
 
 
@@ -776,6 +821,7 @@ def test_state_command_requires_a_discriminator_in_the_same_target_scope() -> No
         ],
     )
     patch = InstrumentStateCommand(
+        command_id="scoped-patch",
         instrument_id="source-0",
         assignments=[
             InstrumentStateAssignment(
@@ -886,6 +932,7 @@ def test_acquisition_result_rejects_duplicate_axis_ids() -> None:
 def test_collect_validator_reports_unsupported_result_without_crashing() -> None:
     problems = validate_collect_command(
         command=CollectCommand(
+            command_id="unsupported-result",
             instrument_id="source-0",
             point_index=0,
             point_count=1,
@@ -1053,10 +1100,8 @@ def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     )
 
     assert manifest.status == "completed"
-    assert len(instrument.collect_commands) == 3
-    assert instrument.collect_commands[0].point_index == 0
-    assert instrument.collect_commands[0].point_count == 3
-    assert [request.id for request in instrument.collect_commands[0].requests] == [
+    assert len(instrument.collect_requests) == 3
+    assert [result.request_id for result in instrument.collect_requests[0].results] == [
         "signal"
     ]
     assert instrument.applied[0].assignments[0].interface_id == "test.set_frequency/v1"
@@ -1069,6 +1114,7 @@ def _state_command(
     value: StateValue,
 ) -> InstrumentStateCommand:
     return InstrumentStateCommand(
+        command_id="state-command",
         instrument_id="source-0",
         assignments=[
             InstrumentStateAssignment(
@@ -1145,6 +1191,7 @@ def _variant_command(
     *assignments: tuple[str, str | float],
 ) -> InstrumentStateCommand:
     return InstrumentStateCommand(
+        command_id="variant-command",
         instrument_id="source-0",
         assignments=[
             InstrumentStateAssignment(
@@ -1197,6 +1244,7 @@ def _collect_command(
     dimensions: list[CollectAxisRequest],
 ) -> CollectCommand:
     return CollectCommand(
+        command_id="collect-command",
         instrument_id="source-0",
         point_index=0,
         point_count=1,
@@ -1210,34 +1258,5 @@ def _collect_command(
                 unit=unit,
                 dimensions=dimensions,
             )
-        ],
-    )
-
-
-def _changed_state_command(
-    snapshot: InstrumentStateSnapshot,
-    command: InstrumentStateCommand,
-) -> InstrumentStateCommand:
-    current = {
-        (
-            property.interface_id,
-            tuple(property.component_path),
-            property.property_id,
-        ): property.value
-        for property in snapshot.properties
-    }
-    return InstrumentStateCommand(
-        instrument_id=command.instrument_id,
-        assignments=[
-            assignment
-            for assignment in command.assignments
-            if current.get(
-                (
-                    assignment.interface_id,
-                    tuple(assignment.component_path),
-                    assignment.property_id,
-                )
-            )
-            != assignment.value
         ],
     )

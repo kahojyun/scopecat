@@ -44,6 +44,8 @@ from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectResultRequest,
+    DriverApplyRequest,
+    DriverInvokeRequest,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -52,9 +54,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentStateAssignment,
-    InstrumentStateCommand,
     InstrumentStateSnapshot,
-    InvokeCommand,
     InvokeReceipt,
     bool_property,
     discriminated_state,
@@ -97,7 +97,7 @@ class _Driver(SignalInstrumentDriver):
         return super().read_state()
 
     @override
-    def apply_state(self, command: InstrumentStateCommand):  # type: ignore[no-untyped-def]
+    def apply_state(self, request: DriverApplyRequest):  # type: ignore[no-untyped-def]
         if self.apply_barrier is not None:
             self.apply_barrier.wait(timeout=2)
         if self.fail_action == "apply":
@@ -113,11 +113,11 @@ class _Driver(SignalInstrumentDriver):
                     ),
                 ),
             )
-        return super().apply_state(command)
+        return super().apply_state(request)
 
     @override
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        self.invoked.append(command)
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        self.invoked.append(request)
         if self.fail_action == "invoke":
             raise RuntimeError("invoke outcome lost")
         return InvokeReceipt(status="invoked")
@@ -213,9 +213,9 @@ class _VariantDriver(_Driver):
         )
 
     @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        self.applied.append(command)
-        for assignment in command.assignments:
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied.append(request)
+        for assignment in request.assignments:
             if assignment.property_id == "mode":
                 assert isinstance(assignment.value.root, str)
                 self.mode = assignment.value.root
@@ -228,16 +228,16 @@ class _VariantDriver(_Driver):
         return ApplyReceipt(status="applied")
 
     @override
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        self.invoked.append(command)
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        self.invoked.append(request)
         self.mode = "current"
         return InvokeReceipt(status="invoked")
 
 
 class _NonConvergingDriver(_Driver):
     @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        self.applied.append(command)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied.append(request)
         return ApplyReceipt(status="applied")
 
 
@@ -343,7 +343,7 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             ("signal-use", Quantity(value=1.0, unit="ratio"))
         ]
         assert len(driver.applied) == 1
-        assert len(driver.collect_commands) == 1
+        assert len(driver.collect_requests) == 1
 
         unchanged = _batch_command(
             lease_id,
@@ -412,7 +412,8 @@ def test_run_preparation_applies_defaults_after_fresh_observation(
         }
         [driver] = provider.drivers
         assert len(driver.applied) == 1
-        assert driver.applied[0].command_id == "hardware.provision.prepare.source-0"
+        [assignment] = driver.applied[0].assignments
+        assert assignment.property_id == "frequency"
 
 
 def test_unknown_run_preparation_quarantines_the_run(tmp_path: Path) -> None:

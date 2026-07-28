@@ -34,7 +34,10 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     CollectResultRequest,
+    DriverApplyRequest,
+    DriverCollectRequest,
     DriverFault,
+    DriverInvokeRequest,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -47,7 +50,6 @@ from scopecat.sdk.instruments import (
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
-    InvokeCommand,
     InvokeReceipt,
     bool_property,
     discriminated_state,
@@ -172,8 +174,8 @@ class _ResyncDriver(_TrackingDriver):
 
 class _InvalidCollectDriver(_TrackingDriver):
     @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        self.collect_commands.append(command)
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        self.collect_requests.append(request)
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={"signal": Quantity(value=1.0, unit="K")}
@@ -192,8 +194,8 @@ class _InvokeReadbackDriver(_TrackingDriver):
         return super().read_state()
 
     @override
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        self.invoked.append(command)
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        self.invoked.append(request)
         return InvokeReceipt(status="invoked")
 
 
@@ -266,8 +268,8 @@ class _VariantDriver(_TrackingDriver):
         )
 
     @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        self.applied.append(command)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied.append(request)
         return ApplyReceipt(status="applied")
 
 
@@ -478,14 +480,16 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             [driver] = provider.drivers
             assert released.availability == "available"
             assert not driver.disconnected
-            assert driver.applied[0].command_id == "notebook-apply-1"
-            assert driver.invoked[0].command_id == "notebook-invoke-1"
+            assert driver.applied[0].assignments[0].property_id == "frequency"
+            assert driver.invoked[0].operation_id == "play"
             assert driver.invoked[0].payloads[payload.id].inline_bytes() == (
                 b'{"samples":[0.0]}'
             )
-            assert driver.collect_commands[0].command_id == "notebook-collect-1"
-            assert driver.collect_commands[0].point_index == 0
-            assert driver.collect_commands[0].point_count == 1
+            [collect_request] = driver.collect_requests
+            assert collect_request.acquisition_id == "sample"
+            assert [result.result_id for result in collect_request.results] == [
+                "signal"
+            ]
 
 
 def test_invoke_without_reported_state_reads_back_before_returning(
@@ -683,7 +687,12 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
 
             assert second_apply.status == "applied"
             assert len(driver.applied) == 2
-            assert driver.applied[0].command_id == driver.applied[1].command_id
+            assert [
+                request.assignments[0].value.root for request in driver.applied
+            ] == [
+                Quantity(value=5.0, unit="GHz"),
+                Quantity(value=5.2, unit="GHz"),
+            ]
             assert driver.disconnect_count == 0
 
 
@@ -1021,7 +1030,6 @@ def test_notebook_default_apply_retries_with_same_operation_after_response_loss(
             assert receipt.status == "applied"
             [driver] = provider.drivers
             assert len(driver.applied) == 1
-            assert driver.applied[0].command_id is not None
 
 
 def test_notebook_default_collect_retries_with_same_operation_after_response_loss(
@@ -1048,8 +1056,7 @@ def test_notebook_default_collect_retries_with_same_operation_after_response_los
 
             assert receipt.status == "collected"
             [driver] = provider.drivers
-            assert len(driver.collect_commands) == 1
-            assert driver.collect_commands[0].command_id is not None
+            assert len(driver.collect_requests) == 1
 
 
 def test_observation_failure_aborts_session_without_quarantining(
@@ -1269,7 +1276,7 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
 
             [driver] = provider.drivers
             [instrument] = daemon.list_instruments().items
-            assert len(driver.collect_commands) == 1
+            assert len(driver.collect_requests) == 1
             assert instrument.availability == "active"
             daemon.close_instrument_session(session.session_id)
 

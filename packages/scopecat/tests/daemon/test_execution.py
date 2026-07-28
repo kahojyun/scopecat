@@ -33,6 +33,7 @@ from scopecat.execution.ports.instruments import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.kernel.state import StateValue
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -49,6 +50,7 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.instruments import InstrumentStateAssignment
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -175,7 +177,14 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                 effect_id="point-0.apply.source-0",
                 point_index=0,
                 instrument_id="source-0",
-                assignments=(),
+                assignments=(
+                    InstrumentStateAssignment(
+                        resource_id="source-0",
+                        interface_id="test.set_frequency/v1",
+                        property_id="frequency",
+                        value=StateValue(Quantity(5.0, "GHz")),
+                    ),
+                ),
             ),
         ),
     )

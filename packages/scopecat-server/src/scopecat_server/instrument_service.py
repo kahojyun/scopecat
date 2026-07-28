@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import JsonValue
 from scopecat.adapters.sqlite import (
@@ -71,7 +71,12 @@ from scopecat.records.instrument import (
     property_target_identity,
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
-from scopecat.sdk.instruments.backend import InstrumentBackend
+from scopecat.sdk.instruments.backend import (
+    InstrumentBackend,
+    lower_driver_apply_request,
+    lower_driver_collect_request,
+    lower_driver_invoke_request,
+)
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectCommand,
@@ -92,6 +97,11 @@ from scopecat.sdk.instruments.contracts import (
     validate_state_command,
     validate_state_snapshot,
 )
+from scopecat.sdk.instruments.driver import (
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
+)
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
 from .config_service import ConfigService
@@ -107,11 +117,32 @@ from .payload_service import CommandPayloadService
 
 _FINISHED_RUN_CACHE_LIMIT = 256
 
+type _DriverHardwareRequest = (
+    DriverApplyRequest | DriverInvokeRequest | DriverCollectRequest
+)
+
+
+@dataclass(slots=True)
+class _InstrumentOperationLedger:
+    apply_receipts: dict[str, tuple[InstrumentStateCommand, ApplyReceipt]] = field(
+        default_factory=dict
+    )
+    invoke_receipts: dict[str, tuple[InvokeCommand, InvokeReceipt]] = field(
+        default_factory=dict
+    )
+    collect_receipts: dict[str, tuple[CollectCommand, CollectReceipt]] = field(
+        default_factory=dict
+    )
+    collect_failures: dict[str, tuple[CollectCommand, str]] = field(
+        default_factory=dict
+    )
+
 
 @dataclass(slots=True)
 class _OwnershipRuntime:
     instruments: dict[str, OwnedInstrument]
     payload_codecs: PayloadCodecRegistry
+    ledgers: dict[str, _InstrumentOperationLedger]
     lock: RLock = field(default_factory=RLock)
 
 
@@ -616,6 +647,10 @@ class InstrumentService:
         return _OwnershipRuntime(
             instruments=instruments,
             payload_codecs=payload_codecs,
+            ledgers={
+                instrument_id: _InstrumentOperationLedger()
+                for instrument_id in instruments
+            },
         )
 
     def _prepare_run_or_reject(
@@ -749,7 +784,7 @@ class InstrumentService:
             instrument_id = command.instrument_id
             instrument = runtime.instruments[instrument_id]
             try:
-                receipt = instrument.apply_state(command)
+                receipt = instrument.apply_state(lower_driver_apply_request(command))
             except Exception as error:
                 raise _RunPreparationUnknown from error
             if receipt.status == "unknown":
@@ -814,6 +849,10 @@ class InstrumentService:
             driver_request = self._payloads.materialize_hardware_command(
                 canonical_request
             )
+            driver_actions = tuple(
+                _lower_hardware_action(action)
+                for action in driver_request.batch.actions
+            )
             batch_evidence = canonical_request.batch.model_dump(
                 mode="json",
                 exclude={
@@ -838,7 +877,11 @@ class InstrumentService:
             completed_effect_ids: list[str] = []
             effect_receipts: list[JsonValue] = []
             with runtime.lock:
-                for action in driver_request.batch.actions:
+                for action, backend_request in zip(
+                    driver_request.batch.actions,
+                    driver_actions,
+                    strict=True,
+                ):
                     try:
                         if isinstance(action, RunHardwareApply):
                             evidence = self._execute_hardware_apply(
@@ -846,6 +889,7 @@ class InstrumentService:
                                 canonical_request.lease_id,
                                 runtime,
                                 action,
+                                cast("DriverApplyRequest", backend_request),
                             )
                         elif isinstance(action, RunHardwareInvoke):
                             evidence = self._execute_hardware_invoke(
@@ -853,6 +897,7 @@ class InstrumentService:
                                 canonical_request.lease_id,
                                 runtime,
                                 action,
+                                cast("DriverInvokeRequest", backend_request),
                             )
                         else:
                             collected, evidence = self._execute_hardware_collect(
@@ -860,6 +905,7 @@ class InstrumentService:
                                 canonical_request.lease_id,
                                 runtime,
                                 action,
+                                cast("DriverCollectRequest", backend_request),
                             )
                             values.extend(collected)
                         completed_effect_ids.append(action.effect_id)
@@ -1033,6 +1079,7 @@ class InstrumentService:
         token: str,
         runtime: _OwnershipRuntime,
         action: RunHardwareApply,
+        driver_request: DriverApplyRequest,
     ) -> dict[str, JsonValue]:
         instrument = runtime.instruments[action.instrument_id]
         current = instrument.assumed_state
@@ -1065,7 +1112,7 @@ class InstrumentService:
                 "; ".join(item.message for item in validation_problems)
             )
         try:
-            receipt = instrument.apply_state(command)
+            receipt = instrument.apply_state(driver_request)
         except Exception as error:
             self._lose_run_runtime(
                 run_id,
@@ -1118,22 +1165,11 @@ class InstrumentService:
         token: str,
         runtime: _OwnershipRuntime,
         action: RunHardwareInvoke,
+        driver_request: DriverInvokeRequest,
     ) -> dict[str, JsonValue]:
-        command = InvokeCommand(
-            command_id=action.effect_id,
-            instrument_id=action.instrument_id,
-            resource_id=action.resource_id,
-            interface_id=action.interface_id,
-            component_path=list(action.component_path),
-            operation_id=action.operation_id,
-            arguments=list(action.arguments),
-            payloads=action.payloads,
-            entity_ids=list(action.entity_ids),
-            channel_bindings=list(action.channel_bindings),
-        )
         _runtime, instrument = self._run_instrument(run_id, action.instrument_id)
         try:
-            receipt = instrument.invoke(command)
+            receipt = instrument.invoke(driver_request)
         except Exception as error:
             self._lose_run_runtime(
                 run_id,
@@ -1194,6 +1230,7 @@ class InstrumentService:
         token: str,
         runtime: _OwnershipRuntime,
         action: RunHardwareCollect,
+        driver_request: DriverCollectRequest,
     ) -> tuple[tuple[RunHardwareValue, ...], dict[str, JsonValue]]:
         command = CollectCommand(
             command_id=action.effect_id,
@@ -1204,7 +1241,7 @@ class InstrumentService:
         )
         _runtime, instrument = self._run_instrument(run_id, action.instrument_id)
         try:
-            receipt = instrument.collect(command)
+            receipt = instrument.collect(driver_request)
         except Exception as error:
             self._lose_run_runtime(
                 run_id,
@@ -1586,8 +1623,8 @@ class InstrumentService:
                 instrument_id,
             )
             command_id = command.command_id
-            assert command_id is not None
             return self._apply_live(
+                runtime,
                 instrument,
                 command=command,
                 conflict_scope="interactive",
@@ -1626,7 +1663,6 @@ class InstrumentService:
                 instrument_id,
             )
             command_id = command.command_id
-            assert command_id is not None
             return self._invoke_live(
                 runtime,
                 instrument,
@@ -1669,8 +1705,8 @@ class InstrumentService:
                 instrument_id,
             )
             command_id = command.command_id
-            assert command_id is not None
             return self._collect_live(
+                runtime,
                 instrument,
                 command=command,
                 conflict_scope="interactive",
@@ -1696,6 +1732,7 @@ class InstrumentService:
 
     def _apply_live(
         self,
+        runtime: _OwnershipRuntime,
         instrument: OwnedInstrument,
         *,
         command: InstrumentStateCommand,
@@ -1705,8 +1742,7 @@ class InstrumentService:
         on_unknown: Callable[[str], None],
     ) -> ApplyReceipt:
         command_id = command.command_id
-        assert command_id is not None
-        ledger = instrument.ledger
+        ledger = runtime.ledgers[instrument.instrument_id]
         cached = ledger.apply_receipts.get(command_id)
         if cached is not None:
             cached_command, cached_receipt = cached
@@ -1736,9 +1772,10 @@ class InstrumentService:
             raise BackendConflict(
                 "; ".join(item.message for item in validation_problems)
             )
+        driver_request = lower_driver_apply_request(command)
         on_started()
         try:
-            receipt = instrument.apply_state(command)
+            receipt = instrument.apply_state(driver_request)
         except Exception as error:
             on_unknown("instrument_apply_unknown")
             raise BackendConflict(
@@ -1809,8 +1846,7 @@ class InstrumentService:
             )
         canonical_command = self._payloads.canonicalize_invoke_command(command)
         command_id = canonical_command.command_id
-        assert command_id is not None
-        ledger = instrument.ledger
+        ledger = runtime.ledgers[instrument.instrument_id]
         cached = ledger.invoke_receipts.get(command_id)
         if cached is not None:
             cached_command, cached_receipt = cached
@@ -1828,9 +1864,10 @@ class InstrumentService:
                 f"{conflict_scope} command id was already used for another command kind"
             )
         driver_command = self._payloads.materialize_invoke_command(canonical_command)
+        driver_request = lower_driver_invoke_request(driver_command)
         on_started()
         try:
-            receipt = instrument.invoke(driver_command)
+            receipt = instrument.invoke(driver_request)
         except Exception as error:
             on_unknown("instrument_invoke_unknown")
             raise BackendConflict(
@@ -1869,6 +1906,7 @@ class InstrumentService:
 
     def _collect_live(
         self,
+        runtime: _OwnershipRuntime,
         instrument: OwnedInstrument,
         *,
         command: CollectCommand,
@@ -1886,8 +1924,7 @@ class InstrumentService:
                 "; ".join(item.message for item in validation_problems)
             )
         command_id = command.command_id
-        assert command_id is not None
-        ledger = instrument.ledger
+        ledger = runtime.ledgers[instrument.instrument_id]
         cached = ledger.collect_receipts.get(command_id)
         if cached is not None:
             cached_command, cached_receipt = cached
@@ -1908,9 +1945,10 @@ class InstrumentService:
             raise BackendConflict(
                 f"{conflict_scope} command id was already used for another command kind"
             )
+        driver_request = lower_driver_collect_request(command)
         on_started()
         try:
-            receipt = instrument.collect(command)
+            receipt = instrument.collect(driver_request)
         except Exception as error:
             on_unknown("instrument_collect_unknown")
             raise BackendConflict(
@@ -2582,6 +2620,43 @@ def _provision_problem(
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=location,
         details=details,
+    )
+
+
+def _lower_hardware_action(
+    action: RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
+) -> _DriverHardwareRequest:
+    if isinstance(action, RunHardwareApply):
+        return lower_driver_apply_request(
+            InstrumentStateCommand(
+                command_id=action.effect_id,
+                instrument_id=action.instrument_id,
+                assignments=list(action.assignments),
+            )
+        )
+    if isinstance(action, RunHardwareInvoke):
+        return lower_driver_invoke_request(
+            InvokeCommand(
+                command_id=action.effect_id,
+                instrument_id=action.instrument_id,
+                resource_id=action.resource_id,
+                interface_id=action.interface_id,
+                component_path=list(action.component_path),
+                operation_id=action.operation_id,
+                arguments=list(action.arguments),
+                payloads=action.payloads,
+                entity_ids=list(action.entity_ids),
+                channel_bindings=list(action.channel_bindings),
+            )
+        )
+    return lower_driver_collect_request(
+        CollectCommand(
+            command_id=action.effect_id,
+            instrument_id=action.instrument_id,
+            point_index=action.point_index,
+            point_count=action.point_count,
+            requests=list(action.requests),
+        )
     )
 
 

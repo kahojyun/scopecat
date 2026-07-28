@@ -68,6 +68,11 @@ from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
 )
 from scopecat.records.measurement import MeasurementArray
+from scopecat.sdk.instruments.driver import (
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
+)
 from scopecat.sdk.problems import (
     LocationPathItem,
     Problem,
@@ -210,7 +215,7 @@ class AcquisitionSpec(BaseModel):
     id: _NonEmptyId
     label: str | None = None
     description: str | None = None
-    results: list[AcquisitionResultSpec] = Field(default_factory=list)
+    results: list[AcquisitionResultSpec] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_unique_results(self) -> AcquisitionSpec:
@@ -336,9 +341,9 @@ def _validate_payload_bindings(
 class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    command_id: _NonEmptyId | None = None
-    instrument_id: str
-    assignments: list[InstrumentStateAssignment] = Field(default_factory=list)
+    command_id: _NonEmptyId
+    instrument_id: _NonEmptyId
+    assignments: list[InstrumentStateAssignment] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_structure(self) -> InstrumentStateCommand:
@@ -424,18 +429,30 @@ class CollectResultRequest(BaseModel):
 class CollectCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    command_id: _NonEmptyId | None = None
-    instrument_id: str
-    point_index: int
-    point_count: int
-    requests: list[CollectResultRequest] = Field(default_factory=list)
+    command_id: _NonEmptyId
+    instrument_id: _NonEmptyId
+    point_index: int = Field(ge=0)
+    point_count: int = Field(ge=1)
+    requests: list[CollectResultRequest] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_unique_requests(self) -> CollectCommand:
+        if self.point_index >= self.point_count:
+            raise ValueError("collect command point index must be within point count")
         request_ids = [request.id for request in self.requests]
         if len(request_ids) != len(set(request_ids)):
             msg = "collect command request ids must be unique"
             raise ValueError(msg)
+        acquisition_targets = {
+            (
+                request.interface_id,
+                tuple(request.component_path),
+                request.acquisition_id,
+            )
+            for request in self.requests
+        }
+        if len(acquisition_targets) != 1:
+            raise ValueError("collect command must target exactly one acquisition")
         return self
 
 
@@ -449,7 +466,7 @@ class InstrumentOperationArgument(BaseModel):
 class InvokeCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    command_id: _NonEmptyId | None = None
+    command_id: _NonEmptyId
     instrument_id: _NonEmptyId
     resource_id: _NonEmptyId
     interface_id: InterfaceId
@@ -545,11 +562,11 @@ class InstrumentDriver(Protocol):
 
     def read_state(self) -> _InstrumentStateSnapshot: ...
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt: ...
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt: ...
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt: ...
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt: ...
 
-    def collect(self, command: CollectCommand) -> CollectReceipt: ...
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt: ...
 
     def disconnect(self) -> None: ...
 

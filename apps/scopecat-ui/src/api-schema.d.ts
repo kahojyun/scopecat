@@ -837,15 +837,17 @@ export interface components {
         };
         /** CollectCommand */
         CollectCommand: {
-            command_id?: components["schemas"]["_NonEmptyId"] | null;
-            /** Instrument Id */
-            instrument_id: string;
+            command_id: components["schemas"]["_NonEmptyId"];
+            instrument_id: components["schemas"]["_NonEmptyId"];
             /** Point Count */
             point_count: number;
             /** Point Index */
             point_index: number;
             /** Requests */
-            requests?: components["schemas"]["CollectResultRequest"][];
+            requests: [
+                components["schemas"]["CollectResultRequest"],
+                ...components["schemas"]["CollectResultRequest"][]
+            ];
         };
         /**
          * CollectReceipt
@@ -1533,10 +1535,12 @@ export interface components {
         /** InstrumentStateCommand */
         InstrumentStateCommand: {
             /** Assignments */
-            assignments?: components["schemas"]["InstrumentStateAssignment"][];
-            command_id?: components["schemas"]["_NonEmptyId"] | null;
-            /** Instrument Id */
-            instrument_id: string;
+            assignments: [
+                components["schemas"]["InstrumentStateAssignment"],
+                ...components["schemas"]["InstrumentStateAssignment"][]
+            ];
+            command_id: components["schemas"]["_NonEmptyId"];
+            instrument_id: components["schemas"]["_NonEmptyId"];
         };
         /** InstrumentStateSnapshot */
         InstrumentStateSnapshot: {
@@ -1596,7 +1600,7 @@ export interface components {
             arguments?: components["schemas"]["InstrumentOperationArgument"][];
             /** Channel Bindings */
             channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            command_id?: components["schemas"]["_NonEmptyId"] | null;
+            command_id: components["schemas"]["_NonEmptyId"];
             /** Component Path */
             component_path?: components["schemas"]["_NonEmptyId"][];
             /** Entity Ids */

@@ -8,14 +8,14 @@ from scopecat.kernel.value_types import Scalar
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
     InstrumentDescription,
     InstrumentPropertyState,
     InstrumentReadback,
-    InstrumentStateCommand,
     InstrumentStateSnapshot,
-    InvokeCommand,
     InvokeReceipt,
     acquisition,
     acquisition_result,
@@ -34,9 +34,9 @@ class SignalInstrumentDriver:
         self.implementation_id = "tests.signal_driver"
         self.implementation_version = "v0"
         self._state: dict[tuple[str, str], StateValue] = {}
-        self.applied: list[InstrumentStateCommand] = []
-        self.invoked: list[InvokeCommand] = []
-        self.collect_commands: list[CollectCommand] = []
+        self.applied: list[DriverApplyRequest] = []
+        self.invoked: list[DriverInvokeRequest] = []
+        self.collect_requests: list[DriverCollectRequest] = []
 
     @property
     def instrument_id(self) -> str:
@@ -98,25 +98,33 @@ class SignalInstrumentDriver:
             metadata={"mode": "test_offline"},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        self.applied.append(command)
-        for assignment in command.assignments:
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied.append(request)
+        for assignment in request.assignments:
             self._state[(assignment.interface_id, assignment.property_id)] = (
                 assignment.value
             )
         return ApplyReceipt(status="applied")
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        self.invoked.append(command)
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        self.invoked.append(request)
         return InvokeReceipt(status="invoked", state=self.read_state())
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        self.collect_commands.append(command)
-        if "signal" not in {request.id for request in command.requests}:
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        self.collect_requests.append(request)
+        selected = {
+            result.request_id
+            for result in request.results
+            if result.result_id == "signal"
+        }
+        if not selected:
             return CollectReceipt(readback=InstrumentReadback())
         return CollectReceipt(
             readback=InstrumentReadback(
-                values={"signal": Quantity(value=1.0, unit="ratio")},
+                values={
+                    request_id: Quantity(value=1.0, unit="ratio")
+                    for request_id in selected
+                },
                 metadata={"implementation": self.implementation_id},
             )
         )

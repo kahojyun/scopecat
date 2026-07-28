@@ -11,10 +11,7 @@ from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback
-from scopecat.sdk.instruments.contracts import (
-    CollectCommand,
-    CollectReceipt,
-)
+from scopecat.sdk.instruments import CollectReceipt, DriverCollectRequest
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.runtime import sqlite_run_repository
 from tests.testkit.signal_instruments import TestSignalInstrument
@@ -25,8 +22,8 @@ class FailingCollectInstrument(TestSignalInstrument):
     implementation_id = "test.failing_instrument"
 
     @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        del command
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        del request
         raise RuntimeError("boom")
 
 
@@ -34,8 +31,8 @@ class UnexpectedResultInstrument(TestSignalInstrument):
     implementation_id = "test.unexpected_result_instrument"
 
     @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        del command
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        del request
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
@@ -54,8 +51,8 @@ class InterruptingCollectInstrument(TestSignalInstrument):
         self.aborted = False
 
     @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        del command
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        del request
         raise KeyboardInterrupt("operator cancelled")
 
     @override
@@ -71,11 +68,11 @@ class FailAfterFirstCollectInstrument(TestSignalInstrument):
         self.collect_count = 0
 
     @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         self.collect_count += 1
         if self.collect_count > 1:
             raise RuntimeError("second collection failed")
-        return super().collect(command)
+        return super().collect(request)
 
 
 def test_planning_rejects_missing_instrument(tmp_path: Path) -> None:

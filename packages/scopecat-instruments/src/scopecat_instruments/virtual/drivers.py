@@ -13,11 +13,11 @@ from scopecat.records.measurement import (
 )
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
     InstrumentDescription,
-    InstrumentStateCommand,
-    InvokeCommand,
     InvokeReceipt,
 )
 
@@ -27,14 +27,11 @@ from scopecat_instruments._support import (
     bool_value,
     execution_problem,
     int_value,
-    not_applied,
     not_collected,
     quantity_value,
     state_property,
     string_value,
     unsupported_invoke,
-    validate_collect_command,
-    validate_writable_command,
 )
 from scopecat_instruments.driver_ids import (
     VIRTUAL_DC_SOURCE,
@@ -102,11 +99,8 @@ class VirtualRfSource:
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
-        for assignment in command.assignments:
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        for assignment in request.assignments:
             if assignment.property_id == "frequency":
                 self.set_frequency(quantity_value(assignment.value, "Hz"))
             elif assignment.property_id == "power":
@@ -117,13 +111,11 @@ class VirtualRfSource:
                 self.set_reference_source(string_value(assignment.value))
         return ApplyReceipt(status="applied", state=self.read_state())
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return unsupported_invoke(command, self.describe())
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        del request
         return CollectReceipt(readback=InstrumentReadback())
 
     def set_frequency(self, frequency_hz: float) -> None:
@@ -245,21 +237,10 @@ class VirtualDcSource:
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        description = self.describe()
-        problems = validate_writable_command(command, description)
-        if problems:
-            return not_applied(problems)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         baseline = self.read_state()
-        problems = validate_writable_command(
-            command,
-            description,
-            baseline=baseline,
-        )
-        if problems:
-            return not_applied(problems)
         properties = {
-            assignment.property_id: assignment for assignment in command.assignments
+            assignment.property_id: assignment for assignment in request.assignments
         }
         baseline_properties = {
             property_state.property_id: property_state
@@ -325,15 +306,10 @@ class VirtualDcSource:
             self.set_output(target_output)
         return ApplyReceipt(status="applied", state=self.read_state())
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return unsupported_invoke(command, self.describe())
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
             result_id = (
@@ -341,15 +317,15 @@ class VirtualDcSource:
                 if source.source_mode == "voltage"
                 else "monitored_voltage"
             )
-            requested_result_ids = {request.result_id for request in command.requests}
+            requested_result_ids = {result.result_id for result in request.results}
             if requested_result_ids != {result_id}:
                 return not_collected(
                     [
                         execution_problem(
                             "virtual_dc_monitor_result_inactive",
                             f"{source.source_mode} mode provides only {result_id}",
-                            "collect_command",
-                            "requests",
+                            "driver_collect_request",
+                            "results",
                         )
                     ]
                 )
@@ -360,7 +336,7 @@ class VirtualDcSource:
             )
         return CollectReceipt(
             readback=InstrumentReadback(
-                values={request.id: measured for request in command.requests},
+                values={result.request_id: measured for result in request.results},
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
             )
         )
@@ -494,31 +470,24 @@ class VirtualTemperatureMonitor:
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        del request
         return ApplyReceipt(status="applied", state=self.read_state())
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return unsupported_invoke(command, self.describe())
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         telemetry = self.read_telemetry()
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
-                    request.id: (
+                    result.request_id: (
                         Quantity(telemetry.temperature_k, "K")
-                        if request.result_id == "temperature"
+                        if result.result_id == "temperature"
                         else Quantity(telemetry.resistance_ohm, "Ohm")
                     )
-                    for request in command.requests
+                    for result in request.results
                 },
                 metadata={
                     "mode": "virtual",
@@ -607,13 +576,10 @@ class VirtualNetworkAnalyzer:
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         with self.world.lock:
             state = self.world.vna(self.instrument_id)
-            for assignment in command.assignments:
+            for assignment in request.assignments:
                 if assignment.property_id == "start_frequency":
                     state.start_frequency_hz = quantity_value(
                         assignment.value,
@@ -640,20 +606,15 @@ class VirtualNetworkAnalyzer:
                     state.s_parameter = string_value(assignment.value)
         return ApplyReceipt(status="applied", state=self.read_state())
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return unsupported_invoke(command, self.describe())
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         trace = self.acquire_trace()
         values: dict[str, MeasurementValue] = {}
-        for request in command.requests:
-            if request.result_id == "frequency":
-                values[request.id] = MeasurementArray(
+        for result in request.results:
+            if result.result_id == "frequency":
+                values[result.request_id] = MeasurementArray(
                     dtype="float64",
                     unit="Hz",
                     shape=[len(trace.frequencies_hz)],
@@ -663,7 +624,7 @@ class VirtualNetworkAnalyzer:
                     ],
                 )
             else:
-                values[request.id] = MeasurementArray(
+                values[result.request_id] = MeasurementArray(
                     dtype="complex128",
                     unit="ratio",
                     shape=[len(trace.values)],

@@ -94,19 +94,22 @@ export async function applyInstrumentState(
   properties: StagedInstrumentProperty[],
   commandId = createInstrumentCommandId("apply"),
 ): Promise<InstrumentApplyReceipt> {
+  const [first, ...remaining] = properties;
+  if (!first) throw new Error("Apply requires at least one staged property.");
+  const assignment = (property: StagedInstrumentProperty) => ({
+    resource_id: instrumentId,
+    interface_id: property.interfaceId,
+    component_path: property.componentPath,
+    property_id: property.propertyId,
+    value: property.value,
+  });
   return request<InstrumentApplyReceipt>(
     instrumentSessionPath(session.session_id, instrumentId, "state/apply"),
     undefined,
     jsonRequest({
       command_id: commandId,
       instrument_id: instrumentId,
-      assignments: properties.map((property) => ({
-        resource_id: instrumentId,
-        interface_id: property.interfaceId,
-        component_path: property.componentPath,
-        property_id: property.propertyId,
-        value: property.value,
-      })),
+      assignments: [assignment(first), ...remaining.map(assignment)],
     } satisfies DaemonUiApi["instrumentApplyCommand"]),
   );
 }
@@ -279,14 +282,13 @@ function stateAxisSize(
   return typeof property?.value === "number" ? property.value : undefined;
 }
 
-type InstrumentCollectResultRequest = NonNullable<
-  DaemonUiApi["instrumentCollectCommand"]["requests"]
->[number];
+type InstrumentCollectRequests = DaemonUiApi["instrumentCollectCommand"]["requests"];
+type InstrumentCollectResultRequest = InstrumentCollectRequests[number];
 
 type InstrumentCollectPlan =
   | {
       ready: true;
-      requests: InstrumentCollectResultRequest[];
+      requests: InstrumentCollectRequests;
     }
   | {
       ready: false;
@@ -297,8 +299,15 @@ function planInstrumentAcquisition(
   target: InstrumentAcquisitionTarget,
   state?: InstrumentState,
 ): InstrumentCollectPlan {
+  const [firstResult, ...remainingResults] = target.acquisition.results ?? [];
+  if (!firstResult) {
+    return {
+      ready: false,
+      reason: "Collect is unavailable because the acquisition declares no results.",
+    };
+  }
   const requests: InstrumentCollectResultRequest[] = [];
-  for (const result of target.acquisition.results ?? []) {
+  for (const result of [firstResult, ...remainingResults]) {
     const axes = result.axes ?? [];
     const dimensions = axes.map((axis) => {
       const size = axis.size ?? stateAxisSize(state, target, axis.id);
@@ -338,7 +347,7 @@ function planInstrumentAcquisition(
       dimensions: allDimensionsResolved ? dimensions : [],
     });
   }
-  return { ready: true, requests };
+  return { ready: true, requests: [requests[0]!, ...requests.slice(1)] };
 }
 
 function samePath(left: string[], right: string[]): boolean {

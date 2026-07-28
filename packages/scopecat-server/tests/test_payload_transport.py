@@ -33,6 +33,7 @@ from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     CollectResultRequest,
+    DriverInvokeRequest,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentOperationArgument,
@@ -63,14 +64,14 @@ class _PayloadConsumerDriver(SignalInstrumentDriver):
         self.consumed_payloads: list[bytes] = []
 
     @override
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        for argument in command.arguments:
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        for argument in request.arguments:
             value = argument.value.root
             if isinstance(value, PayloadRef):
                 self.consumed_payloads.append(
-                    command.payloads[value.payload_id].inline_bytes()
+                    request.payloads[value.payload_id].inline_bytes()
                 )
-        return super().invoke(command)
+        return super().invoke(request)
 
 
 class _PayloadProvider:
@@ -652,7 +653,7 @@ def test_batch_prevalidates_every_action_before_first_driver_call(
         [driver] = provider.drivers
         assert driver.consumed_payloads == []
         assert driver.invoked == []
-        assert driver.collect_commands == []
+        assert driver.collect_requests == []
         assert not any(
             event.kind == "run_hardware_batch_started"
             for event in daemon.replay_events(run_id=run_id).items

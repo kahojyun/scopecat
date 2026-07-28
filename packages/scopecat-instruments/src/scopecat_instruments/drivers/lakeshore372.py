@@ -10,11 +10,11 @@ from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnaps
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
     InstrumentDescription,
-    InstrumentStateCommand,
-    InvokeCommand,
     InvokeReceipt,
 )
 
@@ -22,16 +22,12 @@ from scopecat_instruments._support import (
     ScpiIdentity,
     apply_unknown,
     collect_unknown,
-    not_applied,
-    not_collected,
     parse_bool,
     parse_float,
     parse_identity,
     parse_int,
     state_property,
     unsupported_invoke,
-    validate_collect_command,
-    validate_writable_command,
 )
 from scopecat_instruments.driver_ids import LAKESHORE_372
 from scopecat_instruments.interfaces import (
@@ -133,33 +129,26 @@ class LakeShore372:
             metadata=metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        del request
         try:
             return ApplyReceipt(status="applied", state=self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return unsupported_invoke(command, self.describe())
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         try:
             telemetry = self.read_telemetry()
             values: dict[str, MeasurementValue] = {
-                request.id: (
+                result.request_id: (
                     Quantity(telemetry.temperature_k, "K")
-                    if request.result_id == "temperature"
+                    if result.result_id == "temperature"
                     else Quantity(telemetry.resistance_ohm, "Ohm")
                 )
-                for request in command.requests
+                for result in request.results
             }
             return CollectReceipt(
                 readback=InstrumentReadback(

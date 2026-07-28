@@ -6,17 +6,17 @@ from dataclasses import replace
 
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
+    DriverPropertyWrite,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentStateAssignment,
-    InstrumentStateCommand,
     InstrumentStateSnapshot,
-    InvokeCommand,
     InvokeReceipt,
     StateValue,
 )
@@ -80,14 +80,14 @@ class _BiasSafeDriver:
     def read_state(self) -> InstrumentStateSnapshot:
         return self._driver.read_state()
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        return self._driver.apply_state(command)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        return self._driver.apply_state(request)
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return self._driver.invoke(command)
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return self._driver.invoke(request)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        return self._driver.collect(command)
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        return self._driver.collect(request)
 
     def abort(self) -> None:
         try:
@@ -100,17 +100,14 @@ class _BiasSafeDriver:
 
     def _disable_bias(self, phase: str) -> None:
         receipt = self._driver.apply_state(
-            InstrumentStateCommand(
-                command_id=f"instrument-demo.{phase}.bias-off",
-                instrument_id=self.instrument_id,
-                assignments=[
-                    InstrumentStateAssignment(
-                        resource_id=self.instrument_id,
+            DriverApplyRequest(
+                assignments=(
+                    DriverPropertyWrite(
                         interface_id=DC_SOURCE,
                         property_id="output_enabled",
                         value=StateValue(False),
-                    )
-                ],
+                    ),
+                ),
             )
         )
         if receipt.status != "applied":

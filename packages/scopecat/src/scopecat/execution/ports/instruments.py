@@ -12,6 +12,7 @@ from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import CommandChannelBinding, InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments.contracts import (
+    CollectCommand,
     CollectResultRequest,
     InstrumentOperationArgument,
     InstrumentStateAssignment,
@@ -28,7 +29,7 @@ class RunHardwareApply(_HardwareModel):
     effect_id: str = Field(min_length=1)
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
-    assignments: tuple[InstrumentStateAssignment, ...]
+    assignments: tuple[InstrumentStateAssignment, ...] = Field(min_length=1)
 
 
 class RunHardwareInvoke(_HardwareModel):
@@ -73,11 +74,18 @@ class RunHardwareCollect(_HardwareModel):
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
     point_count: int = Field(ge=1)
-    requests: tuple[CollectResultRequest, ...] = ()
+    requests: tuple[CollectResultRequest, ...] = Field(min_length=1)
     bindings: tuple[RunHardwareCollectBinding, ...]
 
     @model_validator(mode="after")
     def validate_bindings(self) -> RunHardwareCollect:
+        CollectCommand(
+            command_id=self.effect_id,
+            instrument_id=self.instrument_id,
+            point_index=self.point_index,
+            point_count=self.point_count,
+            requests=list(self.requests),
+        )
         request_ids = {request.id for request in self.requests}
         binding_ids = {binding.request_id for binding in self.bindings}
         if request_ids != binding_ids:

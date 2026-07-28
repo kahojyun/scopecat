@@ -23,7 +23,12 @@ from scopecat.records.instrument import (
     property_target_identity,
 )
 from scopecat.sdk.domain.compiler import DomainCompiler
-from scopecat.sdk.instruments import InstrumentBackend
+from scopecat.sdk.instruments import (
+    InstrumentBackend,
+    lower_driver_apply_request,
+    lower_driver_collect_request,
+    lower_driver_invoke_request,
+)
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     InstrumentConnectionContext,
@@ -133,7 +138,7 @@ class TestRunInstrumentHost:
                     instrument_id=action.instrument_id,
                     assignments=assignments,
                 )
-                receipt = driver.apply_state(command)
+                receipt = driver.apply_state(lower_driver_apply_request(command))
                 problems.extend(receipt.problems)
                 if receipt.status != "applied":
                     indeterminate = receipt.status == "unknown"
@@ -148,20 +153,19 @@ class TestRunInstrumentHost:
                 )
                 continue
             if isinstance(action, RunHardwareInvoke):
-                receipt = driver.invoke(
-                    InvokeCommand(
-                        command_id=action.effect_id,
-                        instrument_id=action.instrument_id,
-                        resource_id=action.resource_id,
-                        interface_id=action.interface_id,
-                        component_path=list(action.component_path),
-                        operation_id=action.operation_id,
-                        arguments=list(action.arguments),
-                        payloads=action.payloads,
-                        entity_ids=list(action.entity_ids),
-                        channel_bindings=list(action.channel_bindings),
-                    )
+                command = InvokeCommand(
+                    command_id=action.effect_id,
+                    instrument_id=action.instrument_id,
+                    resource_id=action.resource_id,
+                    interface_id=action.interface_id,
+                    component_path=list(action.component_path),
+                    operation_id=action.operation_id,
+                    arguments=list(action.arguments),
+                    payloads=action.payloads,
+                    entity_ids=list(action.entity_ids),
+                    channel_bindings=list(action.channel_bindings),
                 )
+                receipt = driver.invoke(lower_driver_invoke_request(command))
                 problems.extend(receipt.problems)
                 if receipt.status != "invoked":
                     indeterminate = receipt.status == "unknown"
@@ -171,15 +175,14 @@ class TestRunInstrumentHost:
                 )
                 continue
             assert isinstance(action, RunHardwareCollect)
-            receipt = driver.collect(
-                CollectCommand(
-                    command_id=action.effect_id,
-                    instrument_id=action.instrument_id,
-                    point_index=action.point_index,
-                    point_count=action.point_count,
-                    requests=list(action.requests),
-                )
+            command = CollectCommand(
+                command_id=action.effect_id,
+                instrument_id=action.instrument_id,
+                point_index=action.point_index,
+                point_count=action.point_count,
+                requests=list(action.requests),
             )
+            receipt = driver.collect(lower_driver_collect_request(command))
             problems.extend(receipt.problems)
             if receipt.status != "collected" or receipt.readback is None:
                 indeterminate = receipt.status == "unknown"

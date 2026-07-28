@@ -40,9 +40,10 @@ interface or nested component may contain persistent properties, atomic
 operations, and acquisitions with typed results. GUI controls and experiment
 validation are derived from this description.
 
-`InstrumentActor` is the process-local driver boundary. One actor serializes
-calls to one physical instrument and may retain a matching connection while the
-instrument is idle. It never treats idle state as observed.
+`InstrumentActor` is the process-local connection boundary. One actor
+serializes calls to one physical instrument and may retain a matching
+connection while the instrument is idle. It accepts only the driver backend
+ABI and never treats idle state as observed.
 
 `InstrumentSession` and an admitted run are ownership epochs, not connections.
 The daemon pins the config revision, claims all requested instruments, and
@@ -89,6 +90,14 @@ roles:
 A driver implementation may expose several interfaces. Multi-device
 calibration, feedback, and analysis remain experiment procedures rather than
 device operations.
+
+The daemon validates the complete public command, keeps its retry and
+provenance fields, then lowers it once to a frozen driver request. Drivers see
+only physical interface targets, property writes, operation arguments, opaque
+payload envelopes, and acquisition result identities. They do not receive
+command, run, resource, entity, channel, point, product, unit, axis, or
+provenance fields. Collect result shape and units are checked by the daemon
+against the original request after readback.
 
 Operating-mode-dependent property sets use the interface's discriminated state
 model. The discriminator and common properties are valid in every case, while
@@ -277,8 +286,9 @@ Opaque values such as compiled pulse programs are operation arguments, never
 persistent properties. A registered codec converts the in-memory value to an
 exact byte payload; the command carries only a typed reference plus a
 content-addressed envelope. The daemon resolves and verifies every payload
-before a hardware batch begins, then passes the same process-safe command to
-the driver. This boundary can move unchanged to an isolated driver worker.
+before a hardware batch begins, then lowers the materialized envelope into the
+process-safe driver request. A future worker transport can carry the same
+descriptor with raw byte attachments without serializing Python objects.
 
 An operator can recover a session left by another notebook kernel with
 `lab.instruments.abort_session(session_id)`. This asks the daemon to run the

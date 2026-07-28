@@ -7,11 +7,12 @@ from typing import override
 import pytest
 from scopecat.config.registry.records import ConfigRegistryActivationRecord
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectCommand,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverCollectResult,
+    DriverInvokeRequest,
+    DriverPropertyWrite,
     InstrumentDescription,
-    InstrumentStateCommand,
-    InvokeCommand,
 )
 from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,
@@ -132,17 +133,9 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     observed = first.read_state()
     assert first.assumed_state is None
     first.adopt_state(observed)
-    first.ledger.apply_receipts["apply-1"] = (
-        InstrumentStateCommand(
-            command_id="apply-1",
-            instrument_id="source-0",
-        ),
-        ApplyReceipt(),
-    )
     first.release()
 
     assert first.assumed_state is None
-    assert not first.ledger.apply_receipts
     assert drivers[0].disconnect_count == 0
     drivers[0].change_from_front_panel(7.0)
 
@@ -428,7 +421,7 @@ def test_unrelated_instruments_can_connect_concurrently() -> None:
     registry.shutdown()
 
 
-def test_handle_routes_all_driver_calls_and_keeps_ledger_owner_scoped() -> None:
+def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     registry = InstrumentActorRegistry()
     drivers: list[_TrackingDriver] = []
     owned = registry.acquire(
@@ -440,45 +433,41 @@ def test_handle_routes_all_driver_calls_and_keeps_ledger_owner_scoped() -> None:
     observed = owned.read_state()
     owned.adopt_state(observed)
 
-    apply_command = InstrumentStateCommand(
-        command_id="apply-1",
-        instrument_id="source-0",
+    apply_request = DriverApplyRequest(
+        assignments=(
+            DriverPropertyWrite(
+                interface_id="test.set_gain/v1",
+                property_id="gain",
+                value=number_state(1.0),
+            ),
+        )
     )
-    assert owned.apply_state(apply_command).status == "applied"
+    assert owned.apply_state(apply_request).status == "applied"
     assert owned.assumed_state is None
     owned.adopt_state(observed)
 
-    invoke_command = InvokeCommand(
-        command_id="invoke-1",
-        instrument_id="source-0",
-        resource_id="resource-0",
+    invoke_request = DriverInvokeRequest(
         interface_id="test.play_program/v1",
         operation_id="play",
     )
-    invoke_receipt = owned.invoke(invoke_command)
+    invoke_receipt = owned.invoke(invoke_request)
     assert invoke_receipt.status == "invoked"
     assert owned.assumed_state is None
     assert invoke_receipt.state is not None
     owned.adopt_state(invoke_receipt.state)
 
-    collect_command = CollectCommand(
-        command_id="collect-1",
-        instrument_id="source-0",
-        point_index=0,
-        point_count=1,
+    collect_request = DriverCollectRequest(
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        results=(DriverCollectResult(request_id="signal", result_id="signal"),),
     )
-    assert owned.collect(collect_command).status == "collected"
+    assert owned.collect(collect_request).status == "collected"
     assert owned.assumed_state is not None
-    assert drivers[0].applied == [apply_command]
-    assert drivers[0].invoked == [invoke_command]
-    assert drivers[0].collect_commands == [collect_command]
+    assert drivers[0].applied == [apply_request]
+    assert drivers[0].invoked == [invoke_request]
+    assert drivers[0].collect_requests == [collect_request]
 
-    owned.ledger.apply_receipts["apply-1"] = (
-        apply_command,
-        ApplyReceipt(),
-    )
     owned.release()
-    assert not owned.ledger.apply_receipts
     registry.shutdown()
 
 

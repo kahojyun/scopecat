@@ -282,7 +282,7 @@ describe("interactive collection request shaping", () => {
     vi.stubGlobal("fetch", fetchMock);
     const acquisition: InstrumentAcquisition = {
       id: "sweep",
-      results: [],
+      results: [{ id: "trace", dtype: "float64", axes: [] }],
     };
     const target = {
       interfaceId: "scopecat.network_sweep/v1",
@@ -297,8 +297,16 @@ describe("interactive collection request shaping", () => {
 
     await openInstrumentSession("vna-1", "Ada", "open-retry");
     await openInstrumentSession("vna-1", "Ada", "open-retry");
-    await applyInstrumentState(session(), "vna-1", [], "apply-retry");
-    await applyInstrumentState(session(), "vna-1", [], "apply-retry");
+    const properties = [
+      {
+        interfaceId: "scopecat.network_sweep/v1",
+        componentPath: [],
+        propertyId: "points",
+        value: 201,
+      },
+    ];
+    await applyInstrumentState(session(), "vna-1", properties, "apply-retry");
+    await applyInstrumentState(session(), "vna-1", properties, "apply-retry");
     await invokeInstrumentOperation(session(), "vna-1", operationTarget, [], "invoke-retry");
     await invokeInstrumentOperation(session(), "vna-1", operationTarget, [], "invoke-retry");
     await collectInstrumentAcquisition(session(), "vna-1", target, undefined, "collect-retry");

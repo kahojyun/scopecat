@@ -3,8 +3,8 @@ from __future__ import annotations
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
-    InstrumentStateAssignment,
-    InstrumentStateCommand,
+    DriverApplyRequest,
+    DriverPropertyWrite,
 )
 
 from scopecat_instruments._support import LinearSweepSettings
@@ -48,34 +48,29 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
     driver = VirtualDcSource("flux", world)
 
     receipt = driver.apply_state(
-        InstrumentStateCommand(
-            instrument_id="flux",
-            assignments=[
-                InstrumentStateAssignment(
-                    resource_id="flux",
+        DriverApplyRequest(
+            assignments=(
+                DriverPropertyWrite(
                     interface_id=DC_SOURCE,
                     property_id="source_mode",
                     value=StateValue("current"),
                 ),
-                InstrumentStateAssignment(
-                    resource_id="flux",
+                DriverPropertyWrite(
                     interface_id=DC_SOURCE,
                     property_id="current_range",
                     value=StateValue(Quantity(0.01, "A")),
                 ),
-                InstrumentStateAssignment(
-                    resource_id="flux",
+                DriverPropertyWrite(
                     interface_id=DC_SOURCE,
                     property_id="current_level",
                     value=StateValue(Quantity(0.001, "A")),
                 ),
-                InstrumentStateAssignment(
-                    resource_id="flux",
+                DriverPropertyWrite(
                     interface_id=DC_SOURCE,
                     property_id="output_enabled",
                     value=StateValue(True),
                 ),
-            ],
+            ),
         )
     )
 

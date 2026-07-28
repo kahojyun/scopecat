@@ -15,7 +15,12 @@ if TYPE_CHECKING:
         InstrumentReadback,
         InstrumentStateSnapshot,
     )
-    from scopecat.sdk.instruments.backend import InstrumentBackend
+    from scopecat.sdk.instruments.backend import (
+        InstrumentBackend,
+        lower_driver_apply_request,
+        lower_driver_collect_request,
+        lower_driver_invoke_request,
+    )
     from scopecat.sdk.instruments.contracts import (
         AcquisitionAxisSpec,
         AcquisitionResultSpec,
@@ -67,6 +72,14 @@ if TYPE_CHECKING:
         validate_state_command,
         validate_state_snapshot,
     )
+    from scopecat.sdk.instruments.driver import (
+        DriverApplyRequest,
+        DriverCollectRequest,
+        DriverCollectResult,
+        DriverInvokeRequest,
+        DriverOperationArgument,
+        DriverPropertyWrite,
+    )
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
@@ -100,6 +113,30 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "DiscriminatedStateSpec",
     ),
     "DriverFault": ("scopecat.sdk.instruments.contracts", "DriverFault"),
+    "DriverApplyRequest": (
+        "scopecat.sdk.instruments.driver",
+        "DriverApplyRequest",
+    ),
+    "DriverCollectRequest": (
+        "scopecat.sdk.instruments.driver",
+        "DriverCollectRequest",
+    ),
+    "DriverCollectResult": (
+        "scopecat.sdk.instruments.driver",
+        "DriverCollectResult",
+    ),
+    "DriverInvokeRequest": (
+        "scopecat.sdk.instruments.driver",
+        "DriverInvokeRequest",
+    ),
+    "DriverOperationArgument": (
+        "scopecat.sdk.instruments.driver",
+        "DriverOperationArgument",
+    ),
+    "DriverPropertyWrite": (
+        "scopecat.sdk.instruments.driver",
+        "DriverPropertyWrite",
+    ),
     "InstrumentConnectionContext": (
         "scopecat.sdk.instruments.contracts",
         "InstrumentConnectionContext",
@@ -176,6 +213,18 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "float_property": ("scopecat.sdk.instruments.contracts", "float_property"),
     "int_property": ("scopecat.sdk.instruments.contracts", "int_property"),
     "interface": ("scopecat.sdk.instruments.contracts", "interface"),
+    "lower_driver_apply_request": (
+        "scopecat.sdk.instruments.backend",
+        "lower_driver_apply_request",
+    ),
+    "lower_driver_collect_request": (
+        "scopecat.sdk.instruments.backend",
+        "lower_driver_collect_request",
+    ),
+    "lower_driver_invoke_request": (
+        "scopecat.sdk.instruments.backend",
+        "lower_driver_invoke_request",
+    ),
     "operation": ("scopecat.sdk.instruments.contracts", "operation"),
     "operation_argument": (
         "scopecat.sdk.instruments.contracts",

@@ -12,11 +12,11 @@ from scopecat.records.measurement import (
 )
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
     InstrumentDescription,
-    InstrumentStateCommand,
-    InvokeCommand,
     InvokeReceipt,
 )
 
@@ -28,8 +28,6 @@ from scopecat_instruments._support import (
     collect_unknown,
     format_number,
     int_value,
-    not_applied,
-    not_collected,
     parse_bool,
     parse_csv_floats,
     parse_float,
@@ -40,8 +38,6 @@ from scopecat_instruments._support import (
     string_value,
     strip_scpi_string,
     unsupported_invoke,
-    validate_collect_command,
-    validate_writable_command,
 )
 from scopecat_instruments.driver_ids import KEYSIGHT_E5080B
 from scopecat_instruments.interfaces import (
@@ -131,12 +127,9 @@ class KeysightE5080B:
             metadata=metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         properties = {
-            assignment.property_id: assignment for assignment in command.assignments
+            assignment.property_id: assignment for assignment in request.assignments
         }
         try:
             self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
@@ -164,21 +157,16 @@ class KeysightE5080B:
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return unsupported_invoke(command, self.describe())
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         try:
             trace = self.acquire_trace()
             values: dict[str, MeasurementValue] = {}
-            for request in command.requests:
-                if request.result_id == "frequency":
-                    values[request.id] = MeasurementArray(
+            for result in request.results:
+                if result.result_id == "frequency":
+                    values[result.request_id] = MeasurementArray(
                         dtype="float64",
                         unit="Hz",
                         shape=[len(trace.frequencies_hz)],
@@ -188,7 +176,7 @@ class KeysightE5080B:
                         ],
                     )
                 else:
-                    values[request.id] = MeasurementArray(
+                    values[result.request_id] = MeasurementArray(
                         dtype="complex128",
                         unit="ratio",
                         shape=[len(trace.values)],

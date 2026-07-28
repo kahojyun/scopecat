@@ -30,12 +30,14 @@ The notebook keeps its transient `RunProgram` and Python closures, while the
 daemon admits the plan, hosts process-long instrument actors, and persists
 execution results. Hardware effects cross the boundary as ordered batches. The
 daemon acquires an owner epoch, freshly observes hardware, reconciles desired
-state against that baseline, executes driver calls, deduplicates whole batches,
-records concise command and receipt evidence, and owns abort-on-failure,
-terminal readback, and connection retirement. Admission binds the expected
-provider and instrument-description fingerprint; provisioning verifies that
-contract before the first write. Renewable executor leases carry a unique
-fencing identity, so an expired client cannot continue writing.
+state against that baseline, validates and lowers complete commands to the
+driver backend ABI, deduplicates whole batches, records concise command and
+receipt evidence, and owns abort-on-failure, terminal readback, and connection
+retirement. Lowering finishes before a batch is recorded as started; driver
+requests contain no run, point, product, or retry identity. Admission binds the
+expected provider and instrument-description fingerprint; provisioning
+verifies that contract before the first write. Renewable executor leases carry
+a unique fencing identity, so an expired client cannot continue writing.
 
 Admission and resource claims are durable before hardware access. The executor
 atomically acquires its control lease; all later journal, measurement, and

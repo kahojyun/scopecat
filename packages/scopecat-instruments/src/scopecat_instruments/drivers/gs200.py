@@ -7,11 +7,11 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
     InstrumentDescription,
-    InstrumentStateCommand,
-    InvokeCommand,
     InvokeReceipt,
 )
 
@@ -22,7 +22,6 @@ from scopecat_instruments._support import (
     collect_unknown,
     execution_problem,
     format_number,
-    not_applied,
     not_collected,
     parse_bool,
     parse_float,
@@ -32,8 +31,6 @@ from scopecat_instruments._support import (
     state_sync_failed,
     string_value,
     unsupported_invoke,
-    validate_collect_command,
-    validate_writable_command,
 )
 from scopecat_instruments.driver_ids import YOKOGAWA_GS200
 from scopecat_instruments.interfaces import (
@@ -119,11 +116,7 @@ class YokogawaGS200:
             metadata=metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        description = self.describe()
-        problems = validate_writable_command(command, description)
-        if problems:
-            return not_applied(problems)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         try:
             baseline = self.read_state()
         except TransportError:
@@ -131,17 +124,10 @@ class YokogawaGS200:
             raise
         except Exception as error:
             return state_sync_failed(self.instrument_id, error)
-        problems = validate_writable_command(
-            command,
-            description,
-            baseline=baseline,
-        )
-        if problems:
-            return not_applied(problems)
 
         try:
             selected_properties = {
-                assignment.property_id: assignment for assignment in command.assignments
+                assignment.property_id: assignment for assignment in request.assignments
             }
             baseline_properties = {
                 property_state.property_id: property_state
@@ -217,23 +203,18 @@ class YokogawaGS200:
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return unsupported_invoke(command, self.describe())
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         if not self.monitor_option:
             return not_collected(
                 [
                     execution_problem(
                         "gs200_monitor_option_required",
                         "GS200 /MON is required for DC monitor collection",
-                        "collect_command",
-                        "requests",
+                        "driver_collect_request",
+                        "results",
                     )
                 ]
             )
@@ -242,15 +223,15 @@ class YokogawaGS200:
             result_id = (
                 "monitored_current" if mode == "voltage" else "monitored_voltage"
             )
-            requested_result_ids = {request.result_id for request in command.requests}
+            requested_result_ids = {result.result_id for result in request.results}
             if requested_result_ids != {result_id}:
                 return not_collected(
                     [
                         execution_problem(
                             "gs200_monitor_result_inactive",
                             f"{mode} source mode provides only {result_id}",
-                            "collect_command",
-                            "requests",
+                            "driver_collect_request",
+                            "results",
                         )
                     ]
                 )
@@ -258,7 +239,7 @@ class YokogawaGS200:
             measured = Quantity(self.measure(), unit)
             return CollectReceipt(
                 readback=InstrumentReadback(
-                    values={request.id: measured for request in command.requests},
+                    values={result.request_id: measured for result in request.results},
                     metadata={
                         "manufacturer": "Yokogawa",
                         "model": "GS200",

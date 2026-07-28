@@ -39,11 +39,12 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     CollectResultRequest,
+    DriverApplyRequest,
+    DriverCollectRequest,
     InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentReadback,
-    InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
 from tests.testkit.in_process_lab import in_process_lab
@@ -316,8 +317,8 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
 
 class _BlockingStateDriver(SignalInstrumentDriver):
     @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        self.applied.append(command)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied.append(request)
         return ApplyReceipt(
             status="not_applied",
             problems=(
@@ -333,8 +334,8 @@ class _BlockingStateDriver(SignalInstrumentDriver):
 
 class _UnknownAppliedStateDriver(SignalInstrumentDriver):
     @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        super().apply_state(command)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        super().apply_state(request)
         return ApplyReceipt(
             status="unknown",
             problems=(
@@ -428,8 +429,10 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
-    assert len(driver.collect_commands) == 1
-    assert [request.id for request in driver.collect_commands[0].requests] == ["signal"]
+    assert len(driver.collect_requests) == 1
+    assert [result.request_id for result in driver.collect_requests[0].results] == [
+        "signal"
+    ]
     assert observed_candidates == [
         tuple(
             MeasurementValueCandidate(
@@ -495,8 +498,8 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
 
 class _UnexpectedResultDriver(SignalInstrumentDriver):
     @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        self.collect_commands.append(command)
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        self.collect_requests.append(request)
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
@@ -530,8 +533,8 @@ def test_unexpected_result_stops_later_collection() -> None:
     assert [problem.code for problem in result.problems] == [
         "instrument_unexpected_product"
     ]
-    assert len(first.collect_commands) == 1
-    assert second.collect_commands == []
+    assert len(first.collect_requests) == 1
+    assert second.collect_requests == []
 
 
 def test_unknown_receipt_with_problem_does_not_advance_state() -> None:

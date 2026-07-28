@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.sdk.instruments import (
-    InstrumentOperationArgument,
-    InvokeCommand,
+    DriverInvokeRequest,
+    DriverOperationArgument,
     PayloadRef,
     StateValue,
 )
@@ -40,18 +40,15 @@ def test_drive_program_is_an_invocation_not_persistent_state() -> None:
     before = driver.read_state()
 
     receipt = driver.invoke(
-        InvokeCommand(
-            command_id="invoke-program-0",
-            instrument_id=driver.instrument_id,
-            resource_id=driver.instrument_id,
+        DriverInvokeRequest(
             interface_id=PLAY_PULSE_PROGRAM,
             operation_id="play",
-            arguments=[
-                InstrumentOperationArgument(
+            arguments=(
+                DriverOperationArgument(
                     id="program",
                     value=StateValue(PayloadRef(payload_id=payload.id)),
-                )
-            ],
+                ),
+            ),
             payloads={payload.id: payload},
         )
     )

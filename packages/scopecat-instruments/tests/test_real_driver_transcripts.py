@@ -4,10 +4,10 @@ import pytest
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
-    CollectCommand,
-    CollectResultRequest,
-    InstrumentStateAssignment,
-    InstrumentStateCommand,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverCollectResult,
+    DriverPropertyWrite,
 )
 
 from scopecat_instruments._support import LinearSweepSettings
@@ -26,22 +26,34 @@ from scopecat_instruments.interfaces import (
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 
 
-def _state_command(
-    instrument_id: str,
+def _apply_request(
     interface_id: str,
     properties: list[tuple[str, bool | str | Quantity]],
-) -> InstrumentStateCommand:
-    return InstrumentStateCommand(
-        instrument_id=instrument_id,
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id=instrument_id,
+) -> DriverApplyRequest:
+    return DriverApplyRequest(
+        assignments=tuple(
+            DriverPropertyWrite(
                 interface_id=interface_id,
                 property_id=property_id,
                 value=StateValue(value),
             )
             for property_id, value in properties
-        ],
+        ),
+    )
+
+
+def _collect_request(
+    interface_id: str,
+    acquisition_id: str,
+    *result_ids: str,
+) -> DriverCollectRequest:
+    return DriverCollectRequest(
+        interface_id=interface_id,
+        acquisition_id=acquisition_id,
+        results=tuple(
+            DriverCollectResult(request_id=result_id, result_id=result_id)
+            for result_id in result_ids
+        ),
     )
 
 
@@ -98,20 +110,7 @@ def test_gs200_source_and_monitor_transcript() -> None:
     driver.set_output(True)
     state = driver.read_state()
     receipt = driver.collect(
-        CollectCommand(
-            instrument_id="bias",
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectResultRequest(
-                    id="monitored_current",
-                    interface_id=DC_MONITOR,
-                    acquisition_id="monitor",
-                    result_id="monitored_current",
-                    unit="A",
-                )
-            ],
-        )
+        _collect_request(DC_MONITOR, "monitor", "monitored_current")
     )
 
     assert identity.model == "GS210"
@@ -160,8 +159,7 @@ def test_gs200_apply_disables_live_output_while_switching_state(
     driver = YokogawaGS200("bias", transport)
 
     receipt = driver.apply_state(
-        _state_command(
-            "bias",
+        _apply_request(
             DC_SOURCE,
             [
                 ("source_mode", "voltage"),
@@ -202,8 +200,7 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
     driver = YokogawaGS200("bias", transport, monitor_option=True)
 
     applied = driver.apply_state(
-        _state_command(
-            "bias",
+        _apply_request(
             DC_SOURCE,
             [
                 ("source_mode", "current"),
@@ -214,20 +211,7 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
         )
     )
     monitored = driver.collect(
-        CollectCommand(
-            instrument_id="bias",
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectResultRequest(
-                    id="monitored_voltage",
-                    interface_id=DC_MONITOR,
-                    acquisition_id="monitor",
-                    result_id="monitored_voltage",
-                    unit="V",
-                )
-            ],
-        )
+        _collect_request(DC_MONITOR, "monitor", "monitored_voltage")
     )
 
     assert applied.status == "applied"
@@ -259,8 +243,7 @@ def test_gs200_adjusts_compliance_without_interrupting_live_output() -> None:
     driver = YokogawaGS200("bias", transport)
 
     receipt = driver.apply_state(
-        _state_command(
-            "bias",
+        _apply_request(
             DC_SOURCE,
             [("current_protection", Quantity(0.005, "A"))],
         )
@@ -330,8 +313,7 @@ def test_sgs100a_apply_orders_output_around_frequency_and_power(
     driver = RohdeSchwarzSGS100A("readout-lo", transport)
 
     receipt = driver.apply_state(
-        _state_command(
-            "readout-lo",
+        _apply_request(
             RF_OUTPUT,
             [
                 ("frequency", Quantity(5.0e9, "Hz")),
@@ -438,23 +420,7 @@ def test_e5080b_collect_keeps_disabled_continuous_trigger_unchanged() -> None:
     )
     driver = KeysightE5080B("vna", transport)
 
-    receipt = driver.collect(
-        CollectCommand(
-            instrument_id="vna",
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectResultRequest(
-                    id="s_parameter",
-                    interface_id=NETWORK_SWEEP,
-                    acquisition_id="sweep",
-                    result_id="s_parameter",
-                    unit="ratio",
-                    dtype="complex128",
-                )
-            ],
-        )
-    )
+    receipt = driver.collect(_collect_request(NETWORK_SWEEP, "sweep", "s_parameter"))
 
     assert receipt.status == "collected"
     transport.assert_complete()
@@ -477,23 +443,7 @@ def test_e5080b_collect_restores_continuous_trigger_after_parse_failure() -> Non
     )
     driver = KeysightE5080B("vna", transport)
 
-    receipt = driver.collect(
-        CollectCommand(
-            instrument_id="vna",
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectResultRequest(
-                    id="s_parameter",
-                    interface_id=NETWORK_SWEEP,
-                    acquisition_id="sweep",
-                    result_id="s_parameter",
-                    unit="ratio",
-                    dtype="complex128",
-                )
-            ],
-        )
-    )
+    receipt = driver.collect(_collect_request(NETWORK_SWEEP, "sweep", "s_parameter"))
 
     assert receipt.status == "unknown"
     transport.assert_complete()

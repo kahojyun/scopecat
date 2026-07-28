@@ -7,11 +7,11 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
     InstrumentDescription,
-    InstrumentStateCommand,
-    InvokeCommand,
     InvokeReceipt,
 )
 
@@ -20,8 +20,6 @@ from scopecat_instruments._support import (
     apply_unknown,
     bool_value,
     format_number,
-    not_applied,
-    not_collected,
     parse_bool,
     parse_float,
     parse_identity,
@@ -29,8 +27,6 @@ from scopecat_instruments._support import (
     state_property,
     string_value,
     unsupported_invoke,
-    validate_collect_command,
-    validate_writable_command,
 )
 from scopecat_instruments.driver_ids import ROHDE_SCHWARZ_SGS100A
 from scopecat_instruments.interfaces import RF_OUTPUT, rf_output_interface
@@ -91,12 +87,9 @@ class RohdeSchwarzSGS100A:
             metadata=metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         properties = {
-            assignment.property_id: assignment for assignment in command.assignments
+            assignment.property_id: assignment for assignment in request.assignments
         }
         output_property = properties.get("output_enabled")
         target_output = (
@@ -119,13 +112,11 @@ class RohdeSchwarzSGS100A:
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return unsupported_invoke(command, self.describe())
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        del request
         return CollectReceipt(readback=InstrumentReadback())
 
     def set_frequency(self, frequency_hz: float) -> None:

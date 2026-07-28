@@ -26,7 +26,7 @@ from scopecat.kernel.errors import RunIndeterminate
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import ComplexQuantity, MeasurementArray
 from scopecat.records.parameter import ScalarParameterValue
-from scopecat.sdk.instruments import CollectCommand, CollectReceipt
+from scopecat.sdk.instruments import CollectReceipt, DriverCollectRequest
 from scopecat_instruments.virtual import VirtualNetworkAnalyzer
 
 
@@ -122,7 +122,7 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
 ) -> None:
     def fail_collect(
         _driver: VirtualNetworkAnalyzer,
-        _command: CollectCommand,
+        _request: DriverCollectRequest,
     ) -> CollectReceipt:
         raise RuntimeError("injected VNA acquisition failure")
 

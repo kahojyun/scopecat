@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from threading import RLock
 from typing import Literal
 
@@ -12,13 +12,15 @@ from scopecat.config.registry.records import ConfigRegistryActivationRecord
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
     InstrumentDescription,
     InstrumentDriver,
-    InstrumentStateCommand,
-    InvokeCommand,
     InvokeReceipt,
+)
+from scopecat.sdk.instruments.driver import (
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
 )
 
 
@@ -52,42 +54,6 @@ class InstrumentOwnerKey:
     fence: str | None = None
 
 
-@dataclass(slots=True)
-class InstrumentOperationLedger:
-    """Keep replay evidence scoped to one ownership epoch, never a connection."""
-
-    apply_receipts: dict[str, tuple[InstrumentStateCommand, ApplyReceipt]] = field(
-        default_factory=dict
-    )
-    invoke_receipts: dict[str, tuple[InvokeCommand, InvokeReceipt]] = field(
-        default_factory=dict
-    )
-    collect_receipts: dict[str, tuple[CollectCommand, CollectReceipt]] = field(
-        default_factory=dict
-    )
-    collect_failures: dict[str, tuple[CollectCommand, str]] = field(
-        default_factory=dict
-    )
-
-    def clear(self) -> None:
-        self.apply_receipts.clear()
-        self.invoke_receipts.clear()
-        self.collect_receipts.clear()
-        self.collect_failures.clear()
-
-
-@dataclass(slots=True)
-class InstrumentOwnershipState:
-    """Mutable data whose lifetime is exactly one ownership handle."""
-
-    assumed_state: InstrumentStateSnapshot | None = None
-    ledger: InstrumentOperationLedger = field(default_factory=InstrumentOperationLedger)
-
-    def clear(self) -> None:
-        self.assumed_state = None
-        self.ledger.clear()
-
-
 type InstrumentConnector = Callable[
     [],
     tuple[InstrumentDriver, InstrumentDescription],
@@ -104,7 +70,6 @@ class OwnedInstrument:
         "_epoch",
         "_owner",
         "_reused_connection",
-        "data",
     )
 
     def __init__(
@@ -123,7 +88,6 @@ class OwnedInstrument:
         self._epoch = epoch
         self._description = description
         self._reused_connection = reused_connection
-        self.data = InstrumentOwnershipState()
 
     @property
     def instrument_id(self) -> str:
@@ -151,12 +115,7 @@ class OwnedInstrument:
 
     @property
     def assumed_state(self) -> InstrumentStateSnapshot | None:
-        state = self.data.assumed_state
-        return None if state is None else state.model_copy(deep=True)
-
-    @property
-    def ledger(self) -> InstrumentOperationLedger:
-        return self.data.ledger
+        return self._actor.assumed_state(self)
 
     def read_state(self) -> InstrumentStateSnapshot:
         """Read hardware under the actor lock without trusting it before validation."""
@@ -171,14 +130,14 @@ class OwnedInstrument:
     def invalidate_state(self) -> None:
         self._actor.invalidate_state(self)
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        return self._actor.apply_state(self, command)
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        return self._actor.apply_state(self, request)
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        return self._actor.invoke(self, command)
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        return self._actor.invoke(self, request)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        return self._actor.collect(self, command)
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        return self._actor.collect(self, request)
 
     def abort(self) -> None:
         """Stop owner-scoped hardware work before release or fault."""
@@ -206,6 +165,7 @@ class _InstrumentActor:
         self._description: InstrumentDescription | None = None
         self._driver: InstrumentDriver | None = None
         self._owned: OwnedInstrument | None = None
+        self._assumed_state: InstrumentStateSnapshot | None = None
         self._epoch = 0
         self._retire_on_release = False
         self._shutdown = False
@@ -260,8 +220,18 @@ class _InstrumentActor:
         with self._lock:
             driver = self._require_owned(owned)
             # A failed refresh must not leave a previously observed baseline usable.
-            owned.data.assumed_state = None
+            self._assumed_state = None
             return driver.read_state()
+
+    def assumed_state(
+        self,
+        owned: OwnedInstrument,
+    ) -> InstrumentStateSnapshot | None:
+        with self._lock:
+            if self._owned is not owned or owned.epoch != self._epoch:
+                return None
+            state = self._assumed_state
+            return None if state is None else state.model_copy(deep=True)
 
     def adopt_state(
         self,
@@ -270,68 +240,68 @@ class _InstrumentActor:
     ) -> None:
         with self._lock:
             self._require_owned(owned)
-            owned.data.assumed_state = state.model_copy(deep=True)
+            self._assumed_state = state.model_copy(deep=True)
 
     def invalidate_state(self, owned: OwnedInstrument) -> None:
         with self._lock:
             self._require_owned(owned)
-            owned.data.assumed_state = None
+            self._assumed_state = None
 
     def apply_state(
         self,
         owned: OwnedInstrument,
-        command: InstrumentStateCommand,
+        request: DriverApplyRequest,
     ) -> ApplyReceipt:
         with self._lock:
             driver = self._require_owned(owned)
-            previous = owned.data.assumed_state
-            owned.data.assumed_state = None
-            receipt = driver.apply_state(command)
+            previous = self._assumed_state
+            self._assumed_state = None
+            receipt = driver.apply_state(request)
             if receipt.status == "not_applied":
-                owned.data.assumed_state = previous
+                self._assumed_state = previous
             return receipt
 
     def invoke(
         self,
         owned: OwnedInstrument,
-        command: InvokeCommand,
+        request: DriverInvokeRequest,
     ) -> InvokeReceipt:
         with self._lock:
             driver = self._require_owned(owned)
-            previous = owned.data.assumed_state
-            owned.data.assumed_state = None
-            receipt = driver.invoke(command)
+            previous = self._assumed_state
+            self._assumed_state = None
+            receipt = driver.invoke(request)
             if receipt.status == "not_invoked":
-                owned.data.assumed_state = previous
+                self._assumed_state = previous
             return receipt
 
     def collect(
         self,
         owned: OwnedInstrument,
-        command: CollectCommand,
+        request: DriverCollectRequest,
     ) -> CollectReceipt:
         with self._lock:
             driver = self._require_owned(owned)
             try:
-                receipt = driver.collect(command)
+                receipt = driver.collect(request)
             except Exception:
-                owned.data.assumed_state = None
+                self._assumed_state = None
                 raise
             if receipt.status == "unknown":
-                owned.data.assumed_state = None
+                self._assumed_state = None
             return receipt
 
     def abort(self, owned: OwnedInstrument) -> None:
         with self._lock:
             driver = self._require_owned(owned)
-            owned.data.assumed_state = None
+            self._assumed_state = None
             driver.abort()
 
     def release(self, owned: OwnedInstrument) -> None:
         with self._lock:
             self._require_owned(owned)
             self._owned = None
-            owned.data.clear()
+            self._assumed_state = None
             if self._retire_on_release:
                 self._disconnect_retired()
             else:
@@ -342,7 +312,7 @@ class _InstrumentActor:
             self._require_owned(owned)
             self._owned = None
             self._epoch += 1
-            owned.data.clear()
+            self._assumed_state = None
             driver = self._detach_connection()
             if driver is not None:
                 driver.disconnect()
@@ -353,7 +323,7 @@ class _InstrumentActor:
                 return
             self._shutdown = True
             if self._owned is not None:
-                self._owned.data.clear()
+                self._assumed_state = None
                 self._owned = None
                 self._epoch += 1
             driver = self._detach_connection()
@@ -512,7 +482,6 @@ __all__ = [
     "InstrumentActorRegistry",
     "InstrumentActorShutdown",
     "InstrumentBindingKey",
-    "InstrumentOperationLedger",
     "InstrumentOwnerKey",
     "OwnedInstrument",
 ]

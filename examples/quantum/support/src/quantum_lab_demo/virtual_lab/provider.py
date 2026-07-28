@@ -9,9 +9,11 @@ from typing import ClassVar
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
     DriverFault,
+    DriverInvokeRequest,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
@@ -19,12 +21,9 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentReadback,
-    InstrumentStateCommand,
     InstrumentStateSnapshot,
     InterfaceSpec,
-    InvokeCommand,
     InvokeReceipt,
-    validate_invoke_command,
 )
 from scopecat.sdk.problems import (
     Problem,
@@ -86,43 +85,24 @@ class _VirtualInstrumentDriver:
             metadata=self._metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        if command.instrument_id != self.instrument_id:
-            raise DriverFault(
-                problem(
-                    "virtual_lab_device_mismatch",
-                    f"{self.instrument_id} cannot apply command for "
-                    f"{command.instrument_id}",
-                    phase=ProblemPhase.EXECUTION,
-                    location=model_location(
-                        "instrument_state_command",
-                        "instrument_id",
-                    ),
-                )
-            )
-        for assignment in command.assignments:
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        for assignment in request.assignments:
             self._state[(assignment.interface_id, assignment.property_id)] = (
                 assignment.value
             )
         return ApplyReceipt(status="applied")
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        problems = validate_invoke_command(
-            command=command,
-            description=self.describe(),
-        )
-        if problems:
-            return InvokeReceipt(status="not_invoked", problems=tuple(problems))
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
         return InvokeReceipt(
             metadata={
-                "interface_id": command.interface_id,
-                "operation_id": command.operation_id,
-                "payload_count": len(command.payloads),
+                "interface_id": request.interface_id,
+                "operation_id": request.operation_id,
+                "payload_count": len(request.payloads),
             }
         )
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        del command
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        del request
         return CollectReceipt(readback=InstrumentReadback())
 
     def disconnect(self) -> None:

@@ -1,4 +1,4 @@
-"""Shared parsing, validation, and receipt helpers for concrete drivers."""
+"""Shared parsing and receipt helpers for concrete drivers."""
 
 from __future__ import annotations
 
@@ -10,23 +10,10 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
-    InstrumentDescription,
+    DriverInvokeRequest,
     InstrumentPropertyState,
-    InstrumentStateCommand,
-    InstrumentStateSnapshot,
-    InvokeCommand,
     InvokeReceipt,
-)
-from scopecat.sdk.instruments import (
-    validate_collect_command as validate_collect_contract,
-)
-from scopecat.sdk.instruments import (
-    validate_invoke_command as validate_invoke_contract,
-)
-from scopecat.sdk.instruments import (
-    validate_state_command as validate_state_contract,
 )
 from scopecat.sdk.problems import Problem, ProblemPhase, model_location, problem
 
@@ -153,48 +140,25 @@ def state_property(
     )
 
 
-def validate_writable_command(
-    command: InstrumentStateCommand,
-    description: InstrumentDescription,
-    *,
-    baseline: InstrumentStateSnapshot | None = None,
-) -> list[Problem]:
-    return validate_state_contract(
-        command=command,
-        description=description,
-        baseline=baseline,
-    )
-
-
-def validate_collect_command(
-    command: CollectCommand,
-    description: InstrumentDescription,
-) -> list[Problem]:
-    return validate_collect_contract(command=command, description=description)
-
-
 def not_applied(problems: Iterable[Problem]) -> ApplyReceipt:
     return ApplyReceipt(status="not_applied", problems=tuple(problems))
 
 
 def unsupported_invoke(
-    command: InvokeCommand,
-    description: InstrumentDescription,
+    request: DriverInvokeRequest,
+    instrument_id: str,
 ) -> InvokeReceipt:
-    """Reject calls outside a driver's declared operation surface."""
-
-    problems = validate_invoke_contract(command=command, description=description)
-    if not problems:
-        problems = [
+    return InvokeReceipt(
+        status="not_invoked",
+        problems=(
             execution_problem(
                 "instrument_operation_not_implemented",
-                f"{description.instrument_id} does not implement "
-                f"{command.operation_id}",
-                "invoke_command",
+                f"{instrument_id} does not implement {request.operation_id}",
+                "driver_invoke_request",
                 "operation_id",
-            )
-        ]
-    return InvokeReceipt(status="not_invoked", problems=tuple(problems))
+            ),
+        ),
+    )
 
 
 def state_sync_failed(instrument_id: str, error: Exception) -> ApplyReceipt:
@@ -203,7 +167,7 @@ def state_sync_failed(instrument_id: str, error: Exception) -> ApplyReceipt:
             execution_problem(
                 "instrument_state_sync_failed",
                 f"could not synchronize state from {instrument_id}",
-                "instrument_state_command",
+                "driver_apply_request",
                 details={"exception_type": _exception_type(error)},
             )
         ]
@@ -218,7 +182,7 @@ def apply_unknown(instrument_id: str, error: Exception) -> ApplyReceipt:
                 "instrument_apply_outcome_unknown",
                 f"lost confirmation while applying state to {instrument_id} "
                 f"({type(error).__name__})",
-                "instrument_state_command",
+                "driver_apply_request",
                 details={"exception_type": _exception_type(error)},
             ),
         ),
@@ -237,7 +201,7 @@ def collect_unknown(instrument_id: str, error: Exception) -> CollectReceipt:
                 "instrument_collect_outcome_unknown",
                 f"lost readback while collecting from {instrument_id} "
                 f"({type(error).__name__})",
-                "collect_command",
+                "driver_collect_request",
                 details={"exception_type": _exception_type(error)},
             ),
         ),

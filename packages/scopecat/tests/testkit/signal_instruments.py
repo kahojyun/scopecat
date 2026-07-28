@@ -14,17 +14,17 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
+    DriverApplyRequest,
+    DriverCollectRequest,
+    DriverInvokeRequest,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentReadback,
-    InstrumentStateCommand,
     InstrumentStateSnapshot,
-    InvokeCommand,
     InvokeReceipt,
     acquisition,
     acquisition_result,
@@ -151,9 +151,9 @@ class TestSignalInstrument:
         self.instrument_id = instrument_id
         self.result_ids = ("signal", *additional_result_ids)
         self._state: dict[tuple[str, str], StateValue] = {}
-        self.applied_commands: list[InstrumentStateCommand] = []
-        self.invoked_commands: list[InvokeCommand] = []
-        self.collect_commands: list[CollectCommand] = []
+        self.applied_requests: list[DriverApplyRequest] = []
+        self.invoked_requests: list[DriverInvokeRequest] = []
+        self.collect_requests: list[DriverCollectRequest] = []
 
     def describe(self) -> InstrumentDescription:
         return InstrumentDescription(
@@ -194,30 +194,29 @@ class TestSignalInstrument:
             metadata={"mode": "test_offline"},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        self.applied_commands.append(command)
-        for assignment in command.assignments:
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied_requests.append(request)
+        for assignment in request.assignments:
             self._state[(assignment.interface_id, assignment.property_id)] = (
                 assignment.value
             )
         return ApplyReceipt(status="applied")
 
-    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
-        self.invoked_commands.append(command)
+    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        self.invoked_requests.append(request)
         return InvokeReceipt(status="invoked", state=self.read_state())
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        self.collect_commands.append(command)
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        self.collect_requests.append(request)
         requested_result_ids = tuple(
-            request.id for request in command.requests if request.id in self.result_ids
+            result.request_id
+            for result in request.results
+            if result.result_id in self.result_ids
         )
         if not requested_result_ids:
             return CollectReceipt(readback=InstrumentReadback())
         value = Quantity(
-            value=_test_signal(
-                command.point_index,
-                command.point_count,
-            ),
+            value=_test_signal(self._frequency_ghz()),
             unit="ratio",
         )
         return CollectReceipt(
@@ -231,6 +230,11 @@ class TestSignalInstrument:
             )
         )
 
+    def _frequency_ghz(self) -> float:
+        value = self._state[("test.set_frequency/v1", "frequency")].root
+        assert isinstance(value, Quantity)
+        return value.to("GHz").value
+
     def disconnect(self) -> None:
         return None
 
@@ -238,11 +242,8 @@ class TestSignalInstrument:
         return None
 
 
-def _test_signal(point_index: int, point_count: int) -> float:
-    if point_count <= 1:
-        return 1.0
-    center = (point_count - 1) / 2
-    distance = abs(point_index - center) / center
+def _test_signal(frequency_ghz: float) -> float:
+    distance = abs(frequency_ghz - 5.0) / 0.1
     return round(1.0 - 0.5 * distance, 12)
 
 

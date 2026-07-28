@@ -71,9 +71,9 @@ from scopecat.records.instrument import (
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.instruments import DriverCollectRequest
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
-    CollectCommand,
     CollectReceipt,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -183,6 +183,7 @@ def test_instrument_models_round_trip() -> None:
         ],
     )
     command = InstrumentStateCommand(
+        command_id="round-trip-state",
         instrument_id="source-0",
         assignments=[
             InstrumentStateAssignment(
@@ -330,14 +331,15 @@ def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
 
 class _NonFiniteSignalInstrument(TestSignalInstrument):
     @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        self.collect_commands.append(command)
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        self.collect_requests.append(request)
         values = (float("nan"), float("inf"), float("-inf"))
+        value_index = round((self._frequency_ghz() - 4.9) / 0.1)
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
                     "signal": Quantity(
-                        value=values[command.point_index],
+                        value=values[value_index],
                         unit="ratio",
                     )
                 },
@@ -933,4 +935,4 @@ def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
     )
 
     assert manifest.status == "completed"
-    assert len(instrument.applied_commands) == 1
+    assert len(instrument.applied_requests) == 1
