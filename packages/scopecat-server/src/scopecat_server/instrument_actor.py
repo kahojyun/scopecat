@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Literal
 
-from scopecat.config.registry.records import ConfigRegistryActivationRecord
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
@@ -43,11 +42,11 @@ class InstrumentActorShutdown(InstrumentActorError):
 
 @dataclass(frozen=True, slots=True)
 class InstrumentBindingKey:
-    """Identify the config-specific backend binding behind one actor."""
+    """Identify the provider binding and contract behind one actor connection."""
 
     provider_id: str
-    config_content_hash: str
-    config_registry_generation: int | None
+    binding_fingerprint: str
+    contract_fingerprint: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +170,6 @@ class _InstrumentActor:
         self._owned: OwnedInstrument | None = None
         self._assumed_state: InstrumentStateSnapshot | None = None
         self._epoch = 0
-        self._retire_on_release = False
         self._shutdown = False
 
     def acquire(
@@ -181,7 +179,6 @@ class _InstrumentActor:
         owner: InstrumentOwnerKey,
         endpoint: InstrumentBackendEndpoint,
         connect: InstrumentConnector,
-        retire_on_release: bool,
     ) -> OwnedInstrument:
         with self._lock:
             if self._shutdown:
@@ -197,9 +194,7 @@ class _InstrumentActor:
                     f"instrument is already owned: {self.instrument_id}"
                 )
             if self._handle is not None and (
-                self._binding != binding
-                or self._endpoint is not endpoint
-                or self._retire_on_release
+                self._binding != binding or self._endpoint is not endpoint
             ):
                 self._disconnect_idle()
             reused_connection = self._handle is not None
@@ -209,7 +204,6 @@ class _InstrumentActor:
                 self._handle = connected.handle
                 self._description = connected.description
                 self._binding = binding
-            self._retire_on_release = retire_on_release
             description = self._description
             assert description is not None
             self._epoch += 1
@@ -310,10 +304,7 @@ class _InstrumentActor:
             self._require_owned(owned)
             self._owned = None
             self._assumed_state = None
-            if self._retire_on_release:
-                self._disconnect_retired()
-            else:
-                self._epoch += 1
+            self._epoch += 1
 
     def fault(self, owned: OwnedInstrument) -> None:
         with self._lock:
@@ -340,20 +331,6 @@ class _InstrumentActor:
                 endpoint, handle = connection
                 endpoint.disconnect(handle)
 
-    def retire_config_generations_before(self, generation: int) -> None:
-        """Disconnect stale idle bindings without interrupting their current owner."""
-
-        with self._lock:
-            binding = self._binding
-            if binding is None:
-                return
-            binding_generation = binding.config_registry_generation
-            if binding_generation is not None and binding_generation >= generation:
-                return
-            self._retire_on_release = True
-            if self._owned is None:
-                self._disconnect_retired()
-
     def _require_owned(self, owned: OwnedInstrument) -> InstrumentConnection:
         if (
             self._owned is not owned
@@ -373,14 +350,6 @@ class _InstrumentActor:
             endpoint, handle = connection
             endpoint.disconnect(handle)
 
-    def _disconnect_retired(self) -> None:
-        connection = self._detach_connection()
-        self._epoch += 1
-        if connection is not None:
-            endpoint, handle = connection
-            with suppress(Exception):
-                endpoint.disconnect(handle)
-
     def _detach_connection(self) -> InstrumentConnection | None:
         endpoint = self._endpoint
         handle = self._handle
@@ -388,7 +357,6 @@ class _InstrumentActor:
         self._handle = None
         self._description = None
         self._binding = None
-        self._retire_on_release = False
         if endpoint is None or handle is None:
             return None
         return endpoint, handle
@@ -402,7 +370,6 @@ class InstrumentActorRegistry:
         self._lock = RLock()
         self._accepting = True
         self._closed = False
-        self._config_activation_generation: int | None = None
 
     def acquire(
         self,
@@ -416,12 +383,6 @@ class InstrumentActorRegistry:
         with self._lock:
             if not self._accepting:
                 raise InstrumentActorShutdown("instrument actor registry is shut down")
-            activation_generation = self._config_activation_generation
-            binding_generation = binding.config_registry_generation
-            retire_on_release = binding_generation is None or (
-                activation_generation is not None
-                and binding_generation < activation_generation
-            )
             actor = self._actors.setdefault(
                 instrument_id,
                 _InstrumentActor(instrument_id),
@@ -431,43 +392,16 @@ class InstrumentActorRegistry:
             owner=owner,
             endpoint=endpoint,
             connect=connect,
-            retire_on_release=retire_on_release,
         )
         with self._lock:
             accepting = self._accepting
-            activation_generation = self._config_activation_generation
         if accepting:
-            if (
-                activation_generation is not None
-                and binding.config_registry_generation is not None
-                and binding.config_registry_generation < activation_generation
-            ):
-                actor.retire_config_generations_before(activation_generation)
             return owned
         # Shutdown may start during a slow connection. Do not publish a usable
         # handle after the registry gate has closed.
         with suppress(InstrumentActorConflict):
             owned.fault()
         raise InstrumentActorShutdown("instrument actor registry is shut down")
-
-    def observe_config_activation(
-        self,
-        activation: ConfigRegistryActivationRecord,
-    ) -> None:
-        """Retire bindings older than the newest committed registry activation."""
-
-        with self._lock:
-            current_generation = self._config_activation_generation
-            if (
-                current_generation is not None
-                and activation.generation <= current_generation
-            ):
-                return
-            self._config_activation_generation = activation.generation
-            actors = tuple(self._actors.values())
-        for actor in actors:
-            with suppress(Exception):
-                actor.retire_config_generations_before(activation.generation)
 
     def stop_accepting(self) -> None:
         """Fence new owners before the service starts draining durable claims."""

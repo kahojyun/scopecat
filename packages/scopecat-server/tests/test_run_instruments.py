@@ -575,7 +575,7 @@ def test_run_start_requires_default_state_to_converge(tmp_path: Path) -> None:
         )
 
 
-def test_rejected_default_state_reconciliation_closes_without_quarantine(
+def test_rejected_default_state_reconciliation_releases_without_quarantine(
     tmp_path: Path,
 ) -> None:
     provider = _Provider(fail_action="reject_apply")
@@ -596,7 +596,7 @@ def test_rejected_default_state_reconciliation_closes_without_quarantine(
         assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
         [driver] = provider.drivers
         assert driver.abort_count == 0
-        assert driver.disconnect_count == 1
+        assert driver.disconnect_count == 0
         assert runtime.application.executor._control.get_run(run_id).state != (
             "attention_required"
         )
@@ -1113,7 +1113,7 @@ def test_failed_finish_abort_failure_is_unknown(tmp_path: Path) -> None:
         _assert_run_state_discarded(instruments, run_id)
 
 
-def test_analysis_candidate_run_retires_without_leaking_disconnect_failure(
+def test_analysis_candidate_run_keeps_connection_until_shutdown(
     tmp_path: Path,
 ) -> None:
     provider = _Provider(fail_action="disconnect")
@@ -1146,10 +1146,12 @@ def test_analysis_candidate_run_retires_without_leaking_disconnect_failure(
 
         [driver] = provider.drivers
         assert receipt.final_state[0].instrument_id == "source-0"
-        assert driver.disconnect_count == 1
+        assert driver.disconnect_count == 0
         assert runtime.application.executor._control.get_run(run_id).state != (
             "attention_required"
         )
+
+    assert driver.disconnect_count == 1
 
 
 def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(

@@ -51,6 +51,12 @@ the in-process implementation is a test seam behind the same API.
 `InstrumentActor` remains in the daemon, serializes one physical instrument,
 and may retain a matching worker handle while the instrument is idle. It accepts
 only the driver backend ABI and never treats idle state as observed.
+A handle is reusable only when its provider endpoint, canonical per-device
+binding, and complete advertised description still match. Changing defaults,
+run-start policy, routing, or unrelated configuration does not reconnect the
+device; changing its driver, connection, options, or contract does. An idle
+handle that is no longer selected remains process-local until a mismatched
+owner replaces it or the daemon shuts down.
 
 The normal instrument list is a separate safe projection: identity, driver id,
 connection kind, and TCP/IP host/port. It excludes driver options, timeouts,

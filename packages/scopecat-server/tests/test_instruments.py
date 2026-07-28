@@ -26,6 +26,7 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
     TcpipSocketInstrumentConnection,
+    VirtualInstrumentConnection,
     config_content_hash,
     instrument_bindings,
 )
@@ -132,6 +133,12 @@ class _TrackingProvider:
         driver = self._driver_type(context.binding.id)
         self.drivers.append(driver)
         return driver
+
+
+class _UpdatedContractDriver(_TrackingDriver):
+    def __init__(self, instrument_id: str) -> None:
+        super().__init__(instrument_id)
+        self.implementation_version = "v1"
 
 
 class _RejectedProvider(_TrackingProvider):
@@ -1015,10 +1022,10 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
             assert driver.disconnect_count == 0
 
 
-def test_config_activation_retires_connection_after_active_session_releases(
+def test_config_activation_reuses_matching_connection_with_fresh_state(
     tmp_path: Path,
 ) -> None:
-    provider = _TrackingProvider()
+    provider = _TrackingProvider(_ResyncDriver)
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
@@ -1030,7 +1037,15 @@ def test_config_activation_retires_connection_after_active_session_releases(
                 )
             )
             [driver] = provider.drivers
-            updated = load_config().model_copy(update={"id": "updated-config"})
+            assert isinstance(driver, _ResyncDriver)
+            assert driver.read_count == 1
+            updated = _config_with_default_state(
+                InstrumentPropertyState(
+                    interface_id="test.set_frequency/v1",
+                    property_id="frequency",
+                    value=StateValue(Quantity(value=5.0, unit="GHz")),
+                )
+            ).model_copy(update={"id": "updated-config"})
 
             receipt = runtime.application.config.publish_config(
                 ConfigPublishCommand(
@@ -1043,24 +1058,110 @@ def test_config_activation_retires_connection_after_active_session_releases(
 
             assert receipt.activation.generation == 2
             assert driver.disconnect_count == 0
-            assert (
-                daemon.read_instrument_state(
-                    session.session_id,
-                    "source-0",
-                ).instrument_id
-                == "source-0"
-            )
             daemon.close_instrument_session(session.session_id)
-            assert driver.disconnect_count == 1
-            replacement = daemon.open_instrument_session(
+            driver.change_from_front_panel(5.1)
+            reopened = daemon.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id="open-after-config-activation",
                     actor="bob",
                     instrument_ids=("source-0",),
                 )
             )
+            assert provider.drivers == [driver]
+            assert driver.read_count == 2
+            assert driver.disconnect_count == 0
+            daemon.close_instrument_session(reopened.session_id)
+
+
+@pytest.mark.parametrize(
+    "instrument_update",
+    [
+        {"connection": VirtualInstrumentConnection(options={"resource": "alternate"})},
+        {"driver_id": "tests.alternate_signal_instrument"},
+    ],
+    ids=("connection-options", "driver"),
+)
+def test_binding_identity_change_reconnects_idle_instrument(
+    tmp_path: Path,
+    instrument_update: dict[str, object],
+) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            first = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-before-binding-change",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            daemon.close_instrument_session(first.session_id)
+            [original] = provider.drivers
+
+            config = load_config()
+            [instrument] = config.instrument_registry.instruments
+            updated_instrument = instrument.model_copy(update=instrument_update)
+            registry = config.instrument_registry.model_copy(
+                update={"instruments": [updated_instrument]}
+            )
+            updated = config.model_copy(
+                update={
+                    "id": "updated-binding",
+                    "system": config.system.model_copy(
+                        update={"instrument_registry": registry}
+                    ),
+                }
+            )
+            runtime.application.config.publish_config(
+                ConfigPublishCommand(
+                    source=DirectConfigRevisionSource(config=updated),
+                    entry_id="updated-binding",
+                    actor="operator",
+                    expected_generation=1,
+                )
+            )
+
+            second = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-after-binding-change",
+                    actor="bob",
+                    instrument_ids=("source-0",),
+                )
+            )
             assert len(provider.drivers) == 2
-            daemon.close_instrument_session(replacement.session_id)
+            assert original.disconnect_count == 1
+            daemon.close_instrument_session(second.session_id)
+
+
+def test_contract_identity_change_reconnects_idle_instrument(tmp_path: Path) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            first = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-before-contract-change",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            daemon.close_instrument_session(first.session_id)
+            [original] = provider.drivers
+
+            provider._driver_type = _UpdatedContractDriver
+            second = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-after-contract-change",
+                    actor="bob",
+                    instrument_ids=("source-0",),
+                )
+            )
+
+            assert len(provider.drivers) == 2
+            assert original.disconnect_count == 1
+            assert second.descriptions[0].implementation_version == "v1"
+            daemon.close_instrument_session(second.session_id)
 
 
 def test_stale_idle_connection_is_replaced_after_resynchronization_failure(

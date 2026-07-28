@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -14,7 +14,6 @@ from scopecat.adapters.sqlite import (
 )
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.config.registry import service as config_registry_service
-from scopecat.config.registry.records import ConfigRegistryActivationRecord
 from scopecat.control.models import (
     DurableEventInput,
 )
@@ -58,13 +57,11 @@ class ConfigService:
         config_registry: SQLiteConfigRegistryStore,
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
-        activation_observer: Callable[[ConfigRegistryActivationRecord], None],
     ) -> None:
         self._control = control
         self._config_registry = config_registry
         self._runs = runs
         self._services = services
-        self._activation_observer = activation_observer
 
     def get_config_registry(self) -> ConfigRegistryView:
         with self._config_errors():
@@ -154,7 +151,6 @@ class ConfigService:
                     deltas=result.deltas,
                     activation=activation,
                 )
-            self._activation_observer(activation)
             return receipt
 
     def preview_config_draft(
@@ -215,7 +211,6 @@ class ConfigService:
                 receipt = ConfigActivationReceipt(
                     activation=activation,
                 )
-            self._activation_observer(activation)
             return receipt
 
     def undo_config(
@@ -248,7 +243,6 @@ class ConfigService:
                 receipt = ConfigActivationReceipt(
                     activation=activation,
                 )
-            self._activation_observer(activation)
             return receipt
 
     def _append_revision_events(

@@ -47,6 +47,7 @@ from scopecat.execution.ports.instruments import (
     RunHardwareInvoke,
     RunHardwareValue,
 )
+from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -75,7 +76,6 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
     property_target_identity,
 )
-from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import (
     lower_driver_apply_request,
@@ -355,14 +355,7 @@ class InstrumentService:
             )
             return receipt
 
-        manifest = self._runs.read_manifest(run_id)
         config = self._runs.read_config_profile_snapshot(run_id)
-        config_source = manifest.config_source
-        config_registry_generation = (
-            config_source.registry_generation
-            if isinstance(config_source, ConfigRegistryRunConfigSource)
-            else None
-        )
         endpoint = self._endpoint
         if endpoint is None:
             return self._reject_run_provision(
@@ -456,8 +449,6 @@ class InstrumentService:
             runtime, observed_state = self._open_ownership(
                 endpoint=endpoint,
                 config=config,
-                config_content_hash=manifest.config_content_hash,
-                config_registry_generation=config_registry_generation,
                 owner=InstrumentOwnerKey(
                     kind="run",
                     owner_id=run_id,
@@ -582,8 +573,6 @@ class InstrumentService:
         *,
         endpoint: InstrumentBackendEndpoint,
         config: ConfigProfileSnapshot,
-        config_content_hash: str,
-        config_registry_generation: int | None,
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
@@ -594,8 +583,6 @@ class InstrumentService:
             runtime = self._acquire_ownership(
                 endpoint=endpoint,
                 bindings=bindings,
-                config_content_hash=config_content_hash,
-                config_registry_generation=config_registry_generation,
                 owner=owner,
                 instrument_ids=instrument_ids,
                 expected=expected,
@@ -625,24 +612,25 @@ class InstrumentService:
         *,
         endpoint: InstrumentBackendEndpoint,
         bindings: Mapping[str, InstrumentBindingSpec],
-        config_content_hash: str,
-        config_registry_generation: int | None,
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
         payload_catalog: PayloadCodecCatalog,
     ) -> _OwnershipRuntime:
-        binding = InstrumentBindingKey(
-            provider_id=endpoint.provider_id,
-            config_content_hash=config_content_hash,
-            config_registry_generation=config_registry_generation,
-        )
         instruments: dict[str, OwnedInstrument] = {}
         try:
             for instrument_id in instrument_ids:
                 instruments[instrument_id] = self._actors.acquire(
                     instrument_id,
-                    binding=binding,
+                    binding=InstrumentBindingKey(
+                        provider_id=endpoint.provider_id,
+                        binding_fingerprint=model_wire_content_hash(
+                            bindings[instrument_id]
+                        ),
+                        contract_fingerprint=model_wire_content_hash(
+                            expected[instrument_id]
+                        ),
+                    ),
                     owner=owner,
                     endpoint=endpoint,
                     connect=lambda instrument_id=instrument_id: endpoint.connect(
@@ -1565,8 +1553,6 @@ class InstrumentService:
             runtime, _observed_state = self._open_ownership(
                 endpoint=endpoint,
                 config=active.config,
-                config_content_hash=active.entry.content_hash,
-                config_registry_generation=active.activation.generation,
                 owner=InstrumentOwnerKey(
                     kind="instrument_session",
                     owner_id=session.session_id,

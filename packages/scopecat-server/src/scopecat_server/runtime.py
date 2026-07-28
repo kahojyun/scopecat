@@ -116,7 +116,6 @@ class LocalDaemonRuntime:
                 config_registry=config_registry,
                 runs=runs,
                 services=services,
-                activation_observer=instrument_actors.observe_config_activation,
             )
             run_service = RunService(
                 control=control,
@@ -171,9 +170,6 @@ class LocalDaemonRuntime:
                         config_service,
                         bootstrap_source,
                     )
-                activation = config_service.get_config_registry().activation
-                if activation is not None:
-                    instrument_actors.observe_config_activation(activation)
                 application.start()
             except BaseException:
                 application.close()
