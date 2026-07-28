@@ -52,7 +52,11 @@ from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    config_content_hash,
+    instrument_bindings,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
@@ -593,7 +597,9 @@ def _instrument_catalog(
     config: ConfigProfileSnapshot,
 ) -> InstrumentContractCatalog:
     provider = TestSignalInstrumentProvider()
-    described = provider.describe(InstrumentProviderContext(config=config))
+    described = provider.describe(
+        InstrumentProviderContext(bindings=instrument_bindings(config))
+    )
     return InstrumentContractCatalog(
         config_content_hash=config_content_hash(config),
         provider_id=described.provider_id,

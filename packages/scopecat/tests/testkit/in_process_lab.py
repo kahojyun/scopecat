@@ -22,7 +22,11 @@ from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem, ExperimentSystemBuilder
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    config_content_hash,
+    instrument_bindings,
+)
 from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.selectors import RunSelector
 from scopecat.sdk.instruments import InstrumentBackend, InstrumentProviderContext
@@ -98,7 +102,9 @@ class InProcessPreparedExperiment:
                         if self.lab.instrument_backend is None
                         else self.lab.instrument_backend.provider
                     ),
-                    context=InstrumentProviderContext(config=planned.config),
+                    context=InstrumentProviderContext(
+                        bindings=instrument_bindings(planned.config)
+                    ),
                     instrument_ids=planned.program.resource_order,
                 ),
             ),
@@ -226,5 +232,6 @@ def _instrument_catalog(
         )
     return resolve_instrument_contract_catalog(
         config=config,
-        instrument_provider=backend.provider,
+        provider_id=backend.provider.provider_id,
+        describe=backend.provider.describe,
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -18,7 +19,7 @@ from scopecat.daemon.views import DaemonHealth
 from scopecat.daemon.wire import InstrumentSessionOpenCommand
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.measurement import ComplexQuantity, MeasurementArray
 from scopecat.sdk.instruments import (
     DriverApplyRequest,
@@ -60,16 +61,37 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
     assert int((project / "worker.pid").read_text(encoding="utf-8")) == (
         endpoint.worker_pid
     )
-    catalog = endpoint.resolve_contracts(config)
-    [expected] = catalog.instruments
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
     assert endpoint.provider_id == "tests.spawned_provider"
     assert endpoint.payload_catalog.codecs[0].schema_id == "pulse_program"
+    describe_context = json.loads(
+        (project / "describe-context.json").read_text(encoding="utf-8")
+    )
+    assert describe_context == {
+        "bindings": [binding.model_dump(mode="json")],
+    }
+    assert set(describe_context["bindings"][0]) == {
+        "id",
+        "driver_id",
+        "connection",
+    }
 
     connection = endpoint.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=binding,
         expected=expected,
     )
+    connect_context = json.loads(
+        (project / "connect-context.json").read_text(encoding="utf-8")
+    )
+    assert connect_context == {
+        "binding": binding.model_dump(mode="json"),
+    }
+    assert set(connect_context["binding"]) == {
+        "id",
+        "driver_id",
+        "connection",
+    }
     assert not hasattr(connection, "driver")
     endpoint.apply_state(
         connection.handle,
@@ -138,8 +160,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
         endpoint.read_state(connection.handle)
 
     replacement = endpoint.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=binding,
         expected=expected,
     )
     assert replacement.handle.endpoint_id == connection.handle.endpoint_id
@@ -162,10 +183,10 @@ def test_worker_rejects_changed_contract_and_foreign_generation(
     first = SubprocessInstrumentBackendEndpoint(first_project, _BACKEND)
     second = SubprocessInstrumentBackendEndpoint(second_project, _BACKEND)
     config = load_config()
-    [expected] = first.resolve_contracts(config).instruments
+    [binding] = instrument_bindings(config)
+    [expected] = first.describe((binding,)).instruments
     connection = first.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=binding,
         expected=expected,
     )
 
@@ -173,8 +194,7 @@ def test_worker_rejects_changed_contract_and_foreign_generation(
         second.read_state(connection.handle)
     with pytest.raises(InstrumentBackendRejected) as rejected:
         first.connect(
-            config=config,
-            instrument_id="source-0",
+            binding=binding,
             expected=expected.model_copy(update={"implementation_version": "changed"}),
         )
     assert [item.code for item in rejected.value.problems] == [
@@ -189,14 +209,15 @@ def test_worker_crash_is_permanent_and_never_restarts(tmp_path: Path) -> None:
     project = _copy_project(tmp_path)
     endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
     config = load_config()
+    bindings = instrument_bindings(config)
     worker_pid = endpoint.worker_pid
     os.kill(worker_pid, signal.SIGKILL)
 
     with pytest.raises(InstrumentBackendUnavailable, match="unavailable"):
-        endpoint.resolve_contracts(config)
+        endpoint.describe(bindings)
     assert not endpoint.healthy
     with pytest.raises(InstrumentBackendUnavailable, match="unavailable"):
-        endpoint.resolve_contracts(config)
+        endpoint.describe(bindings)
     assert endpoint.worker_pid == worker_pid
 
     endpoint.shutdown()
@@ -263,10 +284,10 @@ def test_worker_rejects_lossy_collect_json_without_poisoning_protocol(
     project = _copy_project(tmp_path)
     endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
     config = load_config()
-    [expected] = endpoint.resolve_contracts(config).instruments
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
     connection = endpoint.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=binding,
         expected=expected,
     )
 
@@ -313,10 +334,10 @@ def test_oversized_collect_response_fences_worker_generation(tmp_path: Path) -> 
     project = _copy_project(tmp_path)
     endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
     config = load_config()
-    [expected] = endpoint.resolve_contracts(config).instruments
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
     connection = endpoint.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=binding,
         expected=expected,
     )
 
@@ -347,10 +368,10 @@ def test_shutdown_interrupts_a_blocked_driver_call(tmp_path: Path) -> None:
         shutdown_timeout=0.1,
     )
     config = load_config()
-    [expected] = endpoint.resolve_contracts(config).instruments
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
     connection = endpoint.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=binding,
         expected=expected,
     )
     errors: list[BaseException] = []
@@ -471,18 +492,17 @@ def test_blocked_driver_does_not_block_another_device(tmp_path: Path) -> None:
     project = _copy_project(tmp_path)
     endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
     config = _two_instrument_config()
+    bindings = instrument_bindings(config)
     expected = {
-        item.instrument_id: item
-        for item in endpoint.resolve_contracts(config).instruments
+        item.instrument_id: item for item in endpoint.describe(bindings).instruments
     }
+    bindings_by_id = {binding.id: binding for binding in bindings}
     first = endpoint.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=bindings_by_id["source-0"],
         expected=expected["source-0"],
     )
     second = endpoint.connect(
-        config=config,
-        instrument_id="source-1",
+        binding=bindings_by_id["source-1"],
         expected=expected["source-1"],
     )
     release = project / "driver-release-source-0"

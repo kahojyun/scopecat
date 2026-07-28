@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import time
+from dataclasses import fields
 from pathlib import Path
 
 from scopecat.kernel.quantity import Quantity
@@ -133,16 +135,30 @@ class _Provider:
         self,
         context: InstrumentProviderContext,
     ) -> InstrumentProviderDescription:
+        assert tuple(field.name for field in fields(context)) == ("bindings",)
+        _write_context(
+            self._project_root / "describe-context.json",
+            {
+                "bindings": [
+                    binding.model_dump(mode="json") for binding in context.bindings
+                ]
+            },
+        )
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
-                _Driver(spec.id, self._project_root).describe()
-                for spec in context.config.instrument_registry.instruments
+                _Driver(binding.id, self._project_root).describe()
+                for binding in context.bindings
             ),
         )
 
     def connect(self, context: InstrumentConnectionContext) -> _Driver:
-        return _Driver(context.instrument_id, self._project_root)
+        assert tuple(field.name for field in fields(context)) == ("binding",)
+        _write_context(
+            self._project_root / "connect-context.json",
+            {"binding": context.binding.model_dump(mode="json")},
+        )
+        return _Driver(context.binding.id, self._project_root)
 
 
 def create_backend(project_root: Path) -> InstrumentBackend:
@@ -204,6 +220,10 @@ def _decode_bytes(content: bytes) -> object:
 
 def _write_pid(path: Path) -> None:
     path.write_text(str(os.getpid()), encoding="utf-8")
+
+
+def _write_context(path: Path, value: object) -> None:
+    path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
 
 
 def _append_marker(project_root: Path, marker: str) -> None:

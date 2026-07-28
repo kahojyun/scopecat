@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
 )
@@ -22,6 +23,7 @@ from scopecat.records.instrument import InstrumentPropertyState
 from scopecat.sdk.instruments import (
     InstrumentConnectionContext,
     InstrumentDescription,
+    InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     discriminated_state,
@@ -69,9 +71,9 @@ def test_catalog_resolution_validates_defaults_against_advertised_interface() ->
         ]
     )
 
-    result = resolve_instrument_contract_catalog(
-        config=_config_with_preparation(preparation),
-        instrument_provider=TestSignalInstrumentProvider(),
+    result = _resolve_catalog(
+        _config_with_preparation(preparation),
+        TestSignalInstrumentProvider(),
     )
 
     assert result.problems == ()
@@ -88,9 +90,9 @@ def test_catalog_resolution_reports_invalid_default_at_config_policy() -> None:
         ]
     )
 
-    result = resolve_instrument_contract_catalog(
-        config=_config_with_preparation(preparation),
-        instrument_provider=TestSignalInstrumentProvider(),
+    result = _resolve_catalog(
+        _config_with_preparation(preparation),
+        TestSignalInstrumentProvider(),
     )
 
     [issue] = result.problems
@@ -117,9 +119,9 @@ def test_case_local_default_requires_explicit_discriminator() -> None:
         ]
     )
 
-    result = resolve_instrument_contract_catalog(
-        config=_config_with_preparation(preparation),
-        instrument_provider=_ModeProvider(),
+    result = _resolve_catalog(
+        _config_with_preparation(preparation),
+        _ModeProvider(),
     )
 
     assert [issue.code for issue in result.problems] == [
@@ -143,9 +145,9 @@ def test_explicit_discriminator_makes_case_local_default_authoritative() -> None
         ]
     )
 
-    result = resolve_instrument_contract_catalog(
-        config=_config_with_preparation(preparation),
-        instrument_provider=_ModeProvider(),
+    result = _resolve_catalog(
+        _config_with_preparation(preparation),
+        _ModeProvider(),
     )
 
     assert result.problems == ()
@@ -162,9 +164,9 @@ def test_apply_defaults_requires_an_advertised_description() -> None:
         ]
     )
 
-    result = resolve_instrument_contract_catalog(
-        config=_config_with_preparation(preparation),
-        instrument_provider=_EmptyProvider(),
+    result = _resolve_catalog(
+        _config_with_preparation(preparation),
+        _EmptyProvider(),
     )
 
     assert [issue.code for issue in result.problems] == [
@@ -175,10 +177,7 @@ def test_apply_defaults_requires_an_advertised_description() -> None:
 def test_catalog_resolution_records_description_failure() -> None:
     config = load_config()
 
-    result = resolve_instrument_contract_catalog(
-        config=config,
-        instrument_provider=_FailingProvider(),
-    )
+    result = _resolve_catalog(config, _FailingProvider())
 
     assert result.config_content_hash == config_content_hash(config)
     assert result.provider_id == _FailingProvider.provider_id
@@ -186,6 +185,17 @@ def test_catalog_resolution_records_description_failure() -> None:
     assert [issue.code for issue in result.problems] == [
         "instrument_provider_description_failed"
     ]
+
+
+def _resolve_catalog(
+    config: ConfigProfileSnapshot,
+    provider: InstrumentProvider,
+) -> InstrumentContractCatalog:
+    return resolve_instrument_contract_catalog(
+        config=config,
+        provider_id=provider.provider_id,
+        describe=provider.describe,
+    )
 
 
 def _config_with_preparation(
@@ -216,7 +226,7 @@ class _ModeProvider:
         self,
         context: InstrumentProviderContext,
     ) -> InstrumentProviderDescription:
-        instrument_id = context.config.instrument_registry.instruments[0].id
+        instrument_id = context.bindings[0].id
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=(

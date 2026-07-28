@@ -30,6 +30,9 @@ The notebook keeps its transient `RunProgram` and Python closures, while the
 daemon admits the plan, hosts process-long instrument actors, and persists
 execution results. A backend endpoint owns raw drivers behind opaque connection
 handles, keeping provider and driver details out of actors and services.
+The daemon projects accepted configuration to per-device bindings before
+calling that endpoint; worker providers cannot inspect topology, parameters,
+routing, or run-start policy.
 Hardware effects cross the boundary as ordered batches. The daemon acquires an
 owner epoch, freshly observes hardware, reconciles desired state against that
 baseline, validates and lowers complete commands to the driver backend ABI,

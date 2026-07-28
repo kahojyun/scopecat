@@ -562,7 +562,8 @@ def _lower_test_host_binding(
 ):
     catalog = resolve_instrument_contract_catalog(
         config=config,
-        instrument_provider=provider,
+        provider_id=provider.provider_id,
+        describe=provider.describe,
     )
     if catalog.problems and not catalog.instruments:
         raise ProviderContractError((*planning_problems, *catalog.problems))

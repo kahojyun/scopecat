@@ -117,7 +117,7 @@ class _SingleDriverProvider:
         self,
         context: InstrumentConnectionContext,
     ) -> SignalInstrumentDriver:
-        assert context.instrument_id == self.driver.instrument_id
+        assert context.binding.id == self.driver.instrument_id
         return self.driver
 
 

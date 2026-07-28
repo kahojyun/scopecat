@@ -88,6 +88,16 @@ type InstrumentConnection = Annotated[
 ]
 
 
+class InstrumentBindingSpec(BaseModel):
+    """Provider-visible identity and connection for one configured instrument."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: Annotated[str, Field(min_length=1)]
+    driver_id: Annotated[str, Field(min_length=1)]
+    connection: InstrumentConnection
+
+
 class PreserveRunPreparation(BaseModel):
     """Synchronize and retain observed settings at run start."""
 
@@ -282,6 +292,21 @@ class ConfigProfileSnapshot(BaseModel):
     @property
     def parameter_catalog(self) -> ParameterCatalog:
         return self.system.parameter_catalog
+
+
+def instrument_bindings(
+    config: ConfigProfileSnapshot,
+) -> tuple[InstrumentBindingSpec, ...]:
+    """Project configured instruments onto the provider-visible binding ABI."""
+
+    return tuple(
+        InstrumentBindingSpec(
+            id=instrument.id,
+            driver_id=instrument.driver_id,
+            connection=instrument.connection.model_copy(deep=True),
+        )
+        for instrument in config.instrument_registry.instruments
+    )
 
 
 def snapshot_config_profile(

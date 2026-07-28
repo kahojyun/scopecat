@@ -7,8 +7,7 @@ from uuid import uuid4
 
 import pytest
 from scopecat.config.registry.records import ConfigRegistryActivationRecord
-from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
     ApplyReceipt,
@@ -19,6 +18,7 @@ from scopecat.sdk.instruments import (
     DriverInvokeRequest,
     DriverPropertyWrite,
     InstrumentDescription,
+    InstrumentProviderDescription,
     InvokeReceipt,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecCatalog
@@ -114,23 +114,21 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
         return EMPTY_PAYLOAD_CODECS.catalog
 
     @override
-    def resolve_contracts(
+    def describe(
         self,
-        config: ConfigProfileSnapshot,
-    ) -> InstrumentContractCatalog:
-        del config
+        bindings: tuple[InstrumentBindingSpec, ...],
+    ) -> InstrumentProviderDescription:
+        del bindings
         raise AssertionError("actor tests do not resolve instrument contracts")
 
     @override
     def connect(
         self,
         *,
-        config: ConfigProfileSnapshot,
-        instrument_id: str,
+        binding: InstrumentBindingSpec,
         expected: InstrumentDescription,
     ) -> ConnectedInstrument:
-        del config
-        connected = self.attach(self._driver_type(instrument_id))
+        connected = self.attach(self._driver_type(binding.id))
         assert connected.description == expected
         return connected
 

@@ -14,7 +14,11 @@ from scopecat.compiler.frontend.resolution import (
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.service import plan_scratch_experiment
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    config_content_hash,
+    instrument_bindings,
+)
 from scopecat.runs.service import load_run_request
 from scopecat.sdk.instruments.contracts import InstrumentProviderContext
 from tests.testkit.authoring import simple_template
@@ -72,7 +76,9 @@ def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
             accepted.run_id,
             instruments=provision_test_instrument_host(
                 composition.backend.provider,
-                context=InstrumentProviderContext(config=planned.config),
+                context=InstrumentProviderContext(
+                    bindings=instrument_bindings(planned.config)
+                ),
                 instrument_ids=planned.program.resource_order,
             ),
         ),

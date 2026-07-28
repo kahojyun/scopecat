@@ -25,7 +25,9 @@ from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import (
     ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
+    InstrumentBindingSpec,
     config_content_hash,
+    instrument_bindings,
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
@@ -93,13 +95,13 @@ class _TrackingProvider:
     ) -> None:
         self._driver_type = driver_type
         self.drivers: list[_TrackingDriver] = []
-        self.described_configs: list[ConfigProfileSnapshot] = []
+        self.described_bindings: list[tuple[InstrumentBindingSpec, ...]] = []
 
     def describe(
         self,
         context: InstrumentProviderContext,
     ) -> InstrumentProviderDescription:
-        self.described_configs.append(context.config)
+        self.described_bindings.append(context.bindings)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
@@ -112,7 +114,7 @@ class _TrackingProvider:
         self,
         context: InstrumentConnectionContext,
     ) -> InstrumentDriver:
-        driver = self._driver_type(context.instrument_id)
+        driver = self._driver_type(context.binding.id)
         self.drivers.append(driver)
         return driver
 
@@ -295,7 +297,7 @@ class _StatefulProvider:
         self,
         context: InstrumentConnectionContext,
     ) -> InstrumentDriver:
-        return _StatefulDriver(context.instrument_id, self.state)
+        return _StatefulDriver(context.binding.id, self.state)
 
 
 class _ShutdownRaceDriver(_TrackingDriver):
@@ -357,7 +359,7 @@ class _ShutdownRaceProvider:
         context: InstrumentConnectionContext,
     ) -> InstrumentDriver:
         driver = _ShutdownRaceDriver(
-            context.instrument_id,
+            context.binding.id,
             read_entered=self.read_entered,
             release_read=self.release_read,
             abort_entered=self.abort_entered,
@@ -1342,7 +1344,7 @@ def test_contract_catalog_resolves_the_requested_non_active_config(
         "source-0",
         "source-1",
     )
-    assert provider.described_configs[-1] == requested
+    assert provider.described_bindings[-1] == instrument_bindings(requested)
 
 
 def test_contract_catalog_is_empty_without_an_instrument_backend(
@@ -1495,7 +1497,7 @@ def _daemon_client(
 
 
 def _selected_ids(context: InstrumentProviderContext) -> Sequence[str]:
-    return tuple(item.id for item in context.config.instrument_registry.instruments)
+    return tuple(item.id for item in context.bindings)
 
 
 def _apply_command(*, value: float) -> InstrumentStateCommand:

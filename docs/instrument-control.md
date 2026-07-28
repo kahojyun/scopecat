@@ -43,7 +43,10 @@ operations, and acquisitions with typed results. GUI controls and experiment
 validation are derived from this description.
 
 `InstrumentBackendEndpoint` owns providers and raw drivers, returning only
-opaque connection handles. Production uses one spawned, project-long worker;
+opaque connection handles. Before crossing that boundary, the daemon projects
+the accepted config to provider bindings containing only device identity,
+driver id, and connection settings. Topology, parameters, routing, and run-start
+policy never enter the worker. Production uses one spawned, project-long worker;
 the in-process implementation is a test seam behind the same API.
 `InstrumentActor` remains in the daemon, serializes one physical instrument,
 and may retain a matching worker handle while the instrument is idle. It accepts

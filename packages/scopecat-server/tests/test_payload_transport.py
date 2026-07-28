@@ -87,8 +87,8 @@ class _PayloadProvider:
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
-                _PayloadConsumerDriver(spec.id).describe()
-                for spec in context.config.instrument_registry.instruments
+                _PayloadConsumerDriver(binding.id).describe()
+                for binding in context.bindings
             ),
         )
 
@@ -96,7 +96,7 @@ class _PayloadProvider:
         self,
         context: InstrumentConnectionContext,
     ) -> _PayloadConsumerDriver:
-        driver = _PayloadConsumerDriver(context.instrument_id)
+        driver = _PayloadConsumerDriver(context.binding.id)
         self.drivers.append(driver)
         return driver
 

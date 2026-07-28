@@ -18,6 +18,7 @@ from scopecat.sdk.instruments import (
     DriverApplyRequest,
     DriverCollectRequest,
     DriverInvokeRequest,
+    InstrumentBindingSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentPropertyState,
@@ -44,55 +45,49 @@ class TestSignalInstrumentProvider:
     def describe(
         self, context: InstrumentProviderContext
     ) -> InstrumentProviderDescription:
-        instrument_id, problems = self._resolve_instrument_id(context)
+        bindings, problems = self._select_bindings(context)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
-            instruments=(
-                (
-                    TestSignalInstrument(
-                        instrument_id=instrument_id,
-                        additional_result_ids=self.additional_result_ids,
-                    ).describe(),
-                )
-                if not problems
-                else ()
+            instruments=tuple(
+                TestSignalInstrument(
+                    instrument_id=binding.id,
+                    additional_result_ids=self.additional_result_ids,
+                ).describe()
+                for binding in bindings
             ),
             problems=tuple(problems),
         )
 
     def connect(self, context: InstrumentConnectionContext) -> TestSignalInstrument:
-        instrument_id, problems = self._resolve_instrument_id(
-            InstrumentProviderContext(config=context.config)
+        bindings, problems = self._select_bindings(
+            InstrumentProviderContext(bindings=(context.binding,))
         )
         if problems:
             raise ValueError(
                 "; ".join(provider_problem.message for provider_problem in problems)
             )
-        if context.instrument_id != instrument_id:
-            raise ValueError(
-                f"test signal provider cannot connect {context.instrument_id}"
-            )
+        [binding] = bindings
         return TestSignalInstrument(
-            instrument_id=instrument_id,
+            instrument_id=binding.id,
             additional_result_ids=self.additional_result_ids,
         )
 
-    def _resolve_instrument_id(
+    def _select_bindings(
         self, context: InstrumentProviderContext
-    ) -> tuple[str, list[Problem]]:
-        instruments = context.config.instrument_registry.instruments
-        routable_instrument_ids = {
-            binding.instrument_id
-            for binding in context.config.routing.bindings
-            if binding.interface_id == "test.set_frequency/v1"
-        }
+    ) -> tuple[tuple[InstrumentBindingSpec, ...], list[Problem]]:
+        bindings = context.bindings
+        supported = tuple(
+            binding
+            for binding in bindings
+            if binding.driver_id == TestSignalInstrument.implementation_id
+        )
         if self.instrument_id is not None:
-            instrument = next(
-                (item for item in instruments if item.id == self.instrument_id),
+            binding = next(
+                (item for item in bindings if item.id == self.instrument_id),
                 None,
             )
-            if instrument is None:
-                return self.instrument_id, [
+            if binding is None:
+                return (), [
                     _problem(
                         "test_signal_provider_unknown_instrument",
                         "test signal provider instrument is not in config: "
@@ -100,40 +95,28 @@ class TestSignalInstrumentProvider:
                         "instrument_id",
                     )
                 ]
-            if self.instrument_id not in routable_instrument_ids:
-                return self.instrument_id, [
+            if binding not in supported:
+                return (), [
                     _problem(
                         "test_signal_provider_unsupported_instrument",
-                        "test signal provider instrument must be routable for "
-                        "test.set_frequency/v1: "
+                        "test signal provider does not support configured driver "
+                        f"{binding.driver_id!r} for "
                         f"{self.instrument_id}",
                         "instrument_id",
                     )
                 ]
-            return self.instrument_id, []
+            return (binding,), []
 
-        config_instrument_ids = {instrument.id for instrument in instruments}
-        matches = sorted(routable_instrument_ids & config_instrument_ids)
-        if not matches:
-            return "", [
+        if not supported:
+            return (), [
                 _problem(
                     "test_signal_provider_missing_instrument",
-                    "test signal provider requires one routable instrument exposing "
-                    "test.set_frequency/v1",
-                    "config.system.routing.bindings",
+                    "test signal provider requires one configured "
+                    f"{TestSignalInstrument.implementation_id!r} binding",
+                    "bindings",
                 )
             ]
-        if len(matches) > 1:
-            return "", [
-                _problem(
-                    "test_signal_provider_ambiguous_instrument",
-                    "test signal provider found multiple test.set_frequency/v1 "
-                    "instruments: "
-                    f"{', '.join(matches)}",
-                    "config.system.routing.bindings",
-                )
-            ]
-        return matches[0], []
+        return supported, []
 
 
 class TestSignalInstrument:

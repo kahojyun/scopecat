@@ -39,7 +39,7 @@ from scopecat.measurements.contracts import (
 from scopecat.measurements.results import MeasurementDType
 from scopecat.records._metadata import JsonMetadata
 from scopecat.records.artifact import CommandPayload
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import (
     CommandChannelBinding as _CommandChannelBinding,
 )
@@ -573,28 +573,23 @@ class InstrumentDriver(Protocol):
     def abort(self) -> None: ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InstrumentProviderContext:
     """Inputs for side-effect-free catalog discovery."""
 
-    config: ConfigProfileSnapshot
+    bindings: tuple[InstrumentBindingSpec, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InstrumentConnectionContext:
     """Inputs for opening one driver for exactly one configured instrument."""
 
-    config: ConfigProfileSnapshot
-    instrument_id: str
-
-    def __post_init__(self) -> None:
-        if not self.instrument_id:
-            raise ValueError("connection instrument id must be non-empty")
+    binding: InstrumentBindingSpec
 
 
 @dataclass(frozen=True)
 class InstrumentProviderDescription:
-    """Pure, config-specific declaration of instruments a provider can create."""
+    """Pure, binding-specific declaration of instruments a provider can create."""
 
     provider_id: str
     instruments: tuple[InstrumentDescription, ...] = ()

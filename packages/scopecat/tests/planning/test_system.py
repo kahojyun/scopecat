@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, Never, cast, override
+from typing import Literal, Never, cast
 
 import pytest
 
@@ -247,24 +247,6 @@ class _TrackingProvider:
         del context
         self.connect_calls += 1
         raise AssertionError("planning must not connect an instrument")
-
-
-@dataclass
-class _BroadTrackingProvider(_TrackingProvider):
-    @override
-    def describe(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderDescription:
-        description = super().describe(context)
-        [source] = description.instruments
-        return replace(
-            description,
-            instruments=(
-                source,
-                source.model_copy(update={"instrument_id": "unused-0"}),
-            ),
-        )
 
 
 def _reject_realization(
@@ -603,7 +585,8 @@ def _catalog(
         )
     return resolve_instrument_contract_catalog(
         config=config,
-        instrument_provider=provider,
+        provider_id=provider.provider_id,
+        describe=provider.describe,
     )
 
 
@@ -696,9 +679,11 @@ def test_local_planning_rejects_catalog_problems() -> None:
 
 def test_system_builder_receives_daemon_catalog() -> None:
     config = load_config()
+    provider = TestSignalInstrumentProvider()
     catalog = resolve_instrument_contract_catalog(
         config=config,
-        instrument_provider=TestSignalInstrumentProvider(),
+        provider_id=provider.provider_id,
+        describe=provider.describe,
     )
     calls: list[tuple[ConfigProfileSnapshot, InstrumentContractCatalog]] = []
 
@@ -719,9 +704,11 @@ def test_system_builder_receives_daemon_catalog() -> None:
 
 def test_system_builder_cannot_replace_daemon_catalog() -> None:
     config = load_config()
+    provider = TestSignalInstrumentProvider()
     catalog = resolve_instrument_contract_catalog(
         config=config,
-        instrument_provider=TestSignalInstrumentProvider(),
+        provider_id=provider.provider_id,
+        describe=provider.describe,
     )
     replacement = InstrumentContractCatalog(
         config_content_hash=catalog.config_content_hash,
@@ -808,7 +795,7 @@ def test_run_claims_and_host_order_include_only_used_local_instruments() -> None
             )
         }
     )
-    provider = _BroadTrackingProvider()
+    provider = _TrackingProvider()
     linked = _linked_program(domain_product_count=0, config=config)
 
     plan = ExperimentSystem(instrument_catalog=_catalog(linked, provider)).compile(

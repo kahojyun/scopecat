@@ -10,13 +10,11 @@ from typing import Protocol
 from uuid import uuid4
 
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
-from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.provider_validation import (
     describe_instruments,
     validate_instruments,
 )
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.backend import InstrumentBackend
 from scopecat.sdk.instruments.contracts import (
@@ -26,6 +24,8 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
+    InstrumentProviderContext,
+    InstrumentProviderDescription,
     InvokeReceipt,
 )
 from scopecat.sdk.instruments.driver import (
@@ -76,16 +76,15 @@ class InstrumentBackendEndpoint(Protocol):
     @property
     def payload_catalog(self) -> PayloadCodecCatalog: ...
 
-    def resolve_contracts(
+    def describe(
         self,
-        config: ConfigProfileSnapshot,
-    ) -> InstrumentContractCatalog: ...
+        bindings: tuple[InstrumentBindingSpec, ...],
+    ) -> InstrumentProviderDescription: ...
 
     def connect(
         self,
         *,
-        config: ConfigProfileSnapshot,
-        instrument_id: str,
+        binding: InstrumentBindingSpec,
         expected: InstrumentDescription,
     ) -> ConnectedInstrument: ...
 
@@ -147,26 +146,22 @@ class LocalInstrumentBackendEndpoint:
     def payload_catalog(self) -> PayloadCodecCatalog:
         return self._payload_catalog
 
-    def resolve_contracts(
+    def describe(
         self,
-        config: ConfigProfileSnapshot,
-    ) -> InstrumentContractCatalog:
+        bindings: tuple[InstrumentBindingSpec, ...],
+    ) -> InstrumentProviderDescription:
         with self._provider_lock:
             with self._lock:
                 if self._closed:
                     raise InstrumentBackendUnavailable(
                         "instrument backend is shut down"
                     )
-            return resolve_instrument_contract_catalog(
-                config=config,
-                instrument_provider=self._provider,
-            )
+            return self._provider.describe(InstrumentProviderContext(bindings=bindings))
 
     def connect(
         self,
         *,
-        config: ConfigProfileSnapshot,
-        instrument_id: str,
+        binding: InstrumentBindingSpec,
         expected: InstrumentDescription,
     ) -> ConnectedInstrument:
         with self._provider_lock:
@@ -178,17 +173,17 @@ class LocalInstrumentBackendEndpoint:
             driver: InstrumentDriver | None = None
             try:
                 driver = self._provider.connect(
-                    InstrumentConnectionContext(
-                        config=config,
-                        instrument_id=instrument_id,
-                    )
+                    InstrumentConnectionContext(binding=binding)
                 )
-                problems = validate_instruments(config=config, instruments=[driver])
+                problems = validate_instruments(
+                    bindings=(binding,),
+                    instruments=[driver],
+                )
                 described, description_problems = describe_instruments([driver])
                 problems.extend(description_problems)
                 actual = described[0] if described else None
                 if actual is not None and actual != expected:
-                    problems.append(_description_changed_problem(instrument_id))
+                    problems.append(_description_changed_problem(binding.id))
                 if problems:
                     raise InstrumentBackendRejected(
                         "instrument provider returned an invalid driver",

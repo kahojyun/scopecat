@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
@@ -21,12 +21,13 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentSpec,
     config_content_hash,
+    instrument_bindings,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
-    InstrumentProvider,
     InstrumentProviderContext,
+    InstrumentProviderDescription,
     InstrumentStateAssignment,
     validate_state_assignments,
 )
@@ -37,16 +38,19 @@ from .provider_validation import preflight_problem_from_exception
 def resolve_instrument_contract_catalog(
     *,
     config: ConfigProfileSnapshot,
-    instrument_provider: InstrumentProvider,
+    provider_id: str,
+    describe: Callable[
+        [InstrumentProviderContext],
+        InstrumentProviderDescription,
+    ],
 ) -> InstrumentContractCatalog:
     """Resolve one serializable provider contract without connecting hardware."""
 
     problems: list[Problem] = []
-    provider_id = instrument_provider.provider_id
 
     try:
-        description = instrument_provider.describe(
-            InstrumentProviderContext(config=config)
+        description = describe(
+            InstrumentProviderContext(bindings=instrument_bindings(config))
         )
     except Exception as error:
         problems.append(

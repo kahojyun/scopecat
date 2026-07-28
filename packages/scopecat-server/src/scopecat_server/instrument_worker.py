@@ -25,14 +25,14 @@ from pydantic import (
     model_validator,
 )
 from scopecat.kernel.problems import Problem
-from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.project import load_instrument_backend_factory
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
     InstrumentDescription,
+    InstrumentProviderDescription,
     InvokeReceipt,
 )
 from scopecat.sdk.instruments.driver import (
@@ -59,7 +59,7 @@ from .instrument_worker_wire import (
 )
 
 type _Operation = Literal[
-    "resolve_contracts",
+    "describe",
     "connect",
     "read_state",
     "apply_state",
@@ -110,6 +110,30 @@ class _ChildHandle(_WireModel):
 
     def to_handle(self) -> InstrumentHandle:
         return InstrumentHandle(endpoint_id=self.endpoint_id, token=self.token)
+
+
+class _ProviderDescription(_WireModel):
+    provider_id: _NonEmptyText
+    instruments: tuple[InstrumentDescription, ...] = ()
+    problems: tuple[Problem, ...] = ()
+
+    @classmethod
+    def from_description(
+        cls,
+        description: InstrumentProviderDescription,
+    ) -> _ProviderDescription:
+        return cls(
+            provider_id=description.provider_id,
+            instruments=description.instruments,
+            problems=description.problems,
+        )
+
+    def to_description(self) -> InstrumentProviderDescription:
+        return InstrumentProviderDescription(
+            provider_id=self.provider_id,
+            instruments=self.instruments,
+            problems=self.problems,
+        )
 
 
 class _RpcRequest(_WireModel):
@@ -269,31 +293,28 @@ class SubprocessInstrumentBackendEndpoint:
     def worker_pid(self) -> int:
         return self._worker_pid
 
-    def resolve_contracts(
+    def describe(
         self,
-        config: ConfigProfileSnapshot,
-    ) -> InstrumentContractCatalog:
+        bindings: tuple[InstrumentBindingSpec, ...],
+    ) -> InstrumentProviderDescription:
         response = self._rpc(
-            "resolve_contracts",
-            body={"config": _model_to_body(config)},
+            "describe",
+            body={
+                "bindings": [_model_to_body(binding) for binding in bindings],
+            },
         )
-        return self._decode_response(
-            InstrumentContractCatalog,
-            response,
-        )
+        return self._decode_response(_ProviderDescription, response).to_description()
 
     def connect(
         self,
         *,
-        config: ConfigProfileSnapshot,
-        instrument_id: str,
+        binding: InstrumentBindingSpec,
         expected: InstrumentDescription,
     ) -> ConnectedInstrument:
         response = self._rpc(
             "connect",
             body={
-                "config": _model_to_body(config),
-                "instrument_id": instrument_id,
+                "binding": _model_to_body(binding),
                 "expected": _model_to_body(expected),
             },
         )
@@ -660,21 +681,18 @@ def _dispatch_request(
 ) -> _RpcResponse:
     operation = request.operation
     body = request.body or {}
-    if operation == "resolve_contracts":
-        catalog = endpoint.resolve_contracts(
-            _model_from_body(
-                ConfigProfileSnapshot,
-                _require_mapping(body, "config"),
-            )
+    if operation == "describe":
+        description = endpoint.describe(_bindings_from_body(body))
+        return _ok_response(
+            request,
+            _ProviderDescription.from_description(description),
         )
-        return _ok_response(request, catalog)
     if operation == "connect":
         connection = endpoint.connect(
-            config=_model_from_body(
-                ConfigProfileSnapshot,
-                _require_mapping(body, "config"),
+            binding=_model_from_body(
+                InstrumentBindingSpec,
+                _require_mapping(body, "binding"),
             ),
-            instrument_id=_require_text(body, "instrument_id"),
             expected=_model_from_body(
                 InstrumentDescription,
                 _require_mapping(body, "expected"),
@@ -857,11 +875,23 @@ def _require_mapping(
     return value
 
 
-def _require_text(body: dict[str, JsonValue], field: str) -> str:
-    value = body.get(field)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"worker request requires text field {field!r}")
-    return value
+def _bindings_from_body(
+    body: dict[str, JsonValue],
+) -> tuple[InstrumentBindingSpec, ...]:
+    value = body.get("bindings")
+    if not isinstance(value, list):
+        raise ValueError("worker request requires array field 'bindings'")
+    bindings: list[InstrumentBindingSpec] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("worker bindings must be objects")
+        bindings.append(
+            _model_from_body(
+                InstrumentBindingSpec,
+                item,
+            )
+        )
+    return tuple(bindings)
 
 
 def _require_child_handle(request: _RpcRequest) -> InstrumentHandle:

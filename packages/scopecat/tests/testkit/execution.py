@@ -12,7 +12,7 @@ from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.service import plan_scratch_experiment
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.backend import InstrumentBackend
@@ -61,7 +61,7 @@ class _ExplicitDriverProvider:
         return next(
             driver
             for driver in self.drivers
-            if driver.instrument_id == context.instrument_id
+            if driver.instrument_id == context.binding.id
         )
 
 
@@ -121,7 +121,9 @@ def execute_invocation_run(
             runs=repository,
             instruments=provision_test_instrument_host(
                 (None if instrument_backend is None else instrument_backend.provider),
-                context=InstrumentProviderContext(config=planned.config),
+                context=InstrumentProviderContext(
+                    bindings=instrument_bindings(planned.config)
+                ),
                 instrument_ids=planned.program.resource_order,
             ),
         ),
@@ -163,7 +165,7 @@ def execute_program_run(
             runs=repository,
             instruments=provision_test_instrument_host(
                 instrument_provider,
-                context=InstrumentProviderContext(config=config),
+                context=InstrumentProviderContext(bindings=instrument_bindings(config)),
                 instrument_ids=program.resource_order,
             ),
         ),

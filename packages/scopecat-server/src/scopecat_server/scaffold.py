@@ -126,7 +126,7 @@ class LocalProvider:
         self,
         context: InstrumentConnectionContext,
     ) -> InstrumentDriver:
-        raise RuntimeError(f"no instrument is configured: {context.instrument_id}")
+        raise RuntimeError(f"no instrument is configured: {context.binding.id}")
 
 
 def create_backend(_project_root: Path) -> InstrumentBackend:

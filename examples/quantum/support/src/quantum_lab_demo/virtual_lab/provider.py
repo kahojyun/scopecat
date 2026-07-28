@@ -7,10 +7,6 @@ from pathlib import Path
 from typing import ClassVar
 
 from pydantic import JsonValue
-from scopecat.records.config import (
-    InstrumentBindingSpec,
-    VirtualInstrumentConnection,
-)
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
@@ -18,6 +14,7 @@ from scopecat.sdk.instruments import (
     DriverCollectRequest,
     DriverFault,
     DriverInvokeRequest,
+    InstrumentBindingSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
@@ -28,6 +25,7 @@ from scopecat.sdk.instruments import (
     InstrumentStateSnapshot,
     InterfaceSpec,
     InvokeReceipt,
+    VirtualInstrumentConnection,
 )
 from scopecat.sdk.problems import (
     Problem,

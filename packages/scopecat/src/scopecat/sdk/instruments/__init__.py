@@ -9,6 +9,12 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat.kernel.state import PayloadRef, StateValue
+    from scopecat.records.config import (
+        InstrumentBindingSpec,
+        InstrumentConnection,
+        TcpipSocketInstrumentConnection,
+        VirtualInstrumentConnection,
+    )
     from scopecat.records.instrument import (
         CommandChannelBinding,
         InstrumentPropertyState,
@@ -146,6 +152,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "InstrumentConnectionContext",
     ),
+    "InstrumentBindingSpec": (
+        "scopecat.records.config",
+        "InstrumentBindingSpec",
+    ),
+    "InstrumentConnection": (
+        "scopecat.records.config",
+        "InstrumentConnection",
+    ),
     "InstrumentBackend": (
         "scopecat.sdk.instruments.backend",
         "InstrumentBackend",
@@ -267,6 +281,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "PayloadRef": ("scopecat.kernel.state", "PayloadRef"),
     "StateValue": ("scopecat.kernel.state", "StateValue"),
+    "TcpipSocketInstrumentConnection": (
+        "scopecat.records.config",
+        "TcpipSocketInstrumentConnection",
+    ),
+    "VirtualInstrumentConnection": (
+        "scopecat.records.config",
+        "VirtualInstrumentConnection",
+    ),
 }
 
 

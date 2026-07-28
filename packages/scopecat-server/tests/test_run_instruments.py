@@ -282,8 +282,7 @@ class _Provider:
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
-                self.driver_type(item.id).describe()
-                for item in context.config.instrument_registry.instruments
+                self.driver_type(item.id).describe() for item in context.bindings
             ),
         )
 
@@ -293,7 +292,7 @@ class _Provider:
     ) -> _Driver:
         self.connect_count += 1
         driver = self.driver_type(
-            context.instrument_id,
+            context.binding.id,
             fail_action=self.fail_action,
             apply_barrier=self.apply_barrier,
         )
@@ -309,10 +308,8 @@ class _SecondRejectingProvider(_Provider):
     ) -> _Driver:
         self.connect_count += 1
         driver = _Driver(
-            context.instrument_id,
-            fail_action=(
-                "reject_apply" if context.instrument_id == "source-1" else None
-            ),
+            context.binding.id,
+            fail_action=("reject_apply" if context.binding.id == "source-1" else None),
         )
         self.drivers.append(driver)
         return driver

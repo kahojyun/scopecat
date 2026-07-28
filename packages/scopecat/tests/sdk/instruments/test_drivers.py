@@ -13,6 +13,7 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_types import Entity, Float, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.artifact import command_payload_from_bytes
+from scopecat.records.config import instrument_bindings
 from scopecat.records.instrument import (
     CommandChannelBinding as RecordCommandChannelBinding,
 )
@@ -564,7 +565,7 @@ def test_provider_builds_fresh_drivers() -> None:
         def describe(
             self, context: InstrumentProviderContext
         ) -> InstrumentProviderDescription:
-            assert context.config.id == "simple-scan-profile"
+            assert [binding.id for binding in context.bindings] == ["source-0"]
             return InstrumentProviderDescription(
                 provider_id=self.provider_id,
                 instruments=(SignalInstrumentDriver().describe(),),
@@ -573,15 +574,13 @@ def test_provider_builds_fresh_drivers() -> None:
         def connect(
             self, context: InstrumentConnectionContext
         ) -> SignalInstrumentDriver:
-            assert context.config.id == "simple-scan-profile"
-            assert context.instrument_id == "source-0"
+            assert context.binding.id == "source-0"
             return SignalInstrumentDriver()
 
     provider = Provider()
-    context = InstrumentProviderContext(config=load_config())
+    context = InstrumentProviderContext(bindings=instrument_bindings(load_config()))
     connection = InstrumentConnectionContext(
-        config=context.config,
-        instrument_id="source-0",
+        binding=context.bindings[0],
     )
     first = provider.connect(connection)
     second = provider.connect(connection)
@@ -593,7 +592,7 @@ def test_provider_builds_fresh_drivers() -> None:
 
 
 def test_provider_description_resolves_instruments_from_config() -> None:
-    context = InstrumentProviderContext(config=load_config())
+    context = InstrumentProviderContext(bindings=instrument_bindings(load_config()))
 
     description = TestSignalInstrumentProvider().describe(context)
 
@@ -608,7 +607,7 @@ def test_provider_description_resolves_instruments_from_config() -> None:
 
 
 def test_provider_description_reports_dynamic_selection_errors() -> None:
-    context = InstrumentProviderContext(config=load_config())
+    context = InstrumentProviderContext(bindings=instrument_bindings(load_config()))
 
     description = TestSignalInstrumentProvider(instrument_id="missing-source").describe(
         context

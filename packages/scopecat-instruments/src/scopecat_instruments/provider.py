@@ -4,18 +4,16 @@ from __future__ import annotations
 
 from contextlib import suppress
 
-from scopecat.records.config import (
-    InstrumentBindingSpec,
-    TcpipSocketInstrumentConnection,
-    VirtualInstrumentConnection,
-)
 from scopecat.sdk.instruments import (
     DriverFault,
+    InstrumentBindingSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
+    TcpipSocketInstrumentConnection,
+    VirtualInstrumentConnection,
 )
 from scopecat.sdk.problems import Problem
 
@@ -59,7 +57,7 @@ type _ConfiguredDriver = (
 
 
 class ConfiguredInstrumentProvider:
-    """Instantiate exactly the drivers declared by an accepted config snapshot.
+    """Instantiate exactly the drivers declared by configured bindings.
 
     Every new real connection is probed with ``*IDN?`` before it is returned.
     Virtual driver instances share the provider's world, so device state survives

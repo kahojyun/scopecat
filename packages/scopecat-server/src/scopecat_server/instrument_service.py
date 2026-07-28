@@ -51,6 +51,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_identity import scalar_identity
 from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.provider_validation import (
     instrument_contract_fingerprint,
 )
@@ -58,8 +59,10 @@ from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
     ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
+    InstrumentBindingSpec,
     InstrumentSpec,
     config_content_hash,
+    instrument_bindings,
 )
 from scopecat.records.instrument import (
     InstrumentStateSnapshot,
@@ -260,7 +263,11 @@ class InstrumentService:
                 config_content_hash=config_content_hash(config),
                 provider_id=None,
             )
-        return endpoint.resolve_contracts(config)
+        return resolve_instrument_contract_catalog(
+            config=config,
+            provider_id=endpoint.provider_id,
+            describe=lambda context: endpoint.describe(context.bindings),
+        )
 
     def get_instrument(self, instrument_id: str) -> InstrumentView:
         instruments = self.list_instruments()
@@ -574,10 +581,11 @@ class InstrumentService:
         expected: Mapping[str, InstrumentDescription],
         payload_catalog: PayloadCodecCatalog,
     ) -> tuple[_OwnershipRuntime, tuple[InstrumentStateSnapshot, ...]]:
+        bindings = {binding.id: binding for binding in instrument_bindings(config)}
         for attempt in range(2):
             runtime = self._acquire_ownership(
                 endpoint=endpoint,
-                config=config,
+                bindings=bindings,
                 config_content_hash=config_content_hash,
                 config_registry_generation=config_registry_generation,
                 owner=owner,
@@ -608,7 +616,7 @@ class InstrumentService:
         self,
         *,
         endpoint: InstrumentBackendEndpoint,
-        config: ConfigProfileSnapshot,
+        bindings: Mapping[str, InstrumentBindingSpec],
         config_content_hash: str,
         config_registry_generation: int | None,
         owner: InstrumentOwnerKey,
@@ -630,8 +638,7 @@ class InstrumentService:
                     owner=owner,
                     endpoint=endpoint,
                     connect=lambda instrument_id=instrument_id: endpoint.connect(
-                        config=config,
-                        instrument_id=instrument_id,
+                        binding=bindings[instrument_id],
                         expected=expected[instrument_id],
                     ),
                 )

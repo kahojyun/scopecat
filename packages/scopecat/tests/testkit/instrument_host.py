@@ -69,7 +69,8 @@ def compose_test_instruments(
         system=ExperimentSystem(
             instrument_catalog=resolve_instrument_contract_catalog(
                 config=config,
-                instrument_provider=provider,
+                provider_id=provider.provider_id,
+                describe=provider.describe,
             ),
             domain_compiler=domain_compiler,
             payload_codecs=payload_codecs,
@@ -306,14 +307,14 @@ def provision_test_instrument_host(
         return TestRunInstrumentHost()
     if provider is None:
         raise ValueError("instrument claims require a test instrument provider")
+    bindings = {binding.id: binding for binding in context.bindings}
     drivers: list[InstrumentDriver] = []
     try:
         for instrument_id in instrument_ids:
             drivers.append(
                 provider.connect(
                     InstrumentConnectionContext(
-                        config=context.config,
-                        instrument_id=instrument_id,
+                        binding=bindings[instrument_id],
                     )
                 )
             )

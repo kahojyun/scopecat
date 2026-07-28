@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import override
 
 import pytest
+from scopecat.records.config import instrument_bindings
 from scopecat.sdk.instruments import (
     DriverApplyRequest,
     DriverCollectRequest,
@@ -55,7 +56,7 @@ class _Provider:
         )
 
     def connect(self, context: InstrumentConnectionContext) -> _TrackingDriver:
-        driver = _TrackingDriver(context.instrument_id)
+        driver = _TrackingDriver(context.binding.id)
         self.drivers.append(driver)
         return driver
 
@@ -69,11 +70,11 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
         )
     )
     config = load_config()
-    [expected] = endpoint.resolve_contracts(config).instruments
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
 
     connection = endpoint.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=binding,
         expected=expected,
     )
 
@@ -117,10 +118,10 @@ def test_local_backend_rejects_foreign_handles_and_changed_contracts() -> None:
     endpoint = LocalInstrumentBackendEndpoint(backend)
     other = LocalInstrumentBackendEndpoint(backend)
     config = load_config()
-    [expected] = endpoint.resolve_contracts(config).instruments
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
     connection = endpoint.connect(
-        config=config,
-        instrument_id="source-0",
+        binding=binding,
         expected=expected,
     )
 
@@ -128,8 +129,7 @@ def test_local_backend_rejects_foreign_handles_and_changed_contracts() -> None:
         other.read_state(connection.handle)
     with pytest.raises(InstrumentBackendRejected) as rejected:
         endpoint.connect(
-            config=config,
-            instrument_id="source-0",
+            binding=binding,
             expected=expected.model_copy(update={"implementation_version": "changed"}),
         )
     assert [item.code for item in rejected.value.problems] == [
@@ -145,11 +145,11 @@ def test_local_backend_shutdown_disconnects_handles_and_fences_new_work() -> Non
     provider = _Provider()
     endpoint = LocalInstrumentBackendEndpoint(InstrumentBackend(provider=provider))
     config = load_config()
-    [expected] = endpoint.resolve_contracts(config).instruments
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
     for _ in range(2):
         endpoint.connect(
-            config=config,
-            instrument_id="source-0",
+            binding=binding,
             expected=expected,
         )
 
@@ -159,10 +159,9 @@ def test_local_backend_shutdown_disconnects_handles_and_fences_new_work() -> Non
     assert not endpoint.healthy
     assert [driver.disconnect_count for driver in provider.drivers] == [1, 1]
     with pytest.raises(InstrumentBackendUnavailable, match="shut down"):
-        endpoint.resolve_contracts(config)
+        endpoint.describe((binding,))
     with pytest.raises(InstrumentBackendUnavailable, match="shut down"):
         endpoint.connect(
-            config=config,
-            instrument_id="source-0",
+            binding=binding,
             expected=expected,
         )

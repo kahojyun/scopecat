@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import (
@@ -12,7 +13,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import InstrumentBindingSpec
 from scopecat.sdk.instruments.contracts import (
     DriverFault,
     InstrumentDescription,
@@ -40,15 +41,13 @@ def instrument_contract_fingerprint(
 
 def validate_instruments(
     *,
-    config: ConfigProfileSnapshot,
+    bindings: Sequence[InstrumentBindingSpec],
     instruments: list[InstrumentDriver],
 ) -> list[Problem]:
     """Validate the identity of concrete drivers returned by a provider."""
 
     problems: list[Problem] = []
-    configured_ids = {
-        instrument.id for instrument in config.instrument_registry.instruments
-    }
+    configured_ids = {binding.id for binding in bindings}
     seen: set[str] = set()
     for instrument_index, instrument in enumerate(instruments):
         instrument_id = instrument.instrument_id
