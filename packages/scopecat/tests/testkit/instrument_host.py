@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from scopecat.execution.ports.instruments import (
@@ -17,6 +17,7 @@ from scopecat.execution.ports.instruments import (
 from scopecat.kernel.problems import Problem
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem
+from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.instrument import (
     InstrumentStateSnapshot,
@@ -24,6 +25,7 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.domain.compiler import DomainCompiler
 from scopecat.sdk.instruments import (
+    DriverPayload,
     InstrumentBackend,
     lower_driver_apply_request,
     lower_driver_collect_request,
@@ -165,7 +167,14 @@ class TestRunInstrumentHost:
                     entity_ids=list(action.entity_ids),
                     channel_bindings=list(action.channel_bindings),
                 )
-                receipt = driver.invoke(lower_driver_invoke_request(command))
+                receipt = driver.invoke(
+                    lower_driver_invoke_request(
+                        command,
+                        materialized_payloads=_materialize_driver_payloads(
+                            command.payloads
+                        ),
+                    )
+                )
                 problems.extend(receipt.problems)
                 if receipt.status != "invoked":
                     indeterminate = receipt.status == "unknown"
@@ -267,6 +276,22 @@ def _state_value(
         ),
         None,
     )
+
+
+def _materialize_driver_payloads(
+    payloads: Mapping[str, CommandPayload],
+) -> dict[str, DriverPayload]:
+    return {
+        payload_id: DriverPayload(
+            id=payload.id,
+            schema_id=payload.schema_id,
+            codec_id=payload.codec_id,
+            codec_version=payload.codec_version,
+            media_type=payload.media_type,
+            content=payload.inline_bytes(),
+        )
+        for payload_id, payload in payloads.items()
+    }
 
 
 def provision_test_instrument_host(

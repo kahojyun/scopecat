@@ -69,7 +69,7 @@ class _PayloadConsumerDriver(SignalInstrumentDriver):
             value = argument.value.root
             if isinstance(value, PayloadRef):
                 self.consumed_payloads.append(
-                    request.payloads[value.payload_id].inline_bytes()
+                    request.payloads[value.payload_id].content
                 )
         return super().invoke(request)
 
@@ -174,7 +174,7 @@ def test_direct_invoke_uses_the_same_payload_object_boundary(
         assert receipt.status == "invoked"
         [driver] = provider.drivers
         assert driver.consumed_payloads == [_PAYLOAD_BYTES]
-        assert driver.invoked[0].payloads[payload.id].inline_bytes() == _PAYLOAD_BYTES
+        assert driver.invoked[0].payloads[payload.id].content == _PAYLOAD_BYTES
 
 
 @pytest.mark.parametrize("first_body_kind", ["inline", "blob"])
@@ -410,9 +410,7 @@ def test_blob_descriptor_is_bounded_before_object_store_read(tmp_path: Path) -> 
     )
 
     with pytest.raises(CommandPayloadTooLarge):
-        service.materialize_invoke_command(
-            _direct_payload_command("oversized-blob-invoke", blob)
-        )
+        service.materialize_payloads({blob.id: blob})
 
 
 def test_closed_direct_session_cannot_leave_an_uploaded_payload(

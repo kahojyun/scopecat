@@ -18,6 +18,7 @@ from tests.testkit.instrument_drivers import (
     load_config,
     number_state,
 )
+from tests.testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server.instrument_backend import (
     InstrumentBackendRejected,
@@ -61,7 +62,12 @@ class _Provider:
 
 def test_local_backend_owns_driver_behind_opaque_handle() -> None:
     provider = _Provider()
-    endpoint = LocalInstrumentBackendEndpoint(InstrumentBackend(provider=provider))
+    endpoint = LocalInstrumentBackendEndpoint(
+        InstrumentBackend(
+            provider=provider,
+            payload_codecs=json_payload_codecs("tests.program/v1"),
+        )
+    )
     config = load_config()
     [expected] = endpoint.resolve_contracts(config).instruments
 
@@ -72,6 +78,8 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
     )
 
     assert not hasattr(connection, "driver")
+    assert not hasattr(endpoint, "payload_codecs")
+    assert endpoint.payload_catalog.codecs[0].schema_id == "tests.program/v1"
     endpoint.apply_state(
         connection.handle,
         DriverApplyRequest(

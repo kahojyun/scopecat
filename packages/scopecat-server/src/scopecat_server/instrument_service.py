@@ -91,8 +91,9 @@ from scopecat.sdk.instruments.driver import (
     DriverApplyRequest,
     DriverCollectRequest,
     DriverInvokeRequest,
+    DriverPayload,
 )
-from scopecat.sdk.payloads import PayloadCodecRegistry
+from scopecat.sdk.payloads import PayloadCodecCatalog
 
 from .config_service import ConfigService
 from .errors import BackendConflict, BackendNotFound
@@ -136,7 +137,7 @@ class _InstrumentOperationLedger:
 @dataclass(slots=True)
 class _OwnershipRuntime:
     instruments: dict[str, OwnedInstrument]
-    payload_codecs: PayloadCodecRegistry
+    payload_catalog: PayloadCodecCatalog
     ledgers: dict[str, _InstrumentOperationLedger]
     lock: RLock = field(default_factory=RLock)
 
@@ -441,7 +442,7 @@ class InstrumentService:
                 ),
                 instrument_ids=instrument_ids,
                 expected=advertised,
-                payload_codecs=endpoint.payload_codecs,
+                payload_catalog=endpoint.payload_catalog,
             )
         except InstrumentBackendRejected as error:
             return self._reject_run_provision(
@@ -563,7 +564,7 @@ class InstrumentService:
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
-        payload_codecs: PayloadCodecRegistry,
+        payload_catalog: PayloadCodecCatalog,
     ) -> tuple[_OwnershipRuntime, tuple[InstrumentStateSnapshot, ...]]:
         for attempt in range(2):
             runtime = self._acquire_ownership(
@@ -574,7 +575,7 @@ class InstrumentService:
                 owner=owner,
                 instrument_ids=instrument_ids,
                 expected=expected,
-                payload_codecs=payload_codecs,
+                payload_catalog=payload_catalog,
             )
             try:
                 observed = tuple(
@@ -605,7 +606,7 @@ class InstrumentService:
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
-        payload_codecs: PayloadCodecRegistry,
+        payload_catalog: PayloadCodecCatalog,
     ) -> _OwnershipRuntime:
         binding = InstrumentBindingKey(
             provider_id=endpoint.provider_id,
@@ -639,7 +640,7 @@ class InstrumentService:
             ) from error
         return _OwnershipRuntime(
             instruments=instruments,
-            payload_codecs=payload_codecs,
+            payload_catalog=payload_catalog,
             ledgers={
                 instrument_id: _InstrumentOperationLedger()
                 for instrument_id in instruments
@@ -839,12 +840,20 @@ class InstrumentService:
                     operation_id=canonical_request.batch.operation_id,
                     problems=preflight_problems,
                 )
-            driver_request = self._payloads.materialize_hardware_command(
-                canonical_request
+            materialized_payloads = self._payloads.materialize_payload_sets(
+                action.payloads if isinstance(action, RunHardwareInvoke) else {}
+                for action in canonical_request.batch.actions
             )
             driver_actions = tuple(
-                _lower_hardware_action(action)
-                for action in driver_request.batch.actions
+                _lower_hardware_action(
+                    action,
+                    materialized_payloads=payloads,
+                )
+                for action, payloads in zip(
+                    canonical_request.batch.actions,
+                    materialized_payloads,
+                    strict=True,
+                )
             )
             batch_evidence = canonical_request.batch.model_dump(
                 mode="json",
@@ -871,7 +880,7 @@ class InstrumentService:
             effect_receipts: list[JsonValue] = []
             with runtime.lock:
                 for action, backend_request in zip(
-                    driver_request.batch.actions,
+                    canonical_request.batch.actions,
                     driver_actions,
                     strict=True,
                 ):
@@ -1037,7 +1046,7 @@ class InstrumentService:
                 action_problems.extend(
                     _payload_codec_problems(
                         command.payloads,
-                        runtime.payload_codecs,
+                        runtime.payload_catalog,
                         run_id=run_id,
                         operation_id=action.effect_id,
                         instrument_id=action.instrument_id,
@@ -1541,7 +1550,7 @@ class InstrumentService:
                 ),
                 instrument_ids=command.instrument_ids,
                 expected=descriptions,
-                payload_codecs=endpoint.payload_codecs,
+                payload_catalog=endpoint.payload_catalog,
             )
         except InstrumentBackendRejected as error:
             self._abort_open_session(session)
@@ -1825,7 +1834,7 @@ class InstrumentService:
         )
         codec_issues = _payload_codec_issues(
             command.payloads,
-            runtime.payload_codecs,
+            runtime.payload_catalog,
         )
         if validation_problems or codec_issues:
             raise BackendConflict(
@@ -1855,8 +1864,12 @@ class InstrumentService:
             raise BackendConflict(
                 f"{conflict_scope} command id was already used for another command kind"
             )
-        driver_command = self._payloads.materialize_invoke_command(canonical_command)
-        driver_request = lower_driver_invoke_request(driver_command)
+        driver_request = lower_driver_invoke_request(
+            canonical_command,
+            materialized_payloads=self._payloads.materialize_payloads(
+                canonical_command.payloads
+            ),
+        )
         on_started()
         try:
             receipt = instrument.invoke(driver_request)
@@ -2551,6 +2564,8 @@ def _provision_problem(
 
 def _lower_hardware_action(
     action: RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
+    *,
+    materialized_payloads: Mapping[str, DriverPayload],
 ) -> _DriverHardwareRequest:
     if isinstance(action, RunHardwareApply):
         return lower_driver_apply_request(
@@ -2573,7 +2588,8 @@ def _lower_hardware_action(
                 payloads=action.payloads,
                 entity_ids=list(action.entity_ids),
                 channel_bindings=list(action.channel_bindings),
-            )
+            ),
+            materialized_payloads=materialized_payloads,
         )
     return lower_driver_collect_request(
         CollectCommand(
@@ -2610,12 +2626,12 @@ def _hardware_problem(
 
 def _payload_codec_issues(
     payloads: Mapping[str, CommandPayload],
-    registry: PayloadCodecRegistry,
+    catalog: PayloadCodecCatalog,
 ) -> tuple[tuple[str, str], ...]:
     issues: list[tuple[str, str]] = []
     for payload_id, payload in payloads.items():
         try:
-            registry.validate_descriptor(payload)
+            catalog.validate_descriptor(payload)
         except LookupError as error:
             issues.append(
                 (
@@ -2635,7 +2651,7 @@ def _payload_codec_issues(
 
 def _payload_codec_problems(
     payloads: Mapping[str, CommandPayload],
-    registry: PayloadCodecRegistry,
+    catalog: PayloadCodecCatalog,
     *,
     run_id: str,
     operation_id: str,
@@ -2651,7 +2667,7 @@ def _payload_codec_problems(
             instrument_id=instrument_id,
             point_index=point_index,
         )
-        for code, message in _payload_codec_issues(payloads, registry)
+        for code, message in _payload_codec_issues(payloads, catalog)
     )
 
 

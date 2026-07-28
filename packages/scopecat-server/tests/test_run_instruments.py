@@ -722,9 +722,7 @@ def test_run_invoke_reads_back_state_before_later_actions(
         assert receipt.problems == ()
         assert len(driver.invoked) == 1
         assert driver.read_count == reads_before_invoke + 1
-        assert driver.invoked[0].payloads[payload.id].inline_bytes() == (
-            b'{"samples":[0.0]}'
-        )
+        assert driver.invoked[0].payloads[payload.id].content == (b'{"samples":[0.0]}')
 
 
 def test_provision_rejects_contract_changed_after_admission(tmp_path: Path) -> None:

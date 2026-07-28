@@ -482,7 +482,7 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             assert not driver.disconnected
             assert driver.applied[0].assignments[0].property_id == "frequency"
             assert driver.invoked[0].operation_id == "play"
-            assert driver.invoked[0].payloads[payload.id].inline_bytes() == (
+            assert driver.invoked[0].payloads[payload.id].content == (
                 b'{"samples":[0.0]}'
             )
             [collect_request] = driver.collect_requests

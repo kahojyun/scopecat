@@ -33,7 +33,7 @@ from scopecat.sdk.instruments.driver import (
     DriverCollectRequest,
     DriverInvokeRequest,
 )
-from scopecat.sdk.payloads import PayloadCodecRegistry
+from scopecat.sdk.payloads import PayloadCodecCatalog
 
 
 class InstrumentBackendError(RuntimeError):
@@ -71,7 +71,7 @@ class InstrumentBackendEndpoint(Protocol):
     def provider_id(self) -> str: ...
 
     @property
-    def payload_codecs(self) -> PayloadCodecRegistry: ...
+    def payload_catalog(self) -> PayloadCodecCatalog: ...
 
     def resolve_contracts(
         self,
@@ -124,7 +124,7 @@ class LocalInstrumentBackendEndpoint:
 
     def __init__(self, backend: InstrumentBackend) -> None:
         self._provider = backend.provider
-        self._payload_codecs = backend.payload_codecs
+        self._payload_catalog = backend.payload_codecs.catalog
         self._endpoint_id = uuid4().hex
         self._connections: dict[InstrumentHandle, _LocalConnection] = {}
         self._lock = RLock()
@@ -136,8 +136,8 @@ class LocalInstrumentBackendEndpoint:
         return self._provider.provider_id
 
     @property
-    def payload_codecs(self) -> PayloadCodecRegistry:
-        return self._payload_codecs
+    def payload_catalog(self) -> PayloadCodecCatalog:
+        return self._payload_catalog
 
     def resolve_contracts(
         self,

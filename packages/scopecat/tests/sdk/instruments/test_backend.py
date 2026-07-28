@@ -15,6 +15,7 @@ from scopecat.sdk.instruments import (
     DriverCollectResult,
     DriverInvokeRequest,
     DriverOperationArgument,
+    DriverPayload,
     DriverPropertyWrite,
     InstrumentOperationArgument,
     InstrumentStateAssignment,
@@ -83,7 +84,18 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         entity_ids=["logical-drive"],
     )
 
-    request = lower_driver_invoke_request(command)
+    materialized = DriverPayload(
+        id=payload.id,
+        schema_id=payload.schema_id,
+        codec_id=payload.codec_id,
+        codec_version=payload.codec_version,
+        media_type=payload.media_type,
+        content=payload.inline_bytes(),
+    )
+    request = lower_driver_invoke_request(
+        command,
+        materialized_payloads={payload.id: materialized},
+    )
 
     assert request.interface_id == "test.pulse_player/v1"
     assert request.component_path == ("channel-a",)
@@ -94,8 +106,14 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
             value=StateValue(PayloadRef(payload_id=payload.id)),
         ),
     )
-    assert request.payloads == {payload.id: payload}
-    assert request.payloads[payload.id].inline_bytes() == b"\x00\xffprogram"
+    assert request.payloads == {payload.id: materialized}
+    assert request.payloads[payload.id].content == b"\x00\xffprogram"
+    assert request.model_dump()["payloads"][payload.id]["content"] == b"\x00\xffprogram"
+    assert {
+        "body",
+        "content_hash",
+        "size_bytes",
+    }.isdisjoint(type(request.payloads[payload.id]).model_fields)
     assert {
         "command_id",
         "instrument_id",
@@ -103,7 +121,7 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         "entity_ids",
         "channel_bindings",
     }.isdisjoint(request.model_dump())
-    assert DriverInvokeRequest.model_validate_json(request.model_dump_json()) == request
+    assert DriverInvokeRequest.model_validate(request.model_dump()) == request
 
 
 def test_collect_command_lowers_to_one_acquisition_request() -> None:
@@ -197,6 +215,14 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
             operation_id="play",
         ),
         DriverOperationArgument(id="wait", value=StateValue(1.0)),
+        DriverPayload(
+            id="program",
+            schema_id="test.program/v1",
+            codec_id="test.binary",
+            codec_version=1,
+            media_type="application/octet-stream",
+            content=b"\x00\xff",
+        ),
         DriverCollectResult(request_id="signal", result_id="signal"),
         DriverCollectRequest(
             interface_id="test.signal/v1",
@@ -214,7 +240,7 @@ def test_driver_request_models_are_frozen_and_closed(
             None,
         )
 
-    wire = backend_request.model_dump(mode="json")
+    wire = backend_request.model_dump()
     wire["command_id"] = "daemon-owned"
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         type(backend_request).model_validate(wire)
@@ -227,6 +253,7 @@ def test_driver_backend_contracts_are_public_from_sdk_facade() -> None:
         "DriverCollectResult": DriverCollectResult,
         "DriverInvokeRequest": DriverInvokeRequest,
         "DriverOperationArgument": DriverOperationArgument,
+        "DriverPayload": DriverPayload,
         "DriverPropertyWrite": DriverPropertyWrite,
         "lower_driver_apply_request": lower_driver_apply_request,
         "lower_driver_collect_request": lower_driver_collect_request,

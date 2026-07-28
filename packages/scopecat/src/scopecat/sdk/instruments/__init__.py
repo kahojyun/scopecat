@@ -78,6 +78,7 @@ if TYPE_CHECKING:
         DriverCollectResult,
         DriverInvokeRequest,
         DriverOperationArgument,
+        DriverPayload,
         DriverPropertyWrite,
     )
 
@@ -132,6 +133,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverOperationArgument": (
         "scopecat.sdk.instruments.driver",
         "DriverOperationArgument",
+    ),
+    "DriverPayload": (
+        "scopecat.sdk.instruments.driver",
+        "DriverPayload",
     ),
     "DriverPropertyWrite": (
         "scopecat.sdk.instruments.driver",

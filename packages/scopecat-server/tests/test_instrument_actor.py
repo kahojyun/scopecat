@@ -21,7 +21,7 @@ from scopecat.sdk.instruments import (
     InstrumentDescription,
     InvokeReceipt,
 )
-from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecCatalog
 from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,
     number_state,
@@ -105,8 +105,8 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
 
     @property
     @override
-    def payload_codecs(self) -> PayloadCodecRegistry:
-        return EMPTY_PAYLOAD_CODECS
+    def payload_catalog(self) -> PayloadCodecCatalog:
+        return EMPTY_PAYLOAD_CODECS.catalog
 
     @override
     def resolve_contracts(

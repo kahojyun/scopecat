@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,7 @@ from scopecat.sdk.instruments.driver import (
     DriverCollectResult,
     DriverInvokeRequest,
     DriverOperationArgument,
+    DriverPayload,
     DriverPropertyWrite,
 )
 from scopecat.sdk.payloads import PayloadCodecRegistry
@@ -48,7 +50,11 @@ def lower_driver_apply_request(
     )
 
 
-def lower_driver_invoke_request(command: InvokeCommand) -> DriverInvokeRequest:
+def lower_driver_invoke_request(
+    command: InvokeCommand,
+    *,
+    materialized_payloads: Mapping[str, DriverPayload],
+) -> DriverInvokeRequest:
     return DriverInvokeRequest(
         interface_id=command.interface_id,
         component_path=tuple(command.component_path),
@@ -57,7 +63,7 @@ def lower_driver_invoke_request(command: InvokeCommand) -> DriverInvokeRequest:
             DriverOperationArgument(id=argument.id, value=argument.value)
             for argument in command.arguments
         ),
-        payloads=dict(command.payloads),
+        payloads=dict(materialized_payloads),
     )
 
 
@@ -83,6 +89,7 @@ __all__ = [
     "DriverCollectResult",
     "DriverInvokeRequest",
     "DriverOperationArgument",
+    "DriverPayload",
     "DriverPropertyWrite",
     "InstrumentBackend",
     "lower_driver_apply_request",

@@ -899,7 +899,10 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         payload_id.endswith(".compute.build-program.payload")
         for payload_id in payload_ids
     )
-    assert [payload_codecs.decode(payload) for payload in payloads] == [
+    assert [
+        payload_codecs[payload.schema_id].decoder(payload.content)
+        for payload in payloads
+    ] == [
         {"value": {"value": 4.9, "unit": "GHz"}},
         {"value": {"value": 4.9, "unit": "GHz"}},
         {"value": {"value": 4.9, "unit": "GHz"}},

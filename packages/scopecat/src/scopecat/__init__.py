@@ -88,7 +88,12 @@ if TYPE_CHECKING:
     from scopecat.kernel.quantity import Quantity
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import open_project
-    from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+    from scopecat.sdk.payloads import (
+        PayloadCodec,
+        PayloadCodecCatalog,
+        PayloadCodecDescription,
+        PayloadCodecRegistry,
+    )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "BoolType": ("scopecat.authoring", "BoolType"),
@@ -143,6 +148,11 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "param_axis": ("scopecat.authoring.scans", "param_axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "PayloadCodec": ("scopecat.sdk.payloads", "PayloadCodec"),
+    "PayloadCodecCatalog": ("scopecat.sdk.payloads", "PayloadCodecCatalog"),
+    "PayloadCodecDescription": (
+        "scopecat.sdk.payloads",
+        "PayloadCodecDescription",
+    ),
     "PayloadCodecRegistry": ("scopecat.sdk.payloads", "PayloadCodecRegistry"),
     "EntityRef": ("scopecat.kernel.entity", "EntityRef"),
     "entity_ref": ("scopecat.kernel.entity", "entity_ref"),

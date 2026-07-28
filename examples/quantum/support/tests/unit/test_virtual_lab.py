@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.sdk.instruments import (
     DriverInvokeRequest,
     DriverOperationArgument,
+    DriverPayload,
     PayloadRef,
     StateValue,
 )
@@ -29,7 +29,7 @@ def test_virtual_lab_profile_loads_configured_devices() -> None:
 def test_drive_program_is_an_invocation_not_persistent_state() -> None:
     profile = load_virtual_lab_profile(EXPERIMENT_VIRTUAL_LAB_PROFILE)
     driver = QuantumDriveStack(profile=profile.devices[0])
-    payload = command_payload_from_bytes(
+    payload = DriverPayload(
         id="program-0",
         schema_id="pulse_program",
         codec_id="tests.json",

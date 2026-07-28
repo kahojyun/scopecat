@@ -5,7 +5,11 @@ import json
 import pytest
 
 from scopecat.records.artifact import command_payload_from_bytes
-from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+from scopecat.sdk.payloads import (
+    PayloadCodec,
+    PayloadCodecCatalog,
+    PayloadCodecRegistry,
+)
 
 
 def _json_encoder(value: object) -> bytes:
@@ -47,6 +51,37 @@ def test_payload_codec_registry_round_trips_encoded_command_payload() -> None:
     assert payload.inline_bytes() == encoded.content
     assert registry.validate_descriptor(payload) is registry["tests.program/v1"]
     assert registry.decode(payload) == value
+
+
+def test_payload_codec_catalog_is_stable_serializable_and_has_no_callables() -> None:
+    registry = _registry()
+
+    catalog = registry.catalog
+
+    assert PayloadCodecCatalog.model_validate_json(catalog.model_dump_json()) == catalog
+    assert catalog.model_dump(mode="json") == {
+        "codecs": [
+            {
+                "schema_id": "tests.program/v1",
+                "codec_id": "tests.canonical-json",
+                "codec_version": 2,
+                "media_type": "application/json",
+            }
+        ]
+    }
+    assert (
+        catalog.validate_descriptor(
+            command_payload_from_bytes(
+                id="program-a",
+                schema_id="tests.program/v1",
+                codec_id="tests.canonical-json",
+                codec_version=2,
+                media_type="application/json",
+                content=b"{}",
+            )
+        )
+        == catalog.codecs[0]
+    )
 
 
 @pytest.mark.parametrize(

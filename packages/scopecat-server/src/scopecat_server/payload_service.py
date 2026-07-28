@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Iterable, Mapping
 
 from scopecat.adapters.sqlite.object_store import (
     ImmutableObjectStore,
@@ -22,6 +22,7 @@ from scopecat.records.artifact import (
     InlinePayloadBody,
 )
 from scopecat.sdk.instruments.contracts import InvokeCommand
+from scopecat.sdk.instruments.driver import DriverPayload
 
 DEFAULT_MAX_PAYLOAD_OBJECT_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_INLINE_PAYLOAD_BYTES = 1024 * 1024
@@ -155,51 +156,38 @@ class CommandPayloadService:
             update={"batch": command.batch.model_copy(update={"actions": actions})}
         )
 
-    def materialize_invoke_command(
+    def materialize_payloads(
         self,
-        command: InvokeCommand,
-    ) -> InvokeCommand:
-        """Return a command whose payloads all carry verified inline bytes."""
+        payloads: Mapping[str, CommandPayload],
+    ) -> dict[str, DriverPayload]:
+        """Resolve one payload set to verified driver-native bytes."""
 
-        return command.model_copy(
-            update={
-                "payloads": self._materialize_payloads(
-                    command.payloads,
-                    content_by_ref={},
-                )
-            }
+        return self._materialize_payloads(
+            payloads,
+            content_by_ref={},
         )
 
-    def materialize_hardware_command(
+    def materialize_payload_sets(
         self,
-        command: RunHardwareBatchCommand,
-    ) -> RunHardwareBatchCommand:
-        """Resolve every invoke body atomically before a batch touches hardware."""
+        payload_sets: Iterable[Mapping[str, CommandPayload]],
+    ) -> tuple[dict[str, DriverPayload], ...]:
+        """Resolve an ordered batch atomically before any hardware action."""
 
         content_by_ref: dict[str, bytes] = {}
-        actions = tuple(
-            action.model_copy(
-                update={
-                    "payloads": self._materialize_payloads(
-                        action.payloads,
-                        content_by_ref=content_by_ref,
-                    )
-                }
+        return tuple(
+            self._materialize_payloads(
+                payloads,
+                content_by_ref=content_by_ref,
             )
-            if isinstance(action, RunHardwareInvoke)
-            else action
-            for action in command.batch.actions
-        )
-        return command.model_copy(
-            update={"batch": command.batch.model_copy(update={"actions": actions})}
+            for payloads in payload_sets
         )
 
     def _materialize_payloads(
         self,
-        payloads: dict[str, CommandPayload],
+        payloads: Mapping[str, CommandPayload],
         *,
         content_by_ref: dict[str, bytes],
-    ) -> dict[str, CommandPayload]:
+    ) -> dict[str, DriverPayload]:
         return {
             payload_id: self._materialize_payload(
                 payload,
@@ -256,7 +244,7 @@ class CommandPayloadService:
         payload: CommandPayload,
         *,
         content_by_ref: dict[str, bytes],
-    ) -> CommandPayload:
+    ) -> DriverPayload:
         self._require_size(
             payload.size_bytes,
             limit=self._max_object_bytes,
@@ -265,28 +253,32 @@ class CommandPayloadService:
         body = payload.body
         if isinstance(body, InlinePayloadBody):
             content = payload.inline_bytes()
-            _verify_payload(payload, content)
-            return payload
-        content = content_by_ref.get(body.ref)
-        if content is None:
-            try:
-                content = self._objects.read(body.ref)
-            except ObjectNotFoundError as error:
-                raise CommandPayloadError(
-                    f"payload object was not found: {body.ref}"
-                ) from error
-            except ObjectCorruptError as error:
-                raise CommandPayloadStorageError(
-                    f"payload object failed integrity verification: {body.ref}"
-                ) from error
-            except ObjectStoreError as error:
-                raise CommandPayloadStorageError(
-                    f"payload object could not be read: {body.ref}"
-                ) from error
-            content_by_ref[body.ref] = content
+        else:
+            content = content_by_ref.get(body.ref)
+            if content is None:
+                try:
+                    content = self._objects.read(body.ref)
+                except ObjectNotFoundError as error:
+                    raise CommandPayloadError(
+                        f"payload object was not found: {body.ref}"
+                    ) from error
+                except ObjectCorruptError as error:
+                    raise CommandPayloadStorageError(
+                        f"payload object failed integrity verification: {body.ref}"
+                    ) from error
+                except ObjectStoreError as error:
+                    raise CommandPayloadStorageError(
+                        f"payload object could not be read: {body.ref}"
+                    ) from error
+                content_by_ref[body.ref] = content
         _verify_payload(payload, content)
-        return payload.model_copy(
-            update={"body": InlinePayloadBody.from_bytes(content)}
+        return DriverPayload(
+            id=payload.id,
+            schema_id=payload.schema_id,
+            codec_id=payload.codec_id,
+            codec_version=payload.codec_version,
+            media_type=payload.media_type,
+            content=content,
         )
 
     @staticmethod

@@ -202,9 +202,10 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     invoked = driver.invoked[0]
     payload_ref = invoked.arguments[0].value.root
     assert isinstance(payload_ref, PayloadRef)
-    command_payload = invoked.payloads[payload_ref.payload_id]
-    assert payload_codecs.decode(command_payload) == {"consumed": {"source": "parent"}}
-    assert command_payload.content_hash
+    driver_payload = invoked.payloads[payload_ref.payload_id]
+    assert payload_codecs[driver_payload.schema_id].decoder(driver_payload.content) == {
+        "consumed": {"source": "parent"}
+    }
 
 
 def test_compute_output_is_normalized_before_downstream_use() -> None:

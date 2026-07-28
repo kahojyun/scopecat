@@ -290,9 +290,10 @@ Opaque values such as compiled pulse programs are operation arguments, never
 persistent properties. A registered codec converts the in-memory value to an
 exact byte payload; the command carries only a typed reference plus a
 content-addressed envelope. The daemon resolves and verifies every payload
-before a hardware batch begins, then lowers the materialized envelope into the
-process-safe driver request. A future worker transport can carry the same
-descriptor with raw byte attachments without serializing Python objects.
+before a hardware batch begins, then lowers it to a driver-native payload
+containing codec metadata and raw bytes. Public inline/blob bodies never enter
+the driver API. The worker wire format keeps its JSON descriptor separate from
+hash-checked raw attachments and never serializes arbitrary Python objects.
 
 An operator can recover a session left by another notebook kernel with
 `lab.instruments.abort_session(session_id)`. This asks the daemon to run the
