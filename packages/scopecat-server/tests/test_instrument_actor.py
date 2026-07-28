@@ -5,6 +5,7 @@ from threading import Event, Lock, Thread
 from typing import override
 
 import pytest
+from scopecat.config.registry.records import ConfigRegistryActivationRecord
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,
@@ -67,10 +68,28 @@ class _BlockingReadDriver(_TrackingDriver):
                 self._active -= 1
 
 
-def _binding(revision: str = "a") -> InstrumentBindingKey:
+def _binding(
+    revision: str = "a",
+    *,
+    generation: int | None = 1,
+) -> InstrumentBindingKey:
     return InstrumentBindingKey(
         provider_id="tests.actor_provider",
         config_content_hash=f"sha256:{revision * 64}",
+        config_registry_generation=generation,
+    )
+
+
+def _activation(
+    generation: int,
+    revision: str,
+) -> ConfigRegistryActivationRecord:
+    return ConfigRegistryActivationRecord(
+        generation=generation,
+        action="activation",
+        entry_id=f"config-{generation}",
+        entry_content_hash=f"sha256:{revision * 64}",
+        actor="tests",
     )
 
 
@@ -180,6 +199,90 @@ def test_binding_change_is_rejected_while_owned_and_rebinds_while_idle() -> None
     assert old_drivers[0].disconnect_count == 1
     assert len(new_drivers) == 1
     second.release()
+    registry.shutdown()
+
+
+def test_activation_retires_idle_actor_even_when_content_hash_is_unchanged() -> None:
+    registry = InstrumentActorRegistry()
+    registry.observe_config_activation(_activation(1, "a"))
+    drivers: list[_TrackingDriver] = []
+    first = registry.acquire(
+        "source-0",
+        binding=_binding("a", generation=1),
+        owner=_owner("session-1"),
+        connect=_connector(drivers),
+    )
+    first.release()
+
+    registry.observe_config_activation(_activation(2, "a"))
+
+    assert drivers[0].disconnect_count == 1
+    second = registry.acquire(
+        "source-0",
+        binding=_binding("a", generation=2),
+        owner=_owner("session-2"),
+        connect=_connector(drivers),
+    )
+    assert not second.reused_connection
+    assert len(drivers) == 2
+    second.release()
+    registry.shutdown()
+
+
+def test_activation_defers_owned_actor_retirement_until_release() -> None:
+    registry = InstrumentActorRegistry()
+    registry.observe_config_activation(_activation(1, "a"))
+    drivers: list[_TrackingDriver] = []
+    owned = registry.acquire(
+        "source-0",
+        binding=_binding("a", generation=1),
+        owner=_owner("session-1"),
+        connect=_connector(drivers),
+    )
+
+    registry.observe_config_activation(_activation(2, "b"))
+
+    assert drivers[0].disconnect_count == 0
+    owned.adopt_state(owned.read_state())
+    owned.release()
+    assert drivers[0].disconnect_count == 1
+    registry.shutdown()
+
+
+def test_activation_notifications_are_generation_idempotent() -> None:
+    registry = InstrumentActorRegistry()
+    registry.observe_config_activation(_activation(1, "a"))
+    drivers: list[_TrackingDriver] = []
+    owned = registry.acquire(
+        "source-0",
+        binding=_binding("a", generation=1),
+        owner=_owner("session-1"),
+        connect=_connector(drivers),
+    )
+    owned.release()
+
+    registry.observe_config_activation(_activation(2, "b"))
+    registry.observe_config_activation(_activation(2, "b"))
+    registry.observe_config_activation(_activation(1, "a"))
+
+    assert drivers[0].disconnect_count == 1
+    registry.shutdown()
+
+
+def test_non_active_binding_always_retires_on_release() -> None:
+    registry = InstrumentActorRegistry()
+    registry.observe_config_activation(_activation(2, "b"))
+    drivers: list[_TrackingDriver] = []
+    owned = registry.acquire(
+        "source-0",
+        binding=_binding("a", generation=None),
+        owner=_owner("run-1", kind="run"),
+        connect=_connector(drivers),
+    )
+
+    owned.release()
+
+    assert drivers[0].disconnect_count == 1
     registry.shutdown()
 
 

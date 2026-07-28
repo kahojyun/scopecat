@@ -34,6 +34,12 @@ from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.config import (
     ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
+    config_content_hash,
+)
+from scopecat.records.run import (
+    AnalysisCandidateRunConfigSource,
+    ConfigRegistryRunConfigSource,
+    RunConfigSource,
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
@@ -492,7 +498,7 @@ def test_rejected_run_preparation_closes_without_quarantine(tmp_path: Path) -> N
         assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
         [driver] = provider.drivers
         assert driver.abort_count == 0
-        assert driver.disconnect_count == 0
+        assert driver.disconnect_count == 1
         assert runtime.application.executor._control.get_run(run_id).state != (
             "attention_required"
         )
@@ -883,6 +889,45 @@ def test_failed_finish_abort_failure_is_unknown(tmp_path: Path) -> None:
         _assert_run_state_discarded(instruments, run_id)
 
 
+def test_analysis_candidate_run_retires_without_leaking_disconnect_failure(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="disconnect")
+    config = load_config()
+    source = AnalysisCandidateRunConfigSource(
+        source_run_id="source-run",
+        analysis_record_id="analysis-candidate",
+        proposal_id="proposal-candidate",
+        base_config_content_hash=config_content_hash(config),
+        content_hash=config_content_hash(config),
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            config_source=source,
+            submission_id="analysis-candidate",
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        [driver] = provider.drivers
+        assert receipt.final_state[0].instrument_id == "source-0"
+        assert driver.disconnect_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state != (
+            "attention_required"
+        )
+
+
 def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
     tmp_path: Path,
 ) -> None:
@@ -1070,7 +1115,25 @@ def _start_run(
     submission_id: str = "run-instruments",
     contract_fingerprint: str | None = None,
     driver_type: type[_Driver] = _Driver,
+    config_source: RunConfigSource | Literal["matching_active"] | None = (
+        "matching_active"
+    ),
 ) -> tuple[str, str]:
+    if config_source == "matching_active":
+        active = runtime.application.config.get_active_config()
+        selected_config_source = (
+            ConfigRegistryRunConfigSource(
+                selector="active",
+                entry_id=active.entry.id,
+                config_ref=active.entry.config_ref,
+                content_hash=active.entry.content_hash,
+                registry_generation=active.activation.generation,
+            )
+            if active.entry.content_hash == config_content_hash(config)
+            else None
+        )
+    else:
+        selected_config_source = config_source
     admitted_fingerprint = (
         instrument_contract_fingerprint(
             _Provider.provider_id,
@@ -1086,6 +1149,7 @@ def _start_run(
         RunSubmission(
             submission_id=submission_id,
             config=config,
+            config_source=selected_config_source,
             request=RunRequest(experiment_id="scratch"),
             plan=RunPlanSummary(
                 experiment_id="scratch",

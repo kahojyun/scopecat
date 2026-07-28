@@ -14,6 +14,7 @@ from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
+from scopecat.config.registry.records import ConfigRegistryActivationRecord
 from scopecat.control.models import (
     ControlRun,
     DurableEvent,
@@ -491,6 +492,12 @@ def test_config_publish_rolls_back_registry_and_event_when_event_fails(
         return append_event(control, connection, event)
 
     with LocalDaemonRuntime(tmp_path) as runtime:
+        observed_activations: list[ConfigRegistryActivationRecord] = []
+        monkeypatch.setattr(
+            runtime.application.config,
+            "_activation_observer",
+            observed_activations.append,
+        )
         with monkeypatch.context() as patch:
             patch.setattr(
                 SQLiteControlPlane,
@@ -502,10 +509,12 @@ def test_config_publish_rolls_back_registry_and_event_when_event_fails(
 
         assert runtime.application.config.get_config_registry() == ConfigRegistryView()
         assert _events(runtime).items == ()
+        assert observed_activations == []
 
         receipt = runtime.application.config.publish_config(command)
 
         assert receipt.activation.generation == 1
+        assert observed_activations == [receipt.activation]
         assert [
             entry.id
             for entry in runtime.application.config.get_config_registry().entries

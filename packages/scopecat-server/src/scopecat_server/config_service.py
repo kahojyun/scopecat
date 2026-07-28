@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -14,6 +14,7 @@ from scopecat.adapters.sqlite import (
 )
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.config.registry import service as config_registry_service
+from scopecat.config.registry.records import ConfigRegistryActivationRecord
 from scopecat.control.models import (
     DurableEventInput,
 )
@@ -57,11 +58,13 @@ class ConfigService:
         config_registry: SQLiteConfigRegistryStore,
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
+        activation_observer: Callable[[ConfigRegistryActivationRecord], None],
     ) -> None:
         self._control = control
         self._config_registry = config_registry
         self._runs = runs
         self._services = services
+        self._activation_observer = activation_observer
 
     def get_config_registry(self) -> ConfigRegistryView:
         with self._config_errors():
@@ -106,53 +109,53 @@ class ConfigService:
     ) -> ConfigPublishReceipt:
         """Publish one revision; candidate approval shares the same commit."""
 
-        with (
-            self._config_errors(),
-            self._config_transaction() as transaction,
-        ):
-            connection, services = transaction
-            source = command.source
-            if isinstance(source, CandidateConfigRevisionSource):
-                prepared = prepare_parameter_change_approval(
-                    run_id=source.run_id,
-                    selector=source.proposal_id,
-                    services=self._services,
-                    actor=command.actor,
-                    note=command.note,
+        with self._config_errors():
+            with self._config_transaction() as transaction:
+                connection, services = transaction
+                source = command.source
+                if isinstance(source, CandidateConfigRevisionSource):
+                    prepared = prepare_parameter_change_approval(
+                        run_id=source.run_id,
+                        selector=source.proposal_id,
+                        services=self._services,
+                        actor=command.actor,
+                        note=command.note,
+                    )
+                    if prepared.publication is not None:
+                        publication = self._runs.prepare_content_publication(
+                            prepared.publication
+                        )
+                        self._runs.publish_prepared_content_in_transaction(
+                            connection,
+                            publication,
+                        )
+                        self._control.append_event_in_transaction(
+                            connection,
+                            DurableEventInput(
+                                run_id=source.run_id,
+                                kind="parameter_proposal_approved",
+                                payload={
+                                    "proposal_id": source.proposal_id,
+                                    "actor": command.actor,
+                                },
+                                occurred_at=prepared.approval.approved_at,
+                            ),
+                        )
+                result = config_registry_service.publish_config_revision(
+                    revision=_config_revision(command),
+                    unit_of_work=services.config_registry,
+                    expected_generation=command.expected_generation,
                 )
-                if prepared.publication is not None:
-                    publication = self._runs.prepare_content_publication(
-                        prepared.publication
-                    )
-                    self._runs.publish_prepared_content_in_transaction(
-                        connection,
-                        publication,
-                    )
-                    self._control.append_event_in_transaction(
-                        connection,
-                        DurableEventInput(
-                            run_id=source.run_id,
-                            kind="parameter_proposal_approved",
-                            payload={
-                                "proposal_id": source.proposal_id,
-                                "actor": command.actor,
-                            },
-                            occurred_at=prepared.approval.approved_at,
-                        ),
-                    )
-            result = config_registry_service.publish_config_revision(
-                revision=_config_revision(command),
-                unit_of_work=services.config_registry,
-                expected_generation=command.expected_generation,
-            )
-            self._append_revision_events(connection, command, result)
-            activation = result.activation
-            assert activation is not None
-            return ConfigPublishReceipt(
-                entry=result.entry,
-                deltas=result.deltas,
-                activation=activation,
-            )
+                self._append_revision_events(connection, command, result)
+                activation = result.activation
+                assert activation is not None
+                receipt = ConfigPublishReceipt(
+                    entry=result.entry,
+                    deltas=result.deltas,
+                    activation=activation,
+                )
+            self._activation_observer(activation)
+            return receipt
 
     def preview_config_draft(
         self,
@@ -185,68 +188,68 @@ class ConfigService:
         self,
         command: ConfigEntryActivationCommand,
     ) -> ConfigActivationReceipt:
-        with (
-            self._config_errors(),
-            self._config_transaction() as transaction,
-        ):
-            connection, services = transaction
-            result = config_registry_service.activate_config_registry_entry(
-                entry_id=command.entry_id,
-                unit_of_work=services.config_registry,
-                actor=command.actor,
-                expected_generation=command.expected_generation,
-                note=command.note,
-            )
-            activation = result.activation
-            assert activation is not None
-            if result.activated:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_activated",
-                        payload={
-                            "entry_id": activation.entry_id,
-                            "generation": activation.generation,
-                        },
-                        occurred_at=activation.recorded_at,
-                    ),
+        with self._config_errors():
+            with self._config_transaction() as transaction:
+                connection, services = transaction
+                result = config_registry_service.activate_config_registry_entry(
+                    entry_id=command.entry_id,
+                    unit_of_work=services.config_registry,
+                    actor=command.actor,
+                    expected_generation=command.expected_generation,
+                    note=command.note,
                 )
-            return ConfigActivationReceipt(
-                activation=activation,
-            )
+                activation = result.activation
+                assert activation is not None
+                if result.activated:
+                    self._control.append_event_in_transaction(
+                        connection,
+                        DurableEventInput(
+                            kind="config_activated",
+                            payload={
+                                "entry_id": activation.entry_id,
+                                "generation": activation.generation,
+                            },
+                            occurred_at=activation.recorded_at,
+                        ),
+                    )
+                receipt = ConfigActivationReceipt(
+                    activation=activation,
+                )
+            self._activation_observer(activation)
+            return receipt
 
     def undo_config(
         self,
         command: ConfigUndoCommand,
     ) -> ConfigActivationReceipt:
-        with (
-            self._config_errors(),
-            self._config_transaction() as transaction,
-        ):
-            connection, services = transaction
-            result = config_registry_service.undo_config_registry(
-                unit_of_work=services.config_registry,
-                actor=command.actor,
-                expected_generation=command.expected_generation,
-                note=command.note,
-            )
-            activation = result.activation
-            assert activation is not None
-            if result.activated:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind="config_undone",
-                        payload={
-                            "entry_id": activation.entry_id,
-                            "generation": activation.generation,
-                        },
-                        occurred_at=activation.recorded_at,
-                    ),
+        with self._config_errors():
+            with self._config_transaction() as transaction:
+                connection, services = transaction
+                result = config_registry_service.undo_config_registry(
+                    unit_of_work=services.config_registry,
+                    actor=command.actor,
+                    expected_generation=command.expected_generation,
+                    note=command.note,
                 )
-            return ConfigActivationReceipt(
-                activation=activation,
-            )
+                activation = result.activation
+                assert activation is not None
+                if result.activated:
+                    self._control.append_event_in_transaction(
+                        connection,
+                        DurableEventInput(
+                            kind="config_undone",
+                            payload={
+                                "entry_id": activation.entry_id,
+                                "generation": activation.generation,
+                            },
+                            occurred_at=activation.recorded_at,
+                        ),
+                    )
+                receipt = ConfigActivationReceipt(
+                    activation=activation,
+                )
+            self._activation_observer(activation)
+            return receipt
 
     def _append_revision_events(
         self,

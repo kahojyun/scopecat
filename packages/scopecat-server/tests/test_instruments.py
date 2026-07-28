@@ -13,6 +13,8 @@ from scopecat.application import LabApplication
 from scopecat.control.models import ResourceKey, RunPlanSummary
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.wire import (
+    ConfigPublishCommand,
+    DirectConfigRevisionSource,
     ExecutorStartRequest,
     InstrumentSessionOpenCommand,
     RunSubmission,
@@ -669,6 +671,54 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
             assert len(driver.applied) == 2
             assert driver.applied[0].command_id == driver.applied[1].command_id
             assert driver.disconnect_count == 0
+
+
+def test_config_activation_retires_connection_after_active_session_releases(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-before-config-activation",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            [driver] = provider.drivers
+            updated = load_config().model_copy(update={"id": "updated-config"})
+
+            receipt = runtime.application.config.publish_config(
+                ConfigPublishCommand(
+                    source=DirectConfigRevisionSource(config=updated),
+                    entry_id="updated-config",
+                    actor="operator",
+                    expected_generation=1,
+                )
+            )
+
+            assert receipt.activation.generation == 2
+            assert driver.disconnect_count == 0
+            assert (
+                daemon.read_instrument_state(
+                    session.session_id,
+                    "source-0",
+                ).instrument_id
+                == "source-0"
+            )
+            daemon.close_instrument_session(session.session_id)
+            assert driver.disconnect_count == 1
+            replacement = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-after-config-activation",
+                    actor="bob",
+                    instrument_ids=("source-0",),
+                )
+            )
+            assert len(provider.drivers) == 2
+            daemon.close_instrument_session(replacement.session_id)
 
 
 def test_stale_idle_connection_is_replaced_after_resynchronization_failure(

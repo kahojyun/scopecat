@@ -67,6 +67,7 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
     property_target_identity,
 )
+from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectCommand,
@@ -137,13 +138,14 @@ class InstrumentService:
         config: ConfigService,
         build_system: ExperimentSystemBuilder | None,
         payloads: CommandPayloadService,
+        actors: InstrumentActorRegistry,
     ) -> None:
         self._control = control
         self._runs = runs
         self._config = config
         self._build_system = build_system
         self._payloads = payloads
-        self._actors = InstrumentActorRegistry()
+        self._actors = actors
         self._sessions: dict[str, _OwnershipRuntime] = {}
         self._finished_runs: OrderedDict[str, _FinishedRunHardware] = OrderedDict()
         self._finished_run_cache_limit = _FINISHED_RUN_CACHE_LIMIT
@@ -283,7 +285,14 @@ class InstrumentService:
             )
             return receipt
 
+        manifest = self._runs.read_manifest(run_id)
         config = self._runs.read_config_profile_snapshot(run_id)
+        config_source = manifest.config_source
+        config_registry_generation = (
+            config_source.registry_generation
+            if isinstance(config_source, ConfigRegistryRunConfigSource)
+            else None
+        )
         try:
             system = self._system(config)
             provider = self._provider(config)
@@ -400,7 +409,8 @@ class InstrumentService:
             runtime, observed_state = self._open_ownership(
                 provider=provider,
                 config=config,
-                config_content_hash=config_content_hash(config),
+                config_content_hash=manifest.config_content_hash,
+                config_registry_generation=config_registry_generation,
                 owner=InstrumentOwnerKey(
                     kind="run",
                     owner_id=run_id,
@@ -526,6 +536,7 @@ class InstrumentService:
         provider: InstrumentProvider,
         config: ConfigProfileSnapshot,
         config_content_hash: str,
+        config_registry_generation: int | None,
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
@@ -536,6 +547,7 @@ class InstrumentService:
                 provider=provider,
                 config=config,
                 config_content_hash=config_content_hash,
+                config_registry_generation=config_registry_generation,
                 owner=owner,
                 instrument_ids=instrument_ids,
                 expected=expected,
@@ -566,6 +578,7 @@ class InstrumentService:
         provider: InstrumentProvider,
         config: ConfigProfileSnapshot,
         config_content_hash: str,
+        config_registry_generation: int | None,
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
@@ -574,6 +587,7 @@ class InstrumentService:
         binding = InstrumentBindingKey(
             provider_id=provider.provider_id,
             config_content_hash=config_content_hash,
+            config_registry_generation=config_registry_generation,
         )
         instruments: dict[str, OwnedInstrument] = {}
         try:
@@ -1487,6 +1501,7 @@ class InstrumentService:
                 provider=provider,
                 config=active.config,
                 config_content_hash=active.entry.content_hash,
+                config_registry_generation=active.activation.generation,
                 owner=InstrumentOwnerKey(
                     kind="instrument_session",
                     owner_id=session.session_id,

@@ -144,6 +144,13 @@ activate it. The editor does not change `driver_id`, connection kind, or driver
 options. Virtual connections have no endpoint to edit. Editing is disabled
 while the instrument is owned.
 
+Activation advances a registry generation even when a later entry has identical
+content. Idle actors from older generations are retired immediately. An
+existing owner stays pinned to its accepted generation and retires the
+connection when it releases; activation never hot-switches a live run or
+session. Candidate and explicitly non-active run configurations always retire
+on release instead of becoming an idle shared connection.
+
 ## Instruments workspace
 
 Instruments are a top-level workspace beside Runs and Configuration. The list

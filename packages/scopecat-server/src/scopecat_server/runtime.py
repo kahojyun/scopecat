@@ -25,6 +25,7 @@ from scopecat.project import LabApplicationFactory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
+from .instrument_actor import InstrumentActorRegistry
 from .services import (
     AdmissionService,
     CommandPayloadService,
@@ -89,11 +90,13 @@ class LocalDaemonRuntime:
                 runs=runs,
                 config_registry=config_registry.unit_of_work,
             )
+            instrument_actors = InstrumentActorRegistry()
             config_service = ConfigService(
                 control=control,
                 config_registry=config_registry,
                 runs=runs,
                 services=services,
+                activation_observer=instrument_actors.observe_config_activation,
             )
             run_service = RunService(
                 control=control,
@@ -110,6 +113,7 @@ class LocalDaemonRuntime:
                 config=config_service,
                 build_system=build_system,
                 payloads=payloads,
+                actors=instrument_actors,
             )
             executor = ExecutorService(
                 control=control,
@@ -145,6 +149,9 @@ class LocalDaemonRuntime:
                         config_service,
                         bootstrap_source,
                     )
+                activation = config_service.get_config_registry().activation
+                if activation is not None:
+                    instrument_actors.observe_config_activation(activation)
                 application.start()
             except BaseException:
                 application.close()
