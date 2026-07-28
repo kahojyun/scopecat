@@ -25,10 +25,12 @@ class ExecutorLeaseSupervisor:
         control: SQLiteControlPlane,
         instruments: InstrumentService | None = None,
         supervisor_interval_seconds: float = 0.5,
+        shutdown_timeout_seconds: float = 5.0,
     ) -> None:
         self._control = control
         self._instruments = instruments
         self._supervisor_interval_seconds = supervisor_interval_seconds
+        self._shutdown_timeout_seconds = shutdown_timeout_seconds
         self._stop = Event()
         self._supervisor_failed = False
         self._supervisor: Thread | None = None
@@ -39,6 +41,7 @@ class ExecutorLeaseSupervisor:
         return (
             supervisor is not None
             and supervisor.is_alive()
+            and not self._stop.is_set()
             and not self._supervisor_failed
         )
 
@@ -60,14 +63,18 @@ class ExecutorLeaseSupervisor:
             self._supervisor = None
             raise
 
-    def close(self) -> None:
-        supervisor = self._supervisor
+    def request_stop(self) -> None:
         self._stop.set()
+
+    def close(self) -> None:
+        self.request_stop()
+        supervisor = self._supervisor
         if supervisor is not None:
-            supervisor.join()
-        self._supervisor = None
-        if self._instruments is not None:
-            self._instruments.shutdown()
+            supervisor.join(self._shutdown_timeout_seconds)
+            if supervisor.is_alive():
+                self._supervisor_failed = True
+                raise RuntimeError("executor lease supervisor did not stop")
+            self._supervisor = None
 
     def _supervise(self) -> None:
         while not self._stop.wait(self._supervisor_interval_seconds):

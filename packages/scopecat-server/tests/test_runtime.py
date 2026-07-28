@@ -4,7 +4,7 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event, Thread
 from typing import Literal, Never
 
 import pytest
@@ -249,6 +249,94 @@ def test_runtime_cleans_up_partially_started_supervisor(
         LocalDaemonRuntime(tmp_path)
 
     monkeypatch.undo()
+    with LocalDaemonRuntime(tmp_path):
+        pass
+
+
+def test_runtime_shutdown_unblocks_an_active_lease_supervisor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = LocalDaemonRuntime(tmp_path)
+    instruments = runtime.application.instruments
+    supervision_started = Event()
+    instrument_shutdown_started = Event()
+    original_shutdown = instruments.shutdown
+
+    def wait_for_instrument_shutdown() -> None:
+        supervision_started.set()
+        instrument_shutdown_started.wait()
+
+    def shutdown_instruments() -> None:
+        instrument_shutdown_started.set()
+        original_shutdown()
+
+    monkeypatch.setattr(instruments, "expire_leases", wait_for_instrument_shutdown)
+    monkeypatch.setattr(instruments, "shutdown", shutdown_instruments)
+    assert supervision_started.wait(timeout=2)
+
+    close_error: BaseException | None = None
+
+    def close_runtime() -> None:
+        nonlocal close_error
+        try:
+            runtime.close()
+        except BaseException as error:
+            close_error = error
+
+    closer = Thread(target=close_runtime)
+    closer.start()
+    closer.join(timeout=1)
+    try:
+        assert not closer.is_alive()
+        assert close_error is None
+    finally:
+        instrument_shutdown_started.set()
+        closer.join(timeout=2)
+
+
+def test_runtime_shutdown_bounds_a_stuck_lease_supervisor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = LocalDaemonRuntime(
+        tmp_path,
+        instrument_shutdown_grace=timedelta(seconds=0.05),
+    )
+    instruments = runtime.application.instruments
+    supervision_started = Event()
+    release_supervision = Event()
+
+    def block_supervision() -> None:
+        supervision_started.set()
+        release_supervision.wait()
+
+    monkeypatch.setattr(instruments, "expire_leases", block_supervision)
+    assert supervision_started.wait(timeout=2)
+
+    close_error: BaseException | None = None
+
+    def close_runtime() -> None:
+        nonlocal close_error
+        try:
+            runtime.close()
+        except BaseException as error:
+            close_error = error
+
+    closer = Thread(target=close_runtime)
+    closer.start()
+    closer.join(timeout=0.5)
+    try:
+        assert not closer.is_alive()
+        assert isinstance(close_error, RuntimeError)
+        assert str(close_error) == "executor lease supervisor did not stop"
+        with pytest.raises(RuntimeError, match="already has a running daemon"):
+            LocalDaemonRuntime(tmp_path)
+    finally:
+        release_supervision.set()
+        closer.join(timeout=2)
+        runtime.close()
+
     with LocalDaemonRuntime(tmp_path):
         pass
 

@@ -6,7 +6,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
-from threading import RLock
+from threading import Lock, RLock, Timer
 from typing import Literal, cast
 
 from pydantic import JsonValue
@@ -171,6 +171,7 @@ class InstrumentService:
         endpoint: InstrumentBackendEndpoint | None,
         payloads: CommandPayloadService,
         actors: InstrumentActorRegistry,
+        shutdown_grace_seconds: float,
     ) -> None:
         self._control = control
         self._runs = runs
@@ -178,6 +179,7 @@ class InstrumentService:
         self._endpoint = endpoint
         self._payloads = payloads
         self._actors = actors
+        self._shutdown_grace_seconds = shutdown_grace_seconds
         self._sessions: dict[str, _OwnershipRuntime] = {}
         self._finished_runs: OrderedDict[str, _FinishedRunHardware] = OrderedDict()
         self._finished_run_cache_limit = _FINISHED_RUN_CACHE_LIMIT
@@ -187,6 +189,7 @@ class InstrumentService:
         self._open_lock = RLock()
         self._run_lock = RLock()
         self._lifecycle_lock = RLock()
+        self._shutdown_lock = Lock()
         self._stopping = False
         self._run_open_locks: dict[str, RLock] = {}
         self._finalizing_runs: set[str] = set()
@@ -2124,6 +2127,10 @@ class InstrumentService:
                 raise BackendConflict("instrument service is shutting down")
 
     def shutdown(self) -> None:
+        with self._shutdown_lock:
+            self._shutdown()
+
+    def _shutdown(self) -> None:
         # Fence acquisition before taking the owner snapshots. Otherwise a slow
         # connect can publish a durable owner after the shutdown drain has passed.
         with self._lifecycle_lock:
@@ -2141,6 +2148,39 @@ class InstrumentService:
                 self._run_runtimes = {}
                 self._run_open_locks = {}
                 self._finalizing_runs = set()
+        endpoint = self._endpoint
+        deadline = (
+            None
+            if endpoint is None
+            else Timer(
+                self._shutdown_grace_seconds,
+                _shutdown_endpoint,
+                args=(endpoint,),
+            )
+        )
+        if deadline is not None:
+            # Worker termination is the last resort when driver code ignores abort.
+            deadline.daemon = True
+            deadline.start()
+        try:
+            self._drain_shutdown(
+                sessions=sessions,
+                run_provisions=run_provisions,
+                run_runtimes=run_runtimes,
+            )
+        finally:
+            if deadline is not None:
+                deadline.cancel()
+            if endpoint is not None:
+                _shutdown_endpoint(endpoint)
+
+    def _drain_shutdown(
+        self,
+        *,
+        sessions: tuple[tuple[str, _OwnershipRuntime], ...],
+        run_provisions: tuple[tuple[str, _RunProvision], ...],
+        run_runtimes: Mapping[str, _OwnershipRuntime],
+    ) -> None:
         for session_id, runtime in sessions:
             try:
                 session = self._control.get_instrument_session(session_id)
@@ -2174,10 +2214,6 @@ class InstrumentService:
             )
         with suppress(Exception):
             self._actors.shutdown()
-        endpoint = self._endpoint
-        if endpoint is not None:
-            with suppress(Exception):
-                endpoint.shutdown()
 
     def _end_session(
         self,
@@ -2710,6 +2746,11 @@ def _state_assignment_satisfied(
     return actual is not None and (
         scalar_identity(actual.root) == scalar_identity(target.value.root)
     )
+
+
+def _shutdown_endpoint(endpoint: InstrumentBackendEndpoint) -> None:
+    with suppress(Exception):
+        endpoint.shutdown()
 
 
 def _release_instruments(instruments: Iterable[OwnedInstrument]) -> bool:

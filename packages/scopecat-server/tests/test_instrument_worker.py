@@ -6,13 +6,16 @@ import signal
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 from threading import Thread
 
 import psutil
 import pytest
 from fastapi.testclient import TestClient
+from scopecat.adapters.sqlite import SQLiteControlPlane
 from scopecat.daemon.views import DaemonHealth
+from scopecat.daemon.wire import InstrumentSessionOpenCommand
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import ConfigProfileSnapshot
@@ -25,9 +28,11 @@ from scopecat.sdk.instruments import (
     DriverOperationArgument,
     DriverPayload,
     DriverPropertyWrite,
+    InvokeCommand,
 )
 from tests.testkit.instrument_drivers import load_config
 
+from scopecat_server.errors import BackendConflict
 from scopecat_server.instrument_backend import (
     InstrumentBackendError,
     InstrumentBackendRejected,
@@ -366,13 +371,100 @@ def test_shutdown_interrupts_a_blocked_driver_call(tmp_path: Path) -> None:
     invocation.start()
     _wait_for_marker(project / "driver-blocked-source-0")
 
+    started_at = time.monotonic()
     endpoint.shutdown()
+    elapsed = time.monotonic() - started_at
     invocation.join(timeout=2)
 
+    assert elapsed < 0.5
     assert not invocation.is_alive()
     assert len(errors) == 1
     assert isinstance(errors[0], InstrumentBackendUnavailable)
     assert not psutil.pid_exists(endpoint.worker_pid)
+
+
+def test_runtime_shutdown_fences_a_blocked_session_and_marks_it_unknown(
+    tmp_path: Path,
+) -> None:
+    project = _copy_project(tmp_path)
+    endpoint = SubprocessInstrumentBackendEndpoint(
+        project,
+        _BACKEND,
+        shutdown_timeout=0.1,
+    )
+    runtime = LocalDaemonRuntime(
+        project,
+        bootstrap_config=load_config(),
+        instrument_endpoint=endpoint,
+        instrument_shutdown_grace=timedelta(seconds=0.1),
+    )
+    instruments = runtime.application.instruments
+    session = instruments.open_session(
+        InstrumentSessionOpenCommand(
+            operation_id="open-blocked-session",
+            actor="alice",
+            instrument_ids=("source-0",),
+        )
+    )
+    invoke_errors: list[BaseException] = []
+    close_errors: list[BaseException] = []
+
+    def invoke_blocking_operation() -> None:
+        try:
+            instruments.invoke(
+                session.session_id,
+                "source-0",
+                InvokeCommand(
+                    command_id="blocked-invoke",
+                    instrument_id="source-0",
+                    resource_id="source-0",
+                    interface_id="tests.control/v1",
+                    operation_id="block",
+                ),
+            )
+        except BaseException as error:
+            invoke_errors.append(error)
+
+    def close_runtime() -> None:
+        try:
+            runtime.close()
+        except BaseException as error:
+            close_errors.append(error)
+
+    invocation = Thread(target=invoke_blocking_operation, daemon=True)
+    closing = Thread(target=close_runtime, daemon=True)
+    try:
+        invocation.start()
+        _wait_for_marker(project / "driver-blocked-source-0")
+        closing.start()
+        closing.join(timeout=2)
+        invocation.join(timeout=2)
+    finally:
+        (project / "driver-release-source-0").touch()
+        endpoint.shutdown()
+        runtime.close()
+        closing.join(timeout=2)
+        invocation.join(timeout=2)
+
+    assert not closing.is_alive()
+    assert not invocation.is_alive()
+    assert not close_errors
+    assert len(invoke_errors) == 1
+    assert isinstance(invoke_errors[0], BackendConflict)
+    assert str(invoke_errors[0]) == "instrument invoke failed with unknown state"
+    assert not psutil.pid_exists(endpoint.worker_pid)
+
+    control = SQLiteControlPlane(project / ".scopecat" / "control.sqlite3")
+    durable = control.get_instrument_session(session.session_id)
+    assert durable.state == "attention_required"
+    assert durable.attention_reason == "instrument_invoke_unknown"
+    assert durable.active_operation_id == "blocked-invoke"
+    assert durable.active_operation_kind == "invoke"
+    assert durable.end_status is None
+    with control.transaction() as connection:
+        [claim] = control.list_resource_claims_in_transaction(connection)
+    assert claim.owner_id == session.session_id
+    assert claim.status == "quarantined"
 
 
 def test_blocked_driver_does_not_block_another_device(tmp_path: Path) -> None:

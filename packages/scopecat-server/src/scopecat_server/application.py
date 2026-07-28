@@ -54,7 +54,11 @@ class DaemonApplication:
         self._lease_supervisor.start()
 
     def close(self) -> None:
-        self._lease_supervisor.close()
+        self._lease_supervisor.request_stop()
+        try:
+            self.instruments.shutdown()
+        finally:
+            self._lease_supervisor.close()
 
     def health(self) -> DaemonHealth:
         try:

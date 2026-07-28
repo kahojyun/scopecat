@@ -6,6 +6,7 @@ from contextlib import suppress
 from datetime import timedelta
 from hashlib import sha256
 from pathlib import Path
+from threading import Lock
 from typing import Self
 
 from fastapi import FastAPI
@@ -41,6 +42,8 @@ from .services import (
 )
 from .transport import create_app
 
+_DEFAULT_INSTRUMENT_SHUTDOWN_GRACE = timedelta(seconds=5)
+
 
 class LocalDaemonRuntime:
     """Own all process-scoped services for one project."""
@@ -53,8 +56,10 @@ class LocalDaemonRuntime:
         application_spec: str | None = None,
         instrument_backend_spec: str | None = None,
         instrument_endpoint: InstrumentBackendEndpoint | None = None,
+        instrument_shutdown_grace: timedelta = _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE,
         lease_ttl: timedelta | None = None,
     ) -> None:
+        self._close_lock = Lock()
         if instrument_backend_spec is not None and instrument_endpoint is not None:
             raise ValueError(
                 "instrument_backend_spec and instrument_endpoint cannot be combined"
@@ -129,6 +134,7 @@ class LocalDaemonRuntime:
                 endpoint=instrument_endpoint,
                 payloads=payloads,
                 actors=instrument_actors,
+                shutdown_grace_seconds=instrument_shutdown_grace.total_seconds(),
             )
             executor = ExecutorService(
                 control=control,
@@ -140,6 +146,7 @@ class LocalDaemonRuntime:
             lease_supervisor = ExecutorLeaseSupervisor(
                 control=control,
                 instruments=instruments,
+                shutdown_timeout_seconds=instrument_shutdown_grace.total_seconds(),
             )
             application = DaemonApplication(
                 project_root=self.project_root,
@@ -184,13 +191,12 @@ class LocalDaemonRuntime:
         return create_app(self.application, static_dir=static_dir)
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        try:
+        with self._close_lock:
+            if self._closed:
+                return
             self.application.close()
-        finally:
             self._owner_lock.release()
+            self._closed = True
 
     def __enter__(self) -> Self:
         return self

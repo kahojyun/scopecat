@@ -64,7 +64,9 @@ refresh fails on a reused connection, the actor retires it and retries once
 with a new connection. Normal release leaves a healthy connection available;
 an unknown hardware outcome faults and disconnects it. Daemon shutdown first
 fences new owners, then drains durable ownership, disconnects actor handles,
-and shuts down the endpoint.
+and shuts down the endpoint. If driver cleanup exceeds the shutdown grace
+period, the daemon fences the whole worker generation; pending consequential
+calls become unknown and the worker is terminated.
 
 An explicit state refresh is read-only. If it fails, or the driver returns an
 invalid snapshot, the daemon ends the whole multi-instrument ownership epoch

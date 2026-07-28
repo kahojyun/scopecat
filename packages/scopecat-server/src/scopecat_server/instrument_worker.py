@@ -11,6 +11,7 @@ from multiprocessing import get_context
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 from threading import Event, Lock, RLock, Thread
+from time import monotonic
 from typing import Annotated, Literal, Never, Protocol
 from uuid import uuid4
 
@@ -196,6 +197,8 @@ class SubprocessInstrumentBackendEndpoint:
         self._next_request_id = 1
         self._closed = False
         self._available = False
+        self._connection_closed = False
+        self._cleanup_complete = False
 
         context = get_context("spawn")
         parent, child = context.Pipe(duplex=True)
@@ -369,22 +372,31 @@ class SubprocessInstrumentBackendEndpoint:
 
     def shutdown(self) -> None:
         with self._shutdown_lock:
-            pending: tuple[_PendingResponse, ...]
             with self._state_lock:
-                if self._closed:
+                if self._cleanup_complete:
                     return
                 self._closed = True
                 self._available = False
                 self._handles.clear()
-                pending = tuple(self._pending.values())
+                error = InstrumentBackendUnavailable("instrument worker is shut down")
+                for item in self._pending.values():
+                    item.error = error
+                    item.event.set()
                 self._pending.clear()
-            error = InstrumentBackendUnavailable("instrument worker is shut down")
-            for item in pending:
-                item.error = error
-                item.event.set()
-            self._connection.close()
-            _stop_process(self._process, self._shutdown_timeout)
-            self._receiver.join(self._shutdown_timeout)
+            self._close_connection()
+            deadline = monotonic() + self._shutdown_timeout
+            try:
+                _stop_process_until(self._process, deadline)
+                self._receiver.join(max(0.0, deadline - monotonic()))
+                if self._receiver.is_alive():
+                    raise InstrumentBackendUnavailable(
+                        "instrument worker receiver did not stop"
+                    )
+            finally:
+                with self._state_lock:
+                    self._cleanup_complete = (
+                        not self._process.is_alive() and not self._receiver.is_alive()
+                    )
 
     def _rpc(
         self,
@@ -445,15 +457,17 @@ class SubprocessInstrumentBackendEndpoint:
                 self._mark_unavailable()
                 return
             with self._state_lock:
-                pending = self._pending.pop(response.request_id, None)
+                pending = self._pending.get(response.request_id)
                 closed = self._closed
+                if pending is not None:
+                    pending.response = response
+                    pending.event.set()
+                    self._pending.pop(response.request_id, None)
             if pending is None:
                 if closed:
                     return
                 self._mark_unavailable()
                 return
-            pending.response = response
-            pending.event.set()
 
     def _decode_response[ModelT: BaseModel](
         self,
@@ -517,15 +531,20 @@ class SubprocessInstrumentBackendEndpoint:
                 return
             self._available = False
             self._handles.clear()
-            pending = tuple(self._pending.values())
+            error = InstrumentBackendUnavailable("instrument worker is unavailable")
+            for item in self._pending.values():
+                item.error = error
+                item.event.set()
             self._pending.clear()
-        with suppress(OSError):
+        self._close_connection()
+
+    def _close_connection(self) -> None:
+        with self._state_lock:
+            if self._connection_closed:
+                return
+            self._connection_closed = True
+        with suppress(Exception):
             self._connection.close()
-        for item in pending:
-            item.error = InstrumentBackendUnavailable(
-                "instrument worker is unavailable"
-            )
-            item.event.set()
 
 
 def _instrument_worker_main(
@@ -852,13 +871,21 @@ def _require_child_handle(request: _RpcRequest) -> InstrumentHandle:
 
 
 def _stop_process(process: BaseProcess, timeout: float) -> None:
-    process.join(timeout)
+    _stop_process_until(process, monotonic() + timeout)
+
+
+def _stop_process_until(process: BaseProcess, deadline: float) -> None:
+    remaining = max(0.0, deadline - monotonic())
+    process.join(remaining / 2)
     if process.is_alive():
         process.terminate()
-        process.join(timeout)
+        remaining = max(0.0, deadline - monotonic())
+        process.join(remaining / 2)
     if process.is_alive():
         process.kill()
-        process.join(timeout)
+        process.join(max(0.0, deadline - monotonic()))
+    if process.is_alive():
+        raise InstrumentBackendUnavailable("instrument worker did not stop")
 
 
 __all__ = ["SubprocessInstrumentBackendEndpoint"]
