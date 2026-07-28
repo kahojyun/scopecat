@@ -8,18 +8,19 @@
     "config:best-practices",
     ":semanticCommitTypeAll(chore)",
     ":automergePatch",
+    ":automergeStableNonMajor",
     ":enablePreCommit",
     "helpers:pinGitHubActionDigestsToSemver",
     "customManagers:githubActionsVersions"
   ],
   "packageRules": [
     {
-      "description": "Pin all npm dependencies except peer dependencies",
+      "description": "Override config:best-practices dev-only pinning by pinning all npm dependencies except peer dependencies",
       "matchManagers": ["npm"],
       "extends": [":pinAllExceptPeerDependencies"]
     },
     {
-      "description": "Set minimum release age for all npm dependencies to 14 days",
+      "description": "Override config:best-practices 3-day npm minimum release age with 14 days",
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["major", "minor", "patch"],
       "minimumReleaseAge": "14 days"
