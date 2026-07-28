@@ -17,12 +17,12 @@ import type {
   InstrumentCapability,
   InstrumentCapabilityField,
   InstrumentCollectReceipt,
-  InstrumentSessionLease,
+  InstrumentSession,
   InstrumentState,
   InstrumentStateValue,
   InstrumentView,
 } from "../../api-contract";
-import { errorMessage, formatDateTime, formatRelative, titleCase } from "../../lib/presentation";
+import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
 import {
   applyInstrumentState,
   collectInstrumentCapability,
@@ -41,7 +41,7 @@ interface DraftValue {
 
 export function InstrumentInspector({
   instrument,
-  lease,
+  session,
   actor,
   sessionError,
   connectPending,
@@ -49,11 +49,12 @@ export function InstrumentInspector({
   onActorChange,
   onConnect,
   onClose,
-  onLeaseLost,
+  onSessionLost,
+  onDisconnectOwner,
   onEditConnection,
 }: {
   instrument: InstrumentView;
-  lease?: InstrumentSessionLease;
+  session?: InstrumentSession;
   actor: string;
   sessionError?: string;
   connectPending: boolean;
@@ -61,16 +62,17 @@ export function InstrumentInspector({
   onActorChange: (actor: string) => void;
   onConnect: () => void;
   onClose: () => void;
-  onLeaseLost: (message: string, expiresAt?: string) => void;
+  onSessionLost: (message: string) => void;
+  onDisconnectOwner: () => void;
   onEditConnection: () => void;
 }) {
   const queryClient = useQueryClient();
   const instrumentId = instrument.spec.id;
-  const connected = lease?.instrument_ids.includes(instrumentId) ?? false;
+  const connected = session?.instrument_ids.includes(instrumentId) ?? false;
   const connectionEditable = instrument.spec.connection.kind === "tcpip_socket";
   const interactionEnabled = connected && !closePending;
   const description =
-    lease?.descriptions.find((candidate) => candidate.instrument_id === instrumentId) ??
+    session?.descriptions.find((candidate) => candidate.instrument_id === instrumentId) ??
     instrument.description ??
     undefined;
   const [state, setState] = useState<InstrumentState>();
@@ -93,7 +95,7 @@ export function InstrumentInspector({
   }, [connected]);
 
   const readMutation = useMutation({
-    mutationFn: () => readInstrumentState(requireLease(lease), instrumentId),
+    mutationFn: () => readInstrumentState(requireSession(session), instrumentId),
     onSuccess: (snapshot) => {
       applyOperationIdRef.current = undefined;
       collectOperationIdsRef.current = {};
@@ -104,10 +106,10 @@ export function InstrumentInspector({
     },
   });
   useEffect(() => {
-    if (connected && lease) readMutation.mutate();
-    // A heartbeat returns a new lease object; only a newly opened session should auto-read.
+    if (connected && session) readMutation.mutate();
+    // Only a newly opened session should trigger the initial read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, instrumentId, lease?.session_id]);
+  }, [connected, instrumentId, session?.session_id]);
   const stagedFields = useMemo(() => stagedInstrumentFields(drafts), [drafts]);
   const invalidDraft = Object.values(drafts).some((draft) => draft.value === undefined);
   const applyMutation = useMutation({
@@ -117,7 +119,7 @@ export function InstrumentInspector({
     }: {
       fields: StagedInstrumentField[];
       operationId: string;
-    }) => applyInstrumentState(requireLease(lease), instrumentId, fields, operationId),
+    }) => applyInstrumentState(requireSession(session), instrumentId, fields, operationId),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
     onSuccess: (receipt) => {
@@ -129,9 +131,8 @@ export function InstrumentInspector({
         setCollectResults({});
         setDrafts({});
       } else if (receipt.status === "unknown") {
-        onLeaseLost(
+        onSessionLost(
           "The apply result is unknown. The daemon quarantined this session for operator review.",
-          lease?.expires_at,
         );
       }
       void queryClient.invalidateQueries({ queryKey: ["instruments"] });
@@ -151,7 +152,7 @@ export function InstrumentInspector({
       operationId: string;
     }) =>
       collectInstrumentCapability(
-        requireLease(lease),
+        requireSession(session),
         instrumentId,
         capability,
         stateSnapshot,
@@ -163,9 +164,8 @@ export function InstrumentInspector({
       delete collectOperationIdsRef.current[capability.id];
       setCollectResults((current) => ({ ...current, [capability.id]: receipt }));
       if (receipt.status === "unknown") {
-        onLeaseLost(
+        onSessionLost(
           "The collection result is unknown. The daemon quarantined this session for operator review.",
-          lease?.expires_at,
         );
       }
       void queryClient.invalidateQueries({ queryKey: ["instruments"] });
@@ -269,7 +269,7 @@ export function InstrumentInspector({
 
       <InstrumentSessionPanel
         instrument={instrument}
-        lease={lease}
+        session={session}
         connected={connected}
         actor={actor}
         connectPending={connectPending}
@@ -279,6 +279,7 @@ export function InstrumentInspector({
         onActorChange={onActorChange}
         onConnect={onConnect}
         onClose={onClose}
+        onDisconnectOwner={onDisconnectOwner}
         onRefresh={() => readMutation.mutate()}
         onResolve={() => resolveMutation.mutate()}
       />
@@ -396,7 +397,7 @@ export function InstrumentInspector({
 
 function InstrumentSessionPanel({
   instrument,
-  lease,
+  session,
   connected,
   actor,
   connectPending,
@@ -406,11 +407,12 @@ function InstrumentSessionPanel({
   onActorChange,
   onConnect,
   onClose,
+  onDisconnectOwner,
   onRefresh,
   onResolve,
 }: {
   instrument: InstrumentView;
-  lease?: InstrumentSessionLease;
+  session?: InstrumentSession;
   connected: boolean;
   actor: string;
   connectPending: boolean;
@@ -420,10 +422,11 @@ function InstrumentSessionPanel({
   onActorChange: (actor: string) => void;
   onConnect: () => void;
   onClose: () => void;
+  onDisconnectOwner: () => void;
   onRefresh: () => void;
   onResolve: () => void;
 }) {
-  if (connected && lease) {
+  if (connected && session) {
     return (
       <div className="instrument-session-panel connected">
         <div className="session-summary">
@@ -433,8 +436,8 @@ function InstrumentSessionPanel({
           <div>
             <strong>Interactive session connected</strong>
             <small>
-              {lease.actor} · expires {formatRelative(lease.expires_at)} ·{" "}
-              <code>{lease.session_id}</code>
+              {session.actor} · opened {formatRelative(session.opened_at)} ·{" "}
+              <code>{session.session_id}</code>
             </small>
           </div>
         </div>
@@ -492,14 +495,28 @@ function InstrumentSessionPanel({
   }
 
   if (instrument.availability === "active") {
+    const canDisconnectSession =
+      instrument.owner_kind === "instrument_session" && Boolean(instrument.owner_id);
     return (
       <div className="instrument-busy-panel">
         <Database size={18} aria-hidden="true" />
         <div>
           <strong>Read-only while owned</strong>
-          <p>Another run or interactive session holds the exclusive instrument lease.</p>
+          <p>Another run or interactive session owns this instrument.</p>
           <OwnerDescription instrument={instrument} />
         </div>
+        {canDisconnectSession && (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onDisconnectOwner}
+            disabled={closePending}
+            title="Disconnect this daemon-owned interactive session"
+          >
+            {closePending ? <LoaderCircle className="spin" size={14} /> : <Unplug size={14} />}
+            Disconnect session
+          </button>
+        )}
       </div>
     );
   }
@@ -521,7 +538,8 @@ function InstrumentSessionPanel({
       <div className="connect-prompt">
         <strong>Connect only when you are ready to interact</strong>
         <small>
-          Opening a session takes an exclusive lease. Selecting this instrument never connects it.
+          Opening a session gives the daemon exclusive ownership. Selecting this instrument never
+          connects it.
         </small>
       </div>
       <label className="instrument-actor-field">
@@ -559,14 +577,6 @@ function OwnerDescription({ instrument }: { instrument: InstrumentView }) {
         <div>
           <dt>Actor</dt>
           <dd>{instrument.owner_actor}</dd>
-        </div>
-      )}
-      {instrument.expires_at && (
-        <div>
-          <dt>Expiry</dt>
-          <dd title={formatDateTime(instrument.expires_at)}>
-            {formatRelative(instrument.expires_at)}
-          </dd>
         </div>
       )}
     </dl>
@@ -925,9 +935,9 @@ function versionLabel(version: string): string {
   return /^v/i.test(version) ? version : `v${version}`;
 }
 
-function requireLease(lease: InstrumentSessionLease | undefined): InstrumentSessionLease {
-  if (!lease) throw new Error("Connect the instrument before interacting with it.");
-  return lease;
+function requireSession(session: InstrumentSession | undefined): InstrumentSession {
+  if (!session) throw new Error("Connect the instrument before interacting with it.");
+  return session;
 }
 
 function mutationError(error: unknown): string | undefined {

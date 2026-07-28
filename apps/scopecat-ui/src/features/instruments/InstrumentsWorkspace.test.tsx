@@ -5,15 +5,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api";
-import type { InstrumentSessionLease, InstrumentState, InstrumentView } from "../../api-contract";
+import type { InstrumentSession, InstrumentState, InstrumentView } from "../../api-contract";
 import { InstrumentsWorkspace } from "./InstrumentsWorkspace";
 import {
+  abortInstrumentSession,
   applyInstrumentState,
   closeInstrumentSession,
   collectInstrumentCapability,
   getActiveConfig,
   getInstruments,
-  heartbeatInstrumentSession,
   openInstrumentSession,
   publishInstrumentConnection,
   readInstrumentState,
@@ -22,12 +22,12 @@ import {
 
 vi.mock("./instrument-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./instrument-api")>()),
+  abortInstrumentSession: vi.fn(),
   applyInstrumentState: vi.fn(),
   closeInstrumentSession: vi.fn(),
   collectInstrumentCapability: vi.fn(),
   getActiveConfig: vi.fn(),
   getInstruments: vi.fn(),
-  heartbeatInstrumentSession: vi.fn(),
   openInstrumentSession: vi.fn(),
   publishInstrumentConnection: vi.fn(),
   readInstrumentState: vi.fn(),
@@ -42,11 +42,7 @@ beforeEach(() => {
     items: [instrument()],
   });
   vi.mocked(getActiveConfig).mockResolvedValue(activeConfig());
-  vi.mocked(openInstrumentSession).mockResolvedValue(sessionLease());
-  vi.mocked(heartbeatInstrumentSession).mockImplementation(async (lease) => ({
-    ...lease,
-    expires_at: "2026-07-27T09:10:00Z",
-  }));
+  vi.mocked(openInstrumentSession).mockResolvedValue(session());
   vi.mocked(readInstrumentState).mockResolvedValue(instrumentState());
   vi.mocked(applyInstrumentState).mockResolvedValue({
     status: "applied",
@@ -54,6 +50,7 @@ beforeEach(() => {
     state: instrumentState(6_000_000_000),
   });
   vi.mocked(closeInstrumentSession).mockResolvedValue();
+  vi.mocked(abortInstrumentSession).mockResolvedValue();
   vi.mocked(collectInstrumentCapability).mockResolvedValue({
     status: "collected",
     problems: [],
@@ -120,7 +117,6 @@ describe("instrument workspace", () => {
           owner_kind: "run",
           owner_id: "run-42",
           owner_actor: null,
-          expires_at: "2026-07-27T09:10:00Z",
         }),
       ],
     });
@@ -159,10 +155,7 @@ describe("instrument workspace", () => {
     expect(screen.queryByText("vv1")).not.toBeInTheDocument();
   });
 
-  it("connects explicitly, reads initial state, heartbeats, and closes on unmount", async () => {
-    vi.mocked(openInstrumentSession).mockResolvedValue(
-      sessionLease({ heartbeat_interval_seconds: 0.01 }),
-    );
+  it("connects explicitly, reads initial state, and closes on unmount", async () => {
     const rendered = renderWorkspace();
 
     await screen.findByText("Drive source");
@@ -186,32 +179,32 @@ describe("instrument workspace", () => {
       ),
     );
     expect(await screen.findByDisplayValue("5000000000")).toBeVisible();
-    await waitFor(() => expect(heartbeatInstrumentSession).toHaveBeenCalled());
 
     rendered.unmount();
 
-    await waitFor(() =>
-      expect(closeInstrumentSession).toHaveBeenCalledWith(
-        expect.objectContaining({ session_id: "session-1" }),
-        true,
-      ),
-    );
+    await waitFor(() => expect(closeInstrumentSession).toHaveBeenCalledWith("session-1", true));
   });
 
-  it("explains that an expired lease is quarantined instead of auto-released", async () => {
-    vi.mocked(openInstrumentSession).mockResolvedValue(
-      sessionLease({ heartbeat_interval_seconds: 0.01 }),
-    );
-    vi.mocked(heartbeatInstrumentSession).mockRejectedValue(new Error("Heartbeat failed."));
+  it("allows an operator to disconnect a daemon-owned interactive session", async () => {
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      config_content_hash: "sha256:active",
+      problems: [],
+      items: [
+        instrument({
+          availability: "active",
+          owner_kind: "instrument_session",
+          owner_id: "session-stale",
+          owner_actor: "Grace",
+        }),
+      ],
+    });
     renderWorkspace();
 
-    await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(await screen.findByText("Read-only while owned")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect session" }));
 
-    expect(
-      await screen.findByText(/the session enters attention_required\/quarantine/i),
-    ).toHaveTextContent("it is not released automatically");
-    expect(screen.getByText(/An operator must resolve it before/)).toBeVisible();
+    await waitFor(() => expect(abortInstrumentSession).toHaveBeenCalledWith("session-stale"));
   });
 
   it("stages typed fields locally and sends one apply command", async () => {
@@ -249,7 +242,7 @@ describe("instrument workspace", () => {
     expect(await screen.findByText("Apply receipt: Applied")).toBeVisible();
   });
 
-  it("reuses operation ids while retrying apply, collect, and close", async () => {
+  it("reuses operation ids while retrying mutations", async () => {
     vi.mocked(applyInstrumentState).mockRejectedValueOnce(new Error("Apply network failed."));
     vi.mocked(collectInstrumentCapability).mockRejectedValueOnce(
       new Error("Collect network failed."),
@@ -283,9 +276,7 @@ describe("instrument workspace", () => {
     await waitFor(() => expect(closeInstrumentSession).toHaveBeenCalledTimes(2), {
       timeout: 2_000,
     });
-    expect(vi.mocked(closeInstrumentSession).mock.calls[0]?.[2]).toBe(
-      vi.mocked(closeInstrumentSession).mock.calls[1]?.[2],
-    );
+    expect(vi.mocked(closeInstrumentSession).mock.calls).toEqual([["session-1"], ["session-1"]]);
   });
 
   it("starts a new collect operation after an applied state change", async () => {
@@ -340,7 +331,7 @@ describe("instrument workspace", () => {
       items: [mixedAxisInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
-      sessionLease({ descriptions: [mixedAxisInstrument.description] }),
+      session({ descriptions: [mixedAxisInstrument.description] }),
     );
 
     renderWorkspace();
@@ -358,7 +349,7 @@ describe("instrument workspace", () => {
     expect(collectInstrumentCapability).not.toHaveBeenCalled();
   });
 
-  it("keeps the lease and close id available after network retries fail", async () => {
+  it("keeps the session available after close retries fail", async () => {
     vi.mocked(closeInstrumentSession)
       .mockRejectedValueOnce(new ApiError("Close request lost."))
       .mockRejectedValueOnce(new ApiError("Close request lost again."));
@@ -369,23 +360,21 @@ describe("instrument workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
 
-    expect(
-      await screen.findByText(/the session enters attention_required\/quarantine/i),
-    ).toBeVisible();
+    expect(await screen.findByText("Close request lost again.")).toBeVisible();
     expect(screen.getByText("Interactive session connected")).toBeVisible();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeEnabled();
     expect(closeInstrumentSession).toHaveBeenCalledTimes(2);
-    const retainedOperationId = vi.mocked(closeInstrumentSession).mock.calls[0]?.[2];
-    expect(vi.mocked(closeInstrumentSession).mock.calls[1]?.[2]).toBe(retainedOperationId);
+    expect(vi.mocked(closeInstrumentSession).mock.calls[0]).toEqual(["session-1"]);
+    expect(vi.mocked(closeInstrumentSession).mock.calls[1]).toEqual(["session-1"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
 
     await waitFor(() => expect(closeInstrumentSession).toHaveBeenCalledTimes(3));
-    expect(vi.mocked(closeInstrumentSession).mock.calls[2]?.[2]).toBe(retainedOperationId);
+    expect(vi.mocked(closeInstrumentSession).mock.calls[2]).toEqual(["session-1"]);
     expect(await screen.findByRole("button", { name: "Connect" })).toBeVisible();
   });
 
-  it("stays on the leased instrument when closing before selection fails", async () => {
+  it("stays on the connected instrument when closing before selection fails", async () => {
     const monitor = instrument({
       spec: {
         id: "monitor",
@@ -416,12 +405,12 @@ describe("instrument workspace", () => {
 
     expect(await screen.findByText(/Switch close failed/)).toBeVisible();
     expect(screen.getByRole("heading", { name: "Drive source", level: 2 })).toBeVisible();
-    const operationId = vi.mocked(closeInstrumentSession).mock.calls[0]?.[2];
+    expect(vi.mocked(closeInstrumentSession).mock.calls[0]).toEqual(["session-1"]);
 
     fireEvent.click(screen.getByTitle("Inspect instrument monitor"));
 
     expect(await screen.findByRole("heading", { name: "Fridge monitor", level: 2 })).toBeVisible();
-    expect(vi.mocked(closeInstrumentSession).mock.calls[1]?.[2]).toBe(operationId);
+    expect(vi.mocked(closeInstrumentSession).mock.calls[1]).toEqual(["session-1"]);
   });
 
   it("edits only endpoint fields while keeping driver and connection kind fixed", async () => {
@@ -498,7 +487,6 @@ describe("instrument workspace", () => {
           owner_kind: "instrument_session",
           owner_id: "session-stale",
           owner_actor: "Grace",
-          expires_at: null,
         }),
       ],
     });
@@ -578,24 +566,20 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
     owner_kind: null,
     owner_id: null,
     owner_actor: null,
-    expires_at: null,
     problems: [],
     ...overrides,
   };
 }
 
-function sessionLease(overrides: Partial<InstrumentSessionLease> = {}): InstrumentSessionLease {
+function session(overrides: Partial<InstrumentSession> = {}): InstrumentSession {
   return {
     session_id: "session-1",
-    lease_id: "lease-1",
     actor: "local-operator",
     config_entry_id: "lab-default",
     config_content_hash: "sha256:active",
     instrument_ids: ["drive-source"],
     descriptions: [instrument().description!],
-    issued_at: "2026-07-27T09:00:00Z",
-    expires_at: "2026-07-27T09:05:00Z",
-    heartbeat_interval_seconds: 60,
+    opened_at: "2026-07-27T09:00:00Z",
     ...overrides,
   };
 }

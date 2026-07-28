@@ -46,14 +46,9 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    InstrumentSessionApplyCommand,
-    InstrumentSessionCollectCommand,
-    InstrumentSessionEndCommand,
     InstrumentSessionEndReceipt,
-    InstrumentSessionHeartbeat,
-    InstrumentSessionLease,
     InstrumentSessionOpenCommand,
-    InstrumentSessionReadCommand,
+    InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
     MeasurementSealCommand,
     RunAdmission,
@@ -80,7 +75,12 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
-from scopecat.sdk.instruments.contracts import ApplyReceipt, CollectReceipt
+from scopecat.sdk.instruments.contracts import (
+    ApplyReceipt,
+    CollectCommand,
+    CollectReceipt,
+    InstrumentStateCommand,
+)
 
 _API_PREFIX = "/api/v1"
 
@@ -214,40 +214,24 @@ class DaemonClient:
     def open_instrument_session(
         self,
         command: InstrumentSessionOpenCommand,
-    ) -> InstrumentSessionLease:
+    ) -> InstrumentSessionOpenReceipt:
         return self._post_idempotent_model(
             f"{_API_PREFIX}/instrument-sessions",
             command,
-            InstrumentSessionLease,
-        )
-
-    def heartbeat_instrument_session(
-        self,
-        session_id: str,
-        heartbeat: InstrumentSessionHeartbeat,
-    ) -> InstrumentSessionLease:
-        return self._post_model(
-            (
-                f"{_API_PREFIX}/instrument-sessions/"
-                f"{quote(session_id, safe='')}/heartbeat"
-            ),
-            heartbeat,
-            InstrumentSessionLease,
+            InstrumentSessionOpenReceipt,
         )
 
     def read_instrument_state(
         self,
         session_id: str,
         instrument_id: str,
-        command: InstrumentSessionReadCommand,
     ) -> InstrumentStateSnapshot:
-        return self._post_model(
+        return self._get_model(
             self._instrument_session_path(
                 session_id,
                 instrument_id,
-                "state/read",
+                "state",
             ),
-            command,
             InstrumentStateSnapshot,
         )
 
@@ -255,7 +239,7 @@ class DaemonClient:
         self,
         session_id: str,
         instrument_id: str,
-        command: InstrumentSessionApplyCommand,
+        command: InstrumentStateCommand,
     ) -> ApplyReceipt:
         return self._post_idempotent_model(
             self._instrument_session_path(
@@ -271,7 +255,7 @@ class DaemonClient:
         self,
         session_id: str,
         instrument_id: str,
-        command: InstrumentSessionCollectCommand,
+        command: CollectCommand,
     ) -> CollectReceipt:
         return self._post_idempotent_model(
             self._instrument_session_path(
@@ -286,22 +270,18 @@ class DaemonClient:
     def close_instrument_session(
         self,
         session_id: str,
-        command: InstrumentSessionEndCommand,
     ) -> InstrumentSessionEndReceipt:
-        return self._post_idempotent_model(
+        return self._post_empty_idempotent_model(
             (f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/close"),
-            command,
             InstrumentSessionEndReceipt,
         )
 
     def abort_instrument_session(
         self,
         session_id: str,
-        command: InstrumentSessionEndCommand,
     ) -> InstrumentSessionEndReceipt:
-        return self._post_idempotent_model(
+        return self._post_empty_idempotent_model(
             (f"{_API_PREFIX}/instrument-sessions/{quote(session_id, safe='')}/abort"),
-            command,
             InstrumentSessionEndReceipt,
         )
 
@@ -682,6 +662,19 @@ class DaemonClient:
             return self._post_model(path, body, model)
         except httpx2.TransportError:
             return self._post_model(path, body, model)
+
+    def _post_empty_idempotent_model[ModelT: BaseModel](
+        self,
+        path: str,
+        model: type[ModelT],
+    ) -> ModelT:
+        """Retry one transport failure against an idempotent empty command."""
+
+        try:
+            response = self._request("POST", path)
+        except httpx2.TransportError:
+            response = self._request("POST", path)
+        return model.model_validate_json(response.content)
 
     def _request(
         self,

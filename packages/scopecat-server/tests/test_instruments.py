@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from datetime import UTC, datetime, timedelta
+from collections.abc import Sequence
 from pathlib import Path
-from time import sleep
 from typing import Never, override
 
 import httpx2
@@ -15,11 +13,7 @@ from scopecat.control.models import ResourceKey, RunPlanSummary
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.wire import (
     ExecutorStartRequest,
-    InstrumentSessionApplyCommand,
-    InstrumentSessionCollectCommand,
-    InstrumentSessionEndCommand,
     InstrumentSessionOpenCommand,
-    InstrumentSessionReadCommand,
     RunSubmission,
 )
 from scopecat.kernel.problems import ProblemPhase, model_location, problem
@@ -96,21 +90,7 @@ class _TrackingProvider:
         return InstrumentProviderResult(drivers=drivers)
 
 
-class _SlowProvider(_TrackingProvider):
-    def __init__(self, delay_seconds: float) -> None:
-        super().__init__()
-        self._delay_seconds = delay_seconds
-
-    @override
-    def provide(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        sleep(self._delay_seconds)
-        return super().provide(context)
-
-
-class _SlowRejectedProvider(_SlowProvider):
+class _RejectedProvider(_TrackingProvider):
     @override
     def provide(
         self,
@@ -278,7 +258,7 @@ def test_operation_retry_is_deduplicated_and_conflicting_content_is_rejected(
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            lease = daemon.open_instrument_session(
+            session = daemon.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id="open-1",
                     actor="alice",
@@ -286,20 +266,16 @@ def test_operation_retry_is_deduplicated_and_conflicting_content_is_rejected(
                 )
             )
             command = _apply_command(value=5.0)
-            request = InstrumentSessionApplyCommand(
-                lease_id=lease.lease_id,
-                command=command,
-            )
 
             first = daemon.apply_instrument_state(
-                lease.session_id,
+                session.session_id,
                 "source-0",
-                request,
+                command,
             )
             second = daemon.apply_instrument_state(
-                lease.session_id,
+                session.session_id,
                 "source-0",
-                request,
+                command,
             )
 
             assert second == first
@@ -307,20 +283,11 @@ def test_operation_retry_is_deduplicated_and_conflicting_content_is_rejected(
             assert len(driver.applied) == 1
             with pytest.raises(DaemonConflictError, match="different apply content"):
                 daemon.apply_instrument_state(
-                    lease.session_id,
+                    session.session_id,
                     "source-0",
-                    InstrumentSessionApplyCommand(
-                        lease_id=lease.lease_id,
-                        command=_apply_command(value=5.2),
-                    ),
+                    _apply_command(value=5.2),
                 )
-            daemon.close_instrument_session(
-                lease.session_id,
-                InstrumentSessionEndCommand(
-                    lease_id=lease.lease_id,
-                    operation_id="close-1",
-                ),
-            )
+            daemon.close_instrument_session(session.session_id)
 
 
 def test_open_retry_reuses_session_without_reprovisioning(tmp_path: Path) -> None:
@@ -339,66 +306,31 @@ def test_open_retry_reuses_session_without_reprovisioning(tmp_path: Path) -> Non
 
             assert second == first
             assert len(provider.drivers) == 1
-            daemon.close_instrument_session(
-                first.session_id,
-                InstrumentSessionEndCommand(
-                    lease_id=first.lease_id,
-                    operation_id="close-open-retry",
-                ),
-            )
+            daemon.close_instrument_session(first.session_id)
 
 
-def test_open_refreshes_lease_after_slow_provisioning(tmp_path: Path) -> None:
-    lease_ttl = timedelta(milliseconds=300)
-    provider = _SlowProvider(delay_seconds=0.22)
-    with _runtime(tmp_path, provider, lease_ttl=lease_ttl) as runtime:  # noqa: SIM117
-        with TestClient(runtime.app()) as transport:
-            daemon = _daemon_client(transport)
-
-            lease = daemon.open_instrument_session(
-                InstrumentSessionOpenCommand(
-                    operation_id="open-slow",
-                    actor="alice",
-                    instrument_ids=("source-0",),
-                )
-            )
-
-            assert lease.expires_at - datetime.now(UTC) > lease_ttl * 2 / 3
-            daemon.close_instrument_session(
-                lease.session_id,
-                InstrumentSessionEndCommand(
-                    lease_id=lease.lease_id,
-                    operation_id="close-slow",
-                ),
-            )
-
-
-def test_slow_rejection_quarantines_an_expired_session(tmp_path: Path) -> None:
-    provider = _SlowRejectedProvider(delay_seconds=0.22)
+def test_provider_rejection_closes_the_daemon_session(tmp_path: Path) -> None:
+    provider = _RejectedProvider()
     with (
-        _runtime(
-            tmp_path,
-            provider,
-            lease_ttl=timedelta(milliseconds=150),
-        ) as runtime,
+        _runtime(tmp_path, provider) as runtime,
         TestClient(runtime.app()) as transport,
     ):
         daemon = _daemon_client(transport)
 
-        with pytest.raises(
-            DaemonConflictError,
-            match="lease expired while connecting",
-        ):
+        with pytest.raises(DaemonConflictError, match="provider rejected"):
             daemon.open_instrument_session(
                 InstrumentSessionOpenCommand(
-                    operation_id="open-slow-rejected",
+                    operation_id="open-rejected",
                     actor="alice",
                     instrument_ids=("source-0",),
                 )
             )
 
         [session] = runtime.application.executor._control.list_instrument_sessions()
-        assert session.state == "attention_required"
+        assert session.state == "closed"
+        assert session.end_status == "aborted"
+        [instrument] = daemon.list_instruments().items
+        assert instrument.availability == "available"
         [driver] = provider.drivers
         assert driver.close_count == 1
 
@@ -420,10 +352,27 @@ def test_notebook_open_retry_reuses_operation_after_response_loss(
             )
 
             state = handle.read_state()
-            handle.close(operation_id="close-after-open-loss")
+            handle.close()
 
             assert state.instrument_id == "source-0"
             assert len(provider.drivers) == 1
+
+
+def test_notebook_can_abort_a_daemon_owned_session_by_id(tmp_path: Path) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+            handle = lab.instruments.open("source-0", actor="alice")
+            handle.read_state()
+
+            receipt = lab.instruments.abort_session(handle.session_id)
+            replay = handle.abort()
+
+            assert receipt.status == "aborted"
+            assert replay == receipt
+            [driver] = provider.drivers
+            assert driver.abort_count == 1
 
 
 def test_abort_retry_replays_receipt_without_repeating_driver_calls(
@@ -433,30 +382,21 @@ def test_abort_retry_replays_receipt_without_repeating_driver_calls(
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            lease = daemon.open_instrument_session(
+            session = daemon.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id="open-abort-retry",
                     actor="alice",
                     instrument_ids=("source-0",),
                 )
             )
-            command = InstrumentSessionEndCommand(
-                lease_id=lease.lease_id,
-                operation_id="abort-retry",
-            )
-
-            first = daemon.abort_instrument_session(lease.session_id, command)
-            second = daemon.abort_instrument_session(lease.session_id, command)
+            first = daemon.abort_instrument_session(session.session_id)
+            second = daemon.abort_instrument_session(session.session_id)
 
             assert second == first
             [driver] = provider.drivers
             assert driver.abort_count == 1
             assert driver.close_count == 1
-            with pytest.raises(
-                DaemonConflictError,
-                match="different content",
-            ):
-                daemon.close_instrument_session(lease.session_id, command)
+            assert daemon.close_instrument_session(session.session_id) == first
 
 
 def test_notebook_close_remains_retryable_after_both_transport_attempts_fail(
@@ -477,51 +417,11 @@ def test_notebook_close_remains_retryable_after_both_transport_attempts_fail(
             handle.read_state()
 
             with pytest.raises(httpx2.ReadError, match="response was lost"):
-                handle.close(operation_id="close-after-loss")
+                handle.close()
             receipt = handle.close()
 
             assert receipt is not None
-            assert receipt.operation_id == "close-after-loss"
-            [driver] = provider.drivers
-            assert driver.close_count == 1
-
-
-def test_failed_notebook_close_keeps_heartbeating_until_later_retry(
-    tmp_path: Path,
-) -> None:
-    provider = _TrackingProvider()
-    lease_ttl = timedelta(milliseconds=120)
-    heartbeat_requests = 0
-
-    def observe_request(request: httpx2.Request) -> None:
-        nonlocal heartbeat_requests
-        if request.url.path.endswith("/heartbeat"):
-            heartbeat_requests += 1
-
-    with _runtime(tmp_path, provider, lease_ttl=lease_ttl) as runtime:  # noqa: SIM117
-        with TestClient(runtime.app()) as transport:
-            daemon = _daemon_client(
-                transport,
-                fail_request_suffix="/close",
-                fail_request_count=2,
-                observe_request=observe_request,
-            )
-            handle = LabClient(daemon).instruments.open(
-                "source-0",
-                actor="alice",
-            )
-            handle.read_state()
-
-            with pytest.raises(httpx2.ReadError, match="request failed"):
-                handle.close(operation_id="close-after-long-failure")
-            heartbeats_before_wait = heartbeat_requests
-            sleep(lease_ttl.total_seconds() * 3)
-
-            assert heartbeat_requests > heartbeats_before_wait
-            receipt = handle.close()
-
-            assert receipt is not None
-            assert receipt.operation_id == "close-after-long-failure"
+            assert receipt.status == "closed"
             [driver] = provider.drivers
             assert driver.close_count == 1
 
@@ -584,7 +484,7 @@ def test_read_failure_keeps_session_active_and_does_not_quarantine(
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            lease = daemon.open_instrument_session(
+            session = daemon.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id="open-read-failure",
                     actor="alice",
@@ -594,20 +494,13 @@ def test_read_failure_keeps_session_active_and_does_not_quarantine(
 
             with pytest.raises(DaemonConflictError, match="state read failed"):
                 daemon.read_instrument_state(
-                    lease.session_id,
+                    session.session_id,
                     "source-0",
-                    InstrumentSessionReadCommand(lease_id=lease.lease_id),
                 )
 
             [instrument] = daemon.list_instruments().items
             assert instrument.availability == "active"
-            daemon.close_instrument_session(
-                lease.session_id,
-                InstrumentSessionEndCommand(
-                    lease_id=lease.lease_id,
-                    operation_id="close-read-failure",
-                ),
-            )
+            daemon.close_instrument_session(session.session_id)
 
 
 def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
@@ -617,29 +510,26 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            lease = daemon.open_instrument_session(
+            session = daemon.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id="open-invalid-collect",
                     actor="alice",
                     instrument_ids=("source-0",),
                 )
             )
-            request = InstrumentSessionCollectCommand(
-                lease_id=lease.lease_id,
-                command=CollectCommand(
-                    operation_id="collect-invalid",
-                    instrument_id="source-0",
-                    point_index=0,
-                    point_count=1,
-                    requests=[
-                        CollectProductRequest(
-                            id="signal",
-                            capability_id="scalar_signal",
-                            dtype="float64",
-                            unit="ratio",
-                        )
-                    ],
-                ),
+            request = CollectCommand(
+                operation_id="collect-invalid",
+                instrument_id="source-0",
+                point_index=0,
+                point_count=1,
+                requests=[
+                    CollectProductRequest(
+                        id="signal",
+                        capability_id="scalar_signal",
+                        dtype="float64",
+                        unit="ratio",
+                    )
+                ],
             )
 
             for _attempt in range(2):
@@ -648,7 +538,7 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
                     match="unit_mismatch",
                 ):
                     daemon.collect_instrument(
-                        lease.session_id,
+                        session.session_id,
                         "source-0",
                         request,
                     )
@@ -657,13 +547,7 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
             [instrument] = daemon.list_instruments().items
             assert len(driver.collect_commands) == 1
             assert instrument.availability == "active"
-            daemon.close_instrument_session(
-                lease.session_id,
-                InstrumentSessionEndCommand(
-                    lease_id=lease.lease_id,
-                    operation_id="close-invalid-collect",
-                ),
-            )
+            daemon.close_instrument_session(session.session_id)
 
 
 def test_provider_instance_and_virtual_state_survive_across_sessions(
@@ -698,18 +582,9 @@ def test_provider_instance_and_virtual_state_survive_across_sessions(
         daemon.apply_instrument_state(
             first.session_id,
             "source-0",
-            InstrumentSessionApplyCommand(
-                lease_id=first.lease_id,
-                command=_apply_command(value=5.1),
-            ),
+            _apply_command(value=5.1),
         )
-        daemon.close_instrument_session(
-            first.session_id,
-            InstrumentSessionEndCommand(
-                lease_id=first.lease_id,
-                operation_id="close-stateful-1",
-            ),
-        )
+        daemon.close_instrument_session(first.session_id)
 
         second = daemon.open_instrument_session(
             InstrumentSessionOpenCommand(
@@ -721,15 +596,8 @@ def test_provider_instance_and_virtual_state_survive_across_sessions(
         state = daemon.read_instrument_state(
             second.session_id,
             "source-0",
-            InstrumentSessionReadCommand(lease_id=second.lease_id),
         )
-        daemon.close_instrument_session(
-            second.session_id,
-            InstrumentSessionEndCommand(
-                lease_id=second.lease_id,
-                operation_id="close-stateful-2",
-            ),
-        )
+        daemon.close_instrument_session(second.session_id)
 
     [field] = state.fields
     assert field.value == StateValue(Quantity(value=5.1, unit="GHz"))
@@ -759,7 +627,7 @@ def test_run_and_interactive_session_compete_for_the_same_resource(
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            lease = daemon.open_instrument_session(
+            session = daemon.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id="open-exclusive",
                     actor="alice",
@@ -774,13 +642,7 @@ def test_run_and_interactive_session_compete_for_the_same_resource(
                     ExecutorStartRequest(executor_id="notebook"),
                 )
 
-            daemon.close_instrument_session(
-                lease.session_id,
-                InstrumentSessionEndCommand(
-                    lease_id=lease.lease_id,
-                    operation_id="close-exclusive",
-                ),
-            )
+            daemon.close_instrument_session(session.session_id)
             executor = daemon.start_executor(
                 admission.run_id,
                 ExecutorStartRequest(executor_id="notebook"),
@@ -802,7 +664,6 @@ def _runtime(
     provider: _TrackingProvider,
     *,
     config: ConfigProfileSnapshot | None = None,
-    lease_ttl: timedelta | None = None,
 ) -> LocalDaemonRuntime:
     def factory(_root: Path) -> LabApplication:
         return LabApplication(
@@ -813,7 +674,6 @@ def _runtime(
         root,
         bootstrap_config=config if config is not None else load_config(),
         application_factory=factory,
-        lease_ttl=lease_ttl,
     )
 
 
@@ -822,27 +682,11 @@ def _daemon_client(
     *,
     drop_response_suffix: str | None = None,
     drop_response_count: int = 1,
-    fail_request_suffix: str | None = None,
-    fail_request_count: int = 0,
-    observe_request: Callable[[httpx2.Request], None] | None = None,
 ) -> DaemonClient:
     responses_dropped = 0
-    requests_failed = 0
 
     def send(request: httpx2.Request) -> httpx2.Response:
-        nonlocal requests_failed, responses_dropped
-        if observe_request is not None:
-            observe_request(request)
-        if (
-            fail_request_suffix is not None
-            and request.url.path.endswith(fail_request_suffix)
-            and requests_failed < fail_request_count
-        ):
-            requests_failed += 1
-            raise httpx2.ReadError(
-                "request failed before reaching the daemon",
-                request=request,
-            )
+        nonlocal responses_dropped
         response = transport.request(
             request.method,
             request.url.raw_path.decode(),

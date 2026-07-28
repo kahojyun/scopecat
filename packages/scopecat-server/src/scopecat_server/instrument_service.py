@@ -6,7 +6,6 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import timedelta
 from threading import RLock
 from typing import Literal
 
@@ -15,25 +14,20 @@ from scopecat.adapters.sqlite import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
-    InstrumentSessionLeaseNotHeld,
+    InstrumentSessionNotActive,
     SQLiteControlPlane,
     SQLiteRunRepository,
 )
 from scopecat.control.models import (
     DurableEventInput,
     InstrumentSession,
-    ResourceLease,
+    ResourceClaim,
 )
 from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
-    InstrumentSessionApplyCommand,
-    InstrumentSessionCollectCommand,
-    InstrumentSessionEndCommand,
     InstrumentSessionEndReceipt,
-    InstrumentSessionHeartbeat,
-    InstrumentSessionLease,
     InstrumentSessionOpenCommand,
-    InstrumentSessionReadCommand,
+    InstrumentSessionOpenReceipt,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -84,7 +78,7 @@ from scopecat.sdk.instruments.contracts import (
 from .config_service import ConfigService
 from .errors import BackendConflict, BackendNotFound
 
-_ENDED_SESSION_LIMIT = 256
+_FINISHED_RUN_CACHE_LIMIT = 256
 
 
 @dataclass(slots=True)
@@ -124,13 +118,6 @@ class _LiveDrivers:
 
 
 @dataclass(frozen=True, slots=True)
-class _EndedSession:
-    command: InstrumentSessionEndCommand
-    abort: bool
-    receipt: InstrumentSessionEndReceipt
-
-
-@dataclass(frozen=True, slots=True)
 class _FinishedRunHardware:
     command: RunHardwareFinishCommand
     receipt: RunHardwareFinalizationReceipt
@@ -148,7 +135,7 @@ class _RunProvision:
 
 
 class InstrumentService:
-    """Retain live drivers behind renewable daemon fencing tokens."""
+    """Own live drivers and serialize direct and run-scoped operations."""
 
     def __init__(
         self,
@@ -157,18 +144,14 @@ class InstrumentService:
         runs: SQLiteRunRepository,
         config: ConfigService,
         build_system: ExperimentSystemBuilder | None,
-        lease_ttl: timedelta | None = None,
     ) -> None:
         self._control = control
         self._runs = runs
         self._config = config
         self._build_system = build_system
-        self._lease_ttl = lease_ttl or timedelta(seconds=30)
-        self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
         self._sessions: dict[str, _LiveDrivers] = {}
-        self._ended_sessions: OrderedDict[str, _EndedSession] = OrderedDict()
         self._finished_runs: OrderedDict[str, _FinishedRunHardware] = OrderedDict()
-        self._ended_session_limit = _ENDED_SESSION_LIMIT
+        self._finished_run_cache_limit = _FINISHED_RUN_CACHE_LIMIT
         self._run_runtimes: dict[str, _LiveDrivers] = {}
         self._run_provisions: dict[str, _RunProvision] = {}
         self._sessions_lock = RLock()
@@ -189,12 +172,12 @@ class InstrumentService:
             provider_problems,
         )
         with self._control.transaction() as connection:
-            leases = {
-                lease.resource.id: lease
-                for lease in self._control.list_resource_leases_in_transaction(
+            claims = {
+                claim.resource.id: claim
+                for claim in self._control.list_resource_claims_in_transaction(
                     connection
                 )
-                if lease.resource.kind == "instrument"
+                if claim.resource.kind == "instrument"
             }
         session_actors = {
             session.session_id: session.actor
@@ -205,12 +188,12 @@ class InstrumentService:
             self._instrument_view(
                 spec,
                 description=descriptions.get(spec.id),
-                lease=leases.get(spec.id),
+                claim=claims.get(spec.id),
                 owner_actor=(
-                    session_actors.get(lease.owner_id)
+                    session_actors.get(claim.owner_id)
                     if (
-                        (lease := leases.get(spec.id)) is not None
-                        and lease.owner_kind == "instrument_session"
+                        (claim := claims.get(spec.id)) is not None
+                        and claim.owner_kind == "instrument_session"
                     )
                     else None
                 ),
@@ -845,7 +828,7 @@ class InstrumentService:
                     command=command,
                     receipt=receipt,
                 )
-                while len(self._finished_runs) > self._ended_session_limit:
+                while len(self._finished_runs) > self._finished_run_cache_limit:
                     self._finished_runs.popitem(last=False)
             return receipt
 
@@ -972,14 +955,14 @@ class InstrumentService:
     def open_session(
         self,
         command: InstrumentSessionOpenCommand,
-    ) -> InstrumentSessionLease:
+    ) -> InstrumentSessionOpenReceipt:
         with self._open_lock:
             return self._open_session(command)
 
     def _open_session(
         self,
         command: InstrumentSessionOpenCommand,
-    ) -> InstrumentSessionLease:
+    ) -> InstrumentSessionOpenReceipt:
         active = self._config.get_active_config()
         configured = {
             spec.id: spec for spec in active.config.instrument_registry.instruments
@@ -1004,14 +987,13 @@ class InstrumentService:
                 config_entry_id=active.entry.id,
                 config_content_hash=active.entry.content_hash,
                 instrument_ids=command.instrument_ids,
-                ttl=self._lease_ttl,
             )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
         with self._sessions_lock:
             existing_runtime = self._sessions.get(session.session_id)
         if existing_runtime is not None:
-            return self._wire_lease(session, existing_runtime)
+            return self._wire_session(session, existing_runtime)
 
         try:
             runtime, _metadata = _provide_drivers(
@@ -1028,17 +1010,10 @@ class InstrumentService:
                     reason="instrument_provisioning_cleanup_failed",
                 )
             else:
-                with self._attention_lock:
-                    try:
-                        self._control.close_instrument_session(
-                            session.session_id,
-                            token=_session_token(session),
-                        )
-                    except InstrumentSessionLeaseNotHeld as lease_error:
-                        self.expire_sessions()
-                        raise BackendConflict(
-                            "instrument session lease expired while connecting"
-                        ) from lease_error
+                self._control.close_instrument_session(
+                    session.session_id,
+                    status="aborted",
+                )
             raise BackendConflict(str(error)) from error
         except _ProvisioningUnknown as error:
             _call_all(error.drivers, _abort_driver)
@@ -1048,56 +1023,20 @@ class InstrumentService:
                 "instrument provider failed while connecting"
             ) from error
 
-        with self._attention_lock:
-            try:
-                session = self._control.renew_instrument_session(
-                    session.session_id,
-                    _session_token(session),
-                    ttl=self._lease_ttl,
-                )
-            except InstrumentSessionLeaseNotHeld as error:
-                _call_all(runtime.drivers.values(), _abort_driver)
-                _call_all(runtime.drivers.values(), _close_driver)
-                raise BackendConflict(
-                    "instrument session lease expired while connecting"
-                ) from error
-            with self._sessions_lock:
-                self._sessions[session.session_id] = runtime
-        return self._wire_lease(session, runtime)
-
-    def heartbeat(
-        self,
-        session_id: str,
-        heartbeat: InstrumentSessionHeartbeat,
-    ) -> InstrumentSessionLease:
-        try:
-            renewed = self._control.renew_instrument_session(
-                session_id,
-                heartbeat.lease_id,
-                ttl=self._lease_ttl,
-            )
-            runtime = self._live_runtime(session_id)
-        except (
-            ControlPlaneConflict,
-            InstrumentSessionLeaseNotHeld,
-        ) as error:
-            raise BackendConflict(
-                "instrument session lease is absent, stale, or expired"
-            ) from error
-        return self._wire_lease(renewed, runtime)
+        with self._sessions_lock:
+            self._sessions[session.session_id] = runtime
+        return self._wire_session(session, runtime)
 
     def read_state(
         self,
         session_id: str,
         instrument_id: str,
-        command: InstrumentSessionReadCommand,
     ) -> InstrumentStateSnapshot:
         runtime = self._live_runtime(session_id)
         with runtime.lock:
-            _session, _runtime, driver = self._fenced_driver(
+            _session, _runtime, driver = self._session_driver(
                 session_id,
                 instrument_id,
-                command.lease_id,
             )
             return _read_driver_state(driver, instrument_id=instrument_id)
 
@@ -1105,23 +1044,22 @@ class InstrumentService:
         self,
         session_id: str,
         instrument_id: str,
-        request: InstrumentSessionApplyCommand,
+        command: InstrumentStateCommand,
     ) -> ApplyReceipt:
-        if request.command.instrument_id != instrument_id:
+        if command.instrument_id != instrument_id:
             raise BackendConflict("instrument apply command does not match its route")
         runtime = self._live_runtime(session_id)
         with runtime.lock:
-            session, _runtime, driver = self._fenced_driver(
+            session, _runtime, driver = self._session_driver(
                 session_id,
                 instrument_id,
-                request.lease_id,
             )
-            operation_id = request.command.operation_id
+            operation_id = command.operation_id
             assert operation_id is not None
             return self._apply_live(
                 runtime,
                 driver,
-                command=request.command,
+                command=command,
                 conflict_scope="interactive",
                 on_started=lambda: self._record_operation_started(
                     session,
@@ -1147,25 +1085,24 @@ class InstrumentService:
         self,
         session_id: str,
         instrument_id: str,
-        request: InstrumentSessionCollectCommand,
+        command: CollectCommand,
     ) -> CollectReceipt:
-        if request.command.instrument_id != instrument_id:
+        if command.instrument_id != instrument_id:
             raise BackendConflict("instrument collect command does not match its route")
-        if request.command.point_index != 0 or request.command.point_count != 1:
+        if command.point_index != 0 or command.point_count != 1:
             raise BackendConflict("interactive collect uses exactly one implicit point")
         runtime = self._live_runtime(session_id)
         with runtime.lock:
-            session, _runtime, driver = self._fenced_driver(
+            session, _runtime, driver = self._session_driver(
                 session_id,
                 instrument_id,
-                request.lease_id,
             )
-            operation_id = request.command.operation_id
+            operation_id = command.operation_id
             assert operation_id is not None
             return self._collect_live(
                 runtime,
                 driver,
-                command=request.command,
+                command=command,
                 conflict_scope="interactive",
                 on_started=lambda: self._record_operation_started(
                     session,
@@ -1322,22 +1259,18 @@ class InstrumentService:
     def close_session(
         self,
         session_id: str,
-        command: InstrumentSessionEndCommand,
     ) -> InstrumentSessionEndReceipt:
         return self._end_session(
             session_id,
-            command,
             abort=False,
         )
 
     def abort_session(
         self,
         session_id: str,
-        command: InstrumentSessionEndCommand,
     ) -> InstrumentSessionEndReceipt:
         return self._end_session(
             session_id,
-            command,
             abort=True,
         )
 
@@ -1347,24 +1280,15 @@ class InstrumentService:
                 session = self._control.get_instrument_session(session_id)
                 if session.state == "attention_required":
                     self._cleanup_session_runtime(session_id)
-                _session, released = self._control.resolve_instrument_session_attention(
-                    session_id
-                )
+                self._control.resolve_instrument_session_attention(session_id)
             except ControlPlaneNotFound as error:
                 raise BackendNotFound(str(error)) from error
             except ControlPlaneConflict as error:
                 raise BackendConflict(str(error)) from error
         return InstrumentSessionEndReceipt(
             session_id=session_id,
-            operation_id="operator-attention-resolution",
             status="aborted",
-            released_resource_count=released,
         )
-
-    def expire_sessions(self) -> None:
-        expired = self._control.expire_instrument_sessions()
-        for session_id in expired:
-            self._cleanup_session_runtime(session_id)
 
     def _cleanup_session_runtime(self, session_id: str) -> None:
         with self._sessions_lock:
@@ -1382,11 +1306,10 @@ class InstrumentService:
                     self._sessions.pop(session_id)
 
     def expire_leases(self) -> None:
-        """Fence expired owners and finish cleanup before attention can resolve."""
+        """Fence expired executors and finish their daemon-owned cleanup."""
 
         with self._attention_lock:
             self.expire_runs(self._control.expire_executor_leases())
-            self.expire_sessions()
 
     def finalize_run(self, run_id: str, *, token: str) -> None:
         """Release any drivers left behind before committing a terminal run."""
@@ -1462,9 +1385,7 @@ class InstrumentService:
     def reconcile_startup(self) -> None:
         with self._attention_lock:
             self.expire_runs(self._control.abandon_executor_leases())
-            abandoned_sessions = self._control.abandon_instrument_sessions()
-            for session_id in abandoned_sessions:
-                self._cleanup_session_runtime(session_id)
+            self._control.reconcile_instrument_sessions_after_restart()
 
     def shutdown(self) -> None:
         with self._sessions_lock:
@@ -1476,10 +1397,19 @@ class InstrumentService:
             except ControlPlaneNotFound:
                 session = None
             with runtime.lock:
-                _call_all(runtime.drivers.values(), _abort_driver)
-                _call_all(runtime.drivers.values(), _close_driver)
+                failed = _call_all(runtime.drivers.values(), _abort_driver)
+                failed = _call_all(runtime.drivers.values(), _close_driver) or failed
             if session is not None and session.state == "active":
-                self._mark_unknown(session, reason="daemon_shutting_down")
+                if failed:
+                    self._mark_unknown(
+                        session,
+                        reason="instrument_shutdown_cleanup_unknown",
+                    )
+                else:
+                    self._control.close_instrument_session(
+                        session_id,
+                        status="aborted",
+                    )
         with self._run_lock:
             run_provisions = tuple(self._run_provisions.items())
             run_runtimes = self._run_runtimes
@@ -1505,47 +1435,28 @@ class InstrumentService:
     def _end_session(
         self,
         session_id: str,
-        command: InstrumentSessionEndCommand,
         *,
         abort: bool,
     ) -> InstrumentSessionEndReceipt:
-        cached = self._ended_session_receipt(
-            session_id,
-            command,
-            abort=abort,
-        )
-        if cached is not None:
-            return cached
         try:
-            session = self._control.validate_instrument_session(
-                session_id,
-                token=command.lease_id,
-            )
-            runtime = self._live_runtime(session_id)
-        except (
-            ControlPlaneConflict,
-            InstrumentSessionLeaseNotHeld,
-        ) as error:
-            raise BackendConflict(
-                "instrument session lease is absent, stale, or expired"
-            ) from error
-        with runtime.lock:
-            cached = self._ended_session_receipt(
-                session_id,
-                command,
-                abort=abort,
-            )
-            if cached is not None:
-                return cached
-            try:
-                session = self._control.validate_instrument_session(
-                    session_id,
-                    token=command.lease_id,
+            session = self._control.get_instrument_session(session_id)
+            if session.state == "closed":
+                assert session.end_status is not None
+                return InstrumentSessionEndReceipt(
+                    session_id=session_id,
+                    status=session.end_status,
                 )
-            except InstrumentSessionLeaseNotHeld as error:
-                raise BackendConflict(
-                    "instrument session lease is absent, stale, or expired"
-                ) from error
+            session = self._control.validate_instrument_session(session_id)
+            runtime = self._live_runtime(session_id)
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
+        with runtime.lock:
+            try:
+                session = self._control.validate_instrument_session(session_id)
+            except ControlPlaneConflict as error:
+                raise BackendConflict(str(error)) from error
             failed = (
                 _call_all(runtime.drivers.values(), _abort_driver) if abort else False
             )
@@ -1562,67 +1473,31 @@ class InstrumentService:
                 )
                 raise BackendConflict("instrument connection release was not confirmed")
             try:
-                _closed, released = self._control.close_instrument_session(
+                self._control.close_instrument_session(
                     session_id,
-                    token=command.lease_id,
+                    status="aborted" if abort else "closed",
                 )
             except ControlPlaneConflict as error:
                 raise BackendConflict(str(error)) from error
-            receipt = InstrumentSessionEndReceipt(
-                session_id=session_id,
-                operation_id=command.operation_id,
-                status="aborted" if abort else "closed",
-                released_resource_count=released,
-            )
             with self._sessions_lock:
                 self._sessions.pop(session_id, None)
-                self._ended_sessions[session_id] = _EndedSession(
-                    command=command,
-                    abort=abort,
-                    receipt=receipt,
-                )
-                while len(self._ended_sessions) > self._ended_session_limit:
-                    self._ended_sessions.popitem(last=False)
-            return receipt
-
-    def _ended_session_receipt(
-        self,
-        session_id: str,
-        command: InstrumentSessionEndCommand,
-        *,
-        abort: bool,
-    ) -> InstrumentSessionEndReceipt | None:
-        with self._sessions_lock:
-            ended = self._ended_sessions.get(session_id)
-        if ended is None:
-            return None
-        if ended.command.operation_id != command.operation_id:
-            raise BackendConflict("instrument session is already ended")
-        if ended.command != command or ended.abort != abort:
-            raise BackendConflict(
-                "instrument session end operation id has different content"
+            return InstrumentSessionEndReceipt(
+                session_id=session_id,
+                status="aborted" if abort else "closed",
             )
-        return ended.receipt
 
-    def _fenced_driver(
+    def _session_driver(
         self,
         session_id: str,
         instrument_id: str,
-        token: str,
     ) -> tuple[InstrumentSession, _LiveDrivers, InstrumentDriver]:
         try:
-            session = self._control.validate_instrument_session(
-                session_id,
-                token=token,
-            )
+            session = self._control.validate_instrument_session(session_id)
             runtime = self._live_runtime(session_id)
-        except (
-            ControlPlaneConflict,
-            InstrumentSessionLeaseNotHeld,
-        ) as error:
-            raise BackendConflict(
-                "instrument session lease is absent, stale, or expired"
-            ) from error
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
         try:
             driver = runtime.drivers[instrument_id]
         except KeyError as error:
@@ -1696,10 +1571,9 @@ class InstrumentService:
         *,
         reason: str,
     ) -> None:
-        with suppress(InstrumentSessionLeaseNotHeld):
+        with suppress(InstrumentSessionNotActive):
             self._control.mark_instrument_session_unknown(
                 session.session_id,
-                token=_session_token(session),
                 reason=reason,
             )
 
@@ -1711,13 +1585,15 @@ class InstrumentService:
         operation_id: str,
         kind: Literal["apply", "collect"],
     ) -> None:
-        self._record_operation_event(
-            session,
-            instrument_id=instrument_id,
-            operation_id=operation_id,
-            event_kind=f"instrument_{kind}_started",
-            status=None,
-        )
+        try:
+            self._control.start_instrument_operation(
+                session.session_id,
+                instrument_id=instrument_id,
+                operation_id=operation_id,
+                kind=kind,
+            )
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
 
     def _record_operation_finished(
         self,
@@ -1728,44 +1604,16 @@ class InstrumentService:
         kind: Literal["apply", "collect"],
         status: str,
     ) -> None:
-        self._record_operation_event(
-            session,
-            instrument_id=instrument_id,
-            operation_id=operation_id,
-            event_kind=f"instrument_{kind}_finished",
-            status=status,
-        )
-
-    def _record_operation_event(
-        self,
-        session: InstrumentSession,
-        *,
-        instrument_id: str,
-        operation_id: str,
-        event_kind: str,
-        status: str | None,
-    ) -> None:
-        payload: dict[str, JsonValue] = {
-            "session_id": session.session_id,
-            "instrument_id": instrument_id,
-            "operation_id": operation_id,
-            "actor": session.actor,
-        }
-        if status is not None:
-            payload["status"] = status
         try:
-            with self._control.transaction() as connection:
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        kind=event_kind,
-                        payload=payload,
-                    ),
-                )
-        except Exception as error:
-            raise BackendConflict(
-                "instrument operation audit event could not be recorded"
-            ) from error
+            self._control.finish_instrument_operation(
+                session.session_id,
+                instrument_id=instrument_id,
+                operation_id=operation_id,
+                kind=kind,
+                status=status,
+            )
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
 
     def _fence_run(self, run_id: str, token: str) -> None:
         try:
@@ -1906,15 +1754,13 @@ class InstrumentService:
             self._cached_provider = system.provider
             return system.provider
 
-    def _wire_lease(
+    def _wire_session(
         self,
         session: InstrumentSession,
         runtime: _LiveDrivers,
-    ) -> InstrumentSessionLease:
-        assert session.expires_at is not None
-        return InstrumentSessionLease(
+    ) -> InstrumentSessionOpenReceipt:
+        return InstrumentSessionOpenReceipt(
             session_id=session.session_id,
-            lease_id=_session_token(session),
             actor=session.actor,
             config_entry_id=session.config_entry_id,
             config_content_hash=session.config_content_hash,
@@ -1923,9 +1769,7 @@ class InstrumentService:
                 runtime.descriptions[instrument_id]
                 for instrument_id in session.instrument_ids
             ),
-            issued_at=session.renewed_at,
-            expires_at=session.expires_at,
-            heartbeat_interval_seconds=self._heartbeat_interval_seconds,
+            opened_at=session.acquired_at,
         )
 
     @staticmethod
@@ -1933,12 +1777,12 @@ class InstrumentService:
         spec: InstrumentSpec,
         *,
         description: InstrumentDescription | None,
-        lease: ResourceLease | None,
+        claim: ResourceClaim | None,
         owner_actor: str | None,
         problems: tuple[Problem, ...],
     ) -> InstrumentView:
-        if lease is not None:
-            availability = lease.status
+        if claim is not None:
+            availability = claim.status
         elif description is None:
             availability = "unavailable"
         else:
@@ -1947,10 +1791,9 @@ class InstrumentService:
             spec=spec,
             description=description,
             availability=availability,
-            owner_kind=None if lease is None else lease.owner_kind,
-            owner_id=None if lease is None else lease.owner_id,
+            owner_kind=None if claim is None else claim.owner_kind,
+            owner_id=None if claim is None else claim.owner_id,
             owner_actor=owner_actor,
-            expires_at=None if lease is None else lease.expires_at,
             problems=problems,
         )
 
@@ -2119,12 +1962,6 @@ def _state_value(
         ),
         None,
     )
-
-
-def _session_token(session: InstrumentSession) -> str:
-    if session.token is None:
-        raise InstrumentSessionLeaseNotHeld("instrument session has no live token")
-    return session.token
 
 
 def _call_all(

@@ -20,8 +20,9 @@ uv run scopecat open examples/instruments
 ```
 
 Open **Instruments**, choose a device, and explicitly connect it. Changes stay
-staged until **Apply staged** is selected. A session owns an exclusive lease
-until disconnect or lease expiry.
+staged until **Apply staged** is selected. The daemon owns the exclusive
+session until disconnect. A later GUI client can disconnect a session left by
+a closed browser.
 
 ## Try the notebook API
 

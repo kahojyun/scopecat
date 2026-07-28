@@ -28,7 +28,6 @@ _OPERATIONS = {
     ("/api/v1/instrument-sessions/{session_id}/abort", "post"),
     ("/api/v1/instrument-sessions/{session_id}/attention", "post"),
     ("/api/v1/instrument-sessions/{session_id}/close", "post"),
-    ("/api/v1/instrument-sessions/{session_id}/heartbeat", "post"),
     (
         "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect",
         "post",
@@ -39,9 +38,8 @@ _OPERATIONS = {
         "post",
     ),
     (
-        "/api/v1/instrument-sessions/{session_id}/instruments/"
-        "{instrument_id}/state/read",
-        "post",
+        "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state",
+        "get",
     ),
     ("/api/v1/runs", "get"),
     ("/api/v1/runs/{run_id}", "get"),

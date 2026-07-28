@@ -8,17 +8,17 @@ import {
   RefreshCw,
   ServerCrash,
 } from "lucide-react";
-import type { InstrumentSessionLease, InstrumentView } from "../../api-contract";
-import { errorMessage, formatDateTime, formatRelative } from "../../lib/presentation";
+import type { InstrumentSession, InstrumentView } from "../../api-contract";
+import { errorMessage } from "../../lib/presentation";
 import { InstrumentConnectionDialog } from "./InstrumentConnectionDialog";
 import { AvailabilityBadge, InstrumentInspector } from "./InstrumentInspector";
 import {
+  abortInstrumentSession,
   closeInstrumentSession,
   connectionSummary,
   createInstrumentOperationId,
   getActiveConfig,
   getInstruments,
-  heartbeatInstrumentSession,
   openInstrumentSession,
   retryTransientInstrumentMutation,
 } from "./instrument-api";
@@ -29,15 +29,13 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string>();
   const [actor, setActor] = useState("local-operator");
-  const [lease, setLease] = useState<InstrumentSessionLease>();
+  const [session, setSession] = useState<InstrumentSession>();
   const [sessionError, setSessionError] = useState<string>();
   const [configInstrumentId, setConfigInstrumentId] = useState<string>();
-  const [closingSessionId, setClosingSessionId] = useState<string>();
-  const leaseRef = useRef<InstrumentSessionLease | undefined>(undefined);
+  const sessionRef = useRef<InstrumentSession | undefined>(undefined);
   const closingRef = useRef(false);
   const pendingSelectionRef = useRef<string | undefined>(undefined);
   const openAttemptRef = useRef<{ key: string; operationId: string } | undefined>(undefined);
-  const closeOperationIdsRef = useRef<Record<string, string>>({});
 
   const instrumentsQuery = useQuery({
     queryKey: ["instruments"],
@@ -70,17 +68,17 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
   }, [activeConfigQuery.error, activeConfigQuery.isError, configInstrumentId]);
 
   useEffect(() => {
-    leaseRef.current = lease;
-  }, [lease]);
+    sessionRef.current = session;
+  }, [session]);
 
   useEffect(() => {
     const releaseOnExit = () => {
-      const current = leaseRef.current;
+      const current = sessionRef.current;
       if (!current || closingRef.current) return;
-      leaseRef.current = undefined;
+      sessionRef.current = undefined;
       closingRef.current = true;
-      void closeInstrumentSession(current, true).catch(() => {
-        // Expiry quarantines the session for operator resolution when close cannot finish.
+      void closeInstrumentSession(current.session_id, true).catch(() => {
+        // The daemon keeps the session visible so a later client can abort it.
       });
     };
     window.addEventListener("beforeunload", releaseOnExit);
@@ -89,38 +87,6 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
       releaseOnExit();
     };
   }, []);
-
-  useEffect(() => {
-    if (!lease || closingSessionId === lease.session_id) return;
-    let cancelled = false;
-    const delay = Math.max(50, lease.heartbeat_interval_seconds * 1_000);
-    const timer = window.setTimeout(() => {
-      void heartbeatInstrumentSession(lease)
-        .then((renewed) => {
-          if (
-            !cancelled &&
-            leaseRef.current?.session_id === renewed.session_id &&
-            !closingRef.current
-          ) {
-            setLease(renewed);
-            setSessionError(undefined);
-          }
-        })
-        .catch((cause) => {
-          if (cancelled || leaseRef.current?.session_id !== lease.session_id) return;
-          leaseRef.current = undefined;
-          setLease(undefined);
-          setSessionError(
-            `${errorMessage(cause)} ${leaseExpiryAttentionMessage(lease.expires_at)}`,
-          );
-          void queryClient.invalidateQueries({ queryKey: ["instruments"] });
-        });
-    }, delay);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [closingSessionId, lease, queryClient]);
 
   const connectMutation = useMutation({
     mutationFn: ({
@@ -137,43 +103,34 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
     onSuccess: async (opened) => {
       openAttemptRef.current = undefined;
       closingRef.current = false;
-      leaseRef.current = opened;
-      setLease(opened);
+      sessionRef.current = opened;
+      setSession(opened);
       setSessionError(undefined);
       await queryClient.invalidateQueries({ queryKey: ["instruments"] });
     },
     onError: (cause) => setSessionError(errorMessage(cause)),
   });
-  const closeMutation = useMutation({
-    mutationFn: ({
-      closingLease,
-      operationId,
-    }: {
-      closingLease: InstrumentSessionLease;
-      operationId: string;
-    }) => closeInstrumentSession(closingLease, false, operationId),
+  const endMutation = useMutation({
+    mutationFn: ({ sessionId, abort }: { sessionId: string; abort: boolean }) =>
+      abort ? abortInstrumentSession(sessionId) : closeInstrumentSession(sessionId),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
-    onSuccess: (_, { closingLease }) => {
-      delete closeOperationIdsRef.current[closingLease.session_id];
-      if (leaseRef.current?.session_id === closingLease.session_id) {
-        leaseRef.current = undefined;
-        setLease(undefined);
+    onSuccess: (_, { sessionId }) => {
+      if (sessionRef.current?.session_id === sessionId) {
+        sessionRef.current = undefined;
+        setSession(undefined);
       }
       const pendingSelection = pendingSelectionRef.current;
       pendingSelectionRef.current = undefined;
       if (pendingSelection) setSelectedId(pendingSelection);
       setSessionError(undefined);
     },
-    onError: (cause, { closingLease }) => {
+    onError: (cause) => {
       pendingSelectionRef.current = undefined;
-      setSessionError(
-        `${errorMessage(cause)} ${leaseExpiryAttentionMessage(closingLease.expires_at)}`,
-      );
+      setSessionError(errorMessage(cause));
     },
     onSettled: async () => {
       closingRef.current = false;
-      setClosingSessionId(undefined);
       await queryClient.invalidateQueries({ queryKey: ["instruments"] });
     },
   });
@@ -181,25 +138,25 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
   const selectInstrument = (instrumentId: string) => {
     openAttemptRef.current = undefined;
     connectMutation.reset();
-    const current = leaseRef.current;
+    const current = sessionRef.current;
     if (current && !current.instrument_ids.includes(instrumentId)) {
       pendingSelectionRef.current = instrumentId;
-      if (!closingRef.current) closeWithStableOperationId(current);
+      if (!closingRef.current) endSession(current.session_id);
       return;
     }
     setSelectedId(instrumentId);
     setSessionError(undefined);
   };
   const closeCurrent = () => {
-    const current = leaseRef.current;
+    const current = sessionRef.current;
     if (!current || closingRef.current) return;
     pendingSelectionRef.current = undefined;
-    closeWithStableOperationId(current);
+    endSession(current.session_id);
   };
-  const loseCurrent = (message: string, expiresAt?: string) => {
-    leaseRef.current = undefined;
-    setLease(undefined);
-    setSessionError(expiresAt ? `${message} ${leaseExpiryAttentionMessage(expiresAt)}` : message);
+  const loseCurrent = (message: string) => {
+    sessionRef.current = undefined;
+    setSession(undefined);
+    setSessionError(message);
     void queryClient.invalidateQueries({ queryKey: ["instruments"] });
   };
   const connectCurrent = (instrumentId: string) => {
@@ -217,37 +174,32 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
       operationId: openAttemptRef.current.operationId,
     });
   };
-  const closeWithStableOperationId = (closingLease: InstrumentSessionLease) => {
-    const operationId =
-      closeOperationIdsRef.current[closingLease.session_id] ?? createInstrumentOperationId("close");
-    closeOperationIdsRef.current[closingLease.session_id] = operationId;
+  const endSession = (sessionId: string, abort = false) => {
     closingRef.current = true;
-    setClosingSessionId(closingLease.session_id);
     setSessionError(undefined);
-    closeMutation.mutate({ closingLease, operationId });
+    endMutation.mutate({ sessionId, abort });
   };
 
   useEffect(() => {
-    if (!lease) return;
-    const leasedInstrument = instruments.find((instrument) =>
-      lease.instrument_ids.includes(instrument.spec.id),
+    if (!session) return;
+    const sessionInstrument = instruments.find((instrument) =>
+      session.instrument_ids.includes(instrument.spec.id),
     );
-    if (!leasedInstrument) return;
+    if (!sessionInstrument) return;
     const ownerChanged =
-      leasedInstrument.availability === "active" &&
-      (leasedInstrument.owner_kind !== "instrument_session" ||
-        leasedInstrument.owner_id !== lease.session_id);
-    if (leasedInstrument.availability === "quarantined" || ownerChanged) {
+      sessionInstrument.availability === "active" &&
+      (sessionInstrument.owner_kind !== "instrument_session" ||
+        sessionInstrument.owner_id !== session.session_id);
+    if (sessionInstrument.availability === "quarantined" || ownerChanged) {
       loseCurrent(
-        leasedInstrument.availability === "quarantined"
+        sessionInstrument.availability === "quarantined"
           ? "The daemon quarantined this instrument after an uncertain operation."
-          : "The instrument lease is now owned by another run or session.",
-        lease.expires_at,
+          : "The instrument is now owned by another run or session.",
       );
     }
-    // Reconcile the local lease whenever a fresh canonical instrument view arrives.
+    // Reconcile the local session whenever a fresh canonical instrument view arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instrumentsQuery.dataUpdatedAt, lease?.session_id]);
+  }, [instrumentsQuery.dataUpdatedAt, session?.session_id]);
 
   return (
     <section className="instruments-workspace" aria-labelledby="instruments-heading">
@@ -256,7 +208,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
           <span className="eyebrow">Direct hardware interaction</span>
           <h2 id="instruments-heading">Instruments</h2>
           <p>
-            Inspect driver capabilities, then explicitly lease one device for direct interaction.
+            Inspect driver capabilities, then explicitly connect one device for direct interaction.
           </p>
         </div>
         <div className="instrument-config-identity">
@@ -314,7 +266,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             <InstrumentListMessage
               icon={<LoaderCircle className="spin" />}
               title="Loading instruments"
-              detail="Reading the active configuration and current lease owners."
+              detail="Reading the active configuration and current instrument owners."
             />
           ) : instrumentsQuery.isError ? (
             <InstrumentListMessage
@@ -336,7 +288,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
                   key={instrument.spec.id}
                   instrument={instrument}
                   selected={instrument.spec.id === selected?.spec.id}
-                  connected={lease?.instrument_ids.includes(instrument.spec.id)}
+                  connected={session?.instrument_ids.includes(instrument.spec.id)}
                   onSelect={() => selectInstrument(instrument.spec.id)}
                 />
               ))}
@@ -348,14 +300,14 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
           <InstrumentInspector
             key={selected.spec.id}
             instrument={selected}
-            lease={lease}
+            session={session}
             actor={actor}
             sessionError={sessionError}
             connectPending={
               connectMutation.isPending &&
               connectMutation.variables?.instrumentId === selected.spec.id
             }
-            closePending={closeMutation.isPending}
+            closePending={endMutation.isPending}
             onActorChange={(nextActor) => {
               if (nextActor !== actor) {
                 openAttemptRef.current = undefined;
@@ -365,7 +317,16 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             }}
             onConnect={() => connectCurrent(selected.spec.id)}
             onClose={closeCurrent}
-            onLeaseLost={loseCurrent}
+            onSessionLost={loseCurrent}
+            onDisconnectOwner={() => {
+              if (
+                selected.owner_kind === "instrument_session" &&
+                selected.owner_id &&
+                !closingRef.current
+              ) {
+                endSession(selected.owner_id, true);
+              }
+            }}
             onEditConnection={() => {
               if (activeConfigQuery.isError) {
                 setSessionError(errorMessage(activeConfigQuery.error));
@@ -443,7 +404,6 @@ function InstrumentListItem({
         <span className="instrument-list-owner">
           {instrument.owner_kind === "run" ? "Run" : "Session"} <code>{instrument.owner_id}</code>
           {instrument.owner_actor ? ` · ${instrument.owner_actor}` : ""}
-          {instrument.expires_at ? ` · ${formatRelative(instrument.expires_at)}` : ""}
         </span>
       )}
     </button>
@@ -472,12 +432,4 @@ function InstrumentListMessage({
 
 function shortHash(value: string): string {
   return value.length > 21 ? `${value.slice(0, 14)}…${value.slice(-6)}` : value;
-}
-
-function leaseExpiryAttentionMessage(expiresAt: string): string {
-  return (
-    `At the lease deadline (${formatDateTime(expiresAt)}), the session enters ` +
-    "attention_required/quarantine; it is not released automatically. " +
-    "An operator must resolve it before the instrument can be reused."
-  );
 }

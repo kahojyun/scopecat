@@ -226,23 +226,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/instrument-sessions/{session_id}/heartbeat": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Heartbeat Instrument Session */
-        post: operations["heartbeat_instrument_session_api_v1_instrument_sessions__session_id__heartbeat_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect": {
         parameters: {
             query?: never;
@@ -260,6 +243,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Instrument State */
+        get: operations["read_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/apply": {
         parameters: {
             query?: never;
@@ -271,23 +271,6 @@ export interface paths {
         put?: never;
         /** Apply Instrument State */
         post: operations["apply_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_apply_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Read Instrument State */
-        post: operations["read_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_read_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1352,69 +1335,14 @@ export interface components {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Output"][];
         };
-        /** InstrumentSessionApplyCommand */
-        InstrumentSessionApplyCommand: {
-            command: components["schemas"]["InstrumentStateCommand"];
-            lease_id: components["schemas"]["NonEmptyText"];
-        };
-        /** InstrumentSessionCollectCommand */
-        InstrumentSessionCollectCommand: {
-            command: components["schemas"]["CollectCommand"];
-            lease_id: components["schemas"]["NonEmptyText"];
-        };
-        /** InstrumentSessionEndCommand */
-        InstrumentSessionEndCommand: {
-            lease_id: components["schemas"]["NonEmptyText"];
-            operation_id: components["schemas"]["NonEmptyText"];
-        };
         /** InstrumentSessionEndReceipt */
         InstrumentSessionEndReceipt: {
-            operation_id: components["schemas"]["NonEmptyText"];
-            /** Released Resource Count */
-            released_resource_count: number;
             session_id: components["schemas"]["NonEmptyText"];
             /**
              * Status
              * @enum {string}
              */
             status: "closed" | "aborted";
-        };
-        /** InstrumentSessionHeartbeat */
-        InstrumentSessionHeartbeat: {
-            lease_id: components["schemas"]["NonEmptyText"];
-        };
-        /**
-         * InstrumentSessionLease
-         * @description Renewable authority for daemon-owned live instrument drivers.
-         */
-        InstrumentSessionLease: {
-            actor: components["schemas"]["NonEmptyText"];
-            config_content_hash: components["schemas"]["ConfigContentHash"];
-            config_entry_id: components["schemas"]["NonEmptyText"];
-            /**
-             * Descriptions
-             * @default []
-             */
-            descriptions: components["schemas"]["InstrumentDescription"][];
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-            /** Heartbeat Interval Seconds */
-            heartbeat_interval_seconds: number;
-            /** Instrument Ids */
-            instrument_ids: [
-                components["schemas"]["NonEmptyText"],
-                ...components["schemas"]["NonEmptyText"][]
-            ];
-            /**
-             * Issued At
-             * Format: date-time
-             */
-            issued_at: string;
-            lease_id: components["schemas"]["NonEmptyText"];
-            session_id: components["schemas"]["NonEmptyText"];
         };
         /**
          * InstrumentSessionOpenCommand
@@ -1429,9 +1357,27 @@ export interface components {
             ];
             operation_id: components["schemas"]["NonEmptyText"];
         };
-        /** InstrumentSessionReadCommand */
-        InstrumentSessionReadCommand: {
-            lease_id: components["schemas"]["NonEmptyText"];
+        /**
+         * InstrumentSessionOpenReceipt
+         * @description Daemon-owned direct-control session opened against one config revision.
+         */
+        InstrumentSessionOpenReceipt: {
+            actor: components["schemas"]["NonEmptyText"];
+            config_content_hash: components["schemas"]["ConfigContentHash"];
+            config_entry_id: components["schemas"]["NonEmptyText"];
+            /** Descriptions */
+            descriptions: components["schemas"]["InstrumentDescription"][];
+            /** Instrument Ids */
+            instrument_ids: [
+                components["schemas"]["NonEmptyText"],
+                ...components["schemas"]["NonEmptyText"][]
+            ];
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            session_id: components["schemas"]["NonEmptyText"];
         };
         /** InstrumentSpec */
         "InstrumentSpec-Input": {
@@ -1507,8 +1453,6 @@ export interface components {
              */
             availability: "available" | "active" | "quarantined" | "unavailable";
             description?: components["schemas"]["InstrumentDescription"] | null;
-            /** Expires At */
-            expires_at?: string | null;
             /** Owner Actor */
             owner_actor?: string | null;
             /** Owner Id */
@@ -2098,11 +2042,15 @@ export interface components {
             experiment_id: string;
             /** Experiment Kind */
             experiment_kind: string;
+            /** Host Contract Fingerprint */
+            host_contract_fingerprint?: string | null;
             /**
              * Host Instrument Order
              * @default []
              */
             host_instrument_order: string[];
+            /** Host Provider Id */
+            host_provider_id?: string | null;
             /** Point Count */
             point_count: number;
             /**
@@ -2723,7 +2671,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["InstrumentSessionLease"];
+                    "application/json": components["schemas"]["InstrumentSessionOpenReceipt"];
                 };
             };
             /** @description Validation Error */
@@ -2746,11 +2694,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["InstrumentSessionEndCommand"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2812,11 +2756,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["InstrumentSessionEndCommand"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2825,41 +2765,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InstrumentSessionEndReceipt"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    heartbeat_instrument_session_api_v1_instrument_sessions__session_id__heartbeat_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["InstrumentSessionHeartbeat"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InstrumentSessionLease"];
                 };
             };
             /** @description Validation Error */
@@ -2885,7 +2790,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["InstrumentSessionCollectCommand"];
+                "application/json": components["schemas"]["CollectCommand"];
             };
         };
         responses: {
@@ -2896,6 +2801,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentStateSnapshot"];
                 };
             };
             /** @description Validation Error */
@@ -2921,7 +2858,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["InstrumentSessionApplyCommand"];
+                "application/json": components["schemas"]["InstrumentStateCommand"];
             };
         };
         responses: {
@@ -2932,42 +2869,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApplyReceipt"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    read_instrument_state_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_read_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                instrument_id: string;
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["InstrumentSessionReadCommand"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InstrumentStateSnapshot"];
                 };
             };
             /** @description Validation Error */

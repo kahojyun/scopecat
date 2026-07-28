@@ -21,9 +21,11 @@ type ControlRunState = Literal[
     "closed",
 ]
 type ResourceKind = Literal["target", "instrument"]
-type ResourceLeaseStatus = Literal["active", "quarantined"]
+type ResourceClaimStatus = Literal["active", "quarantined"]
 type ResourceOwnerKind = Literal["run", "instrument_session"]
 type InstrumentSessionState = Literal["active", "attention_required", "closed"]
+type InstrumentOperationKind = Literal["apply", "collect"]
+type InstrumentSessionEndStatus = Literal["closed", "aborted"]
 
 
 def utc_now() -> datetime:
@@ -85,7 +87,7 @@ class RunPlanSummary(_ControlModel):
         claimed = {
             claim.id for claim in self.run_resource_claims if claim.kind == "instrument"
         }
-        # Domain-owned instruments need leases but no daemon-hosted driver.
+        # Domain-owned instruments are claimed without a daemon-hosted driver.
         if not set(self.host_instrument_order).issubset(claimed):
             raise ValueError(
                 "run plan host_instrument_order must reference instrument claims"
@@ -188,29 +190,16 @@ class ExecutorLease(_ControlModel):
         return self
 
 
-class ResourceLease(_ControlModel):
+class ResourceClaim(_ControlModel):
     resource: ResourceKey
     owner_kind: ResourceOwnerKind
     owner_id: str = Field(min_length=1)
-    owner_token: str | None
-    status: ResourceLeaseStatus
+    status: ResourceClaimStatus
     acquired_at: datetime
-    expires_at: datetime | None
-
-    @model_validator(mode="after")
-    def validate_ownership(self) -> ResourceLease:
-        if self.status == "active":
-            if self.owner_token is None or self.expires_at is None:
-                msg = "an active resource lease requires an owner token and expiry"
-                raise ValueError(msg)
-        elif self.owner_token is not None or self.expires_at is not None:
-            msg = "a quarantined resource lease cannot remain token-owned"
-            raise ValueError(msg)
-        return self
 
 
 class InstrumentSession(_ControlModel):
-    """Durable authority and recovery state for direct instrument access."""
+    """Durable daemon state for one explicit direct-control session."""
 
     session_id: str = Field(min_length=1)
     open_operation_id: str = Field(min_length=1)
@@ -219,11 +208,11 @@ class InstrumentSession(_ControlModel):
     config_content_hash: str = Field(min_length=1)
     instrument_ids: tuple[str, ...] = Field(min_length=1)
     state: InstrumentSessionState
-    token: str | None
     acquired_at: datetime
-    renewed_at: datetime
-    expires_at: datetime | None
     attention_reason: str | None = None
+    active_operation_id: str | None = None
+    active_operation_kind: InstrumentOperationKind | None = None
+    end_status: InstrumentSessionEndStatus | None = None
 
     @field_validator("instrument_ids")
     @classmethod
@@ -237,21 +226,29 @@ class InstrumentSession(_ControlModel):
     @model_validator(mode="after")
     def validate_state(self) -> InstrumentSession:
         if self.state == "active":
-            if self.token is None or self.expires_at is None:
-                raise ValueError("active instrument session requires token and expiry")
-            if self.expires_at <= self.renewed_at:
-                raise ValueError("instrument session must expire after renewal")
             if self.attention_reason is not None:
                 raise ValueError("active instrument session cannot require attention")
+            if self.end_status is not None:
+                raise ValueError("active instrument session cannot have an end status")
         elif self.state == "attention_required":
-            if self.token is not None or self.expires_at is not None:
-                raise ValueError("attention-required session cannot retain authority")
             if not self.attention_reason:
                 raise ValueError("attention-required session requires a reason")
-        elif (
-            self.token is not None
-            or self.expires_at is not None
-            or self.attention_reason is not None
-        ):
-            raise ValueError("closed instrument session cannot retain lease state")
+            if self.end_status is not None:
+                raise ValueError(
+                    "attention-required instrument session cannot have an end status"
+                )
+        else:
+            if self.attention_reason is not None:
+                raise ValueError("closed instrument session cannot require attention")
+            if self.end_status is None:
+                raise ValueError("closed instrument session requires an end status")
+            if (
+                self.active_operation_id is not None
+                or self.active_operation_kind is not None
+            ):
+                raise ValueError("closed instrument session cannot retain an operation")
+        if (self.active_operation_id is None) != (self.active_operation_kind is None):
+            raise ValueError(
+                "instrument session operation id and kind must be present together"
+            )
         return self

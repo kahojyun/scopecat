@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from threading import Event, Lock, Thread
+from collections.abc import Mapping
 from types import TracebackType
 from typing import Self
 from uuid import uuid4
@@ -11,14 +10,9 @@ from uuid import uuid4
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
-    InstrumentSessionApplyCommand,
-    InstrumentSessionCollectCommand,
-    InstrumentSessionEndCommand,
     InstrumentSessionEndReceipt,
-    InstrumentSessionHeartbeat,
-    InstrumentSessionLease,
     InstrumentSessionOpenCommand,
-    InstrumentSessionReadCommand,
+    InstrumentSessionOpenReceipt,
 )
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -32,21 +26,6 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentStateCommand,
     InstrumentStateCommandField,
 )
-
-
-class InstrumentSessionLostError(RuntimeError):
-    """The background heartbeat could no longer renew live device authority."""
-
-    def __init__(
-        self,
-        lease: InstrumentSessionLease,
-        cause: Exception,
-    ) -> None:
-        self.lease = lease
-        self.cause = cause
-        super().__init__(
-            f"instrument session {lease.session_id!r} is no longer live: {cause}"
-        )
 
 
 class LabInstrumentOperations:
@@ -66,6 +45,11 @@ class LabInstrumentOperations:
 
     def get(self, instrument_id: str) -> InstrumentView:
         return self._client.get_instrument(instrument_id)
+
+    def abort_session(self, session_id: str) -> InstrumentSessionEndReceipt:
+        """Abort and release a daemon-owned session by id."""
+
+        return self._client.abort_instrument_session(session_id)
 
     def open(
         self,
@@ -107,11 +91,8 @@ class InstrumentSessionHandle:
             kind="open",
             subject=instrument_ids[0],
         )
-        self._lease: InstrumentSessionLease | None = None
-        self._heartbeat: _InstrumentHeartbeat | None = None
+        self._session: InstrumentSessionOpenReceipt | None = None
         self._ended = False
-        self._end_operation_id: str | None = None
-        self._end_abort: bool | None = None
 
     def __enter__(self) -> Self:
         self._ensure_open()
@@ -135,17 +116,17 @@ class InstrumentSessionHandle:
 
     @property
     def session_id(self) -> str:
-        return self._require_lease().session_id
+        return self._require_session().session_id
 
     def describe(
         self,
         instrument_id: str | None = None,
     ) -> InstrumentDescription:
         selected = self._selected_instrument_id(instrument_id)
-        lease = self._require_live()
+        session = self._require_session()
         return next(
             description
-            for description in lease.descriptions
+            for description in session.descriptions
             if description.instrument_id == selected
         )
 
@@ -154,11 +135,10 @@ class InstrumentSessionHandle:
         instrument_id: str | None = None,
     ) -> InstrumentStateSnapshot:
         selected = self._selected_instrument_id(instrument_id)
-        lease = self._require_live()
+        session = self._require_session()
         return self._client.read_instrument_state(
-            lease.session_id,
+            session.session_id,
             selected,
-            InstrumentSessionReadCommand(lease_id=lease.lease_id),
         )
 
     def apply(
@@ -177,7 +157,7 @@ class InstrumentSessionHandle:
         if not selected_values:
             raise ValueError("interactive apply requires at least one field")
         selected = self._selected_instrument_id(instrument_id)
-        lease = self._require_live()
+        session = self._require_session()
         selected_operation_id = _select_operation_id(
             operation_id,
             kind="apply",
@@ -199,12 +179,9 @@ class InstrumentSessionHandle:
             ],
         )
         return self._client.apply_instrument_state(
-            lease.session_id,
+            session.session_id,
             selected,
-            InstrumentSessionApplyCommand(
-                lease_id=lease.lease_id,
-                command=command,
-            ),
+            command,
         )
 
     def collect(
@@ -235,7 +212,7 @@ class InstrumentSessionHandle:
             raise ValueError(
                 f"capability {capability_id!r} has no products: {', '.join(missing)}"
             )
-        lease = self._require_live()
+        session = self._require_session()
         command = CollectCommand(
             operation_id=_select_operation_id(
                 operation_id,
@@ -266,111 +243,55 @@ class InstrumentSessionHandle:
             ],
         )
         return self._client.collect_instrument(
-            lease.session_id,
+            session.session_id,
             selected,
-            InstrumentSessionCollectCommand(
-                lease_id=lease.lease_id,
-                command=command,
-            ),
+            command,
         )
 
     def close(
         self,
-        *,
-        operation_id: str | None = None,
     ) -> InstrumentSessionEndReceipt | None:
-        return self._end(abort=False, operation_id=operation_id)
+        return self._end(abort=False)
 
     def abort(
         self,
-        *,
-        operation_id: str | None = None,
     ) -> InstrumentSessionEndReceipt | None:
-        return self._end(abort=True, operation_id=operation_id)
+        return self._end(abort=True)
 
     def _end(
         self,
         *,
         abort: bool,
-        operation_id: str | None,
     ) -> InstrumentSessionEndReceipt | None:
         if self._ended:
             return None
-        lease = self._lease
-        if lease is None:
+        session = self._session
+        if session is None:
             self._ended = True
             return None
-        if self._end_operation_id is None:
-            selected_operation_id = _select_operation_id(
-                operation_id,
-                kind="abort" if abort else "close",
-                subject=lease.session_id,
-            )
-            self._end_operation_id = selected_operation_id
-            self._end_abort = abort
-        else:
-            selected_operation_id = self._end_operation_id
-            if operation_id is not None and operation_id != selected_operation_id:
-                raise ValueError(
-                    "instrument end retry must reuse its original operation_id"
-                )
-            if self._end_abort != abort:
-                raise ValueError(
-                    "instrument end retry must reuse its original close or abort mode"
-                )
-        command = InstrumentSessionEndCommand(
-            lease_id=lease.lease_id,
-            operation_id=selected_operation_id,
-        )
         receipt = (
-            self._client.abort_instrument_session(
-                lease.session_id,
-                command,
-            )
+            self._client.abort_instrument_session(session.session_id)
             if abort
-            else self._client.close_instrument_session(
-                lease.session_id,
-                command,
-            )
+            else self._client.close_instrument_session(session.session_id)
         )
         self._ended = True
-        heartbeat = self._heartbeat
-        if heartbeat is not None:
-            heartbeat.close()
         return receipt
 
-    def _ensure_open(self) -> InstrumentSessionLease:
+    def _ensure_open(self) -> InstrumentSessionOpenReceipt:
         if self._ended:
             raise RuntimeError("instrument session is already closed")
-        if self._lease is None:
-            lease = self._client.open_instrument_session(
+        if self._session is None:
+            self._session = self._client.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id=self._open_operation_id,
                     actor=self._actor,
                     instrument_ids=self._instrument_ids,
                 )
             )
-            heartbeat = _InstrumentHeartbeat()
-            self._lease = lease
-            self._heartbeat = heartbeat
-            heartbeat.start(
-                lease,
-                lambda: self._client.heartbeat_instrument_session(
-                    lease.session_id,
-                    InstrumentSessionHeartbeat(lease_id=lease.lease_id),
-                ),
-            )
-        return self._lease
+        return self._session
 
-    def _require_lease(self) -> InstrumentSessionLease:
+    def _require_session(self) -> InstrumentSessionOpenReceipt:
         return self._ensure_open()
-
-    def _require_live(self) -> InstrumentSessionLease:
-        lease = self._ensure_open()
-        heartbeat = self._heartbeat
-        assert heartbeat is not None
-        heartbeat.require_live()
-        return lease
 
     def _selected_instrument_id(self, instrument_id: str | None) -> str:
         if instrument_id is None:
@@ -380,53 +301,6 @@ class InstrumentSessionHandle:
         if instrument_id not in self._instrument_ids:
             raise ValueError(f"instrument {instrument_id!r} is not in this session")
         return instrument_id
-
-
-class _InstrumentHeartbeat:
-    def __init__(self) -> None:
-        self._stop = Event()
-        self._lock = Lock()
-        self._failure: tuple[InstrumentSessionLease, Exception] | None = None
-        self._thread: Thread | None = None
-
-    def start(
-        self,
-        lease: InstrumentSessionLease,
-        heartbeat: Callable[[], InstrumentSessionLease],
-    ) -> None:
-        self._thread = Thread(
-            target=self._run,
-            args=(lease, heartbeat),
-            name=f"scopecat-instrument-lease-{lease.session_id}",
-            daemon=True,
-        )
-        self._thread.start()
-
-    def require_live(self) -> None:
-        with self._lock:
-            failure = self._failure
-        if failure is not None:
-            lease, cause = failure
-            raise InstrumentSessionLostError(lease, cause) from cause
-
-    def close(self) -> None:
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join()
-
-    def _run(
-        self,
-        lease: InstrumentSessionLease,
-        heartbeat: Callable[[], InstrumentSessionLease],
-    ) -> None:
-        current = lease
-        while not self._stop.wait(current.heartbeat_interval_seconds):
-            try:
-                current = heartbeat()
-            except Exception as error:
-                with self._lock:
-                    self._failure = (current, error)
-                return
 
 
 def _operation_id(kind: str, subject: str) -> str:
@@ -448,6 +322,5 @@ def _select_operation_id(
 
 __all__ = [
     "InstrumentSessionHandle",
-    "InstrumentSessionLostError",
     "LabInstrumentOperations",
 ]

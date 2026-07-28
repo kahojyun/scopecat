@@ -10,7 +10,7 @@ import pytest
 from scopecat.adapters.sqlite import (
     ControlPlaneConflict,
     ExecutorLeaseNotHeld,
-    InstrumentSessionLeaseNotHeld,
+    InstrumentSessionNotActive,
     SQLiteControlPlane,
     SQLiteProjectStore,
 )
@@ -19,8 +19,8 @@ from scopecat.control.models import (
     DurableEvent,
     DurableEventInput,
     ExecutorLease,
+    ResourceClaim,
     ResourceKey,
-    ResourceLease,
     RunAdmissionRecord,
     RunPlanSummary,
 )
@@ -113,9 +113,9 @@ def _append_event(
         return store.append_event_in_transaction(connection, event)
 
 
-def _resource_leases(store: SQLiteControlPlane) -> tuple[ResourceLease, ...]:
+def _resource_claims(store: SQLiteControlPlane) -> tuple[ResourceClaim, ...]:
     with store.transaction() as connection:
-        return store.list_resource_leases_in_transaction(connection)
+        return store.list_resource_claims_in_transaction(connection)
 
 
 def _release_run_resources(store: SQLiteControlPlane, run_id: str) -> int:
@@ -193,7 +193,7 @@ def test_executor_resources_and_scheduler_close_commit_together(
         at=NOW,
     )
     assert store.get_run("run-1").state == "leased"
-    assert len(_resource_leases(store)) == 2
+    assert len(_resource_claims(store)) == 2
 
     finished_at = NOW + timedelta(seconds=2)
     closed = _close(
@@ -203,7 +203,7 @@ def test_executor_resources_and_scheduler_close_commit_together(
         at=finished_at,
     )
     assert closed.state == "closed"
-    assert _resource_leases(store) == ()
+    assert _resource_claims(store) == ()
     with pytest.raises(ExecutorLeaseNotHeld):
         _append_event(
             store,
@@ -273,9 +273,9 @@ def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:
 
     with pytest.raises(ControlPlaneConflict, match="resources are busy"):
         _start(store, "run-b", executor_id="b")
-    leases = _resource_leases(store)
-    assert {lease.resource.id for lease in leases} == {"scope", "a"}
-    assert {(lease.owner_kind, lease.owner_id) for lease in leases} == {
+    claims = _resource_claims(store)
+    assert {claim.resource.id for claim in claims} == {"scope", "a"}
+    assert {(claim.owner_kind, claim.owner_id) for claim in claims} == {
         ("run", "run-a")
     }
     assert _executor_lease(store, "run-b") is None
@@ -303,7 +303,7 @@ def test_concurrent_resource_claim_has_one_winner(tmp_path: Path) -> None:
         results = list(pool.map(start, ("run-a", "run-b")))
 
     assert sorted(results) == [False, True]
-    assert len(_resource_leases(store)) == 1
+    assert len(_resource_claims(store)) == 1
 
 
 def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
@@ -332,7 +332,7 @@ def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
         "resources_quarantined",
         "executor_lease_lost",
     } <= event_kinds
-    quarantined = _resource_leases(store)
+    quarantined = _resource_claims(store)
     assert len(quarantined) == 1
     assert quarantined[0].status == "quarantined"
     with pytest.raises(ControlPlaneConflict, match="resources are busy"):
@@ -354,7 +354,7 @@ def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
     assert store.get_run("lost").state == "attention_required"
 
 
-def test_renewal_extends_resource_expiry_and_close_fences_token(
+def test_executor_renewal_preserves_claim_and_close_fences_token(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path / "control.sqlite3")
@@ -384,7 +384,9 @@ def test_renewal_extends_resource_expiry_and_close_fences_token(
         ttl=timedelta(seconds=20),
         at=NOW + timedelta(seconds=5),
     )
-    assert _resource_leases(store)[0].expires_at == renewed.expires_at
+    [claim] = _resource_claims(store)
+    assert claim.owner_id == "run-1"
+    assert claim.acquired_at == NOW
     assert renewed.renewed_at == NOW + timedelta(seconds=5)
     assert store.list_events(run_id="run-1").items == events_before_renewal
     _close(
@@ -438,12 +440,11 @@ def test_uncertain_executor_io_fences_exact_token_and_quarantines_resources(
     assert lost.state == "attention_required"
     assert lost.attention_reason == "instrument_apply_unknown"
     assert _executor_lease(store, "run-1") is None
-    [resource] = _resource_leases(store)
+    [resource] = _resource_claims(store)
     assert resource.status == "quarantined"
-    assert resource.owner_token is None
 
 
-def test_instrument_session_retry_heartbeat_and_loss_quarantine(
+def test_instrument_session_retry_operation_recovery_and_explicit_close(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path / "control.sqlite3")
@@ -453,7 +454,6 @@ def test_instrument_session_retry_heartbeat_and_loss_quarantine(
         config_entry_id="baseline",
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("scope",),
-        ttl=timedelta(seconds=10),
         at=NOW,
     )
     retry = store.open_instrument_session(
@@ -462,7 +462,6 @@ def test_instrument_session_retry_heartbeat_and_loss_quarantine(
         config_entry_id="baseline",
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("scope",),
-        ttl=timedelta(seconds=10),
         at=NOW + timedelta(seconds=1),
     )
 
@@ -474,42 +473,84 @@ def test_instrument_session_retry_heartbeat_and_loss_quarantine(
             config_entry_id="baseline",
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=("scope",),
-            ttl=timedelta(seconds=10),
             at=NOW + timedelta(seconds=1),
         )
 
-    renewed = store.renew_instrument_session(
+    started = store.start_instrument_operation(
         first.session_id,
-        first.token or "",
-        ttl=timedelta(seconds=20),
+        instrument_id="scope",
+        operation_id="apply-1",
+        kind="apply",
         at=NOW + timedelta(seconds=5),
     )
-    assert _resource_leases(store)[0].expires_at == renewed.expires_at
-    assert store.expire_instrument_sessions(at=NOW + timedelta(seconds=24)) == ()
-    assert store.expire_instrument_sessions(at=NOW + timedelta(seconds=26)) == (
+    assert started.active_operation_id == "apply-1"
+    finished = store.finish_instrument_operation(
         first.session_id,
+        instrument_id="scope",
+        operation_id="apply-1",
+        kind="apply",
+        status="applied",
+        at=NOW + timedelta(seconds=6),
+    )
+    assert finished.active_operation_id is None
+    closed = store.close_instrument_session(
+        first.session_id,
+        status="closed",
+        at=NOW + timedelta(seconds=7),
+    )
+    assert closed.state == "closed"
+    assert closed.end_status == "closed"
+    assert _resource_claims(store) == ()
+    with pytest.raises(InstrumentSessionNotActive):
+        store.validate_instrument_session(first.session_id)
+
+
+def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    idle = store.open_instrument_session(
+        operation_id="open-idle",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'a' * 64}",
+        instrument_ids=("idle-scope",),
+        at=NOW,
+    )
+    active = store.open_instrument_session(
+        operation_id="open-active",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'a' * 64}",
+        instrument_ids=("active-scope",),
+        at=NOW,
+    )
+    store.start_instrument_operation(
+        active.session_id,
+        instrument_id="active-scope",
+        operation_id="collect-1",
+        kind="collect",
+        at=NOW + timedelta(seconds=1),
     )
 
-    lost = store.get_instrument_session(first.session_id)
-    [resource] = _resource_leases(store)
+    assert store.reconcile_instrument_sessions_after_restart(
+        at=NOW + timedelta(seconds=2)
+    ) == (active.session_id,)
+
+    assert store.get_instrument_session(idle.session_id).end_status == "aborted"
+    lost = store.get_instrument_session(active.session_id)
     assert lost.state == "attention_required"
-    assert lost.attention_reason == "instrument_session_lease_expired"
-    assert resource.owner_kind == "instrument_session"
-    assert resource.owner_id == first.session_id
-    assert resource.status == "quarantined"
-    with pytest.raises(InstrumentSessionLeaseNotHeld):
-        store.validate_instrument_session(
-            first.session_id,
-            token=first.token or "",
-            at=NOW + timedelta(seconds=26),
-        )
+    assert lost.attention_reason == "daemon_restarted_during_instrument_operation"
+    [claim] = _resource_claims(store)
+    assert claim.owner_id == active.session_id
+    assert claim.status == "quarantined"
 
-    _closed, released = store.resolve_instrument_session_attention(
-        first.session_id,
-        at=NOW + timedelta(seconds=27),
+    closed = store.resolve_instrument_session_attention(
+        active.session_id,
+        at=NOW + timedelta(seconds=3),
     )
-    assert released == 1
-    assert _resource_leases(store) == ()
+    assert closed.end_status == "aborted"
+    assert _resource_claims(store) == ()
 
 
 def test_instrument_session_cannot_claim_a_run_owned_resource(
@@ -527,6 +568,5 @@ def test_instrument_session_cannot_claim_a_run_owned_resource(
             config_entry_id="baseline",
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=("scope",),
-            ttl=timedelta(seconds=10),
             at=NOW,
         )

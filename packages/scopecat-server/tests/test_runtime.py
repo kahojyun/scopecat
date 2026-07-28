@@ -19,8 +19,8 @@ from scopecat.control.models import (
     DurableEvent,
     DurableEventInput,
     EventPage,
+    ResourceClaim,
     ResourceKey,
-    ResourceLease,
     RunPlanSummary,
 )
 from scopecat.daemon.views import (
@@ -129,10 +129,10 @@ def _events(
     )
 
 
-def _resource_leases(project_root: Path) -> tuple[ResourceLease, ...]:
+def _resource_claims(project_root: Path) -> tuple[ResourceClaim, ...]:
     control = SQLiteControlPlane(project_root / ".scopecat" / "control.sqlite3")
     with control.transaction() as connection:
-        return control.list_resource_leases_in_transaction(connection)
+        return control.list_resource_claims_in_transaction(connection)
 
 
 def _run_repository(project_root: Path) -> SQLiteRunRepository:
@@ -1092,7 +1092,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
         control_run = _control_run(runtime, run_id)
         assert control_run.state == "closed"
         assert _manifest(runtime, run_id) == terminal
-        assert _resource_leases(tmp_path) == ()
+        assert _resource_claims(tmp_path) == ()
         terminal_detail = client.get(f"/api/v1/runs/{run_id}").json()
         assert terminal_detail["resources"][0]["status"] == "released"
 
@@ -1198,7 +1198,7 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         attention = _control_run(reopened, run_id)
         assert attention.state == "attention_required"
         assert attention.attention_reason == "daemon_restarted"
-        assert _resource_leases(tmp_path)[0].status == "quarantined"
+        assert _resource_claims(tmp_path)[0].status == "quarantined"
 
         resolved = reopened.application.resolve_attention(run_id)
         assert resolved.state == "closed"
@@ -1209,4 +1209,4 @@ def test_restart_quarantines_executor_until_operator_reconciles(
         assert manifest.outcome is not None
         assert manifest.outcome.certainty == "indeterminate"
         assert manifest.outcome.problems[0].code == "daemon.executor_loss_reconciled"
-        assert _resource_leases(tmp_path) == ()
+        assert _resource_claims(tmp_path) == ()

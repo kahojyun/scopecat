@@ -1,9 +1,9 @@
 # Instrument Control
 
 Scopecat treats direct instrument interaction as a first-class lab activity,
-not as an experiment with one point. The GUI and notebook API use renewable
+not as an experiment with one point. The GUI and notebook API open explicit
 sessions owned by the lab daemon, while experiments and interactive sessions
-compete for the same exclusive instrument leases.
+compete for the same exclusive resource claims.
 
 The design borrows Labber's useful separation between a background Instrument
 Server, manual instrument controls, and measurement tooling. It does not adopt
@@ -16,7 +16,7 @@ resource ports and capabilities remain the experiment-facing contract.
 flowchart LR
     C["InstrumentSpec<br/>immutable connection config"]
     D["InstrumentDescription<br/>capabilities, fields, products"]
-    S["InstrumentSession<br/>live daemon driver + lease"]
+    S["InstrumentSession<br/>live daemon drivers + claim"]
     R["ResourcePort<br/>logical experiment requirement"]
 
     C --> D
@@ -36,13 +36,14 @@ hardware. It declares vendor-neutral capabilities, state fields, field access,
 types, units, labels, descriptions, and collectable products. Both GUI controls
 and experiment validation are derived from it.
 
-`InstrumentSession` is temporary live authority. The daemon pins the active
-config revision, exclusively leases all requested instruments, provisions the
-drivers, and returns a fencing token with a TTL. A heartbeat renews the lease.
-A clean close releases it. A missed heartbeat expires the live authority,
-aborts and closes the daemon drivers, and retains the resources in
-`attention_required` until an operator confirms the hardware state. A write or
-acquisition with an ambiguous outcome follows the same reconciliation path.
+`InstrumentSession` is an explicit daemon-owned connection. The daemon pins
+the active config revision, claims all requested instruments, provisions the
+drivers, and keeps them behind a session id until close or abort. There is no
+client lease, TTL, or heartbeat: losing a GUI tab does not imply that hardware
+state is uncertain. The session remains visible and can be disconnected by
+another GUI or notebook client. Daemon shutdown aborts and closes live drivers;
+on restart, idle sessions are released while a session interrupted during a
+consequential operation remains in `attention_required`.
 
 `ResourcePort` remains a logical experiment requirement such as RF output or
 network sweep. Planning routes it to a physical instrument. Experiment
@@ -79,7 +80,7 @@ configuration: load the active complete snapshot, edit the selected
 instrument's current TCP/IP endpoint or timeout, publish a new entry, and
 activate it. The editor does not change `driver_id`, connection kind, or driver
 options. Virtual connections have no endpoint to edit. Editing is disabled
-while the instrument is leased.
+while the instrument is owned.
 
 ## Instruments workspace
 
@@ -88,7 +89,7 @@ shows:
 
 - friendly label, stable id, driver, and non-secret connection summary;
 - availability: `available`, `active`, `quarantined`, or `unavailable`;
-- current owner kind, actor or run id, and lease expiry;
+- current owner kind and actor or run id;
 - provider or configuration problems.
 
 Opening an instrument does not connect automatically. The operator explicitly
@@ -102,8 +103,12 @@ selects **Connect**, after which the detail view:
 5. submits all staged fields in one **Apply** operation;
 6. offers **Collect** only for declared products and previews returned values
    or arrays;
-7. maintains a heartbeat and closes the session on explicit disconnect or
-   workspace teardown.
+7. closes the session on explicit disconnect or workspace teardown.
+
+If a browser teardown request does not reach the daemon, the next client can
+disconnect the still-visible interactive session. This is ordinary ownership
+recovery, not quarantine: only an unfinished consequential operation or failed
+driver cleanup creates hardware uncertainty.
 
 This is intentionally not a raw SCPI terminal. Driver capabilities preserve
 units and validation, make changes auditable, and keep the same semantics in
@@ -167,20 +172,25 @@ with lab.instruments.open("flux-source", "readout-vna") as session:
 
 The handle is synchronous to match the existing notebook API. It generates a
 new operation id for every apply or collect unless the caller supplies one,
-heartbeats in the background, and closes or aborts through the daemon when
-leaving the context. If an HTTP response is lost, retry with the same
-`operation_id`: the daemon returns the recorded receipt instead of touching the
-device again. The daemon client automatically retries one transport failure
-with the same complete command; callers can supply an id when they need to
-continue that retry explicitly. Open and end operations retain their retry ids
-on the handle, and the GUI does the same while a mutation is unresolved.
+and closes or aborts through the daemon when leaving the context. If an HTTP
+response is lost, retry with the same `operation_id`: the daemon returns the
+recorded receipt instead of touching the device again. The daemon client
+automatically retries one transport failure with the same complete command;
+callers can supply an id when they need to continue that retry explicitly.
+Opening also has a retry identity. Close and abort are naturally idempotent
+because the daemon records the session's terminal status.
+
+An operator can recover a session left by another notebook kernel with
+`lab.instruments.abort_session(session_id)`. This asks the daemon to run the
+driver's safe abort path before releasing the resource claim.
 
 ## Concurrency and failure semantics
 
-Runs and direct sessions lease the same resource key, so an instrument cannot
+Runs and direct sessions claim the same resource key, so an instrument cannot
 be manually adjusted while an experiment owns it. Multi-instrument acquisition
-is all-or-nothing. The daemon acquires the durable lease before contacting
-hardware.
+is all-or-nothing. The daemon acquires the durable claim before contacting
+hardware. Only the external notebook executor needs a renewable lease and
+fencing token; direct driver calls already execute inside the owning daemon.
 
 Reads are observational: a failed read reports an error but does not by itself
 claim the physical state changed. Apply and collect are consequential:
@@ -190,11 +200,11 @@ claim the physical state changed. Apply and collect are consequential:
 - `unknown` means the command may have reached the instrument.
 
 The last case aborts and closes the live drivers, retains quarantined resource
-leases, and requires operator resolution. Automatic retry would be unsafe.
+claims, and requires operator resolution. Automatic retry would be unsafe.
 Operation ids provide session-local de-duplication, and durable started/finished
-events provide an audit trail around consequential calls.
-Recent successful close/abort receipts remain replayable in a bounded
-in-memory retry window.
+events provide an audit trail around consequential calls. A daemon restart
+releases an idle session, but the durable active-operation marker lets it
+quarantine a session interrupted between those two events.
 
 The daemon is the sole live driver host for both interactive sessions and
 experiment runs. A notebook plans and interprets the experiment program, but

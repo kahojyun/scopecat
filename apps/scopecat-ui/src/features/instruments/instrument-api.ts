@@ -6,7 +6,7 @@ import type {
   InstrumentCapability,
   InstrumentCollectReceipt,
   InstrumentConnection,
-  InstrumentSessionLease,
+  InstrumentSession,
   InstrumentState,
   InstrumentStateValue,
   InstrumentView,
@@ -50,8 +50,8 @@ export async function openInstrumentSession(
   instrumentId: string,
   actor: string,
   operationId = createInstrumentOperationId("open"),
-): Promise<InstrumentSessionLease> {
-  return request<InstrumentSessionLease>(
+): Promise<InstrumentSession> {
+  return request<InstrumentSession>(
     SESSION_API,
     undefined,
     jsonRequest({
@@ -62,58 +62,37 @@ export async function openInstrumentSession(
   );
 }
 
-export async function heartbeatInstrumentSession(
-  lease: InstrumentSessionLease,
-): Promise<InstrumentSessionLease> {
-  return request<DaemonUiApi["instrumentHeartbeatLease"]>(
-    `${SESSION_API}/${encodeURIComponent(lease.session_id)}/heartbeat`,
-    undefined,
-    jsonRequest({
-      lease_id: lease.lease_id,
-    } satisfies DaemonUiApi["instrumentHeartbeatCommand"]),
-  );
-}
-
 export async function readInstrumentState(
-  lease: InstrumentSessionLease,
+  session: InstrumentSession,
   instrumentId: string,
 ): Promise<InstrumentState> {
-  return request<InstrumentState>(
-    instrumentSessionPath(lease.session_id, instrumentId, "state/read"),
-    undefined,
-    jsonRequest({
-      lease_id: lease.lease_id,
-    } satisfies DaemonUiApi["instrumentReadCommand"]),
-  );
+  return request<InstrumentState>(instrumentSessionPath(session.session_id, instrumentId, "state"));
 }
 
 export async function applyInstrumentState(
-  lease: InstrumentSessionLease,
+  session: InstrumentSession,
   instrumentId: string,
   fields: StagedInstrumentField[],
   operationId = createInstrumentOperationId("apply"),
 ): Promise<InstrumentApplyReceipt> {
   return request<InstrumentApplyReceipt>(
-    instrumentSessionPath(lease.session_id, instrumentId, "state/apply"),
+    instrumentSessionPath(session.session_id, instrumentId, "state/apply"),
     undefined,
     jsonRequest({
-      lease_id: lease.lease_id,
-      command: {
-        operation_id: operationId,
-        instrument_id: instrumentId,
-        fields: fields.map((field) => ({
-          resource_id: instrumentId,
-          capability_id: field.capabilityId,
-          field_path: field.fieldPath,
-          value: field.value,
-        })),
-      },
+      operation_id: operationId,
+      instrument_id: instrumentId,
+      fields: fields.map((field) => ({
+        resource_id: instrumentId,
+        capability_id: field.capabilityId,
+        field_path: field.fieldPath,
+        value: field.value,
+      })),
     } satisfies DaemonUiApi["instrumentApplyCommand"]),
   );
 }
 
 export async function collectInstrumentCapability(
-  lease: InstrumentSessionLease,
+  session: InstrumentSession,
   instrumentId: string,
   capability: InstrumentCapability,
   state?: InstrumentState,
@@ -122,17 +101,14 @@ export async function collectInstrumentCapability(
   const plan = planInstrumentCollection(capability, state);
   if (!plan.ready) throw new Error(plan.reason);
   return request<InstrumentCollectReceipt>(
-    instrumentSessionPath(lease.session_id, instrumentId, "collect"),
+    instrumentSessionPath(session.session_id, instrumentId, "collect"),
     undefined,
     jsonRequest({
-      lease_id: lease.lease_id,
-      command: {
-        operation_id: operationId,
-        instrument_id: instrumentId,
-        point_index: 0,
-        point_count: 1,
-        requests: plan.requests,
-      },
+      operation_id: operationId,
+      instrument_id: instrumentId,
+      point_index: 0,
+      point_count: 1,
+      requests: plan.requests,
     } satisfies DaemonUiApi["instrumentCollectCommand"]),
   );
 }
@@ -145,21 +121,23 @@ export function instrumentCollectionReadiness(
   return plan.ready ? { ready: true } : { ready: false, reason: plan.reason };
 }
 
-export async function closeInstrumentSession(
-  lease: InstrumentSessionLease,
+export async function closeInstrumentSession(sessionId: string, keepalive = false): Promise<void> {
+  await endInstrumentSession(sessionId, "close", keepalive);
+}
+
+export async function abortInstrumentSession(sessionId: string): Promise<void> {
+  await endInstrumentSession(sessionId, "abort");
+}
+
+async function endInstrumentSession(
+  sessionId: string,
+  action: "close" | "abort",
   keepalive = false,
-  operationId = createInstrumentOperationId("close"),
 ): Promise<void> {
   await request<DaemonUiApi["instrumentSessionEndReceipt"]>(
-    `${SESSION_API}/${encodeURIComponent(lease.session_id)}/close`,
+    `${SESSION_API}/${encodeURIComponent(sessionId)}/${action}`,
     undefined,
-    {
-      ...jsonRequest({
-        lease_id: lease.lease_id,
-        operation_id: operationId,
-      } satisfies DaemonUiApi["instrumentSessionEndCommand"]),
-      keepalive,
-    },
+    { method: "POST", keepalive },
   );
 }
 
@@ -229,7 +207,7 @@ export function retryTransientInstrumentMutation(failureCount: number, error: un
 function instrumentSessionPath(
   sessionId: string,
   instrumentId: string,
-  operation: "state/read" | "state/apply" | "collect",
+  operation: "state" | "state/apply" | "collect",
 ): string {
   return (
     `${SESSION_API}/${encodeURIComponent(sessionId)}/instruments/` +
@@ -254,7 +232,7 @@ function stateAxisSize(state: InstrumentState | undefined, axisId: string): numb
 }
 
 type InstrumentCollectProductRequest = NonNullable<
-  DaemonUiApi["instrumentCollectCommand"]["command"]["requests"]
+  DaemonUiApi["instrumentCollectCommand"]["requests"]
 >[number];
 
 type InstrumentCollectPlan =

@@ -3,7 +3,7 @@ import type {
   ConfigProfileSnapshot,
   InstrumentCapability,
   InstrumentConnection,
-  InstrumentSessionLease,
+  InstrumentSession,
 } from "../../api-contract";
 import { setConfigDefault } from "../config/config-api";
 import {
@@ -125,8 +125,8 @@ describe("interactive collection request shaping", () => {
       ],
     };
 
-    await collectInstrumentCapability(sessionLease(), "vna-1", capability);
-    await collectInstrumentCapability(sessionLease(), "vna-1", capability, {
+    await collectInstrumentCapability(session(), "vna-1", capability);
+    await collectInstrumentCapability(session(), "vna-1", capability, {
       instrument_id: "vna-1",
       fields: [
         {
@@ -138,9 +138,9 @@ describe("interactive collection request shaping", () => {
     });
 
     const firstBody = requestBody(fetchMock.mock.calls[0]?.[1]);
-    expect(firstBody.command?.requests?.[0]!.dimensions).toEqual([]);
+    expect(firstBody.requests?.[0]!.dimensions).toEqual([]);
     const secondBody = requestBody(fetchMock.mock.calls[1]?.[1]);
-    expect(secondBody.command?.requests?.[0]!.dimensions).toEqual([
+    expect(secondBody.requests?.[0]!.dimensions).toEqual([
       { id: "frequency", kind: "frequency", size: 201, unit: "Hz" },
     ]);
   });
@@ -164,7 +164,7 @@ describe("interactive collection request shaping", () => {
       ],
     };
 
-    await expect(collectInstrumentCapability(sessionLease(), "vna-1", capability)).rejects.toThrow(
+    await expect(collectInstrumentCapability(session(), "vna-1", capability)).rejects.toThrow(
       "Collect is unavailable until S-parameter trace has a positive point count for Frequency.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
@@ -179,7 +179,7 @@ describe("interactive collection request shaping", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
-    await collectInstrumentCapability(sessionLease(), "vna-1", capability, {
+    await collectInstrumentCapability(session(), "vna-1", capability, {
       instrument_id: "vna-1",
       fields: [
         {
@@ -192,7 +192,7 @@ describe("interactive collection request shaping", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const body = requestBody(fetchMock.mock.calls[0]?.[1]);
-    expect(body.command?.requests?.[0]!.dimensions).toEqual([
+    expect(body.requests?.[0]!.dimensions).toEqual([
       { id: "frequency", kind: "frequency", size: 201, unit: "Hz" },
       { id: "receiver", kind: "receiver", size: 2 },
     ]);
@@ -216,41 +216,29 @@ describe("interactive collection request shaping", () => {
 
     await openInstrumentSession("vna-1", "Ada", "open-retry");
     await openInstrumentSession("vna-1", "Ada", "open-retry");
-    await applyInstrumentState(sessionLease(), "vna-1", [], "apply-retry");
-    await applyInstrumentState(sessionLease(), "vna-1", [], "apply-retry");
-    await collectInstrumentCapability(
-      sessionLease(),
-      "vna-1",
-      capability,
-      undefined,
-      "collect-retry",
-    );
-    await collectInstrumentCapability(
-      sessionLease(),
-      "vna-1",
-      capability,
-      undefined,
-      "collect-retry",
-    );
-    await closeInstrumentSession(sessionLease(), false, "close-retry");
-    await closeInstrumentSession(sessionLease(), false, "close-retry");
+    await applyInstrumentState(session(), "vna-1", [], "apply-retry");
+    await applyInstrumentState(session(), "vna-1", [], "apply-retry");
+    await collectInstrumentCapability(session(), "vna-1", capability, undefined, "collect-retry");
+    await collectInstrumentCapability(session(), "vna-1", capability, undefined, "collect-retry");
+    await closeInstrumentSession("session-1");
+    await closeInstrumentSession("session-1");
 
-    const bodies = fetchMock.mock.calls.map(([, init]) => requestBody(init));
+    const bodies = fetchMock.mock.calls.slice(0, 6).map(([, init]) => requestBody(init));
     expect(bodies.slice(0, 2).map((body) => body.operation_id)).toEqual([
       "open-retry",
       "open-retry",
     ]);
-    expect(bodies.slice(2, 4).map((body) => body.command?.operation_id)).toEqual([
+    expect(bodies.slice(2, 4).map((body) => body.operation_id)).toEqual([
       "apply-retry",
       "apply-retry",
     ]);
-    expect(bodies.slice(4, 6).map((body) => body.command?.operation_id)).toEqual([
+    expect(bodies.slice(4, 6).map((body) => body.operation_id)).toEqual([
       "collect-retry",
       "collect-retry",
     ]);
-    expect(bodies.slice(6, 8).map((body) => body.operation_id)).toEqual([
-      "close-retry",
-      "close-retry",
+    expect(fetchMock.mock.calls.slice(6, 8).map(([input]) => String(input))).toEqual([
+      "/api/v1/instrument-sessions/session-1/close",
+      "/api/v1/instrument-sessions/session-1/close",
     ]);
   });
 });
@@ -319,34 +307,25 @@ function activeConfig(): ActiveConfig {
   } as ActiveConfig;
 }
 
-function sessionLease(): InstrumentSessionLease {
+function session(): InstrumentSession {
   return {
     session_id: "session-1",
-    lease_id: "lease-1",
     actor: "Ada",
     config_entry_id: "lab-default",
     config_content_hash: "sha256:active",
     instrument_ids: ["vna-1"],
     descriptions: [],
-    issued_at: "2026-07-27T08:00:00Z",
-    expires_at: "2026-07-27T08:05:00Z",
-    heartbeat_interval_seconds: 10,
+    opened_at: "2026-07-27T08:00:00Z",
   };
 }
 
 function requestBody(init: RequestInit | undefined): {
   operation_id?: string;
-  command?: {
-    operation_id?: string;
-    requests?: Array<{ dimensions: unknown[] }>;
-  };
+  requests?: Array<{ dimensions: unknown[] }>;
 } {
   if (typeof init?.body !== "string") throw new Error("Expected a JSON request body.");
   return JSON.parse(init.body) as {
     operation_id?: string;
-    command?: {
-      operation_id?: string;
-      requests?: Array<{ dimensions: unknown[] }>;
-    };
+    requests?: Array<{ dimensions: unknown[] }>;
   };
 }

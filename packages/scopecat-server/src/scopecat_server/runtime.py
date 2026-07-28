@@ -107,7 +107,6 @@ class LocalDaemonRuntime:
                 runs=runs,
                 config=config_service,
                 build_system=build_system,
-                lease_ttl=lease_ttl,
             )
             executor = ExecutorService(
                 control=control,

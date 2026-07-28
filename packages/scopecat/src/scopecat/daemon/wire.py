@@ -50,11 +50,7 @@ from scopecat.records.run import (
     RunManifest,
 )
 from scopecat.records.run_request import RunRequest
-from scopecat.sdk.instruments.contracts import (
-    CollectCommand,
-    InstrumentDescription,
-    InstrumentStateCommand,
-)
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -403,76 +399,33 @@ class InstrumentSessionOpenCommand(_WireModel):
         return value
 
 
-class InstrumentSessionLease(_WireModel):
-    """Renewable authority for daemon-owned live instrument drivers."""
+class InstrumentSessionOpenReceipt(_WireModel):
+    """Daemon-owned direct-control session opened against one config revision."""
 
     session_id: NonEmptyText
-    lease_id: NonEmptyText
     actor: NonEmptyText
     config_entry_id: NonEmptyText
     config_content_hash: ConfigContentHash
     instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
-    descriptions: tuple[InstrumentDescription, ...] = ()
-    issued_at: datetime
-    expires_at: datetime
-    heartbeat_interval_seconds: float = Field(gt=0)
+    descriptions: tuple[InstrumentDescription, ...]
+    opened_at: datetime
 
     @model_validator(mode="after")
-    def validate_interval(self) -> InstrumentSessionLease:
-        issued_at = _aware_datetime(self.issued_at, field_name="issued_at")
-        expires_at = _aware_datetime(self.expires_at, field_name="expires_at")
-        if expires_at <= issued_at:
-            raise ValueError("instrument lease must expire after it is issued")
+    def validate_descriptions(self) -> InstrumentSessionOpenReceipt:
+        _aware_datetime(self.opened_at, field_name="opened_at")
         described_ids = tuple(
             description.instrument_id for description in self.descriptions
         )
         if described_ids != self.instrument_ids:
             raise ValueError(
-                "instrument lease descriptions must match instrument_ids in order"
+                "instrument session descriptions must match instrument_ids in order"
             )
         return self
 
 
-class InstrumentSessionHeartbeat(_WireModel):
-    lease_id: NonEmptyText
-
-
-class InstrumentSessionReadCommand(_WireModel):
-    lease_id: NonEmptyText
-
-
-class InstrumentSessionApplyCommand(_WireModel):
-    lease_id: NonEmptyText
-    command: InstrumentStateCommand
-
-    @model_validator(mode="after")
-    def validate_operation(self) -> InstrumentSessionApplyCommand:
-        if not self.command.operation_id:
-            raise ValueError("interactive apply requires an operation_id")
-        return self
-
-
-class InstrumentSessionCollectCommand(_WireModel):
-    lease_id: NonEmptyText
-    command: CollectCommand
-
-    @model_validator(mode="after")
-    def validate_operation(self) -> InstrumentSessionCollectCommand:
-        if not self.command.operation_id:
-            raise ValueError("interactive collect requires an operation_id")
-        return self
-
-
-class InstrumentSessionEndCommand(_WireModel):
-    lease_id: NonEmptyText
-    operation_id: NonEmptyText
-
-
 class InstrumentSessionEndReceipt(_WireModel):
     session_id: NonEmptyText
-    operation_id: NonEmptyText
     status: Literal["closed", "aborted"]
-    released_resource_count: int = Field(ge=0)
 
 
 def _aware_datetime(value: datetime, *, field_name: str) -> datetime:
@@ -510,14 +463,9 @@ __all__ = [
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",
-    "InstrumentSessionApplyCommand",
-    "InstrumentSessionCollectCommand",
-    "InstrumentSessionEndCommand",
     "InstrumentSessionEndReceipt",
-    "InstrumentSessionHeartbeat",
-    "InstrumentSessionLease",
     "InstrumentSessionOpenCommand",
-    "InstrumentSessionReadCommand",
+    "InstrumentSessionOpenReceipt",
     "ManualConfigDraftRevisionSource",
     "MeasurementAppendCommand",
     "MeasurementSealCommand",
