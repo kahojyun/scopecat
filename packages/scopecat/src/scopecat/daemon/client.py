@@ -50,6 +50,8 @@ from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
@@ -183,6 +185,16 @@ class DaemonClient:
             f"{_API_PREFIX}/config-registry/default",
             command,
             ConfigPublishReceipt,
+        )
+
+    def migrate_instrument_inventory(
+        self,
+        command: InstrumentInventoryMigrationCommand,
+    ) -> InstrumentInventoryMigrationReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/config-registry/instrument-inventory-migrations",
+            command,
+            InstrumentInventoryMigrationReceipt,
         )
 
     def preview_config_draft(

@@ -1088,7 +1088,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "activation" | "undo";
+            action: "activation" | "inventory_migration" | "undo";
             /** Actor */
             actor: string;
             entry_content_hash: components["schemas"]["ConfigContentHash"];

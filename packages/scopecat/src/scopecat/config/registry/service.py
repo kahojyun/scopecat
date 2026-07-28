@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from scopecat.config.candidates import (
     CandidateConfig,
@@ -116,6 +117,21 @@ class ConfigRevision:
     entry_id: str | None
     actor: str
     note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class InstrumentInventoryMigrationDelta:
+    kind: Literal["remove", "rekey", "rename_rekey"]
+    old_instrument_id: str
+    old_exclusivity_key: str
+    new_instrument_id: str | None = None
+    new_exclusivity_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InstrumentInventoryMigrationPlan:
+    changes: tuple[InstrumentInventoryMigrationDelta, ...]
+    affected_exclusivity_keys: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +308,72 @@ def publish_config_revision(
             saved=saved.saved,
             activated=activated.activated,
             deltas=saved.deltas,
+        )
+
+
+def publish_instrument_inventory_migration_revision(
+    *,
+    revision: ConfigRevision,
+    declared: Sequence[InstrumentInventoryMigrationDelta],
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+    expected_generation: int,
+) -> ConfigRegistryMutationResult:
+    """Publish a declared destructive change to the instrument inventory."""
+
+    _validate_config_revision(revision)
+    source = revision.source
+    if not isinstance(source, DirectConfigRevisionSource):
+        raise _registry_failure(
+            CheckFailed,
+            code="config_registry.inventory_migration_requires_direct_revision",
+            message="instrument inventory migrations require a direct config revision",
+            location=_registry_model_location("revision", "source"),
+        )
+    with unit_of_work() as work:
+        current_activation = _read_latest_activation(work.registry)
+        _require_expected_generation(
+            current_activation,
+            expected_generation,
+            active_ref=work.registry.active_ref,
+        )
+        if current_activation is None:
+            raise _registry_failure(
+                NotFound,
+                code="config_registry.no_active_entry",
+                message="config registry has no active entry",
+                location=_registry_model_location("active"),
+            )
+        current = _load_config_registry_entry_locked(
+            entry_id=current_activation.entry_id,
+            work=work,
+        )
+        _validate_active_entry_identity(
+            work.registry,
+            current_activation,
+            current.entry,
+        )
+        plan = plan_instrument_inventory_migration(
+            current=current.config,
+            target=source.config,
+            declared=declared,
+        )
+        saved = _save_config_revision_locked(
+            revision=revision,
+            work=work,
+        )
+        activated = _activate_instrument_inventory_migration_locked(
+            entry_id=saved.entry.id,
+            work=work,
+            actor=revision.actor,
+            note=revision.note,
+            expected_generation=expected_generation,
+            plan=plan,
+        )
+        return ConfigRegistryMutationResult(
+            entry=saved.entry,
+            activation=activated.activation,
+            saved=saved.saved,
+            activated=activated.activated,
         )
 
 
@@ -568,6 +650,44 @@ def _activate_config_registry_entry_locked(
     expected_generation: int | None,
     note: str,
 ) -> ConfigRegistryMutationResult:
+    return _commit_config_registry_activation_locked(
+        entry_id=entry_id,
+        work=work,
+        actor=actor,
+        expected_generation=expected_generation,
+        note=note,
+        inventory_migration=None,
+    )
+
+
+def _activate_instrument_inventory_migration_locked(
+    *,
+    entry_id: str,
+    work: ConfigRegistryUnitOfWork,
+    actor: str,
+    expected_generation: int,
+    note: str,
+    plan: InstrumentInventoryMigrationPlan,
+) -> ConfigRegistryMutationResult:
+    return _commit_config_registry_activation_locked(
+        entry_id=entry_id,
+        work=work,
+        actor=actor,
+        expected_generation=expected_generation,
+        note=note,
+        inventory_migration=plan,
+    )
+
+
+def _commit_config_registry_activation_locked(
+    *,
+    entry_id: str,
+    work: ConfigRegistryUnitOfWork,
+    actor: str,
+    expected_generation: int | None,
+    note: str,
+    inventory_migration: InstrumentInventoryMigrationPlan | None,
+) -> ConfigRegistryMutationResult:
     current_activation = _read_latest_activation(work.registry)
     if expected_generation is not None:
         _require_expected_generation(
@@ -597,10 +717,11 @@ def _activate_config_registry_entry_locked(
             current_activation,
             current.entry,
         )
-        _require_stable_instrument_exclusivity_keys(
-            current=current.config,
-            candidate=loaded.config,
-        )
+        if inventory_migration is None:
+            _require_stable_instrument_exclusivity_keys(
+                current=current.config,
+                candidate=loaded.config,
+            )
     previous_entry_id = (
         current_activation.entry_id if current_activation is not None else None
     )
@@ -615,7 +736,7 @@ def _activate_config_registry_entry_locked(
     generation = current_generation + 1
     record = ConfigRegistryActivationRecord(
         generation=generation,
-        action="activation",
+        action=("activation" if inventory_migration is None else "inventory_migration"),
         entry_id=entry.id,
         entry_content_hash=entry.content_hash,
         previous_entry_id=previous_entry_id,
@@ -1037,6 +1158,160 @@ def _require_valid_config(config: ConfigProfileSnapshot) -> None:
         raise CheckFailed(problems)
 
 
+def plan_instrument_inventory_migration(
+    *,
+    current: ConfigProfileSnapshot,
+    target: ConfigProfileSnapshot,
+    declared: Sequence[InstrumentInventoryMigrationDelta],
+) -> InstrumentInventoryMigrationPlan:
+    """Match explicit intent to every destructive inventory change."""
+
+    _require_valid_config(target)
+    current_by_id = {
+        instrument.id: instrument.exclusivity_key
+        for instrument in current.instrument_registry.instruments
+    }
+    target_by_id = {
+        instrument.id: instrument.exclusivity_key
+        for instrument in target.instrument_registry.instruments
+    }
+    current_keys = set(current_by_id.values())
+    target_keys = set(target_by_id.values())
+    declared_changes = tuple(declared)
+    rename_counts_by_old_id: dict[str, int] = {}
+    rename_counts_by_new_id: dict[str, int] = {}
+    rename_by_old_id: dict[str, InstrumentInventoryMigrationDelta] = {}
+    for change in declared_changes:
+        if not _is_well_formed_inventory_change(change):
+            continue
+        if change.kind != "rename_rekey":
+            continue
+        assert change.new_instrument_id is not None
+        rename_counts_by_old_id[change.old_instrument_id] = (
+            rename_counts_by_old_id.get(change.old_instrument_id, 0) + 1
+        )
+        rename_counts_by_new_id[change.new_instrument_id] = (
+            rename_counts_by_new_id.get(change.new_instrument_id, 0) + 1
+        )
+        rename_by_old_id[change.old_instrument_id] = change
+
+    inferred: list[InstrumentInventoryMigrationDelta] = []
+    for old_instrument_id, old_exclusivity_key in sorted(current_by_id.items()):
+        target_key = target_by_id.get(old_instrument_id)
+        if target_key is not None:
+            if target_key != old_exclusivity_key:
+                inferred.append(
+                    InstrumentInventoryMigrationDelta(
+                        kind="rekey",
+                        old_instrument_id=old_instrument_id,
+                        old_exclusivity_key=old_exclusivity_key,
+                        new_instrument_id=old_instrument_id,
+                        new_exclusivity_key=target_key,
+                    )
+                )
+            continue
+        if old_exclusivity_key in target_keys:
+            continue
+        rename = rename_by_old_id.get(old_instrument_id)
+        if (
+            rename is not None
+            and rename_counts_by_old_id[old_instrument_id] == 1
+            and rename.new_instrument_id is not None
+            and rename.new_exclusivity_key is not None
+            and rename_counts_by_new_id[rename.new_instrument_id] == 1
+            and rename.old_exclusivity_key == old_exclusivity_key
+            and rename.new_instrument_id not in current_by_id
+            and rename.new_exclusivity_key not in current_keys
+            and target_by_id.get(rename.new_instrument_id) == rename.new_exclusivity_key
+        ):
+            inferred.append(rename)
+            continue
+        inferred.append(
+            InstrumentInventoryMigrationDelta(
+                kind="remove",
+                old_instrument_id=old_instrument_id,
+                old_exclusivity_key=old_exclusivity_key,
+            )
+        )
+
+    changes = tuple(sorted(inferred, key=_inventory_change_sort_key))
+    normalized_declared = tuple(
+        sorted(declared_changes, key=_inventory_change_sort_key)
+    )
+    if normalized_declared != changes:
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.instrument_inventory_migration_mismatch",
+            message=(
+                "declared instrument inventory migration does not match "
+                "the destructive config diff"
+            ),
+            location=_registry_model_location("declared"),
+            details={
+                "declared": [
+                    _inventory_change_details(change) for change in normalized_declared
+                ],
+                "inferred": [_inventory_change_details(change) for change in changes],
+            },
+        )
+    affected_keys = {
+        key
+        for change in changes
+        for key in (
+            change.old_exclusivity_key,
+            change.new_exclusivity_key,
+        )
+        if key is not None
+    }
+    return InstrumentInventoryMigrationPlan(
+        changes=changes,
+        affected_exclusivity_keys=tuple(sorted(affected_keys)),
+    )
+
+
+def _is_well_formed_inventory_change(
+    change: InstrumentInventoryMigrationDelta,
+) -> bool:
+    if change.kind == "remove":
+        return change.new_instrument_id is None and change.new_exclusivity_key is None
+    if change.kind == "rekey":
+        return (
+            change.new_instrument_id == change.old_instrument_id
+            and change.new_exclusivity_key is not None
+            and change.new_exclusivity_key != change.old_exclusivity_key
+        )
+    return (
+        change.new_instrument_id is not None
+        and change.new_instrument_id != change.old_instrument_id
+        and change.new_exclusivity_key is not None
+        and change.new_exclusivity_key != change.old_exclusivity_key
+    )
+
+
+def _inventory_change_sort_key(
+    change: InstrumentInventoryMigrationDelta,
+) -> tuple[str, str, str, str, str]:
+    return (
+        change.old_instrument_id,
+        change.old_exclusivity_key,
+        change.kind,
+        change.new_instrument_id or "",
+        change.new_exclusivity_key or "",
+    )
+
+
+def _inventory_change_details(
+    change: InstrumentInventoryMigrationDelta,
+) -> dict[str, object]:
+    return {
+        "kind": change.kind,
+        "old_instrument_id": change.old_instrument_id,
+        "old_exclusivity_key": change.old_exclusivity_key,
+        "new_instrument_id": change.new_instrument_id,
+        "new_exclusivity_key": change.new_exclusivity_key,
+    }
+
+
 def _require_stable_instrument_exclusivity_keys(
     *,
     current: ConfigProfileSnapshot,
@@ -1160,6 +1435,8 @@ __all__ = [
     "ConfigRevision",
     "ConfigRevisionSource",
     "DirectConfigRevisionSource",
+    "InstrumentInventoryMigrationDelta",
+    "InstrumentInventoryMigrationPlan",
     "ManualConfigDraftResult",
     "ManualConfigDraftRevisionSource",
     "activate_config_registry_entry",
@@ -1172,8 +1449,10 @@ __all__ = [
     "load_config_registry_activation_history",
     "load_config_registry_entry_snapshot",
     "load_config_registry_snapshot",
+    "plan_instrument_inventory_migration",
     "preview_manual_config_draft",
     "publish_config_revision",
+    "publish_instrument_inventory_migration_revision",
     "resolve_config_registry_config_source",
     "undo_config_registry",
 ]

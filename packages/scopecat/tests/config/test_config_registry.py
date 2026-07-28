@@ -25,6 +25,8 @@ from scopecat.config.registry import (
     ConfigRevision,
     DirectConfigRegistrySource,
     DirectConfigRevisionSource,
+    InstrumentInventoryMigrationDelta,
+    InstrumentInventoryMigrationPlan,
     ManualConfigDraftRegistrySource,
     ManualConfigDraftResult,
     ManualConfigDraftRevisionSource,
@@ -35,8 +37,10 @@ from scopecat.config.registry import (
     load_active_config_registry_config,
     load_active_config_registry_entry,
     load_config_registry_activation_history,
+    plan_instrument_inventory_migration,
     preview_manual_config_draft,
     publish_config_revision,
+    publish_instrument_inventory_migration_revision,
     resolve_config_registry_config_source,
     undo_config_registry,
 )
@@ -784,6 +788,245 @@ def test_publish_rejects_logical_rename_that_also_rekeys(
     assert current_config_registry_generation(unit_of_work=unit_of_work) == 1
 
 
+@pytest.mark.parametrize("kind", ("remove", "rekey", "rename_rekey"))
+def test_publish_inventory_migration_records_declared_destructive_change(
+    tmp_path: Path,
+    kind: Literal["remove", "rekey", "rename_rekey"],
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    seed = _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    assert seed.activation is not None
+    target, change, affected_keys = _inventory_migration_case(config, kind)
+
+    plan = plan_instrument_inventory_migration(
+        current=config,
+        target=target,
+        declared=(change,),
+    )
+    assert plan == InstrumentInventoryMigrationPlan(
+        changes=(change,),
+        affected_exclusivity_keys=affected_keys,
+    )
+
+    result = publish_instrument_inventory_migration_revision(
+        revision=ConfigRevision(
+            source=DirectConfigRevisionSource(target),
+            entry_id=f"{kind}-target",
+            actor="operator",
+        ),
+        declared=(change,),
+        unit_of_work=unit_of_work,
+        expected_generation=seed.activation.generation,
+    )
+
+    assert result.saved
+    assert result.activated
+    assert result.activation is not None
+    assert result.activation.action == "inventory_migration"
+    assert result.activation.generation == seed.activation.generation + 1
+    assert load_active_config_registry_config(unit_of_work=unit_of_work) == target
+
+
+def test_inventory_migration_rejects_declared_diff_mismatch(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    seed = _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    assert seed.activation is not None
+    target, rekey, _affected_keys = _inventory_migration_case(config, "rekey")
+    mismatched = InstrumentInventoryMigrationDelta(
+        kind="remove",
+        old_instrument_id=rekey.old_instrument_id,
+        old_exclusivity_key=rekey.old_exclusivity_key,
+    )
+
+    with pytest.raises(Conflict) as error:
+        publish_instrument_inventory_migration_revision(
+            revision=ConfigRevision(
+                source=DirectConfigRevisionSource(target),
+                entry_id="mismatched",
+                actor="operator",
+            ),
+            declared=(mismatched,),
+            unit_of_work=unit_of_work,
+            expected_generation=seed.activation.generation,
+        )
+
+    assert error.value.problems[0].code == (
+        "config_registry.instrument_inventory_migration_mismatch"
+    )
+    assert [
+        entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
+    ] == ["seed"]
+    assert current_config_registry_generation(unit_of_work=unit_of_work) == 1
+
+
+def test_inventory_migration_plan_ignores_non_destructive_inventory_changes() -> None:
+    config = load_config()
+    [instrument] = config.instrument_registry.instruments
+    renamed_id = "renamed-source"
+    target = config.model_copy(
+        update={
+            "id": "ordinary-inventory-changes",
+            "system": config.system.model_copy(
+                update={
+                    "instrument_registry": config.instrument_registry.model_copy(
+                        update={
+                            "instruments": [
+                                instrument.model_copy(update={"id": renamed_id}),
+                                instrument.model_copy(
+                                    update={
+                                        "id": "added-source",
+                                        "exclusivity_key": "added-source",
+                                    }
+                                ),
+                            ]
+                        }
+                    ),
+                    "routing": config.routing.model_copy(
+                        update={
+                            "bindings": [
+                                binding.model_copy(update={"instrument_id": renamed_id})
+                                for binding in config.routing.bindings
+                            ]
+                        }
+                    ),
+                }
+            ),
+        }
+    )
+
+    assert plan_instrument_inventory_migration(
+        current=config,
+        target=target,
+        declared=(),
+    ) == InstrumentInventoryMigrationPlan(
+        changes=(),
+        affected_exclusivity_keys=(),
+    )
+
+
+def test_inventory_migration_plan_validates_target_before_returning_keys() -> None:
+    config = load_config()
+    target, change, _affected_keys = _inventory_migration_case(config, "rekey")
+    invalid_binding = target.routing.bindings[0].model_copy(
+        update={"instrument_id": "missing-source"}
+    )
+    invalid = target.model_copy(
+        update={
+            "system": target.system.model_copy(
+                update={
+                    "routing": target.routing.model_copy(
+                        update={"bindings": [invalid_binding]}
+                    )
+                }
+            )
+        }
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        plan_instrument_inventory_migration(
+            current=config,
+            target=invalid,
+            declared=(change,),
+        )
+
+    assert error.value.problems[0].code == (
+        "configuration.unknown_routing_binding_instrument"
+    )
+
+
+def test_inventory_migration_rejects_stale_generation_before_saving(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    target, change, _affected_keys = _inventory_migration_case(config, "rekey")
+
+    with pytest.raises(Conflict) as error:
+        publish_instrument_inventory_migration_revision(
+            revision=ConfigRevision(
+                source=DirectConfigRevisionSource(target),
+                entry_id="stale-migration",
+                actor="operator",
+            ),
+            declared=(change,),
+            unit_of_work=unit_of_work,
+            expected_generation=0,
+        )
+
+    assert error.value.problems[0].code == "config_registry.conflict"
+    assert [
+        entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
+    ] == ["seed"]
+
+
+def test_ordinary_activation_and_undo_cannot_reverse_inventory_migration(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    seed = _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    assert seed.activation is not None
+    target, change, _affected_keys = _inventory_migration_case(config, "rekey")
+    migrated = publish_instrument_inventory_migration_revision(
+        revision=ConfigRevision(
+            source=DirectConfigRevisionSource(target),
+            entry_id="migrated",
+            actor="operator",
+        ),
+        declared=(change,),
+        unit_of_work=unit_of_work,
+        expected_generation=seed.activation.generation,
+    )
+    assert migrated.activation is not None
+
+    with pytest.raises(Conflict) as activate_error:
+        activate_config_registry_entry(
+            entry_id=seed.entry.id,
+            unit_of_work=unit_of_work,
+            actor="operator",
+            expected_generation=migrated.activation.generation,
+        )
+    with pytest.raises(Conflict) as undo_error:
+        undo_config_registry(
+            unit_of_work=unit_of_work,
+            actor="operator",
+            expected_generation=migrated.activation.generation,
+        )
+
+    assert activate_error.value.problems[0].code == (
+        "config_registry.instrument_exclusivity_key_changed"
+    )
+    assert undo_error.value.problems[0].code == (
+        "config_registry.instrument_exclusivity_key_changed"
+    )
+    assert current_config_registry_generation(unit_of_work=unit_of_work) == 2
+
+
 def test_concurrent_publishes_apply_one_generation(
     tmp_path: Path,
 ) -> None:
@@ -884,6 +1127,84 @@ def test_candidate_publish_does_not_ignore_actor_metadata(
         )
 
     assert error.value.problems[0].code == "config_registry.duplicate_entry"
+
+
+def _inventory_migration_case(
+    config: ConfigProfileSnapshot,
+    kind: Literal["remove", "rekey", "rename_rekey"],
+) -> tuple[
+    ConfigProfileSnapshot,
+    InstrumentInventoryMigrationDelta,
+    tuple[str, ...],
+]:
+    [instrument] = config.instrument_registry.instruments
+    if kind == "remove":
+        instruments = []
+        bindings = []
+        change = InstrumentInventoryMigrationDelta(
+            kind="remove",
+            old_instrument_id=instrument.id,
+            old_exclusivity_key=instrument.exclusivity_key,
+        )
+    elif kind == "rekey":
+        instruments = [
+            instrument.model_copy(update={"exclusivity_key": "replacement-key"})
+        ]
+        bindings = config.routing.bindings
+        change = InstrumentInventoryMigrationDelta(
+            kind="rekey",
+            old_instrument_id=instrument.id,
+            old_exclusivity_key=instrument.exclusivity_key,
+            new_instrument_id=instrument.id,
+            new_exclusivity_key="replacement-key",
+        )
+    else:
+        renamed_id = "renamed-source"
+        instruments = [
+            instrument.model_copy(
+                update={
+                    "id": renamed_id,
+                    "exclusivity_key": "replacement-key",
+                }
+            )
+        ]
+        bindings = [
+            binding.model_copy(update={"instrument_id": renamed_id})
+            for binding in config.routing.bindings
+        ]
+        change = InstrumentInventoryMigrationDelta(
+            kind="rename_rekey",
+            old_instrument_id=instrument.id,
+            old_exclusivity_key=instrument.exclusivity_key,
+            new_instrument_id=renamed_id,
+            new_exclusivity_key="replacement-key",
+        )
+    target = config.model_copy(
+        update={
+            "id": f"{kind}-target",
+            "system": config.system.model_copy(
+                update={
+                    "instrument_registry": config.instrument_registry.model_copy(
+                        update={"instruments": instruments}
+                    ),
+                    "routing": config.routing.model_copy(update={"bindings": bindings}),
+                }
+            ),
+        }
+    )
+    affected_keys = tuple(
+        sorted(
+            {
+                change.old_exclusivity_key,
+                *(
+                    ()
+                    if change.new_exclusivity_key is None
+                    else (change.new_exclusivity_key,)
+                ),
+            }
+        )
+    )
+    return target, change, affected_keys
 
 
 def _publish_direct_revision(

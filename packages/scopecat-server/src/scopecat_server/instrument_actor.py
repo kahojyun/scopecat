@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
-from threading import RLock
-from typing import Literal
+from threading import Condition, RLock
+from typing import Literal, Self
 
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
@@ -319,8 +319,26 @@ class _InstrumentActor:
             self._assumed_state = None
             connection = self._detach_connection()
             if connection is not None:
-                endpoint, handle = connection
-                endpoint.disconnect(handle)
+                self._disconnect(connection)
+
+    def retire_idle(self) -> None:
+        """Permanently close this actor without disturbing a published owner."""
+
+        with self._lock:
+            if self._shutdown:
+                raise InstrumentActorShutdown(
+                    f"instrument actor is shut down: {self._exclusivity_key}"
+                )
+            if self._owned is not None:
+                raise InstrumentActorConflict(
+                    f"owned instrument cannot be retired: {self._exclusivity_key}"
+                )
+            self._shutdown = True
+            self._assumed_state = None
+            self._epoch += 1
+            connection = self._detach_connection()
+            if connection is not None:
+                self._disconnect(connection)
 
     def shutdown(self) -> None:
         with self._lock:
@@ -333,8 +351,7 @@ class _InstrumentActor:
                 self._epoch += 1
             connection = self._detach_connection()
             if connection is not None:
-                endpoint, handle = connection
-                endpoint.disconnect(handle)
+                self._disconnect(connection)
 
     def _require_owned(self, owned: OwnedInstrument) -> InstrumentConnection:
         if (
@@ -352,8 +369,16 @@ class _InstrumentActor:
         connection = self._detach_connection()
         self._epoch += 1
         if connection is not None:
-            endpoint, handle = connection
+            self._disconnect(connection)
+
+    def _disconnect(self, connection: InstrumentConnection) -> None:
+        endpoint, handle = connection
+        try:
             endpoint.disconnect(handle)
+        except Exception:
+            # A failed disconnect must never be followed by a second connection.
+            self._shutdown = True
+            raise
 
     def _detach_connection(self) -> InstrumentConnection | None:
         endpoint = self._endpoint
@@ -367,12 +392,66 @@ class _InstrumentActor:
         return endpoint, handle
 
 
+class InstrumentActorRetirement:
+    """A scoped per-key acquisition gate for an inventory migration."""
+
+    __slots__ = (
+        "_lock",
+        "_release_gate_action",
+        "_released",
+        "_retire_idle_action",
+    )
+
+    def __init__(
+        self,
+        *,
+        retire_idle: Callable[[], None],
+        release_gate: Callable[[], None],
+    ) -> None:
+        self._retire_idle_action = retire_idle
+        self._release_gate_action = release_gate
+        self._lock = RLock()
+        self._released = False
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object,
+    ) -> None:
+        del exc_type, exc_value, traceback
+        self.release_gate()
+
+    def retire_idle(self) -> None:
+        """Disconnect and remove every actor after pre-gate acquires drain."""
+
+        with self._lock:
+            if self._released:
+                raise InstrumentActorConflict("instrument retirement gate is released")
+            self._retire_idle_action()
+
+    def release_gate(self) -> None:
+        """Allow acquisitions again; repeated release is harmless."""
+
+        with self._lock:
+            if self._released:
+                return
+            self._release_gate_action()
+            self._released = True
+
+
 class InstrumentActorRegistry:
-    """Own one actor per exclusive resource and fence acquisition during shutdown."""
+    """Own one actor per exclusive resource and fence lifecycle transitions."""
 
     def __init__(self) -> None:
         self._actors: dict[str, _InstrumentActor] = {}
         self._lock = RLock()
+        self._condition = Condition(self._lock)
+        self._acquiring: dict[str, int] = {}
+        self._retirements: dict[str, object] = {}
         self._accepting = True
         self._closed = False
 
@@ -386,29 +465,131 @@ class InstrumentActorRegistry:
         endpoint: InstrumentBackendEndpoint,
         connect: InstrumentConnector,
     ) -> OwnedInstrument:
-        with self._lock:
+        with self._condition:
             if not self._accepting:
                 raise InstrumentActorShutdown("instrument actor registry is shut down")
+            if exclusivity_key in self._retirements:
+                raise InstrumentActorConflict(
+                    f"instrument actor is retiring: {exclusivity_key}"
+                )
             actor = self._actors.setdefault(
                 exclusivity_key,
                 _InstrumentActor(exclusivity_key),
             )
-        owned = actor.acquire(
-            instrument_id=instrument_id,
-            binding=binding,
-            owner=owner,
-            endpoint=endpoint,
-            connect=connect,
-        )
-        with self._lock:
+            self._acquiring[exclusivity_key] = (
+                self._acquiring.get(exclusivity_key, 0) + 1
+            )
+        try:
+            owned = actor.acquire(
+                instrument_id=instrument_id,
+                binding=binding,
+                owner=owner,
+                endpoint=endpoint,
+                connect=connect,
+            )
+        except BaseException:
+            self._finish_acquire(exclusivity_key)
+            raise
+
+        with self._condition:
             accepting = self._accepting
-        if accepting:
-            return owned
-        # Shutdown may start during a slow connection. Do not publish a usable
-        # handle after the registry gate has closed.
-        with suppress(InstrumentActorConflict):
-            owned.fault()
-        raise InstrumentActorShutdown("instrument actor registry is shut down")
+            retiring = exclusivity_key in self._retirements
+            current = self._actors.get(exclusivity_key) is actor
+            if accepting and not retiring and current:
+                self._finish_acquire_locked(exclusivity_key)
+                return owned
+
+        # A lifecycle gate may close during a slow connection. The handle was
+        # never published, so discard it before allowing retirement to proceed.
+        try:
+            with suppress(InstrumentActorConflict):
+                owned.fault()
+        finally:
+            self._finish_acquire(exclusivity_key)
+        if not accepting:
+            raise InstrumentActorShutdown("instrument actor registry is shut down")
+        raise InstrumentActorConflict(
+            f"instrument actor is retiring: {exclusivity_key}"
+        )
+
+    def begin_retirement(
+        self,
+        keys: Iterable[str],
+    ) -> InstrumentActorRetirement:
+        """Fence a non-empty set of keys until its retirement token is released."""
+
+        selected = tuple(dict.fromkeys(keys))
+        if not selected or any(not key for key in selected):
+            raise ValueError("instrument retirement keys must be non-empty")
+        marker = object()
+        token = InstrumentActorRetirement(
+            retire_idle=lambda: self._retire_idle(selected, marker),
+            release_gate=lambda: self._release_retirement(selected, marker),
+        )
+        with self._condition:
+            if not self._accepting:
+                raise InstrumentActorShutdown("instrument actor registry is shut down")
+            conflicts = tuple(key for key in selected if key in self._retirements)
+            if conflicts:
+                raise InstrumentActorConflict(
+                    f"instrument actor is already retiring: {', '.join(conflicts)}"
+                )
+            self._retirements.update(dict.fromkeys(selected, marker))
+        return token
+
+    def _retire_idle(
+        self,
+        keys: tuple[str, ...],
+        marker: object,
+    ) -> None:
+        for exclusivity_key in keys:
+            with self._condition:
+                while (
+                    self._retirements.get(exclusivity_key) is marker
+                    and self._acquiring.get(exclusivity_key, 0) != 0
+                ):
+                    self._condition.wait()
+                if self._retirements.get(exclusivity_key) is not marker:
+                    raise InstrumentActorConflict(
+                        "instrument retirement gate is released"
+                    )
+                actor = self._actors.get(exclusivity_key)
+            if actor is None:
+                continue
+            actor.retire_idle()
+            with self._condition:
+                if self._retirements.get(exclusivity_key) is not marker:
+                    raise InstrumentActorConflict(
+                        "instrument retirement gate is released"
+                    )
+                if self._actors.get(exclusivity_key) is not actor:
+                    raise InstrumentActorConflict(
+                        "instrument actor changed during retirement"
+                    )
+                del self._actors[exclusivity_key]
+
+    def _release_retirement(
+        self,
+        keys: tuple[str, ...],
+        marker: object,
+    ) -> None:
+        with self._condition:
+            for exclusivity_key in keys:
+                if self._retirements.get(exclusivity_key) is marker:
+                    del self._retirements[exclusivity_key]
+            self._condition.notify_all()
+
+    def _finish_acquire(self, exclusivity_key: str) -> None:
+        with self._condition:
+            self._finish_acquire_locked(exclusivity_key)
+
+    def _finish_acquire_locked(self, exclusivity_key: str) -> None:
+        count = self._acquiring[exclusivity_key]
+        if count == 1:
+            del self._acquiring[exclusivity_key]
+        else:
+            self._acquiring[exclusivity_key] = count - 1
+        self._condition.notify_all()
 
     def stop_accepting(self) -> None:
         """Fence new owners before the service starts draining durable claims."""
@@ -440,6 +621,7 @@ __all__ = [
     "InstrumentActorConflict",
     "InstrumentActorError",
     "InstrumentActorRegistry",
+    "InstrumentActorRetirement",
     "InstrumentActorShutdown",
     "InstrumentBindingKey",
     "InstrumentOwnerKey",

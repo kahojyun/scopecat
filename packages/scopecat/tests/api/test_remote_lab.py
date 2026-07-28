@@ -15,6 +15,7 @@ import scopecat.api._runner as runner_module
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.lab import LabClient
 from scopecat.config.drafts import ConfigDraft
+from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
@@ -38,6 +39,8 @@ from scopecat.daemon.wire import (
     DirectConfigRevisionSource,
     ExecutorLease,
     InstrumentContractCatalogRequest,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
     RunAdmission,
     RunInstrumentProvisionCommand,
@@ -367,6 +370,76 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             expected_generation=activation.generation,
             note="restore prior values",
         ),
+    ]
+
+
+def test_lab_config_inventory_migration_assembles_registry_coordination() -> None:
+    config = load_config()
+    entry, activation = _config_registry_records(config)
+    changes = (
+        InstrumentInventoryRekey(
+            instrument_id="source-0",
+            from_exclusivity_key="source-0",
+            to_exclusivity_key="rack-a/source",
+        ),
+    )
+    migrated_entry = ConfigRegistryEntry(
+        id="inventory-v2",
+        config_ref="config-registry/entries/inventory-v2/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor="notebook-operator",
+        note="move source",
+        recorded_at=_NOW + timedelta(seconds=1),
+    )
+    receipt = InstrumentInventoryMigrationReceipt(
+        entry=migrated_entry,
+        activation=ConfigRegistryActivationRecord(
+            generation=activation.generation + 1,
+            action="inventory_migration",
+            entry_id=migrated_entry.id,
+            entry_content_hash=migrated_entry.content_hash,
+            previous_entry_id=entry.id,
+            previous_entry_content_hash=entry.content_hash,
+            actor="notebook-operator",
+            note="move source",
+            recorded_at=_NOW + timedelta(seconds=1),
+        ),
+        changes=changes,
+    )
+    seen: list[InstrumentInventoryMigrationCommand] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        path = request.url.path
+        if path == "/api/v1/config-registry":
+            return _model(ConfigRegistryView(entries=(entry,), activation=activation))
+        if path == "/api/v1/config-registry/instrument-inventory-migrations":
+            seen.append(
+                InstrumentInventoryMigrationCommand.model_validate_json(request.content)
+            )
+            return _model(receipt)
+        raise AssertionError(f"unexpected request: {request.method} {path}")
+
+    lab = LabClient(_client(handler), operator="notebook-operator")
+
+    assert (
+        lab.config.migrate_instrument_inventory(
+            config,
+            changes=changes,
+            entry_id=migrated_entry.id,
+            note="move source",
+        )
+        == receipt
+    )
+    assert seen == [
+        InstrumentInventoryMigrationCommand(
+            config=config,
+            entry_id=migrated_entry.id,
+            changes=changes,
+            actor="notebook-operator",
+            expected_generation=activation.generation,
+            note="move source",
+        )
     ]
 
 

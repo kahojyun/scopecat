@@ -39,7 +39,8 @@ to drivers. A config cannot assign one key to multiple instruments; a device
 with several capabilities exposes multiple interfaces or components instead.
 Ordinary activations may add physical domains but cannot remove or rekey one;
 renaming a logical instrument keeps the same key. Retirement and rekeying
-require a future explicit inventory migration that can drain existing owners.
+use a separate explicit inventory migration and only succeed after every
+affected old and new physical domain is drained.
 The complete spec is versioned with `ConfigProfileSnapshot`; editing it
 publishes a new immutable entry instead of mutating a live run's inputs.
 
@@ -238,6 +239,23 @@ Activation never hot-switches a live owner: a run or session keeps its accepted
 configuration through release. A later owner may reuse the idle connection only
 when the provider endpoint, binding, and advertised contract still match, and
 always reads fresh physical state before use.
+
+### Inventory changes
+
+Removing a device, changing its `exclusivity_key`, or renaming and rekeying it
+is an administrative migration rather than a normal config edit. The command
+supplies a complete target snapshot plus explicit `remove`, `rekey`, or
+`rename_rekey` intent. The daemon derives the destructive diff itself and
+requires an exact match; ordinary additions, same-key logical renames, and
+other valid config edits may be included in the same target snapshot.
+
+The daemon gates acquisition on every affected old and new key, rejects queued
+or active runs, active sessions, and quarantined claims, then disconnects any
+idle retained actor before saving and activating the revision in one
+transaction. It does not cancel runs, abort sessions, retain key aliases, or
+rewrite historical run records. A failed migration leaves the active config
+and event stream unchanged. Reverting one therefore uses another explicit
+migration rather than ordinary undo.
 
 ## Instruments workspace
 

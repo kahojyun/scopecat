@@ -23,6 +23,13 @@ type ControlRunState = Literal[
 type ResourceKind = Literal["target", "instrument"]
 type ResourceClaimStatus = Literal["active", "quarantined"]
 type ResourceOwnerKind = Literal["run", "instrument_session"]
+type InventoryMigrationBlockerState = Literal[
+    "queued",
+    "leased",
+    "attention_required",
+    "active",
+    "quarantined",
+]
 type InstrumentSessionState = Literal["active", "attention_required", "closed"]
 type InstrumentOperationKind = Literal["apply", "invoke", "collect"]
 type InstrumentSessionEndStatus = Literal["closed", "aborted"]
@@ -44,6 +51,10 @@ class ResourceKey(_ControlModel):
 
     kind: ResourceKind = "instrument"
     id: str = Field(min_length=1)
+
+    @classmethod
+    def instrument(cls, exclusivity_key: str) -> ResourceKey:
+        return cls(kind="instrument", id=exclusivity_key)
 
 
 class RunResourceRequirement(_ControlModel):
@@ -283,6 +294,15 @@ class ResourceClaim(_ControlModel):
     owner_id: str = Field(min_length=1)
     status: ResourceClaimStatus
     acquired_at: datetime
+
+
+class InventoryMigrationBlocker(_ControlModel):
+    """A durable owner that prevents changing one resource identity."""
+
+    key: ResourceKey
+    owner_kind: ResourceOwnerKind
+    owner_id: str = Field(min_length=1)
+    state: InventoryMigrationBlockerState
 
 
 class InstrumentSession(_ControlModel):

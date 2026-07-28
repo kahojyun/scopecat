@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Generator
+from collections.abc import Collection, Generator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,6 +22,7 @@ from scopecat.control.models import (
     EventPage,
     ExecutorLease,
     InstrumentSession,
+    InventoryMigrationBlocker,
     ResourceClaim,
     ResourceKey,
     RunAdmissionRecord,
@@ -640,6 +641,112 @@ class SQLiteControlPlane:
             )
         )
         return tuple(_resource_claim(row) for row in rows)
+
+    def inventory_migration_blockers_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        affected_keys: Collection[ResourceKey],
+    ) -> tuple[InventoryMigrationBlocker, ...]:
+        """Return owners pinning resource identities in the current transaction.
+
+        Run reservations are read separately because queued runs do not yet have
+        live resource claims.
+        """
+
+        identities = tuple(sorted({(key.kind, key.id) for key in affected_keys}))
+        if not identities:
+            return ()
+        affected_json = json.dumps(
+            identities,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        rows = _all(
+            connection.execute(
+                """
+                WITH affected AS (
+                    SELECT
+                        json_extract(value, '$[0]') AS resource_kind,
+                        json_extract(value, '$[1]') AS resource_id
+                    FROM json_each(?)
+                ),
+                blocker_rows(
+                    resource_kind,
+                    resource_id,
+                    owner_kind,
+                    owner_id,
+                    state,
+                    source_priority
+                ) AS (
+                    SELECT
+                        reserved.resource_kind,
+                        reserved.resource_id,
+                        'run',
+                        run.run_id,
+                        run.state,
+                        0
+                    FROM scheduler_runs AS run
+                    JOIN run_resource_claims AS reserved
+                        ON reserved.run_id = run.run_id
+                    JOIN affected
+                        ON affected.resource_kind = reserved.resource_kind
+                        AND affected.resource_id = reserved.resource_id
+                    WHERE run.state <> 'closed'
+                    UNION ALL
+                    SELECT
+                        claim.resource_kind,
+                        claim.resource_id,
+                        claim.owner_kind,
+                        claim.owner_id,
+                        claim.status,
+                        1
+                    FROM resource_claims AS claim
+                    JOIN affected
+                        ON affected.resource_kind = claim.resource_kind
+                        AND affected.resource_id = claim.resource_id
+                )
+                SELECT
+                    resource_kind,
+                    resource_id,
+                    owner_kind,
+                    owner_id,
+                    state,
+                    source_priority
+                FROM blocker_rows
+                ORDER BY
+                    resource_kind,
+                    resource_id,
+                    owner_kind,
+                    owner_id,
+                    source_priority
+                """,
+                (affected_json,),
+            )
+        )
+        blockers: dict[
+            tuple[str, str, str, str],
+            InventoryMigrationBlocker,
+        ] = {}
+        for row in rows:
+            blocker = InventoryMigrationBlocker.model_validate(
+                {
+                    "key": {
+                        "kind": _text(row, "resource_kind"),
+                        "id": _text(row, "resource_id"),
+                    },
+                    "owner_kind": _text(row, "owner_kind"),
+                    "owner_id": _text(row, "owner_id"),
+                    "state": _text(row, "state"),
+                }
+            )
+            identity = (
+                blocker.key.kind,
+                blocker.key.id,
+                blocker.owner_kind,
+                blocker.owner_id,
+            )
+            blockers.setdefault(identity, blocker)
+        return tuple(blockers.values())
 
     def open_instrument_session(
         self,

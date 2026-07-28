@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
@@ -120,6 +121,23 @@ class ConfigPublishReceipt(_WireModel):
     entry: ConfigRegistryEntry
     deltas: tuple[ParameterValueDelta, ...] = ()
     activation: ConfigRegistryActivationRecord
+
+
+class InstrumentInventoryMigrationCommand(_WireModel):
+    """Publish a complete config through an explicitly drained migration."""
+
+    config: ConfigProfileSnapshot
+    entry_id: NonEmptyText
+    changes: tuple[InstrumentInventoryChange, ...] = Field(min_length=1)
+    actor: NonEmptyText
+    expected_generation: int = Field(ge=1)
+    note: str = ""
+
+
+class InstrumentInventoryMigrationReceipt(_WireModel):
+    entry: ConfigRegistryEntry
+    activation: ConfigRegistryActivationRecord
+    changes: tuple[InstrumentInventoryChange, ...] = Field(min_length=1)
 
 
 class ConfigEntryActivationCommand(_WireModel):
@@ -547,6 +565,8 @@ __all__ = [
     "InstrumentConfiguredDefaultsApplyCommand",
     "InstrumentConfiguredDefaultsApplyReceipt",
     "InstrumentContractCatalogRequest",
+    "InstrumentInventoryMigrationCommand",
+    "InstrumentInventoryMigrationReceipt",
     "InstrumentSessionEndReceipt",
     "InstrumentSessionOpenCommand",
     "InstrumentSessionOpenReceipt",

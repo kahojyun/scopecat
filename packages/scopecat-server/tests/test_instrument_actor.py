@@ -45,6 +45,7 @@ from scopecat_server.instrument_backend import (
 class _TrackingDriver(SignalInstrumentDriver):
     def __init__(self, instrument_id: str) -> None:
         super().__init__(instrument_id=instrument_id)
+        self.abort_count = 0
         self.disconnect_count = 0
 
     def change_from_front_panel(self, value: float) -> None:
@@ -53,6 +54,17 @@ class _TrackingDriver(SignalInstrumentDriver):
     @override
     def disconnect(self) -> None:
         self.disconnect_count += 1
+
+    @override
+    def abort(self) -> None:
+        self.abort_count += 1
+
+
+class _DisconnectFailDriver(_TrackingDriver):
+    @override
+    def disconnect(self) -> None:
+        self.disconnect_count += 1
+        raise RuntimeError("disconnect failed")
 
 
 class _BlockingReadDriver(_TrackingDriver):
@@ -632,6 +644,165 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     assert drivers[0].collect_requests == [collect_request]
 
     owned.release()
+    registry.shutdown()
+
+
+def test_retirement_disconnects_and_removes_an_idle_actor() -> None:
+    registry = InstrumentActorRegistry()
+    drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
+    exclusivity_key = _exclusivity_key("source-0")
+    first = registry.acquire(
+        exclusivity_key,
+        "source-0",
+        binding=_binding(),
+        owner=_owner("session-1"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+    first.release()
+
+    with registry.begin_retirement((exclusivity_key,)) as retirement:
+        with pytest.raises(InstrumentActorConflict, match="retiring"):
+            registry.acquire(
+                exclusivity_key,
+                "source-0",
+                binding=_binding(),
+                owner=_owner("session-during-retirement"),
+                endpoint=endpoint,
+                connect=endpoint,
+            )
+        retirement.retire_idle()
+        assert drivers[0].disconnect_count == 1
+
+    retirement.release_gate()
+    second = registry.acquire(
+        exclusivity_key,
+        "source-0",
+        binding=_binding(),
+        owner=_owner("session-2"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+
+    assert not second.reused_connection
+    assert len(drivers) == 2
+    second.release()
+    registry.shutdown()
+
+
+def test_retirement_rejects_an_owned_actor_without_aborting_it() -> None:
+    registry = InstrumentActorRegistry()
+    drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
+    exclusivity_key = _exclusivity_key("source-0")
+    owned = registry.acquire(
+        exclusivity_key,
+        "source-0",
+        binding=_binding(),
+        owner=_owner("session-1"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+    retirement = registry.begin_retirement((exclusivity_key,))
+
+    with pytest.raises(InstrumentActorConflict, match="owned instrument"):
+        retirement.retire_idle()
+
+    assert owned.read_state().instrument_id == "source-0"
+    assert drivers[0].abort_count == 0
+    assert drivers[0].disconnect_count == 0
+    owned.release()
+    retirement.retire_idle()
+    retirement.release_gate()
+    registry.shutdown()
+
+    assert drivers[0].abort_count == 0
+    assert drivers[0].disconnect_count == 1
+
+
+def test_retirement_catches_an_acquire_after_its_slow_connect() -> None:
+    registry = InstrumentActorRegistry()
+    drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
+    exclusivity_key = _exclusivity_key("source-0")
+    connect_entered = Event()
+    release_connect = Event()
+    acquired: list[OwnedInstrument] = []
+    errors: list[BaseException] = []
+
+    def slow_connect() -> ConnectedInstrument:
+        connect_entered.set()
+        assert release_connect.wait(timeout=2)
+        return endpoint()
+
+    def acquire() -> None:
+        try:
+            acquired.append(
+                registry.acquire(
+                    exclusivity_key,
+                    "source-0",
+                    binding=_binding(),
+                    owner=_owner("session-before-retirement"),
+                    endpoint=endpoint,
+                    connect=slow_connect,
+                )
+            )
+        except BaseException as error:
+            errors.append(error)
+
+    thread = Thread(target=acquire)
+    thread.start()
+    assert connect_entered.wait(timeout=2)
+    retirement = registry.begin_retirement((exclusivity_key,))
+    release_connect.set()
+
+    retirement.retire_idle()
+    thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert acquired == []
+    [error] = errors
+    assert isinstance(error, InstrumentActorConflict)
+    assert "retiring" in str(error)
+    [driver] = drivers
+    assert driver.disconnect_count == 1
+    retirement.release_gate()
+    registry.shutdown()
+
+
+def test_retirement_disconnect_failure_leaves_a_terminal_actor() -> None:
+    registry = InstrumentActorRegistry()
+    drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers, driver_type=_DisconnectFailDriver)
+    exclusivity_key = _exclusivity_key("source-0")
+    owned = registry.acquire(
+        exclusivity_key,
+        "source-0",
+        binding=_binding(),
+        owner=_owner("session-1"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+    owned.release()
+    retirement = registry.begin_retirement((exclusivity_key,))
+
+    with pytest.raises(RuntimeError, match="disconnect failed"):
+        retirement.retire_idle()
+    retirement.release_gate()
+    retirement.release_gate()
+
+    with pytest.raises(InstrumentActorShutdown, match="actor is shut down"):
+        registry.acquire(
+            exclusivity_key,
+            "source-0",
+            binding=_binding(),
+            owner=_owner("session-2"),
+            endpoint=endpoint,
+            connect=endpoint,
+        )
+    assert len(drivers) == 1
+    assert drivers[0].disconnect_count == 1
     registry.shutdown()
 
 

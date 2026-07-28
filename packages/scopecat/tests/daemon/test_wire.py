@@ -7,6 +7,11 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.config.changes import parameter_change_proposal_from_updates
+from scopecat.config.inventory import (
+    InstrumentInventoryRekey,
+    InstrumentInventoryRemoval,
+    InstrumentInventoryRenameRekey,
+)
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
@@ -34,6 +39,8 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
     MeasurementAppendCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
@@ -141,6 +148,76 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         ConfigPublishCommand.model_validate_json(publish_command.model_dump_json())
         == publish_command
     )
+
+
+def test_instrument_inventory_migration_is_discriminated_closed_json() -> None:
+    config = load_config()
+    changes = (
+        InstrumentInventoryRemoval(
+            instrument_id="retired-source",
+            exclusivity_key="retired-source",
+        ),
+        InstrumentInventoryRekey(
+            instrument_id="source-0",
+            from_exclusivity_key="source-0",
+            to_exclusivity_key="rack-a/source",
+        ),
+        InstrumentInventoryRenameRekey(
+            from_instrument_id="old-meter",
+            to_instrument_id="meter-0",
+            from_exclusivity_key="old-meter",
+            to_exclusivity_key="rack-a/meter",
+        ),
+    )
+    command = InstrumentInventoryMigrationCommand(
+        config=config,
+        entry_id="inventory-v2",
+        changes=changes,
+        actor="operator",
+        expected_generation=1,
+    )
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref="config-registry/entries/inventory-v2/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor=command.actor,
+    )
+    receipt = InstrumentInventoryMigrationReceipt(
+        entry=entry,
+        activation=ConfigRegistryActivationRecord(
+            generation=2,
+            action="inventory_migration",
+            entry_id=entry.id,
+            entry_content_hash=entry.content_hash,
+            actor=command.actor,
+        ),
+        changes=changes,
+    )
+
+    restored = InstrumentInventoryMigrationCommand.model_validate_json(
+        command.model_dump_json()
+    )
+
+    assert restored == command
+    assert isinstance(restored.changes[0], InstrumentInventoryRemoval)
+    assert isinstance(restored.changes[1], InstrumentInventoryRekey)
+    assert isinstance(restored.changes[2], InstrumentInventoryRenameRekey)
+    assert (
+        InstrumentInventoryMigrationReceipt.model_validate_json(
+            receipt.model_dump_json()
+        )
+        == receipt
+    )
+
+
+def test_instrument_inventory_rekey_rejects_a_noop() -> None:
+    with pytest.raises(ValidationError, match="must change"):
+        InstrumentInventoryRekey(
+            instrument_id="source-0",
+            from_exclusivity_key="source-0",
+            to_exclusivity_key="source-0",
+        )
 
 
 def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:

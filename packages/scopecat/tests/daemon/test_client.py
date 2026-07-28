@@ -6,6 +6,12 @@ import httpx2
 import pytest
 from pydantic import BaseModel
 
+from scopecat.config.inventory import InstrumentInventoryRekey
+from scopecat.config.registry.records import (
+    ConfigRegistryActivationRecord,
+    ConfigRegistryEntry,
+    DirectConfigRegistrySource,
+)
 from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import (
     DaemonClient,
@@ -25,6 +31,8 @@ from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
     PayloadObjectReceipt,
     RunAdmission,
     RunInstrumentProvisionCommand,
@@ -194,6 +202,61 @@ def test_apply_configured_defaults_posts_the_typed_command_to_the_instrument() -
     )
     assert (
         InstrumentConfiguredDefaultsApplyCommand.model_validate_json(request.content)
+        == command
+    )
+
+
+def test_migrate_instrument_inventory_posts_the_typed_command() -> None:
+    requests: list[httpx2.Request] = []
+    config = load_config()
+    command = InstrumentInventoryMigrationCommand(
+        config=config,
+        entry_id="inventory-v2",
+        changes=(
+            InstrumentInventoryRekey(
+                instrument_id="source-0",
+                from_exclusivity_key="source-0",
+                to_exclusivity_key="rack-a/source",
+            ),
+        ),
+        actor="operator",
+        expected_generation=1,
+        note="move source",
+    )
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref="config-registry/entries/inventory-v2/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor=command.actor,
+    )
+    receipt = InstrumentInventoryMigrationReceipt(
+        entry=entry,
+        activation=ConfigRegistryActivationRecord(
+            generation=2,
+            action="inventory_migration",
+            entry_id=entry.id,
+            entry_content_hash=entry.content_hash,
+            actor=command.actor,
+        ),
+        changes=command.changes,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.migrate_instrument_inventory(command) == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/config-registry/instrument-inventory-migrations"
+    assert (
+        InstrumentInventoryMigrationCommand.model_validate_json(request.content)
         == command
     )
 

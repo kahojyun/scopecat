@@ -90,7 +90,7 @@ export function ActivationHistory({ history }: { history: ConfigActivationRecord
             <li key={record.generation}>
               <span className="history-generation">
                 <strong>G{record.generation}</strong>
-                <small>{index === 0 ? "Current" : record.action}</small>
+                <small>{index === 0 ? "Current" : activationActionLabel(record.action)}</small>
               </span>
               <span className="history-connector" aria-hidden="true" />
               <div>
@@ -108,4 +108,15 @@ export function ActivationHistory({ history }: { history: ConfigActivationRecord
       )}
     </section>
   );
+}
+
+function activationActionLabel(action: ConfigActivationRecord["action"]) {
+  switch (action) {
+    case "activation":
+      return "Activated";
+    case "inventory_migration":
+      return "Inventory migration";
+    case "undo":
+      return "Undo";
+  }
 }

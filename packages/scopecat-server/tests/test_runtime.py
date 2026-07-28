@@ -10,6 +10,7 @@ from typing import Literal, Never
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.adapters.sqlite import (
+    ControlPlaneConflict,
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
     SQLiteRunRepository,
@@ -17,6 +18,7 @@ from scopecat.adapters.sqlite import (
 from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
+from scopecat.config.inventory import InstrumentInventoryRekey
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
 from scopecat.config.registry import ActiveConfigRegistrySnapshot
 from scopecat.control.models import (
@@ -56,6 +58,8 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
     MeasurementAppendCommand,
     RunAdmission,
@@ -86,6 +90,7 @@ from tests.testkit.runtime import list_test_runs
 import scopecat_server.lease_supervisor as lease_supervisor_services
 import scopecat_server.services as daemon_services
 from scopecat_server import BackendConflict, LocalDaemonRuntime
+from scopecat_server.instrument_actor import InstrumentActorRetirement
 
 _FIXTURE = (
     Path(__file__).parents[3]
@@ -190,6 +195,51 @@ def _domain_only_config() -> ConfigProfileSnapshot:
                 }
             )
         }
+    )
+
+
+def _rekeyed_config(
+    config: ConfigProfileSnapshot,
+    *,
+    exclusivity_key: str = "rack-a/source",
+) -> ConfigProfileSnapshot:
+    [instrument] = config.instrument_registry.instruments
+    registry = config.instrument_registry.model_copy(
+        update={
+            "instruments": [
+                instrument.model_copy(update={"exclusivity_key": exclusivity_key})
+            ]
+        }
+    )
+    return config.model_copy(
+        update={
+            "id": "inventory-v2",
+            "system": config.system.model_copy(
+                update={"instrument_registry": registry}
+            ),
+        }
+    )
+
+
+def _inventory_migration_command(
+    config: ConfigProfileSnapshot,
+    *,
+    expected_generation: int = 1,
+) -> InstrumentInventoryMigrationCommand:
+    [target] = config.instrument_registry.instruments
+    return InstrumentInventoryMigrationCommand(
+        config=config,
+        entry_id="inventory-v2",
+        changes=(
+            InstrumentInventoryRekey(
+                instrument_id=target.id,
+                from_exclusivity_key="source-0",
+                to_exclusivity_key=target.exclusivity_key,
+            ),
+        ),
+        actor="operator",
+        expected_generation=expected_generation,
+        note="moved to rack-a",
     )
 
 
@@ -631,6 +681,326 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert active.entry.id == "baseline"
         assert active.config == baseline
         assert events[-1].kind == "config_undone"
+
+
+def test_inventory_migration_http_workflow_activates_only_when_drained(
+    tmp_path: Path,
+) -> None:
+    baseline = _config()
+    target = _rekeyed_config(baseline)
+    command = _inventory_migration_command(target)
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        client = TestClient(runtime.app())
+
+        response = client.post(
+            "/api/v1/config-registry/instrument-inventory-migrations",
+            json=command.model_dump(mode="json"),
+        )
+
+        assert response.status_code == 200
+        receipt = InstrumentInventoryMigrationReceipt.model_validate(response.json())
+        assert receipt.entry.id == command.entry_id
+        assert receipt.activation.action == "inventory_migration"
+        assert receipt.activation.generation == 2
+        assert receipt.changes == command.changes
+        assert runtime.application.config.get_active_config().config == target
+        assert [
+            (event.kind, event.payload) for event in _events(runtime).items[-2:]
+        ] == [
+            ("config_saved", {"entry_id": command.entry_id}),
+            (
+                "instrument_inventory_migrated",
+                {
+                    "entry_id": command.entry_id,
+                    "generation": 2,
+                    "change_count": 1,
+                },
+            ),
+        ]
+
+        undo = client.post(
+            "/api/v1/config-registry/undo",
+            json=ConfigUndoCommand(
+                actor="operator",
+                expected_generation=2,
+            ).model_dump(mode="json"),
+        )
+        assert undo.status_code == 409
+        assert runtime.application.config.get_active_config().config == target
+
+
+def test_inventory_migration_reports_queued_run_as_a_blocker(
+    tmp_path: Path,
+) -> None:
+    baseline = _config()
+    target = _rekeyed_config(baseline)
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        queued = runtime.application.submit_run(_submission("queued-blocker"))
+        client = TestClient(runtime.app())
+
+        response = client.post(
+            "/api/v1/config-registry/instrument-inventory-migrations",
+            json=_inventory_migration_command(target).model_dump(mode="json"),
+        )
+
+        assert response.status_code == 409
+        assert queued.run_id in response.json()["detail"]
+        assert "queued" in response.json()["detail"]
+        assert runtime.application.config.get_active_config().config == baseline
+        assert "inventory-v2" not in [
+            entry.id
+            for entry in runtime.application.config.get_config_registry().entries
+        ]
+        assert "instrument_inventory_migrated" not in {
+            event.kind for event in _events(runtime).items
+        }
+
+
+def test_inventory_migration_final_check_catches_post_preflight_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _config()
+    target = _rekeyed_config(baseline)
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        service = runtime.application.config
+        require_drained = service._require_inventory_migration_drained
+        queued_run_ids: list[str] = []
+
+        def admit_after_preflight(exclusivity_keys: tuple[str, ...]) -> None:
+            require_drained(exclusivity_keys)
+            queued = runtime.application.submit_run(
+                _submission("post-preflight-blocker")
+            )
+            queued_run_ids.append(queued.run_id)
+
+        monkeypatch.setattr(
+            service,
+            "_require_inventory_migration_drained",
+            admit_after_preflight,
+        )
+
+        with pytest.raises(BackendConflict) as caught:
+            service.migrate_instrument_inventory(_inventory_migration_command(target))
+
+        assert len(queued_run_ids) == 1
+        assert queued_run_ids[0] in str(caught.value)
+        assert (
+            runtime.application.executor._control.get_run(queued_run_ids[0]).state
+            == "queued"
+        )
+        assert service.get_active_config().config == baseline
+        assert "inventory-v2" not in {
+            entry.id for entry in service.get_config_registry().entries
+        }
+        assert "instrument_inventory_migrated" not in {
+            event.kind for event in _events(runtime).items
+        }
+
+
+def test_inventory_migration_stale_generation_does_not_begin_retirement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _config()
+    current = baseline.model_copy(update={"id": "generation-2"})
+    target = _rekeyed_config(current)
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        service = runtime.application.config
+        service.publish_config(
+            _direct_publish_command(
+                entry_id=current.id,
+                config=current,
+                actor="operator",
+                expected_generation=1,
+            )
+        )
+        begin_calls = 0
+
+        def unexpected_retirement(_keys: tuple[str, ...]) -> Never:
+            nonlocal begin_calls
+            begin_calls += 1
+            pytest.fail("stale migration must not begin actor retirement")
+
+        monkeypatch.setattr(
+            service._actors,
+            "begin_retirement",
+            unexpected_retirement,
+        )
+
+        with pytest.raises(BackendConflict, match="active state changed"):
+            service.migrate_instrument_inventory(
+                _inventory_migration_command(target, expected_generation=1)
+            )
+
+        assert begin_calls == 0
+        assert service.get_active_config().config == current
+        assert "inventory-v2" not in {
+            entry.id for entry in service.get_config_registry().entries
+        }
+
+
+def test_inventory_migration_serializes_competing_config_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _config()
+    target = _rekeyed_config(baseline)
+    ordinary = baseline.model_copy(update={"id": "ordinary-v2"})
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        service = runtime.application.config
+        require_drained = service._require_inventory_migration_drained
+        migration_paused = Event()
+        release_migration = Event()
+        publish_started = Event()
+        publish_finished = Event()
+
+        def pause_after_preflight(exclusivity_keys: tuple[str, ...]) -> None:
+            require_drained(exclusivity_keys)
+            migration_paused.set()
+            assert release_migration.wait(timeout=2)
+
+        def publish_competing_revision() -> ConfigPublishReceipt:
+            publish_started.set()
+            try:
+                return service.publish_config(
+                    _direct_publish_command(
+                        entry_id=ordinary.id,
+                        config=ordinary,
+                        actor="operator",
+                        expected_generation=1,
+                    )
+                )
+            finally:
+                publish_finished.set()
+
+        monkeypatch.setattr(
+            service,
+            "_require_inventory_migration_drained",
+            pause_after_preflight,
+        )
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            migration = pool.submit(
+                service.migrate_instrument_inventory,
+                _inventory_migration_command(target),
+            )
+            assert migration_paused.wait(timeout=2)
+            publish = pool.submit(publish_competing_revision)
+            assert publish_started.wait(timeout=2)
+            try:
+                assert not publish_finished.wait(timeout=0.1)
+            finally:
+                release_migration.set()
+
+            migration_receipt = migration.result(timeout=2)
+            with pytest.raises(BackendConflict, match="active state changed"):
+                publish.result(timeout=2)
+
+        assert migration_receipt.activation.action == "inventory_migration"
+        assert service.get_active_config().config == target
+        assert "ordinary-v2" not in {
+            entry.id for entry in service.get_config_registry().entries
+        }
+
+
+def test_inventory_migration_release_before_commit_fences_old_session_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _config()
+    target = _rekeyed_config(baseline)
+    release_seen = Event()
+    claim_started = Event()
+    release_gate = InstrumentActorRetirement.release_gate
+
+    def release_then_allow_claim(self: InstrumentActorRetirement) -> None:
+        release_gate(self)
+        if release_seen.is_set():
+            return
+        release_seen.set()
+        assert claim_started.wait(timeout=2)
+
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        control = runtime.application.executor._control
+        active = runtime.application.config.get_active_config()
+
+        def claim_from_old_snapshot() -> None:
+            assert release_seen.wait(timeout=2)
+            claim_started.set()
+            control.open_instrument_session(
+                operation_id="old-snapshot-open",
+                actor="operator",
+                config_entry_id=active.entry.id,
+                config_content_hash=active.entry.content_hash,
+                instrument_ids=("source-0",),
+                exclusivity_keys=("source-0",),
+                expected_config_generation=active.activation.generation,
+            )
+
+        monkeypatch.setattr(
+            InstrumentActorRetirement,
+            "release_gate",
+            release_then_allow_claim,
+        )
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            claim = pool.submit(claim_from_old_snapshot)
+            receipt = runtime.application.config.migrate_instrument_inventory(
+                _inventory_migration_command(target)
+            )
+            with pytest.raises(
+                ControlPlaneConflict,
+                match="active configuration changed",
+            ):
+                claim.result(timeout=2)
+
+        assert receipt.activation.action == "inventory_migration"
+        assert control.list_instrument_sessions() == ()
+        assert _resource_claims(tmp_path) == ()
+
+
+def test_inventory_migration_rolls_back_and_releases_its_gate_when_event_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _config()
+    target = _rekeyed_config(baseline)
+    command = _inventory_migration_command(target)
+    append_event = SQLiteControlPlane.append_event_in_transaction
+
+    def fail_migration_event(
+        control: SQLiteControlPlane,
+        connection: sqlite3.Connection,
+        event: DurableEventInput,
+    ) -> DurableEvent:
+        if event.kind == "instrument_inventory_migrated":
+            raise RuntimeError("migration event publication failed")
+        return append_event(control, connection, event)
+
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=baseline) as runtime:
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                SQLiteControlPlane,
+                "append_event_in_transaction",
+                fail_migration_event,
+            )
+            with pytest.raises(
+                RuntimeError,
+                match="migration event publication failed",
+            ):
+                runtime.application.config.migrate_instrument_inventory(command)
+
+        assert runtime.application.config.get_active_config().config == baseline
+        assert [
+            entry.id
+            for entry in runtime.application.config.get_config_registry().entries
+        ] == [runtime.application.config.get_active_config().entry.id]
+        assert "instrument_inventory_migrated" not in {
+            event.kind for event in _events(runtime).items
+        }
+
+        receipt = runtime.application.config.migrate_instrument_inventory(command)
+        assert receipt.activation.action == "inventory_migration"
+        assert runtime.application.config.get_active_config().config == target
 
 
 def test_config_publish_rolls_back_registry_and_event_when_event_fails(

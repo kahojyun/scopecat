@@ -116,6 +116,7 @@ class LocalDaemonRuntime:
                 config_registry=config_registry,
                 runs=runs,
                 services=services,
+                actors=instrument_actors,
             )
             run_service = RunService(
                 control=control,

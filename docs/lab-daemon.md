@@ -88,6 +88,10 @@ with arbitrary local Python state, but `Analysis.save()`,
 `lab.config.accept(...)`, and `lab.config.set_default(...)` cross into durable
 daemon commands rather than writing storage directly. Acceptance authority may
 be a person or a named, versioned automatic policy.
+Physical device removal and rekeying use
+`lab.config.migrate_instrument_inventory(...)`, a separate command that must
+declare the destructive diff and is rejected until the affected domains are
+drained.
 
 A candidate may be used for one run without changing the default. That run
 records the producing run, analysis records, proposal ids, base config hash,

@@ -20,6 +20,7 @@ from scopecat.control.models import (
     DurableEvent,
     DurableEventInput,
     ExecutorLease,
+    InventoryMigrationBlocker,
     ResourceClaim,
     ResourceKey,
     RunAdmissionRecord,
@@ -144,6 +145,17 @@ def _append_event(
 def _resource_claims(store: SQLiteControlPlane) -> tuple[ResourceClaim, ...]:
     with store.transaction() as connection:
         return store.list_resource_claims_in_transaction(connection)
+
+
+def _inventory_migration_blockers(
+    store: SQLiteControlPlane,
+    *affected_keys: ResourceKey,
+) -> tuple[InventoryMigrationBlocker, ...]:
+    with store.transaction() as connection:
+        return store.inventory_migration_blockers_in_transaction(
+            connection,
+            affected_keys,
+        )
 
 
 def _release_run_resources(store: SQLiteControlPlane, run_id: str) -> int:
@@ -316,6 +328,162 @@ def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:
     }
     assert _executor_lease(store, "run-b") is None
     assert store.get_run("run-b").state == "queued"
+
+
+def test_inventory_migration_blockers_include_queued_run_reservations(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    _admit(store, _admission("queued", key))
+
+    assert _resource_claims(store) == ()
+    assert _inventory_migration_blockers(store, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="run",
+            owner_id="queued",
+            state="queued",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_deduplicate_leased_run_claims(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    _admit(store, _admission("leased", key))
+    _start(store, "leased", executor_id="kernel")
+
+    assert _inventory_migration_blockers(store, key, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="run",
+            owner_id="leased",
+            state="leased",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_prefer_attention_run_state(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    _admit(store, _admission("attention", key))
+    lease = _start(store, "attention", executor_id="kernel")
+    store.mark_executor_unknown(
+        "attention",
+        token=lease.token,
+        reason="instrument_apply_unknown",
+        at=NOW + timedelta(seconds=1),
+    )
+
+    assert _inventory_migration_blockers(store, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="run",
+            owner_id="attention",
+            state="attention_required",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_include_active_instrument_session(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    _admit(store, _admission("queued", key))
+    session = store.open_instrument_session(
+        operation_id="open-1",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'a' * 64}",
+        instrument_ids=("scope",),
+        exclusivity_keys=(key.id,),
+        expected_config_generation=0,
+        at=NOW,
+    )
+
+    assert _inventory_migration_blockers(store, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="instrument_session",
+            owner_id=session.session_id,
+            state="active",
+        ),
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="run",
+            owner_id="queued",
+            state="queued",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_include_quarantined_session_claim(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    session = store.open_instrument_session(
+        operation_id="open-1",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'a' * 64}",
+        instrument_ids=("scope",),
+        exclusivity_keys=(key.id,),
+        expected_config_generation=0,
+        at=NOW,
+    )
+    store.start_instrument_operation(
+        session.session_id,
+        instrument_id="scope",
+        operation_id="collect-1",
+        kind="collect",
+        at=NOW + timedelta(seconds=1),
+    )
+    store.reconcile_instrument_sessions_after_restart(at=NOW + timedelta(seconds=2))
+
+    assert _inventory_migration_blockers(store, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="instrument_session",
+            owner_id=session.session_id,
+            state="quarantined",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_ignore_closed_runs_and_unaffected_keys(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    closed_key = ResourceKey.instrument("visa:closed")
+    _admit(store, _admission("closed", closed_key))
+    lease = _start(store, "closed", executor_id="kernel")
+    _close(
+        store,
+        "closed",
+        executor_token=lease.token,
+        at=NOW + timedelta(seconds=1),
+    )
+    _admit(
+        store,
+        _admission("unaffected", ResourceKey.instrument("visa:other")),
+    )
+
+    assert (
+        _inventory_migration_blockers(
+            store,
+            closed_key,
+            ResourceKey.instrument("visa:missing"),
+        )
+        == ()
+    )
+    assert _inventory_migration_blockers(store) == ()
 
 
 def test_concurrent_resource_claim_has_one_winner(tmp_path: Path) -> None:
