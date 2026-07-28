@@ -1514,6 +1514,16 @@ class InstrumentService:
         self,
         command: InstrumentSessionOpenCommand,
     ) -> InstrumentSessionOpenReceipt:
+        # Recover before reading active config so retries retain the first resolution.
+        try:
+            existing = self._control.get_instrument_session_by_open_operation_id(
+                command.operation_id
+            )
+        except ControlPlaneNotFound:
+            pass
+        else:
+            return self._replay_session_open(command, existing)
+
         active = self._config.get_active_config()
         configured = {
             spec.id: spec for spec in active.config.instrument_registry.instruments
@@ -1583,6 +1593,23 @@ class InstrumentService:
             self._abort_open_session(session)
             raise
         return self._wire_session(session, runtime)
+
+    def _replay_session_open(
+        self,
+        command: InstrumentSessionOpenCommand,
+        existing: InstrumentSession,
+    ) -> InstrumentSessionOpenReceipt:
+        try:
+            session = self._control.open_instrument_session(
+                operation_id=command.operation_id,
+                actor=command.actor,
+                config_entry_id=existing.config_entry_id,
+                config_content_hash=existing.config_content_hash,
+                instrument_ids=command.instrument_ids,
+            )
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
+        return self._wire_session(session, self._live_runtime(session.session_id))
 
     def _abort_open_session(self, session: InstrumentSession) -> None:
         try:

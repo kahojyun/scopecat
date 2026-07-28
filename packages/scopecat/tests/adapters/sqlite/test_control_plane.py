@@ -9,6 +9,7 @@ import pytest
 
 from scopecat.adapters.sqlite import (
     ControlPlaneConflict,
+    ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
     InstrumentSessionNotActive,
     SQLiteControlPlane,
@@ -459,13 +460,16 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
     retry = store.open_instrument_session(
         operation_id="open-1",
         actor="alice",
-        config_entry_id="baseline",
-        config_content_hash=f"sha256:{'a' * 64}",
+        config_entry_id="replacement",
+        config_content_hash=f"sha256:{'b' * 64}",
         instrument_ids=("scope",),
         at=NOW + timedelta(seconds=1),
     )
 
     assert retry == first
+    assert store.get_instrument_session_by_open_operation_id("open-1") == first
+    with pytest.raises(ControlPlaneNotFound):
+        store.get_instrument_session_by_open_operation_id("missing")
     with pytest.raises(ControlPlaneConflict, match="different content"):
         store.open_instrument_session(
             operation_id="open-1",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from threading import Event, Thread
 from typing import Never, override
@@ -133,6 +133,24 @@ class _TrackingProvider:
         driver = self._driver_type(context.binding.id)
         self.drivers.append(driver)
         return driver
+
+
+class _ToggleDescriptionProvider(_TrackingProvider):
+    def __init__(
+        self,
+        driver_type: type[_TrackingDriver] = _TrackingDriver,
+    ) -> None:
+        super().__init__(driver_type)
+        self.description_available = True
+
+    @override
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        if not self.description_available:
+            raise AssertionError("open retry resolved the replacement config")
+        return super().describe(context)
 
 
 class _UpdatedContractDriver(_TrackingDriver):
@@ -966,6 +984,46 @@ def test_open_retry_reuses_session_without_reprovisioning(tmp_path: Path) -> Non
             assert second == first
             assert len(provider.drivers) == 1
             daemon.close_instrument_session(first.session_id)
+
+
+def test_open_retry_recovers_before_resolving_replacement_config(
+    tmp_path: Path,
+) -> None:
+    provider = _ToggleDescriptionProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            original = runtime.application.config.get_active_config()
+            command = InstrumentSessionOpenCommand(
+                operation_id="open-retry-after-config-activation",
+                actor="alice",
+                instrument_ids=("source-0",),
+            )
+
+            def replace_active_config() -> None:
+                updated = load_config().model_copy(update={"id": "updated-config"})
+                runtime.application.config.publish_config(
+                    ConfigPublishCommand(
+                        source=DirectConfigRevisionSource(config=updated),
+                        entry_id="updated-config",
+                        actor="operator",
+                        expected_generation=1,
+                    )
+                )
+                provider.description_available = False
+
+            daemon = _daemon_client(
+                transport,
+                drop_response_suffix="/instrument-sessions",
+                on_response_drop=replace_active_config,
+            )
+            session = daemon.open_instrument_session(command)
+
+            [durable] = runtime.application.executor._control.list_instrument_sessions()
+            assert session.session_id == durable.session_id
+            assert session.config_entry_id == original.entry.id
+            assert session.config_content_hash == original.entry.content_hash
+            assert len(provider.drivers) == 1
+            daemon.close_instrument_session(session.session_id)
 
 
 def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
@@ -1884,6 +1942,7 @@ def _daemon_client(
     *,
     drop_response_suffix: str | None = None,
     drop_response_count: int = 1,
+    on_response_drop: Callable[[], None] | None = None,
 ) -> DaemonClient:
     responses_dropped = 0
 
@@ -1906,6 +1965,8 @@ def _daemon_client(
             and responses_dropped < drop_response_count
         ):
             responses_dropped += 1
+            if on_response_drop is not None:
+                on_response_drop()
             raise httpx2.ReadError(
                 "response was lost",
                 request=request,

@@ -198,12 +198,10 @@ activate it. The editor does not change `driver_id`, connection kind, or driver
 options. Virtual connections have no endpoint to edit. Editing is disabled
 while the instrument is owned.
 
-Activation advances a registry generation even when a later entry has identical
-content. Idle actors from older generations are retired immediately. An
-existing owner stays pinned to its accepted generation and retires the
-connection when it releases; activation never hot-switches a live run or
-session. Candidate and explicitly non-active run configurations always retire
-on release instead of becoming an idle shared connection.
+Activation never hot-switches a live owner: a run or session keeps its accepted
+configuration through release. A later owner may reuse the idle connection only
+when the provider endpoint, binding, and advertised contract still match, and
+always reads fresh physical state before use.
 
 ## Instruments workspace
 
@@ -327,8 +325,10 @@ HTTP response is lost, retry with the same `command_id`: the daemon returns the
 recorded receipt instead of touching the device again. The daemon client
 automatically retries one transport failure with the same complete command;
 callers can supply an id when they need to continue that retry explicitly.
-Opening has a separate retry identity. Close and abort are naturally
-idempotent because the daemon records the session's terminal status.
+Opening has a separate retry identity and replays the config resolution from
+its first successful attempt, even if the active config changes. Close and
+abort are naturally idempotent because the daemon records the session's
+terminal status.
 
 Opaque values such as compiled pulse programs are operation arguments, never
 persistent properties. A registered codec converts the in-memory value to an

@@ -659,12 +659,8 @@ class SQLiteControlPlane:
             )
             if retry_row is not None:
                 retry = _instrument_session(retry_row)
-                if (
-                    retry.actor != actor
-                    or retry.config_entry_id != config_entry_id
-                    or retry.config_content_hash != config_content_hash
-                    or retry.instrument_ids != instrument_ids
-                ):
+                # Config identity is server-resolved output from the first command.
+                if retry.actor != actor or retry.instrument_ids != instrument_ids:
                     raise ControlPlaneConflict(
                         "instrument session operation id has different content"
                     )
@@ -759,6 +755,30 @@ class SQLiteControlPlane:
             )
             assert row is not None
             return _instrument_session(row)
+
+    def get_instrument_session_by_open_operation_id(
+        self,
+        operation_id: str,
+    ) -> InstrumentSession:
+        """Read the durable result of an instrument-session open command."""
+
+        if not operation_id:
+            raise ValueError("instrument session operation id must be non-empty")
+        with closing(self._connect()) as connection:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT * FROM instrument_sessions
+                    WHERE open_operation_id = ?
+                    """,
+                    (operation_id,),
+                )
+            )
+        if row is None:
+            raise ControlPlaneNotFound(
+                f"instrument session open operation was not found: {operation_id}"
+            )
+        return _instrument_session(row)
 
     def get_instrument_session(self, session_id: str) -> InstrumentSession:
         with closing(self._connect()) as connection:
