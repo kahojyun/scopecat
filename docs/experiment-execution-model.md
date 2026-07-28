@@ -81,7 +81,7 @@ record selection, labels, and metadata.
 - An unknown effect outcome is never silently retried.
 - Check, preview, and run specialize the same accepted semantics; check and
   preview perform no provider effects.
-- Abort, cleanup, and terminal outcome derivation remain explicit.
+- Abort, disconnect, and terminal outcome derivation remain explicit.
 
 Tests should assert these laws instead of transient compiler fields, cache
 behavior, or incidental batch counts.
@@ -168,7 +168,8 @@ Consequential effects distinguish:
 - **unknown**: it may have occurred.
 
 Unknown outcomes stop dependent execution because automatic retry could repeat
-an external effect. Abort and cleanup remain explicit evidence-bearing steps.
+an external effect. Abort and disconnect remain explicit evidence-bearing
+steps.
 
 Host collection and domain execution produce one logical measurement stream.
 Physical chunks and target locations do not alter result identity. One physical

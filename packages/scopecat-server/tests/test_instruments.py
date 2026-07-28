@@ -58,15 +58,15 @@ from scopecat_server import LocalDaemonRuntime
 class _TrackingDriver(SignalInstrumentDriver):
     def __init__(self, instrument_id: str) -> None:
         super().__init__(instrument_id=instrument_id)
-        self.closed = False
+        self.disconnected = False
         self.aborted = False
-        self.close_count = 0
+        self.disconnect_count = 0
         self.abort_count = 0
 
     @override
-    def close(self) -> None:
-        self.closed = True
-        self.close_count += 1
+    def disconnect(self) -> None:
+        self.disconnected = True
+        self.disconnect_count += 1
 
     @override
     def abort(self) -> None:
@@ -358,7 +358,7 @@ def test_notebook_direct_interaction_owns_and_releases_driver(
             [released] = lab.instruments.list().items
             [driver] = provider.drivers
             assert released.availability == "available"
-            assert driver.closed
+            assert driver.disconnected
             assert driver.applied[0].command_id == "notebook-apply-1"
             assert driver.invoked[0].command_id == "notebook-invoke-1"
             assert driver.invoked[0].payloads[payload.id].inline_bytes() == (
@@ -543,7 +543,7 @@ def test_provider_rejection_closes_the_daemon_session(tmp_path: Path) -> None:
         [instrument] = daemon.list_instruments().items
         assert instrument.availability == "available"
         [driver] = provider.drivers
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
 
 
 def test_notebook_open_retry_reuses_operation_after_response_loss(
@@ -606,7 +606,7 @@ def test_abort_retry_replays_receipt_without_repeating_driver_calls(
             assert second == first
             [driver] = provider.drivers
             assert driver.abort_count == 1
-            assert driver.close_count == 1
+            assert driver.disconnect_count == 1
             assert daemon.close_instrument_session(session.session_id) == first
 
 
@@ -634,7 +634,7 @@ def test_notebook_close_remains_retryable_after_both_transport_attempts_fail(
             assert receipt is not None
             assert receipt.status == "closed"
             [driver] = provider.drivers
-            assert driver.close_count == 1
+            assert driver.disconnect_count == 1
 
 
 def test_notebook_default_apply_retries_with_same_operation_after_response_loss(
@@ -714,7 +714,7 @@ def test_observation_failure_aborts_session_without_quarantining(
             [instrument] = daemon.list_instruments().items
             [driver] = provider.drivers
             assert instrument.availability == "available"
-            assert driver.closed
+            assert driver.disconnected
 
 
 def test_direct_session_observes_without_applying_run_defaults(tmp_path: Path) -> None:

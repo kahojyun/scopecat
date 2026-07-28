@@ -325,10 +325,7 @@ class YokogawaGS200:
         self._identity = identity
         return identity
 
-    def cleanup(self) -> None:
-        """Release run-scoped state without changing the physical output."""
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         self.transport.close()
 
     def abort(self) -> None:

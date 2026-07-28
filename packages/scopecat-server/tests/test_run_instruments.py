@@ -66,7 +66,7 @@ from scopecat_server.errors import BackendConflict
 from scopecat_server.instrument_service import InstrumentService
 
 type _FailAction = (
-    Literal["apply", "reject_apply", "invoke", "cleanup", "abort", "close"] | None
+    Literal["apply", "reject_apply", "invoke", "abort", "disconnect"] | None
 )
 
 
@@ -82,9 +82,8 @@ class _Driver(SignalInstrumentDriver):
         self.fail_action: _FailAction = fail_action
         self.apply_barrier = apply_barrier
         self.read_count = 0
-        self.cleanup_count = 0
         self.abort_count = 0
-        self.close_count = 0
+        self.disconnect_count = 0
 
     @override
     def read_state(self):  # type: ignore[no-untyped-def]
@@ -118,22 +117,16 @@ class _Driver(SignalInstrumentDriver):
         return InvokeReceipt(status="invoked")
 
     @override
-    def cleanup(self) -> None:
-        self.cleanup_count += 1
-        if self.fail_action == "cleanup":
-            raise RuntimeError("cleanup failed")
-
-    @override
     def abort(self) -> None:
         self.abort_count += 1
         if self.fail_action == "abort":
             raise RuntimeError("abort failed")
 
     @override
-    def close(self) -> None:
-        self.close_count += 1
-        if self.fail_action == "close":
-            raise RuntimeError("close failed")
+    def disconnect(self) -> None:
+        self.disconnect_count += 1
+        if self.fail_action == "disconnect":
+            raise RuntimeError("disconnect failed")
 
 
 class _VariantDriver(_Driver):
@@ -442,7 +435,7 @@ def test_unknown_run_preparation_quarantines_the_run(tmp_path: Path) -> None:
 
         [driver] = provider.drivers
         assert driver.abort_count == 1
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         assert runtime.application.executor._control.get_run(run_id).state == (
             "attention_required"
         )
@@ -474,7 +467,7 @@ def test_run_preparation_requires_defaults_to_converge(tmp_path: Path) -> None:
         [driver] = provider.drivers
         assert len(driver.applied) == 1
         assert driver.abort_count == 1
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         assert runtime.application.executor._control.get_run(run_id).state == (
             "attention_required"
         )
@@ -499,7 +492,7 @@ def test_rejected_run_preparation_closes_without_quarantine(tmp_path: Path) -> N
         assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
         [driver] = provider.drivers
         assert driver.abort_count == 0
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         assert runtime.application.executor._control.get_run(run_id).state != (
             "attention_required"
         )
@@ -532,7 +525,7 @@ def test_partial_run_preparation_is_unknown(tmp_path: Path) -> None:
         assert len(first.applied) == 1
         assert second.applied == []
         assert [driver.abort_count for driver in provider.drivers] == [1, 1]
-        assert [driver.close_count for driver in provider.drivers] == [1, 1]
+        assert [driver.disconnect_count for driver in provider.drivers] == [1, 1]
         assert runtime.application.executor._control.get_run(run_id).state == (
             "attention_required"
         )
@@ -797,7 +790,7 @@ def test_unknown_driver_action_quarantines_and_discards_run_state(
 
         [driver] = provider.drivers
         assert driver.abort_count == 1
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         assert runtime.application.executor._control.get_run(run_id).state == (
             "attention_required"
         )
@@ -838,14 +831,14 @@ def test_unknown_invoke_quarantines_and_discards_run_state(
         [driver] = provider.drivers
         assert len(driver.invoked) == 1
         assert driver.abort_count == 1
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         assert runtime.application.executor._control.get_run(run_id).state == (
             "attention_required"
         )
         _assert_run_state_discarded(instruments, run_id)
 
 
-def test_finish_owns_cleanup_terminal_read_close_and_replay(tmp_path: Path) -> None:
+def test_finish_owns_terminal_read_disconnect_and_replay(tmp_path: Path) -> None:
     provider = _Provider()
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, load_config())
@@ -861,21 +854,20 @@ def test_finish_owns_cleanup_terminal_read_close_and_replay(tmp_path: Path) -> N
         receipt = instruments.finish_run_hardware(run_id, command)
         assert instruments.finish_run_hardware(run_id, command) == receipt
         assert receipt.final_state[0].instrument_id == "source-0"
-        assert driver.cleanup_count == 1
         assert driver.abort_count == 0
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         assert driver.read_count == 2
         _assert_run_state_discarded(instruments, run_id)
 
 
 def test_failed_finish_aborts_and_close_failure_is_unknown(tmp_path: Path) -> None:
-    provider = _Provider(fail_action="close")
+    provider = _Provider(fail_action="disconnect")
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, load_config())
         instruments = runtime.application.instruments
         instruments.provision_run(run_id, _provision(lease_id))
 
-        with pytest.raises(BackendConflict, match="close failed with unknown state"):
+        with pytest.raises(BackendConflict, match="disconnect failed"):
             instruments.finish_run_hardware(
                 run_id,
                 RunHardwareFinishCommand(
@@ -887,7 +879,7 @@ def test_failed_finish_aborts_and_close_failure_is_unknown(tmp_path: Path) -> No
 
         [driver] = provider.drivers
         assert driver.abort_count == 1
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         _assert_run_state_discarded(instruments, run_id)
 
 
@@ -914,9 +906,8 @@ def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
         [driver] = provider.drivers
         assert manifest.outcome is not None
         assert driver.abort_count == 1
-        assert driver.cleanup_count == 0
         assert driver.read_count == 2
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
 
 
 def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None:
@@ -973,7 +964,7 @@ def test_expiry_and_shutdown_release_live_run_drivers(tmp_path: Path) -> None:
     runtime.application.instruments.expire_runs(expired)
     [driver] = provider.drivers
     assert driver.abort_count == 1
-    assert driver.close_count == 1
+    assert driver.disconnect_count == 1
     runtime.close()
 
     shutdown_provider = _Provider()
@@ -986,7 +977,7 @@ def test_expiry_and_shutdown_release_live_run_drivers(tmp_path: Path) -> None:
     shutdown.close()
     [shutdown_driver] = shutdown_provider.drivers
     assert shutdown_driver.abort_count == 1
-    assert shutdown_driver.close_count == 1
+    assert shutdown_driver.disconnect_count == 1
 
 
 def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:

@@ -207,10 +207,7 @@ class LakeShore372:
         self._identity = identity
         return identity
 
-    def cleanup(self) -> None:
-        """Read-only driver cleanup deliberately emits no instrument command."""
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         self.transport.close()
 
     def abort(self) -> None:

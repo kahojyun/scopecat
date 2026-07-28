@@ -431,7 +431,7 @@ class InstrumentService:
                 payload_codecs=system.payload_codecs,
             )
         except _ProvisioningRejected as error:
-            if _call_all(error.drivers, _close_driver):
+            if _call_all(error.drivers, _disconnect_driver):
                 self._mark_run_unknown(
                     run_id,
                     token=command.lease_id,
@@ -447,7 +447,7 @@ class InstrumentService:
             )
         except _ProvisioningUnknown as error:
             _call_all(error.drivers, _abort_driver)
-            _call_all(error.drivers, _close_driver)
+            _call_all(error.drivers, _disconnect_driver)
             self._mark_run_unknown(
                 run_id,
                 token=command.lease_id,
@@ -466,7 +466,7 @@ class InstrumentService:
                 for instrument_id in instrument_ids
             )
         except BackendConflict as error:
-            if _call_all(runtime.drivers.values(), _close_driver):
+            if _call_all(runtime.drivers.values(), _disconnect_driver):
                 self._mark_run_unknown(
                     run_id,
                     token=command.lease_id,
@@ -513,7 +513,7 @@ class InstrumentService:
             )
         except BackendConflict:
             _call_all(runtime.drivers.values(), _abort_driver)
-            _call_all(runtime.drivers.values(), _close_driver)
+            _call_all(runtime.drivers.values(), _disconnect_driver)
             self._mark_run_unknown(
                 run_id,
                 token=command.lease_id,
@@ -591,7 +591,7 @@ class InstrumentService:
         except _RunPreparationRejected as error:
             if error.changed_state:
                 _call_all(runtime.drivers.values(), _abort_driver)
-                _call_all(runtime.drivers.values(), _close_driver)
+                _call_all(runtime.drivers.values(), _disconnect_driver)
                 self._mark_run_unknown(
                     run_id,
                     token=command.lease_id,
@@ -600,7 +600,7 @@ class InstrumentService:
                 raise BackendConflict(
                     "instrument run preparation partially changed hardware"
                 ) from error
-            release_failed = _call_all(runtime.drivers.values(), _close_driver)
+            release_failed = _call_all(runtime.drivers.values(), _disconnect_driver)
             if release_failed:
                 self._mark_run_unknown(
                     run_id,
@@ -617,7 +617,7 @@ class InstrumentService:
             )
         except _RunPreparationUnknown as error:
             _call_all(runtime.drivers.values(), _abort_driver)
-            _call_all(runtime.drivers.values(), _close_driver)
+            _call_all(runtime.drivers.values(), _disconnect_driver)
             self._mark_run_unknown(
                 run_id,
                 token=command.lease_id,
@@ -1296,21 +1296,21 @@ class InstrumentService:
         operation_id: str,
     ) -> tuple[list[InstrumentStateSnapshot], list[Problem]]:
         problems: list[Problem] = []
-        action = "abort" if failed else "cleanup"
         with runtime.lock:
-            for instrument_id in reversed(tuple(runtime.drivers)):
-                try:
-                    _run_driver_lifecycle(runtime.drivers[instrument_id], action)
-                except Exception as error:
-                    self._lose_run_runtime(
-                        run_id,
-                        runtime,
-                        token=token,
-                        reason=f"run_instrument_{action}_unknown",
-                    )
-                    raise BackendConflict(
-                        f"instrument {action} failed with unknown state"
-                    ) from error
+            if failed:
+                for instrument_id in reversed(tuple(runtime.drivers)):
+                    try:
+                        runtime.drivers[instrument_id].abort()
+                    except Exception as error:
+                        self._lose_run_runtime(
+                            run_id,
+                            runtime,
+                            token=token,
+                            reason="run_instrument_abort_unknown",
+                        )
+                        raise BackendConflict(
+                            "instrument abort failed with unknown state"
+                        ) from error
             final_state: list[InstrumentStateSnapshot] = []
             for instrument_id, driver in runtime.drivers.items():
                 try:
@@ -1332,21 +1332,19 @@ class InstrumentService:
                     )
             for instrument_id in reversed(tuple(runtime.drivers)):
                 try:
-                    runtime.drivers[instrument_id].close()
+                    runtime.drivers[instrument_id].disconnect()
                 except Exception as error:
                     self._lose_run_runtime(
                         run_id,
                         runtime,
                         token=token,
-                        reason="run_instrument_close_unknown",
+                        reason="run_instrument_disconnect_unknown",
                         skip_abort=(
                             frozenset(runtime.drivers) if failed else frozenset()
                         ),
                         skip_close=frozenset({instrument_id}),
                     )
-                    raise BackendConflict(
-                        "instrument close failed with unknown state"
-                    ) from error
+                    raise BackendConflict("instrument disconnect failed") from error
         self._pop_run_runtime(run_id, expected=runtime)
         return final_state, problems
 
@@ -1462,8 +1460,8 @@ class InstrumentService:
                 payload_codecs=system.payload_codecs,
             )
         except _ProvisioningRejected as error:
-            close_failed = _call_all(error.drivers, _close_driver)
-            if close_failed:
+            disconnect_failed = _call_all(error.drivers, _disconnect_driver)
+            if disconnect_failed:
                 self._mark_unknown(
                     session,
                     reason="instrument_provisioning_cleanup_failed",
@@ -1476,7 +1474,7 @@ class InstrumentService:
             raise BackendConflict(str(error)) from error
         except _ProvisioningUnknown as error:
             _call_all(error.drivers, _abort_driver)
-            _call_all(error.drivers, _close_driver)
+            _call_all(error.drivers, _disconnect_driver)
             self._mark_unknown(session, reason="instrument_provisioning_unknown")
             raise BackendConflict(
                 "instrument provider failed while connecting"
@@ -1491,8 +1489,11 @@ class InstrumentService:
                 for instrument_id in command.instrument_ids
             )
         except BackendConflict as error:
-            close_failed = _call_all(runtime.drivers.values(), _close_driver)
-            if close_failed:
+            disconnect_failed = _call_all(
+                runtime.drivers.values(),
+                _disconnect_driver,
+            )
+            if disconnect_failed:
                 self._mark_unknown(
                     session,
                     reason="instrument_observation_cleanup_failed",
@@ -1953,7 +1954,7 @@ class InstrumentService:
                 if self._sessions.get(session_id) is not runtime:
                     return
             _call_all(runtime.drivers.values(), _abort_driver)
-            _call_all(runtime.drivers.values(), _close_driver)
+            _call_all(runtime.drivers.values(), _disconnect_driver)
             with self._sessions_lock:
                 if self._sessions.get(session_id) is runtime:
                     self._sessions.pop(session_id)
@@ -2030,7 +2031,7 @@ class InstrumentService:
             if runtime is not None:
                 with runtime.lock:
                     _call_all(runtime.drivers.values(), _abort_driver)
-                    _call_all(runtime.drivers.values(), _close_driver)
+                    _call_all(runtime.drivers.values(), _disconnect_driver)
             with self._run_lock:
                 if self._run_open_locks.get(run_id) is lock:
                     self._run_open_locks.pop(run_id)
@@ -2051,7 +2052,9 @@ class InstrumentService:
                 session = None
             with runtime.lock:
                 failed = _call_all(runtime.drivers.values(), _abort_driver)
-                failed = _call_all(runtime.drivers.values(), _close_driver) or failed
+                failed = (
+                    _call_all(runtime.drivers.values(), _disconnect_driver) or failed
+                )
             if session is not None and session.state == "active":
                 if failed:
                     self._mark_unknown(
@@ -2075,7 +2078,7 @@ class InstrumentService:
             if runtime is not None:
                 with runtime.lock:
                     _call_all(runtime.drivers.values(), _abort_driver)
-                    _call_all(runtime.drivers.values(), _close_driver)
+                    _call_all(runtime.drivers.values(), _disconnect_driver)
             self._mark_run_unknown(
                 run_id,
                 token=provision.command.lease_id,
@@ -2113,7 +2116,7 @@ class InstrumentService:
             failed = (
                 _call_all(runtime.drivers.values(), _abort_driver) if abort else False
             )
-            failed = _call_all(runtime.drivers.values(), _close_driver) or failed
+            failed = _call_all(runtime.drivers.values(), _disconnect_driver) or failed
             if failed:
                 self._lose_runtime(
                     session,
@@ -2121,7 +2124,7 @@ class InstrumentService:
                     reason=(
                         "instrument_abort_unknown"
                         if abort
-                        else "instrument_close_unknown"
+                        else "instrument_disconnect_failed"
                     ),
                 )
                 raise BackendConflict("instrument connection release was not confirmed")
@@ -2178,7 +2181,7 @@ class InstrumentService:
         reason: str,
     ) -> None:
         _call_all(runtime.drivers.values(), _abort_driver)
-        _call_all(runtime.drivers.values(), _close_driver)
+        _call_all(runtime.drivers.values(), _disconnect_driver)
         self._pop_runtime(session.session_id)
         self._mark_unknown(session, reason=reason)
 
@@ -2209,7 +2212,7 @@ class InstrumentService:
                 for driver in drivers
                 if driver.instrument_id not in skipped_closes
             ),
-            _close_driver,
+            _disconnect_driver,
         )
         self._pop_run_runtime(run_id, expected=runtime)
         self._mark_run_unknown(
@@ -2710,8 +2713,8 @@ def _call_all(
     return failed
 
 
-def _close_driver(driver: InstrumentDriver) -> None:
-    driver.close()
+def _disconnect_driver(driver: InstrumentDriver) -> None:
+    driver.disconnect()
 
 
 def _abort_driver(driver: InstrumentDriver) -> None:
@@ -2734,18 +2737,6 @@ def _read_driver_state(
     if problems:
         raise BackendConflict("; ".join(item.message for item in problems))
     return state
-
-
-def _run_driver_lifecycle(
-    driver: InstrumentDriver,
-    action: Literal["cleanup", "abort", "close"],
-) -> None:
-    if action == "cleanup":
-        driver.cleanup()
-    elif action == "abort":
-        driver.abort()
-    else:
-        driver.close()
 
 
 def _scope_provider_problems(

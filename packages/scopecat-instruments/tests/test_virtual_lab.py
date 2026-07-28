@@ -24,12 +24,12 @@ def _notch_frequency(
     return trace_frequencies[index]
 
 
-def test_virtual_state_survives_driver_session_close() -> None:
+def test_virtual_state_survives_driver_disconnect() -> None:
     world = VirtualLabWorld(seed=11)
     first = VirtualDcSource("flux", world)
     first.set_voltage_level(0.125)
     first.set_output(True)
-    first.close()
+    first.disconnect()
 
     second = VirtualDcSource("flux", world)
 

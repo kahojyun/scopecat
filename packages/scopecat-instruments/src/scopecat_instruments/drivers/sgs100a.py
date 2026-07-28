@@ -167,10 +167,7 @@ class RohdeSchwarzSGS100A:
         self._identity = identity
         return identity
 
-    def cleanup(self) -> None:
-        """Do not change the RF output when a run releases the driver."""
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         self.transport.close()
 
     def abort(self) -> None:

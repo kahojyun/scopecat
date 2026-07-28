@@ -28,7 +28,7 @@ FLUX_SOURCE_ID = "flux-source"
 
 
 class InstrumentDemoProvider:
-    """Use the stock configured drivers and guarantee bias-off finalization."""
+    """Use the stock configured drivers and guarantee bias-off on abort."""
 
     provider_id = "instrument_demo.configured"
 
@@ -100,20 +100,14 @@ class _BiasSafeDriver:
     def collect(self, command: CollectCommand) -> CollectReceipt:
         return self._driver.collect(command)
 
-    def cleanup(self) -> None:
-        try:
-            self._disable_bias("cleanup")
-        finally:
-            self._driver.cleanup()
-
     def abort(self) -> None:
         try:
             self._disable_bias("abort")
         finally:
             self._driver.abort()
 
-    def close(self) -> None:
-        self._driver.close()
+    def disconnect(self) -> None:
+        self._driver.disconnect()
 
     def _disable_bias(self, phase: str) -> None:
         receipt = self._driver.apply_state(

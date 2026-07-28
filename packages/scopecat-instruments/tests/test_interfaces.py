@@ -114,10 +114,11 @@ def test_dc_source_state_partitions_properties_by_source_mode() -> None:
         KeysightE5080B("vna", ScriptedTransport([])),
     ],
 )
-def test_real_driver_cleanup_does_not_issue_scpi(
+def test_real_driver_disconnect_closes_transport_without_scpi(
     driver: (RohdeSchwarzSGS100A | YokogawaGS200 | LakeShore372 | KeysightE5080B),
 ) -> None:
-    driver.cleanup()
+    driver.disconnect()
     transport = driver.transport
     assert isinstance(transport, ScriptedTransport)
+    assert transport.closed
     transport.assert_complete()

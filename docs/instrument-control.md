@@ -43,9 +43,9 @@ the active config revision, claims all requested instruments, provisions the
 drivers, and keeps them behind a session id until close or abort. There is no
 client lease, TTL, or heartbeat: losing a GUI tab does not imply that hardware
 state is uncertain. The session remains visible and can be disconnected by
-another GUI or notebook client. Daemon shutdown aborts and closes live drivers;
-on restart, idle sessions are released while a session interrupted during a
-consequential operation remains in `attention_required`.
+another GUI or notebook client. Daemon shutdown aborts and disconnects live
+drivers; on restart, idle sessions are released while a session interrupted
+during a consequential operation remains in `attention_required`.
 
 `ResourcePort` remains a logical experiment requirement such as RF output or
 network sweep. It requests one or more namespaced interface ids such as
@@ -158,7 +158,7 @@ selects **Connect**, after which the detail view:
 If a browser teardown request does not reach the daemon, the next client can
 disconnect the still-visible interactive session. This is ordinary ownership
 recovery, not quarantine: only an unfinished consequential operation or failed
-driver cleanup creates hardware uncertainty.
+driver disconnection creates hardware uncertainty.
 
 This is intentionally not a raw SCPI terminal. Driver interfaces preserve
 units and validation, make changes auditable, and keep the same semantics in
@@ -275,11 +275,11 @@ experiment runs. A notebook plans and interprets the experiment program, but
 after the daemon grants its fenced executor lease, the daemon provisions
 drivers from the run's accepted configuration snapshot. The notebook submits
 ordered hardware batches; the daemon owns current-state reconciliation,
-driver calls, batch replay, and final cleanup or abort with terminal readback.
-Experiments therefore do not expose per-device lifecycle RPCs. Planning may
-call the provider's pure description contract; it never provisions a live
-driver. Fine-grained read, apply, and collect remain available only through an
-explicit interactive session.
+driver calls, batch replay, abort-on-failure, terminal readback, and
+disconnection. Experiments therefore do not expose per-device lifecycle RPCs.
+Planning may call the provider's pure description contract; it never provisions
+a live driver. Fine-grained read, apply, and collect remain available only
+through an explicit interactive session.
 
 Admission records the expected provider and an ordered instrument-contract
 fingerprint. The daemon verifies both before connecting drivers, so a provider

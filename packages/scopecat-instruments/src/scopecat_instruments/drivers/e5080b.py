@@ -332,10 +332,7 @@ class KeysightE5080B:
         self._identity = identity
         return identity
 
-    def cleanup(self) -> None:
-        """Do not alter the analyzer setup or RF source during normal cleanup."""
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         self.transport.close()
 
     def abort(self) -> None:

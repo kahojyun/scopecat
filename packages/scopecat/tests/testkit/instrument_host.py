@@ -181,11 +181,16 @@ class TestRunInstrumentHost:
     ) -> RunHardwareFinalizationReceipt:
         if self._finished is not None:
             return self._finished
-        for driver in reversed(tuple(self._drivers.values())):
-            driver.abort() if failed else driver.cleanup()
-        final_state = tuple(driver.read_state() for driver in self._drivers.values())
-        for driver in reversed(tuple(self._drivers.values())):
-            driver.close()
+        try:
+            if failed:
+                for driver in reversed(tuple(self._drivers.values())):
+                    driver.abort()
+            final_state = tuple(
+                driver.read_state() for driver in self._drivers.values()
+            )
+        finally:
+            for driver in reversed(tuple(self._drivers.values())):
+                driver.disconnect()
         self._finished = RunHardwareFinalizationReceipt(
             operation_id=operation_id,
             final_state=final_state,
@@ -235,7 +240,7 @@ def provision_test_instrument_host(
     result = provider.provide(context)
     if result.problems:
         for driver in reversed(result.drivers):
-            driver.close()
+            driver.disconnect()
         return TestRunInstrumentHost(
             ready=False,
             setup_problems=result.problems,

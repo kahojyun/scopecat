@@ -154,10 +154,7 @@ class VirtualRfSource:
         with self.world.lock:
             return self.world.rf_source(self.instrument_id).reference_source
 
-    def cleanup(self) -> None:
-        pass
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:
@@ -404,10 +401,7 @@ class VirtualDcSource:
         with self.world.lock:
             return self.world.dc_source(self.instrument_id).output_enabled
 
-    def cleanup(self) -> None:
-        pass
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:
@@ -543,10 +537,7 @@ class VirtualTemperatureMonitor:
                 heater_status=state.heater_status,
             )
 
-    def cleanup(self) -> None:
-        pass
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:
@@ -726,10 +717,7 @@ class VirtualNetworkAnalyzer:
         self.single_trigger()
         return self.read_trace_ascii()
 
-    def cleanup(self) -> None:
-        pass
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:

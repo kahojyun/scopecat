@@ -101,7 +101,7 @@ def test_provider_probes_real_device_before_returning_driver() -> None:
     assert isinstance(identity, str)
     assert identity.startswith("Rohde&Schwarz")
     assert server.commands == ["*IDN?"]
-    result.drivers[0].close()
+    result.drivers[0].disconnect()
 
 
 def test_provider_rejects_wrong_device_identity() -> None:
@@ -154,7 +154,7 @@ def test_provider_subset_and_virtual_state_survive_sessions() -> None:
     assert isinstance(first, VirtualDcSource)
     first.set_voltage_level(0.2)
     first.set_output(True)
-    first.close()
+    first.disconnect()
     second_result = provider.provide(context)
     second = second_result.drivers[0]
 

@@ -660,10 +660,7 @@ class _ScopedStateDriver:
         del command
         return CollectReceipt(readback=InstrumentReadback())
 
-    def cleanup(self) -> None:
-        return None
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         return None
 
     def abort(self) -> None:

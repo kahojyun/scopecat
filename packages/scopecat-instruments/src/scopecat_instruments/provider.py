@@ -73,7 +73,8 @@ class ConfiguredInstrumentProvider:
     """Instantiate exactly the drivers declared by an accepted config snapshot.
 
     Real TCP sessions are probed with ``*IDN?`` before they are returned. Virtual
-    sessions share the provider's world, so state survives close/re-provide cycles.
+    sessions share the provider's world, so state survives disconnect/re-provide
+    cycles.
     """
 
     provider_id = "scopecat.instruments.configured"
@@ -126,7 +127,7 @@ class ConfiguredInstrumentProvider:
             except Exception as error:
                 if driver is not None:
                     with suppress(Exception):
-                        driver.close()
+                        driver.disconnect()
                 problems.append(_connection_problem(spec, index, error))
         metadata: dict[str, JsonValue] = {
             "provider_id": self.provider_id,

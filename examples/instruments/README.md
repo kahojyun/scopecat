@@ -57,8 +57,8 @@ The experiment declares only the logical resources `flux-source`,
 `mixing-chamber`, and `readout-vna` plus their interfaces. It has no driver or
 vendor imports, so the same experiment can be routed to compatible real
 instruments. The intended path explicitly disables the flux output after each
-acquisition. The demo provider also enforces bias-off during cleanup or abort,
-which covers an acquisition failure before the final experiment effect runs.
+acquisition. The demo provider also enforces bias-off during abort, which covers
+an acquisition failure before the final experiment effect runs.
 
 Run the example-level checks with:
 

@@ -345,8 +345,8 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
     def __init__(self, *, instrument_id: str) -> None:
         super().__init__(instrument_id=instrument_id)
         self.abort_count = 0
-        self.close_count = 0
-        self.read_count_when_closed: int | None = None
+        self.disconnect_count = 0
+        self.read_count_when_disconnected: int | None = None
         self.read_count = 0
 
     @override
@@ -359,16 +359,16 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
         self.abort_count += 1
 
     @override
-    def close(self) -> None:
-        self.close_count += 1
-        self.read_count_when_closed = self.read_count
+    def disconnect(self) -> None:
+        self.disconnect_count += 1
+        self.read_count_when_disconnected = self.read_count
 
 
-class _CloseFailureDriver(_FinalizationTrackingDriver):
+class _DisconnectFailureDriver(_FinalizationTrackingDriver):
     @override
-    def close(self) -> None:
-        super().close()
-        raise RuntimeError("socket close failed")
+    def disconnect(self) -> None:
+        super().disconnect()
+        raise RuntimeError("socket disconnect failed")
 
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
@@ -435,24 +435,24 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     ]
 
 
-def test_driver_close_failure_is_reported_after_terminal_read() -> None:
-    driver = _CloseFailureDriver(instrument_id="source-0")
+def test_driver_disconnect_failure_is_reported_after_terminal_read() -> None:
+    driver = _DisconnectFailureDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("close-failure-point"), {}),
+        RunPoint(_logical_point_id("disconnect-failure-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_claims=_claims("source-0"),
     )
 
     result = RunEffectInterpreter(
-        run_id="close-failure-run",
+        run_id="disconnect-failure-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
-    assert driver.close_count == 1
-    assert driver.read_count_when_closed == 2
+    assert driver.disconnect_count == 1
+    assert driver.read_count_when_disconnected == 2
     assert "hardware_finalization_unknown" in {item.code for item in result.problems}
 
 

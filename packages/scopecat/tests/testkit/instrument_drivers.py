@@ -121,10 +121,7 @@ class SignalInstrumentDriver:
             )
         )
 
-    def close(self) -> None:
-        return None
-
-    def cleanup(self) -> None:
+    def disconnect(self) -> None:
         return None
 
     def abort(self) -> None:
