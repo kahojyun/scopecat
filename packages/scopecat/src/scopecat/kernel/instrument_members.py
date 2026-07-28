@@ -88,6 +88,35 @@ class OperationRef:
         _validate_scope(self.interface_id, self.component_path)
         _require_member_id(self.operation_id, "operation")
 
+    def argument(self, argument_id: str) -> OperationArgumentRef:
+        return OperationArgumentRef(
+            self.interface_id,
+            self.component_path,
+            self.operation_id,
+            argument_id,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OperationArgumentRef:
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    operation_id: str
+    argument_id: str
+
+    def __post_init__(self) -> None:
+        _validate_scope(self.interface_id, self.component_path)
+        _require_member_id(self.operation_id, "operation")
+        _require_member_id(self.argument_id, "operation argument")
+
+    @property
+    def operation(self) -> OperationRef:
+        return OperationRef(
+            self.interface_id,
+            self.component_path,
+            self.operation_id,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class AcquisitionRef:
@@ -134,6 +163,7 @@ __all__ = [
     "AcquisitionResultRef",
     "ComponentRef",
     "InterfaceRef",
+    "OperationArgumentRef",
     "OperationRef",
     "PropertyRef",
 ]

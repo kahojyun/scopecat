@@ -74,6 +74,7 @@ from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
 
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1").property("frequency")
 _PLAY_PROGRAM = InterfaceRef("test.play_program/v1").operation("play")
+_PLAY_PROGRAM_ARGUMENT = _PLAY_PROGRAM.argument("program")
 _SAMPLE_SIGNAL = InterfaceRef("test.scalar_signal/v1").acquisition("sample")
 _DC = InterfaceRef("test.dc/v1")
 _DC_MODE = _DC.property("mode")
@@ -577,8 +578,8 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
                 )
                 invoke_receipt = instrument.invoke(
                     _PLAY_PROGRAM,
+                    {_PLAY_PROGRAM_ARGUMENT: payload},
                     command_id="notebook-invoke-1",
-                    program=payload,
                 )
                 collect_receipt = instrument.collect(
                     _SAMPLE_SIGNAL,
@@ -637,7 +638,7 @@ def test_invoke_without_reported_state_reads_back_before_returning(
 
             receipt = handle.invoke(
                 _PLAY_PROGRAM,
-                program=payload,
+                {_PLAY_PROGRAM_ARGUMENT: payload},
             )
             handle.close()
 
@@ -645,6 +646,31 @@ def test_invoke_without_reported_state_reads_back_before_returning(
             assert receipt.state is not None
             assert receipt.state.instrument_id == "source-0"
             assert driver.read_count == reads_before_invoke + 1
+
+
+def test_notebook_invoke_rejects_argument_from_another_operation(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    unrelated = (
+        InterfaceRef("test.play_program/v1").operation("preview").argument("program")
+    )
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+
+            with lab.instruments.open("source-0", actor="alice") as instrument:
+                with pytest.raises(
+                    ValueError,
+                    match="arguments must belong to the selected operation",
+                ):
+                    instrument.invoke(
+                        _PLAY_PROGRAM,
+                        {unrelated: False},
+                    )
+
+                [driver] = provider.drivers
+                assert driver.invoked == []
 
 
 def test_notebook_collect_rejects_a_result_from_another_acquisition(

@@ -5,6 +5,7 @@ from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
     ComponentRef,
     InterfaceRef,
+    OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "AcquisitionResultRef",
     "ComponentRef",
     "InterfaceRef",
+    "OperationArgumentRef",
     "OperationRef",
     "PropertyRef",
 ]

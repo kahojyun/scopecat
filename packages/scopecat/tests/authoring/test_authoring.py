@@ -137,6 +137,7 @@ _SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
 _SCALAR_IQ_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("iq")
 _PLAY_PULSE_PROGRAM = InterfaceRef("test.play_pulse_program/v1")
 _PLAY_PULSE = _PLAY_PULSE_PROGRAM.operation("play")
+_PLAY_PULSE_PROGRAM_ARGUMENT = _PLAY_PULSE.argument("program")
 _ACQUIRE_SIGNAL = InterfaceRef("test.acquire_signal/v1")
 _SET_OFFSET = InterfaceRef("test.set_offset/v1")
 _SET_OFFSET_VALUE = _SET_OFFSET.property("offset")
@@ -144,6 +145,25 @@ _SET_GAIN = InterfaceRef("test.set_gain/v1")
 _SET_GAIN_VALUE = _SET_GAIN.property("gain")
 _DRIVE_FREQUENCY = InterfaceRef("test.drive_frequency/v1")
 _DRIVE_FREQUENCY_VALUE = _DRIVE_FREQUENCY.property("value")
+
+
+def test_module_invoke_rejects_argument_from_another_operation() -> None:
+    unrelated = _PLAY_PULSE_PROGRAM.operation("preview").argument("program")
+    builder = authoring.module_body(id="test.invoke.argument-target").resource(
+        "drive",
+        requires=(_PLAY_PULSE_PROGRAM,),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="arguments must belong to the selected operation",
+    ):
+        builder.invoke(
+            "play-program",
+            resource="drive",
+            operation=_PLAY_PULSE,
+            arguments={unrelated: True},
+        )
 
 
 def _around_parameter_axis(
@@ -399,7 +419,7 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
             "play-program",
             resource="drive",
             operation=_PLAY_PULSE,
-            arguments={"program": build.output},
+            arguments={_PLAY_PULSE_PROGRAM_ARGUMENT: build.output},
         )
         .build()
     )

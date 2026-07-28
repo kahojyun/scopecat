@@ -81,9 +81,9 @@ def configured_output_signal(
 
     if route.entity_kind == "logical_qubit":
         qubit = QubitId(route.entity_id)
-        if route.interface_id == PLAY_PULSE_PROGRAM:
+        if route.interface_id == PLAY_PULSE_PROGRAM.interface_id:
             return DriveSignal(qubit)
-        if route.interface_id == READOUT_PULSE:
+        if route.interface_id == READOUT_PULSE.interface_id:
             return ReadoutSignal(qubit)
     return None
 
@@ -93,7 +93,10 @@ def configured_acquisition_signal(
 ) -> AcquireSignal | None:
     """Project one configured route into a logical acquisition signal."""
 
-    if route.interface_id == ACQUIRE_IQ and route.entity_kind == "logical_qubit":
+    if (
+        route.interface_id == ACQUIRE_IQ.interface_id
+        and route.entity_kind == "logical_qubit"
+    ):
         return AcquireSignal(QubitId(route.entity_id))
     return None
 

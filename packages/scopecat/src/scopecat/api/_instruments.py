@@ -38,6 +38,7 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
+    OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
@@ -202,18 +203,19 @@ class InstrumentSessionHandle:
     def invoke(
         self,
         operation: OperationRef,
-        arguments: Mapping[str, OperationArgumentValue] | None = None,
+        arguments: Mapping[OperationArgumentRef, OperationArgumentValue] | None = None,
         /,
         *,
         instrument_id: str | None = None,
         command_id: str | None = None,
-        **argument_values: OperationArgumentValue,
     ) -> InvokeReceipt:
-        if arguments is not None and argument_values:
-            raise ValueError("pass operation arguments as a mapping or keyword values")
+        selected_arguments = dict(arguments or {})
+        if any(target.operation != operation for target in selected_arguments):
+            raise ValueError(
+                "operation arguments must belong to the selected operation"
+            )
         selected = self._selected_instrument_id(instrument_id)
         session = self._require_session()
-        selected_arguments = dict(arguments or argument_values)
         payloads: dict[str, CommandPayload] = {}
         for value in selected_arguments.values():
             if not isinstance(value, CommandPayload):
@@ -236,7 +238,7 @@ class InstrumentSessionHandle:
             operation_id=operation.operation_id,
             arguments=[
                 InstrumentOperationArgument(
-                    id=argument_id,
+                    id=target.argument_id,
                     value=(
                         value
                         if isinstance(value, StateValue)
@@ -247,7 +249,7 @@ class InstrumentSessionHandle:
                         )
                     ),
                 )
-                for argument_id, value in selected_arguments.items()
+                for target, value in selected_arguments.items()
             ],
             payloads=payloads,
         )

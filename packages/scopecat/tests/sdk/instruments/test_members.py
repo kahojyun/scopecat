@@ -10,6 +10,7 @@ from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     ComponentRef,
     InterfaceRef,
+    OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
@@ -21,6 +22,7 @@ def test_member_factories_preserve_the_complete_physical_scope() -> None:
     channel = assert_type(output.component("channel-a"), ComponentRef)
     level = assert_type(channel.property("level"), PropertyRef)
     reset = assert_type(channel.operation("reset"), OperationRef)
+    wait = assert_type(reset.argument("wait"), OperationArgumentRef)
     sample = assert_type(channel.acquisition("sample"), AcquisitionRef)
     signal = assert_type(sample.result("signal"), AcquisitionResultRef)
 
@@ -32,6 +34,7 @@ def test_member_factories_preserve_the_complete_physical_scope() -> None:
     assert channel.component_path == ("output", "channel-a")
     assert level.component_path == channel.component_path
     assert reset.component_path == channel.component_path
+    assert wait.operation == reset
     assert signal.acquisition == sample
 
 
@@ -58,6 +61,10 @@ def test_member_references_are_stable_mapping_keys() -> None:
         (
             lambda: OperationRef("test.source/v1", (), ""),
             "operation id must be non-empty",
+        ),
+        (
+            lambda: OperationArgumentRef("test.source/v1", (), "reset", ""),
+            "operation argument id must be non-empty",
         ),
         (
             lambda: AcquisitionRef("test.source/v1", (), ""),

@@ -62,6 +62,7 @@ from tests.testkit.runtime import FakeExecutionJournal
 
 _PLAY_PROGRAM = InterfaceRef("test.play_program/v1")
 _PLAY_PROGRAM_PLAY = _PLAY_PROGRAM.operation("play")
+_PLAY_PROGRAM_ARGUMENT = _PLAY_PROGRAM_PLAY.argument("program")
 
 
 def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
@@ -153,7 +154,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
             "play-program",
             resource="source",
             operation=_PLAY_PROGRAM_PLAY,
-            arguments={"program": consume_program.output},
+            arguments={_PLAY_PROGRAM_ARGUMENT: consume_program.output},
         )
         .build()
     )

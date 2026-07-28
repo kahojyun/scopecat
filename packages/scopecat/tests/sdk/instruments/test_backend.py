@@ -22,6 +22,7 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommand,
     InterfaceRef,
     InvokeCommand,
+    OperationArgumentRef,
     lower_driver_apply_request,
     lower_driver_collect_request,
     lower_driver_invoke_request,
@@ -114,6 +115,13 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
             value=StateValue(PayloadRef(payload_id=payload.id)),
         ),
     )
+    assert request.argument_target(request.arguments[0]) == OperationArgumentRef(
+        "test.pulse_player/v1",
+        ("channel-a",),
+        "play",
+        "program",
+    )
+    assert "argument_target" not in request.model_dump()
     assert request.payloads == {payload.id: materialized}
     assert request.payloads[payload.id].content == b"\x00\xffprogram"
     assert request.model_dump()["payloads"][payload.id]["content"] == b"\x00\xffprogram"

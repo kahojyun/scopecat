@@ -38,6 +38,7 @@ from tests.testkit.authoring import link_invocation, load_config, template_fixtu
 
 _PLAY_WAVEFORMS = InterfaceRef("test.play_waveforms/v1")
 _PLAY_WAVEFORMS_PLAY = _PLAY_WAVEFORMS.operation("play")
+_PLAY_WAVEFORMS_PROGRAM = _PLAY_WAVEFORMS_PLAY.argument("program")
 _SET_GAIN = InterfaceRef("test.set_gain/v1")
 _SET_GAIN_VALUE = _SET_GAIN.property("value")
 
@@ -97,7 +98,7 @@ def test_invocation_rejects_an_unregistered_compute_output() -> None:
                 "play",
                 resource="drive",
                 operation=_PLAY_WAVEFORMS_PLAY,
-                arguments={"program": missing.output},
+                arguments={_PLAY_WAVEFORMS_PROGRAM: missing.output},
             )
             .build()
         )

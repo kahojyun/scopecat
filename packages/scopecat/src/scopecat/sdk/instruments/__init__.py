@@ -99,6 +99,7 @@ if TYPE_CHECKING:
         AcquisitionResultRef,
         ComponentRef,
         InterfaceRef,
+        OperationArgumentRef,
         OperationRef,
         PropertyRef,
     )
@@ -244,6 +245,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "OperationArgumentSpec": (
         "scopecat.sdk.instruments.contracts",
         "OperationArgumentSpec",
+    ),
+    "OperationArgumentRef": (
+        "scopecat.sdk.instruments.members",
+        "OperationArgumentRef",
     ),
     "OperationRef": (
         "scopecat.sdk.instruments.members",

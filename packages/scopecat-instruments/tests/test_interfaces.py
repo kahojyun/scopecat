@@ -10,6 +10,7 @@ from scopecat.sdk.instruments import (
     ComponentSpec,
     InterfaceRef,
     InterfaceSpec,
+    OperationArgumentRef,
     OperationRef,
     PropertyRef,
     acquisition_results,
@@ -72,6 +73,7 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
                 ComponentRef,
                 PropertyRef,
                 OperationRef,
+                OperationArgumentRef,
                 AcquisitionRef,
                 AcquisitionResultRef,
             ),
@@ -89,6 +91,12 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
             continue
         if isinstance(member, OperationRef):
             assert member.operation_id in {item.id for item in component.operations}
+            continue
+        if isinstance(member, OperationArgumentRef):
+            operation = next(
+                item for item in component.operations if item.id == member.operation_id
+            )
+            assert member.argument_id in {item.id for item in operation.arguments}
             continue
         acquisition_id = member.acquisition_id
         acquisition = next(

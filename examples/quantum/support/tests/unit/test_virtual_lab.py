@@ -11,7 +11,10 @@ from scopecat.sdk.instruments import (
     StateValue,
 )
 
-from quantum_lab_demo.interfaces import PLAY_PULSE_PROGRAM
+from quantum_lab_demo.interfaces import (
+    PLAY_PULSE_PROGRAM_PLAY,
+    PLAY_PULSE_PROGRAM_PROGRAM,
+)
 from quantum_lab_demo.virtual_lab.profiles import load_virtual_lab_profile
 from quantum_lab_demo.virtual_lab.provider import (
     QuantumDriveStack,
@@ -62,20 +65,21 @@ def test_drive_program_is_an_invocation_not_persistent_state() -> None:
     )
     before = driver.read_state()
 
-    receipt = driver.invoke(
-        DriverInvokeRequest(
-            interface_id=PLAY_PULSE_PROGRAM,
-            operation_id="play",
-            arguments=(
-                DriverOperationArgument(
-                    id="program",
-                    value=StateValue(PayloadRef(payload_id=payload.id)),
-                ),
-            ),
-            payloads={payload.id: payload},
-        )
+    argument = DriverOperationArgument(
+        id=PLAY_PULSE_PROGRAM_PROGRAM.argument_id,
+        value=StateValue(PayloadRef(payload_id=payload.id)),
     )
+    request = DriverInvokeRequest(
+        interface_id=PLAY_PULSE_PROGRAM_PLAY.interface_id,
+        component_path=PLAY_PULSE_PROGRAM_PLAY.component_path,
+        operation_id=PLAY_PULSE_PROGRAM_PLAY.operation_id,
+        arguments=(argument,),
+        payloads={payload.id: payload},
+    )
+    receipt = driver.invoke(request)
 
+    assert request.target == PLAY_PULSE_PROGRAM_PLAY
+    assert request.argument_target(argument) == PLAY_PULSE_PROGRAM_PROGRAM
     assert receipt.status == "invoked"
     assert receipt.metadata["payload_count"] == 1
     assert driver.read_state() == before

@@ -76,6 +76,7 @@ from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
     InterfaceRef,
+    OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
@@ -316,18 +317,19 @@ class ModuleBuilder:
         *,
         resource: str,
         operation: OperationRef,
-        arguments: Mapping[str, InvocationInput] | None = None,
+        arguments: Mapping[OperationArgumentRef, InvocationInput] | None = None,
     ) -> ModuleBuilder:
         """Append one ordered atomic hardware operation."""
 
         selected_arguments = arguments or {}
-        if any(
-            not argument_id or not _is_public_binding_input(value)
-            for argument_id, value in selected_arguments.items()
-        ):
-            raise TypeError(
-                "module invocation arguments require non-empty ids and scalar values"
+        if any(target.operation != operation for target in selected_arguments):
+            raise ValueError(
+                "module invocation arguments must belong to the selected operation"
             )
+        if any(
+            not _is_public_binding_input(value) for value in selected_arguments.values()
+        ):
+            raise TypeError("module invocation arguments require scalar values")
         return replace(
             self,
             procedure=(
@@ -340,11 +342,11 @@ class ModuleBuilder:
                         component_path=operation.component_path,
                         operation=operation.operation_id,
                         arguments={
-                            argument_id: cast(
+                            target.argument_id: cast(
                                 "InvocationInput",
                                 _capture_binding_literal(value),
                             )
-                            for argument_id, value in selected_arguments.items()
+                            for target, value in selected_arguments.items()
                         },
                     )
                 ),

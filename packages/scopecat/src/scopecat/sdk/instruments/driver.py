@@ -11,6 +11,7 @@ from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
+    OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
@@ -71,6 +72,12 @@ class DriverInvokeRequest(_DriverRequestModel):
             self.component_path,
             self.operation_id,
         )
+
+    def argument_target(
+        self,
+        argument: DriverOperationArgument,
+    ) -> OperationArgumentRef:
+        return self.target.argument(argument.id)
 
 
 class DriverCollectResult(_DriverRequestModel):
