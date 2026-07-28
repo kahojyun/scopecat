@@ -8,6 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import StateValue
+from scopecat.sdk.instruments.members import (
+    AcquisitionRef,
+    AcquisitionResultRef,
+    OperationRef,
+    PropertyRef,
+)
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 
@@ -21,6 +27,14 @@ class DriverPropertyWrite(_DriverRequestModel):
     component_path: tuple[_NonEmptyId, ...] = ()
     property_id: _NonEmptyId
     value: StateValue
+
+    @property
+    def target(self) -> PropertyRef:
+        return PropertyRef(
+            self.interface_id,
+            self.component_path,
+            self.property_id,
+        )
 
 
 class DriverApplyRequest(_DriverRequestModel):
@@ -50,6 +64,14 @@ class DriverInvokeRequest(_DriverRequestModel):
     arguments: tuple[DriverOperationArgument, ...] = ()
     payloads: dict[str, DriverPayload] = Field(default_factory=dict)
 
+    @property
+    def target(self) -> OperationRef:
+        return OperationRef(
+            self.interface_id,
+            self.component_path,
+            self.operation_id,
+        )
+
 
 class DriverCollectResult(_DriverRequestModel):
     request_id: _NonEmptyId
@@ -61,6 +83,17 @@ class DriverCollectRequest(_DriverRequestModel):
     component_path: tuple[_NonEmptyId, ...] = ()
     acquisition_id: _NonEmptyId
     results: tuple[DriverCollectResult, ...] = Field(min_length=1)
+
+    @property
+    def target(self) -> AcquisitionRef:
+        return AcquisitionRef(
+            self.interface_id,
+            self.component_path,
+            self.acquisition_id,
+        )
+
+    def result_target(self, result: DriverCollectResult) -> AcquisitionResultRef:
+        return self.target.result(result.result_id)
 
 
 __all__ = [

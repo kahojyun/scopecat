@@ -94,9 +94,25 @@ if TYPE_CHECKING:
         DriverPayload,
         DriverPropertyWrite,
     )
+    from scopecat.sdk.instruments.members import (
+        AcquisitionRef,
+        AcquisitionResultRef,
+        ComponentRef,
+        InterfaceRef,
+        OperationRef,
+        PropertyRef,
+    )
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "AcquisitionRef": (
+        "scopecat.sdk.instruments.members",
+        "AcquisitionRef",
+    ),
+    "AcquisitionResultRef": (
+        "scopecat.sdk.instruments.members",
+        "AcquisitionResultRef",
+    ),
     "AcquisitionCaseSpec": (
         "scopecat.sdk.instruments.contracts",
         "AcquisitionCaseSpec",
@@ -124,6 +140,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "CommandChannelBinding": (
         "scopecat.records.instrument",
         "CommandChannelBinding",
+    ),
+    "ComponentRef": (
+        "scopecat.sdk.instruments.members",
+        "ComponentRef",
     ),
     "ComponentSpec": ("scopecat.sdk.instruments.contracts", "ComponentSpec"),
     "DiscriminatedStateSpec": (
@@ -175,6 +195,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.records.config",
         "InstrumentConnection",
     ),
+    "InterfaceRef": (
+        "scopecat.sdk.instruments.members",
+        "InterfaceRef",
+    ),
     "InstrumentBackend": (
         "scopecat.sdk.instruments.backend",
         "InstrumentBackend",
@@ -221,7 +245,15 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "OperationArgumentSpec",
     ),
+    "OperationRef": (
+        "scopecat.sdk.instruments.members",
+        "OperationRef",
+    ),
     "OperationSpec": ("scopecat.sdk.instruments.contracts", "OperationSpec"),
+    "PropertyRef": (
+        "scopecat.sdk.instruments.members",
+        "PropertyRef",
+    ),
     "PropertySpec": ("scopecat.sdk.instruments.contracts", "PropertySpec"),
     "StateCaseSpec": ("scopecat.sdk.instruments.contracts", "StateCaseSpec"),
     "StateDiscriminatedAcquisitionSpec": (

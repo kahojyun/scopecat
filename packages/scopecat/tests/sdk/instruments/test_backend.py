@@ -20,6 +20,7 @@ from scopecat.sdk.instruments import (
     InstrumentOperationArgument,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InterfaceRef,
     InvokeCommand,
     lower_driver_apply_request,
     lower_driver_collect_request,
@@ -55,6 +56,10 @@ def test_apply_command_lowers_to_driver_property_writes() -> None:
             }
         ]
     }
+    assert request.assignments[0].target == InterfaceRef("test.dc_source/v1").component(
+        "channel-a"
+    ).property("level")
+    assert "target" not in request.assignments[0].model_dump()
     assert DriverApplyRequest.model_validate_json(request.model_dump_json()) == request
 
 
@@ -100,6 +105,9 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
     assert request.interface_id == "test.pulse_player/v1"
     assert request.component_path == ("channel-a",)
     assert request.operation_id == "play"
+    assert request.target == InterfaceRef("test.pulse_player/v1").component(
+        "channel-a"
+    ).operation("play")
     assert request.arguments == (
         DriverOperationArgument(
             id="program",
@@ -188,6 +196,15 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
             },
         ],
     }
+    acquisition = (
+        InterfaceRef("test.network_sweep/v1").component("trace-a").acquisition("sweep")
+    )
+    assert request.target == acquisition
+    assert request.result_target(request.results[0]) == acquisition.result("frequency")
+    assert request.result_target(request.results[1]) == acquisition.result(
+        "s_parameter"
+    )
+    assert "target" not in request.model_dump()
     restored = DriverCollectRequest.model_validate_json(request.model_dump_json())
 
     assert restored == request
