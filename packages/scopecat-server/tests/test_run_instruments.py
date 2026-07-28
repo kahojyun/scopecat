@@ -15,6 +15,7 @@ from scopecat.daemon.wire import (
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunSubmission,
+    TerminalRunCommitCommand,
 )
 from scopecat.execution.ports.instruments import (
     RunHardwareApply,
@@ -23,7 +24,9 @@ from scopecat.execution.ports.instruments import (
     RunHardwareCollectBinding,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
+from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run_request import RunRequest
@@ -145,15 +148,14 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         run_id, lease_id = _start_run(runtime, load_config())
         instruments = runtime.application.instruments
         provision = instruments.provision_run(run_id, _provision(lease_id))
-        assert provision.provider_id == provider.provider_id
         assert provision.initial_state[0].instrument_id == "source-0"
         [driver] = provider.drivers
 
         command = _batch_command(
             lease_id,
             "batch-1",
-            _apply_action("source-0", operation_id="apply-1"),
-            _collect_action("source-0", operation_id="collect-1"),
+            _apply_action("source-0", effect_id="apply-1"),
+            _collect_action("source-0", effect_id="collect-1"),
         )
         receipt = instruments.execute_run_hardware(run_id, command)
         assert instruments.execute_run_hardware(run_id, command) == receipt
@@ -166,10 +168,62 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         unchanged = _batch_command(
             lease_id,
             "batch-2",
-            _apply_action("source-0", operation_id="apply-2"),
+            _apply_action("source-0", effect_id="apply-2"),
         )
         assert not instruments.execute_run_hardware(run_id, unchanged).problems
         assert len(driver.applied) == 1
+        batch_events = [
+            event
+            for event in runtime.application.runs.list_events(
+                limit=100,
+                after=None,
+                run_id=run_id,
+            ).items
+            if event.kind.startswith("run_hardware_batch_")
+        ]
+        assert [event.kind for event in batch_events] == [
+            "run_hardware_batch_started",
+            "run_hardware_batch_finished",
+            "run_hardware_batch_started",
+            "run_hardware_batch_finished",
+        ]
+        assert batch_events[0].payload["batch"] == command.batch.model_dump(mode="json")
+        assert batch_events[1].payload["completed_effect_ids"] == [
+            "apply-1",
+            "collect-1",
+        ]
+        assert batch_events[1].payload["effect_receipts"] == [
+            {"effect_id": "apply-1", "status": "applied", "metadata": {}},
+            {
+                "effect_id": "collect-1",
+                "status": "collected",
+                "metadata": {},
+                "readback_metadata": {
+                    "implementation": "tests.signal_driver",
+                },
+            },
+        ]
+
+
+def test_provision_rejects_contract_changed_after_admission(tmp_path: Path) -> None:
+    provider = _Provider()
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            contract_fingerprint="0" * 64,
+        )
+
+        receipt = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
+
+        assert receipt.status == "rejected"
+        assert [item.code for item in receipt.problems] == [
+            "instrument_contract_changed_after_admission"
+        ]
+        assert provider.provide_count == 0
 
 
 def test_batch_id_rejects_different_content(tmp_path: Path) -> None:
@@ -181,14 +235,14 @@ def test_batch_id_rejects_different_content(tmp_path: Path) -> None:
         first = _batch_command(
             lease_id,
             "batch-1",
-            _apply_action("source-0", operation_id="apply-1"),
+            _apply_action("source-0", effect_id="apply-1"),
         )
         instruments.execute_run_hardware(run_id, first)
 
         changed = _batch_command(
             lease_id,
             "batch-1",
-            _collect_action("source-0", operation_id="collect-1"),
+            _collect_action("source-0", effect_id="collect-1"),
         )
         with pytest.raises(BackendConflict, match="different operation content"):
             instruments.execute_run_hardware(run_id, changed)
@@ -209,7 +263,7 @@ def test_unknown_driver_action_quarantines_and_discards_run_state(
                 _batch_command(
                     lease_id,
                     "batch-1",
-                    _apply_action("source-0", operation_id="apply-1"),
+                    _apply_action("source-0", effect_id="apply-1"),
                 ),
             )
 
@@ -268,6 +322,34 @@ def test_failed_finish_aborts_and_close_failure_is_unknown(tmp_path: Path) -> No
         _assert_run_state_discarded(instruments, run_id)
 
 
+def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        runtime.application.instruments.provision_run(run_id, _provision(lease_id))
+
+        manifest = runtime.application.executor.commit_terminal(
+            run_id,
+            TerminalRunCommitCommand(
+                lease_id=lease_id,
+                outcome=RunOutcome(
+                    run_id=run_id,
+                    result="succeeded",
+                    certainty="known",
+                ),
+            ),
+        )
+
+        [driver] = provider.drivers
+        assert manifest.outcome is not None
+        assert driver.abort_count == 1
+        assert driver.cleanup_count == 0
+        assert driver.read_count == 2
+        assert driver.close_count == 1
+
+
 def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None:
     provider = _Provider(apply_barrier=Barrier(2))
     config = _two_instrument_config()
@@ -298,7 +380,7 @@ def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None
                         f"batch-{index}",
                         _apply_action(
                             f"source-{index}",
-                            operation_id=f"apply-{index}",
+                            effect_id=f"apply-{index}",
                         ),
                     ),
                 )
@@ -380,7 +462,19 @@ def _start_run(
     *,
     host_instrument_order: tuple[str, ...] = ("source-0",),
     submission_id: str = "run-instruments",
+    contract_fingerprint: str | None = None,
 ) -> tuple[str, str]:
+    admitted_fingerprint = (
+        instrument_contract_fingerprint(
+            _Provider.provider_id,
+            tuple(
+                _Driver(instrument_id).describe()
+                for instrument_id in host_instrument_order
+            ),
+        )
+        if host_instrument_order
+        else None
+    )
     admission = runtime.application.submit_run(
         RunSubmission(
             submission_id=submission_id,
@@ -391,6 +485,12 @@ def _start_run(
                 experiment_kind="scratch",
                 point_count=1,
                 host_instrument_order=host_instrument_order,
+                host_provider_id=(
+                    _Provider.provider_id if host_instrument_order else None
+                ),
+                host_contract_fingerprint=(
+                    contract_fingerprint or admitted_fingerprint
+                ),
                 run_resource_claims=tuple(
                     ResourceKey(kind="instrument", id=instrument_id)
                     for instrument_id in host_instrument_order
@@ -429,10 +529,10 @@ def _batch_command(
 def _apply_action(
     instrument_id: str,
     *,
-    operation_id: str,
+    effect_id: str,
 ) -> RunHardwareApply:
     return RunHardwareApply(
-        operation_id=operation_id,
+        effect_id=effect_id,
         point_index=0,
         instrument_id=instrument_id,
         fields=(
@@ -449,10 +549,10 @@ def _apply_action(
 def _collect_action(
     instrument_id: str,
     *,
-    operation_id: str,
+    effect_id: str,
 ) -> RunHardwareCollect:
     return RunHardwareCollect(
-        operation_id=operation_id,
+        effect_id=effect_id,
         point_index=0,
         instrument_id=instrument_id,
         point_count=1,

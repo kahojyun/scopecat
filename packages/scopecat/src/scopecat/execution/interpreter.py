@@ -54,7 +54,6 @@ from scopecat.runs.repository import (
     RunModelWrite,
     TerminalRunCommit,
 )
-from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
     problem_from_exception,
@@ -288,14 +287,6 @@ def _execute_instrument_effects(
             final_state=(),
         )
 
-    setup_problems.extend(
-        _instrument_binding_problems(
-            program=program,
-            provider_id=instruments.provider_id,
-            descriptions=instruments.descriptions,
-            run_id=session.run_id,
-        )
-    )
     if setup_problems:
         try:
             finished = instruments.finish(
@@ -333,75 +324,6 @@ def _execute_instrument_effects(
         program.coverage,
         points=program.points.points,
     )
-
-
-def _instrument_binding_problems(
-    *,
-    program: RunProgram,
-    provider_id: str | None,
-    descriptions: tuple[InstrumentDescription, ...],
-    run_id: str,
-) -> list[Problem]:
-    actual = {description.instrument_id: description for description in descriptions}
-    host = program.host
-    advertised = {} if host is None else host.advertised_descriptions
-    expected_ids = program.resource_order
-    actual_ids = tuple(actual)
-    problems: list[Problem] = []
-    expected_provider_id = None if host is None else host.provider_id
-    if provider_id != expected_provider_id:
-        problems.append(
-            runtime_problem(
-                "daemon_instrument_provider_changed",
-                "daemon instrument provider differs from the admitted program",
-                run_id=run_id,
-                operation_id="lifecycle.provide-instruments",
-            )
-        )
-    for instrument_id in sorted(set(expected_ids) - set(actual_ids)):
-        problems.append(
-            runtime_problem(
-                "daemon_instrument_missing",
-                f"daemon did not provision instrument {instrument_id}",
-                run_id=run_id,
-                operation_id="lifecycle.provide-instruments",
-                instrument_id=instrument_id,
-            )
-        )
-    for instrument_id in sorted(set(actual_ids) - set(expected_ids)):
-        problems.append(
-            runtime_problem(
-                "daemon_instrument_unexpected",
-                f"daemon provisioned unexpected instrument {instrument_id}",
-                run_id=run_id,
-                operation_id="lifecycle.provide-instruments",
-                instrument_id=instrument_id,
-            )
-        )
-    if set(actual_ids) == set(expected_ids) and actual_ids != expected_ids:
-        problems.append(
-            runtime_problem(
-                "daemon_instrument_order_changed",
-                "daemon instrument order differs from the admitted program",
-                run_id=run_id,
-                operation_id="lifecycle.provide-instruments",
-            )
-        )
-    for instrument_id in sorted(set(advertised) & set(actual)):
-        if advertised[instrument_id] != actual[instrument_id]:
-            problems.append(
-                runtime_problem(
-                    "instrument_description_changed_after_provision",
-                    (
-                        f"instrument {instrument_id} differs from its "
-                        "advertised contract"
-                    ),
-                    run_id=run_id,
-                    operation_id="lifecycle.provide-instruments",
-                    instrument_id=instrument_id,
-                )
-            )
-    return problems
 
 
 def _effect_problems(

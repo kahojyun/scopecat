@@ -54,6 +54,11 @@ class RunPlanSummary(_ControlModel):
     record_ids: tuple[str, ...] = ()
     run_resource_claims: tuple[ResourceKey, ...] = ()
     host_instrument_order: tuple[str, ...] = ()
+    host_provider_id: str | None = Field(default=None, min_length=1)
+    host_contract_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
     @field_validator("coordinate_ids", "record_ids", "host_instrument_order")
     @classmethod
@@ -85,6 +90,11 @@ class RunPlanSummary(_ControlModel):
             raise ValueError(
                 "run plan host_instrument_order must reference instrument claims"
             )
+        has_host = bool(self.host_instrument_order)
+        if has_host != (self.host_provider_id is not None):
+            raise ValueError("host provider identity must match hosted instruments")
+        if has_host != (self.host_contract_fingerprint is not None):
+            raise ValueError("host contract fingerprint must match hosted instruments")
         return self
 
 

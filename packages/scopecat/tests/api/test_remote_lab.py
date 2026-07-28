@@ -656,18 +656,11 @@ def _provisioning_receipt(
     command = RunInstrumentProvisionCommand.model_validate_json(request.content)
     host = program.host
     instrument_ids = () if host is None else host.resource_order
-    descriptions = (
-        ()
-        if host is None
-        else tuple(host.advertised_descriptions[item] for item in instrument_ids)
-    )
     return RunInstrumentProvisionReceipt(
         run_id="run-1",
         operation_id=command.operation_id,
         status="ready",
-        provider_id=None if host is None else host.provider_id,
         instrument_ids=instrument_ids,
-        descriptions=descriptions,
         initial_state=tuple(
             InstrumentStateSnapshot(instrument_id=instrument_id)
             for instrument_id in instrument_ids

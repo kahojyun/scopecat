@@ -920,7 +920,6 @@ def _submission(config: ConfigProfileSnapshot) -> RunSubmission:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
-            host_instrument_order=("source-0",),
             run_resource_claims=(ResourceKey(kind="instrument", id="source-0"),),
         ),
     )

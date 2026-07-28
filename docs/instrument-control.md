@@ -207,6 +207,19 @@ call the provider's pure description contract; it never provisions a live
 driver. Fine-grained read, apply, and collect remain available only through an
 explicit interactive session.
 
+Admission records the expected provider and an ordered instrument-contract
+fingerprint. The daemon verifies both before connecting drivers, so a provider
+or capability change cannot be accepted by client convention alone. Each
+hardware batch has one content-derived retry identity and durable
+started/finished evidence. Individual effects retain semantic ids for
+diagnostics, not independent retry identities.
+
+The daemon's reconciliation cache is an assumed state: it starts from observed
+readback and advances only after confirmed writes, using driver-returned state
+when available. It is not presented as fresh physical observation. Drivers for
+devices whose fields drift independently can later require explicit readback
+without changing the batch boundary.
+
 ## Initial superconducting-lab driver set
 
 The first package deliberately implements narrow, documented subsets:

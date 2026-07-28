@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
-from typing import cast, override
+from typing import override
 
 import scopecat as sc
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
-from scopecat.execution.interpreter import _execute_instrument_effects
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectionResultBinding,
@@ -15,8 +13,7 @@ from scopecat.execution.local.program import (
     OutputInput,
     StateTarget,
 )
-from scopecat.execution.program import RunCoverageCheckpoint, RunHostBinding, RunProgram
-from scopecat.execution.services import ExecutionSession
+from scopecat.execution.program import RunCoverageCheckpoint
 from scopecat.graph.values import (
     ComputeOutput,
     OperationId,
@@ -366,51 +363,6 @@ class _CloseFailureDriver(_FinalizationTrackingDriver):
     def close(self) -> None:
         super().close()
         raise RuntimeError("socket close failed")
-
-
-def test_provider_identity_change_rejects_binding_and_releases_drivers() -> None:
-    driver = _FinalizationTrackingDriver(instrument_id="source-0")
-    description = driver.describe()
-    program = cast(
-        "RunProgram",
-        cast(
-            "object",
-            SimpleNamespace(
-                host=RunHostBinding(
-                    resource_order=("source-0",),
-                    provider_id="expected-provider",
-                    advertised_descriptions={"source-0": description},
-                ),
-                resource_order=("source-0",),
-            ),
-        ),
-    )
-    instruments = TestRunInstrumentHost(
-        (driver,),
-        provider_id="different-provider",
-    )
-    session = cast(
-        "ExecutionSession",
-        cast(
-            "object",
-            SimpleNamespace(
-                run_id="provider-changed-run",
-                instruments=instruments,
-            ),
-        ),
-    )
-
-    result = _execute_instrument_effects(
-        program=program,
-        session=session,
-        coverage_observer=lambda _points, _candidates: None,
-    )
-
-    assert [item.code for item in result.problems] == [
-        "daemon_instrument_provider_changed"
-    ]
-    assert driver.abort_count == 1
-    assert driver.close_count == 1
 
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:

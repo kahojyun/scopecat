@@ -48,9 +48,6 @@ def _admission(
             experiment_kind="scratch",
             point_count=3,
             run_resource_claims=resources,
-            host_instrument_order=tuple(
-                resource.id for resource in resources if resource.kind == "instrument"
-            ),
         ),
         admitted_at=admitted_at,
     )

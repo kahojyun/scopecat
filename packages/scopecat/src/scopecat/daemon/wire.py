@@ -312,9 +312,7 @@ class RunInstrumentProvisionReceipt(_WireModel):
     run_id: NonEmptyText
     operation_id: NonEmptyText
     status: Literal["ready", "rejected"]
-    provider_id: NonEmptyText | None = None
     instrument_ids: tuple[NonEmptyText, ...] = ()
-    descriptions: tuple[InstrumentDescription, ...] = ()
     problems: tuple[Problem, ...] = ()
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
     initial_state: tuple[InstrumentStateSnapshot, ...] = ()
@@ -323,18 +321,7 @@ class RunInstrumentProvisionReceipt(_WireModel):
     def validate_result(self) -> RunInstrumentProvisionReceipt:
         if len(self.instrument_ids) != len(set(self.instrument_ids)):
             raise ValueError("run instrument provisioning ids must be unique")
-        described_ids = tuple(
-            description.instrument_id for description in self.descriptions
-        )
         if self.status == "ready":
-            if bool(self.instrument_ids) != (self.provider_id is not None):
-                raise ValueError(
-                    "ready run instrument provider identity must match its claims"
-                )
-            if described_ids != self.instrument_ids:
-                raise ValueError(
-                    "ready run instrument descriptions must match ids in order"
-                )
             if tuple(state.instrument_id for state in self.initial_state) != (
                 self.instrument_ids
             ):
@@ -347,17 +334,9 @@ class RunInstrumentProvisionReceipt(_WireModel):
                 )
         elif not self.problems:
             raise ValueError("rejected run instrument provisioning requires a problem")
-        elif self.descriptions:
-            raise ValueError(
-                "rejected run instrument provisioning cannot expose descriptions"
-            )
         elif self.initial_state:
             raise ValueError(
                 "rejected run instrument provisioning cannot expose initial state"
-            )
-        elif self.provider_id is not None:
-            raise ValueError(
-                "rejected run instrument provisioning cannot expose a provider"
             )
         return self
 

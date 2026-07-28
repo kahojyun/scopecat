@@ -47,7 +47,9 @@ class HardwareEffectExecutor:
         )
         batch = RunHardwareBatch(
             operation_id="hardware."
-            + stable_content_hash([action.operation_id for action in actions]),
+            + stable_content_hash(
+                [action.model_dump(mode="json") for action in actions]
+            ),
             actions=actions,
         )
         try:
@@ -126,7 +128,7 @@ def _action(
             if isinstance((value := field.value.root), PayloadRef)
         }
         return RunHardwareApply(
-            operation_id=operation.operation_id,
+            effect_id=operation.operation_id,
             point_index=effect.point_index,
             instrument_id=operation.instrument_id,
             fields=fields,
@@ -139,7 +141,7 @@ def _action(
     if isinstance(operation, CollectOperation):
         command = operation.command
         return RunHardwareCollect(
-            operation_id=operation.operation_id,
+            effect_id=operation.operation_id,
             point_index=effect.point_index,
             instrument_id=operation.instrument_id,
             point_count=command.point_count,

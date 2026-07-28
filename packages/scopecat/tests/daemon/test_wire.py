@@ -214,6 +214,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             coordinate_ids=("bias",),
             record_ids=("signal",),
             host_instrument_order=("scope-1",),
+            host_provider_id="tests.provider",
+            host_contract_fingerprint="0" * 64,
             run_resource_claims=(
                 ResourceKey(id="scope-1"),
                 ResourceKey(id="controller-1", kind="target"),
@@ -306,7 +308,7 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
         operation_id="hardware.batch-1",
         actions=(
             RunHardwareApply(
-                operation_id="point-0.apply.source-0",
+                effect_id="point-0.apply.source-0",
                 point_index=0,
                 instrument_id="source-0",
                 fields=(),
@@ -338,7 +340,7 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
     assert (
         RunHardwareFinishCommand.model_validate_json(finish.model_dump_json()) == finish
     )
-    with pytest.raises(ValidationError, match="action ids must be unique"):
+    with pytest.raises(ValidationError, match="effect ids must be unique"):
         RunHardwareBatch(
             operation_id="hardware.duplicate",
             actions=(batch.actions[0], batch.actions[0]),

@@ -19,7 +19,6 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
-    InstrumentDescription,
     InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
@@ -39,29 +38,18 @@ class TestRunInstrumentHost:
         self,
         drivers: Iterable[InstrumentDriver] = (),
         *,
-        provider_id: str | None = None,
         ready: bool = True,
         setup_problems: tuple[Problem, ...] = (),
     ) -> None:
         selected = tuple(drivers)
         self._drivers = {driver.instrument_id: driver for driver in selected}
-        self._descriptions = tuple(driver.describe() for driver in selected)
-        self._provider_id = provider_id
         self._ready = ready
         self._setup_problems = setup_problems
         self._initial_state = tuple(driver.read_state() for driver in selected)
-        self._current_states = {
+        self._assumed_states = {
             state.instrument_id: state for state in self._initial_state
         }
         self._finished: RunHardwareFinalizationReceipt | None = None
-
-    @property
-    def provider_id(self) -> str | None:
-        return self._provider_id
-
-    @property
-    def descriptions(self) -> tuple[InstrumentDescription, ...]:
-        return self._descriptions
 
     @property
     def ready(self) -> bool:
@@ -82,7 +70,7 @@ class TestRunInstrumentHost:
         for action in batch.actions:
             driver = self._drivers[action.instrument_id]
             if isinstance(action, RunHardwareApply):
-                current = self._current_states[action.instrument_id]
+                current = self._assumed_states[action.instrument_id]
                 fields = [
                     field
                     for field in action.fields
@@ -91,7 +79,7 @@ class TestRunInstrumentHost:
                 if not fields:
                     continue
                 command = InstrumentStateCommand(
-                    operation_id=action.operation_id,
+                    operation_id=action.effect_id,
                     instrument_id=action.instrument_id,
                     fields=fields,
                     payloads=action.payloads,
@@ -101,14 +89,14 @@ class TestRunInstrumentHost:
                 if receipt.status != "applied":
                     indeterminate = receipt.status == "unknown"
                     break
-                self._current_states[action.instrument_id] = (
+                self._assumed_states[action.instrument_id] = (
                     receipt.state or apply_state_command_to_snapshot(current, command)
                 )
                 continue
             assert isinstance(action, RunHardwareCollect)
             receipt = driver.collect(
                 CollectCommand(
-                    operation_id=action.operation_id,
+                    operation_id=action.effect_id,
                     instrument_id=action.instrument_id,
                     point_index=action.point_index,
                     point_count=action.point_count,
@@ -210,14 +198,10 @@ def provision_test_instrument_host(
         for driver in reversed(result.drivers):
             driver.close()
         return TestRunInstrumentHost(
-            provider_id=provider.provider_id,
             ready=False,
             setup_problems=result.problems,
         )
-    return TestRunInstrumentHost(
-        result.drivers,
-        provider_id=provider.provider_id,
-    )
+    return TestRunInstrumentHost(result.drivers)
 
 
 __all__ = ["TestRunInstrumentHost", "provision_test_instrument_host"]

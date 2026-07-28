@@ -42,7 +42,6 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
 _PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
@@ -236,14 +235,6 @@ class _DaemonRunInstrumentHost:
         self._authority = authority
         self._provisioning: RunInstrumentProvisionReceipt | None = None
         self._lock = Lock()
-
-    @property
-    def provider_id(self) -> str | None:
-        return self._receipt().provider_id
-
-    @property
-    def descriptions(self) -> tuple[InstrumentDescription, ...]:
-        return self._receipt().descriptions
 
     @property
     def ready(self) -> bool:

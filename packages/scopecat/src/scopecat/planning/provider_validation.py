@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
@@ -19,6 +20,22 @@ from scopecat.sdk.instruments.contracts import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def instrument_contract_fingerprint(
+    provider_id: str,
+    descriptions: tuple[InstrumentDescription, ...],
+) -> str:
+    """Identify the ordered daemon-hosted contract admitted for a run."""
+
+    return stable_content_hash(
+        {
+            "provider_id": provider_id,
+            "instruments": [
+                description.model_dump(mode="json") for description in descriptions
+            ],
+        }
+    )
 
 
 def validate_instruments(
@@ -194,6 +211,7 @@ def _preflight_problem(
 
 __all__ = [
     "describe_instruments",
+    "instrument_contract_fingerprint",
     "preflight_problem_from_exception",
     "validate_instruments",
 ]

@@ -12,7 +12,6 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments.contracts import (
     CollectProductRequest,
-    InstrumentDescription,
     InstrumentStateCommandField,
 )
 
@@ -23,7 +22,7 @@ class _HardwareModel(BaseModel):
 
 class RunHardwareApply(_HardwareModel):
     kind: Literal["apply"] = "apply"
-    operation_id: str = Field(min_length=1)
+    effect_id: str = Field(min_length=1)
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
     fields: tuple[InstrumentStateCommandField, ...]
@@ -37,7 +36,7 @@ class RunHardwareCollectBinding(_HardwareModel):
 
 class RunHardwareCollect(_HardwareModel):
     kind: Literal["collect"] = "collect"
-    operation_id: str = Field(min_length=1)
+    effect_id: str = Field(min_length=1)
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
     point_count: int = Field(ge=1)
@@ -64,10 +63,10 @@ class RunHardwareBatch(_HardwareModel):
     actions: tuple[RunHardwareAction, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_operation_ids(self) -> RunHardwareBatch:
-        operation_ids = [action.operation_id for action in self.actions]
-        if len(operation_ids) != len(set(operation_ids)):
-            raise ValueError("hardware batch action ids must be unique")
+    def validate_effect_ids(self) -> RunHardwareBatch:
+        effect_ids = [action.effect_id for action in self.actions]
+        if len(effect_ids) != len(set(effect_ids)):
+            raise ValueError("hardware batch effect ids must be unique")
         return self
 
 
@@ -93,12 +92,6 @@ class RunHardwareFinalizationReceipt(_HardwareModel):
 
 class RunInstrumentHost(Protocol):
     """Submit concrete hardware work without exposing daemon-owned drivers."""
-
-    @property
-    def provider_id(self) -> str | None: ...
-
-    @property
-    def descriptions(self) -> tuple[InstrumentDescription, ...]: ...
 
     @property
     def ready(self) -> bool: ...

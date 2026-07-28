@@ -24,6 +24,7 @@ from scopecat.daemon.wire import (
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
+from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.planning.service import PlannedRun, plan_scratch_experiment
 from scopecat.planning.system import (
     ExperimentSystemBuilder,
@@ -227,6 +228,15 @@ class _LeaseHeartbeat(LeaseSupervisor):
 
 def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     program = planned.program
+    host = program.host
+    descriptions = (
+        ()
+        if host is None
+        else tuple(
+            host.advertised_descriptions[instrument_id]
+            for instrument_id in host.resource_order
+        )
+    )
     return RunPlanSummary(
         experiment_id=program.experiment_id,
         experiment_kind=program.points.experiment_kind,
@@ -234,6 +244,12 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
         coordinate_ids=program.measurements.coordinate_ids,
         record_ids=tuple(record.id for record in program.measurements.records),
         host_instrument_order=program.resource_order,
+        host_provider_id=None if host is None else host.provider_id,
+        host_contract_fingerprint=(
+            None
+            if host is None
+            else instrument_contract_fingerprint(host.provider_id, descriptions)
+        ),
         run_resource_claims=tuple(
             ResourceKey(id=claim.id, kind=claim.kind)
             for claim in program.resource_claims

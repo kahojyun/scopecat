@@ -151,7 +151,6 @@ def _submission(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
-            host_instrument_order=("scope-1",),
             run_resource_claims=(ResourceKey(id="scope-1", kind="instrument"),),
         ),
     )
