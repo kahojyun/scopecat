@@ -51,6 +51,7 @@ from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.instrument_host import TestRunInstrumentHost
 from tests.testkit.local_materialization import LocalEffectInspection
 from tests.testkit.materialized_effects import config_with_physical_resources
+from tests.testkit.payload_codecs import json_payload_codecs
 from tests.testkit.run_operations import complete_coverage_operations
 from tests.testkit.runtime import FakeExecutionJournal
 
@@ -174,10 +175,14 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         kind="characterization",
     )(lambda: sc.experiment(parent()))
     driver = SignalInstrumentDriver()
+    payload_codecs = json_payload_codecs("pulse_program")
     lab = in_process_lab(
         tmp_path,
         config=config_with_physical_resources({"source-0": ("play_program",)}),
-        system=sc.ExperimentSystem(provider=_SingleDriverProvider(driver)),
+        system=sc.ExperimentSystem(
+            provider=_SingleDriverProvider(driver),
+            payload_codecs=payload_codecs,
+        ),
     )
 
     run = lab.prepare(template).run()
@@ -189,7 +194,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     payload_ref = applied.fields[0].value.root
     assert isinstance(payload_ref, PayloadRef)
     command_payload = applied.payloads[payload_ref.payload_id]
-    assert command_payload.payload == {"consumed": {"source": "parent"}}
+    assert payload_codecs.decode(command_payload) == {"consumed": {"source": "parent"}}
     assert command_payload.content_hash
 
 

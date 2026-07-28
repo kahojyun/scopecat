@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import TracebackType
 from typing import Self
 from urllib.parse import quote
@@ -51,6 +52,7 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
     MeasurementSealCommand,
+    PayloadObjectReceipt,
     RunAdmission,
     RunAttachmentCommand,
     RunHardwareBatchCommand,
@@ -61,10 +63,17 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.execution.ports.instruments import (
+    RunHardwareApply,
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.kernel.content_identity import sha256_content_hash
+from scopecat.records.artifact import (
+    BlobPayloadBody,
+    CommandPayload,
+    InlinePayloadBody,
+    RunContentEntry,
+)
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
@@ -241,6 +250,7 @@ class DaemonClient:
         instrument_id: str,
         command: InstrumentStateCommand,
     ) -> ApplyReceipt:
+        command = self._externalize_state_command(session_id, command)
         return self._post_idempotent_model(
             self._instrument_session_path(
                 session_id,
@@ -555,6 +565,11 @@ class DaemonClient:
         run_id: str,
         command: RunHardwareBatchCommand,
     ) -> RunHardwareBatchReceipt:
+        command = self._externalize_hardware_command(
+            run_id,
+            command.lease_id,
+            command,
+        )
         return self._post_idempotent_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/execute",
             command,
@@ -626,6 +641,132 @@ class DaemonClient:
         response = self._request("GET", path, params=params)
         return model.model_validate_json(response.content)
 
+    def _externalize_state_command(
+        self,
+        session_id: str,
+        command: InstrumentStateCommand,
+    ) -> InstrumentStateCommand:
+        return command.model_copy(
+            update={
+                "payloads": self._externalize_payloads(
+                    command.payloads,
+                    upload_object=lambda content, content_hash: (
+                        self._put_session_payload_object(
+                            session_id,
+                            content,
+                            content_hash=content_hash,
+                        )
+                    ),
+                )
+            }
+        )
+
+    def _externalize_hardware_command(
+        self,
+        run_id: str,
+        lease_id: str,
+        command: RunHardwareBatchCommand,
+    ) -> RunHardwareBatchCommand:
+        uploaded: dict[str, PayloadObjectReceipt] = {}
+        actions = tuple(
+            action.model_copy(
+                update={
+                    "payloads": self._externalize_payloads(
+                        action.payloads,
+                        upload_object=lambda content, content_hash: (
+                            self._put_run_payload_object(
+                                run_id,
+                                lease_id,
+                                content,
+                                content_hash=content_hash,
+                            )
+                        ),
+                        uploaded=uploaded,
+                    )
+                }
+            )
+            if isinstance(action, RunHardwareApply)
+            else action
+            for action in command.batch.actions
+        )
+        return command.model_copy(
+            update={"batch": command.batch.model_copy(update={"actions": actions})}
+        )
+
+    def _externalize_payloads(
+        self,
+        payloads: dict[str, CommandPayload],
+        *,
+        upload_object: Callable[[bytes, str], PayloadObjectReceipt],
+        uploaded: dict[str, PayloadObjectReceipt] | None = None,
+    ) -> dict[str, CommandPayload]:
+        externalized: dict[str, CommandPayload] = {}
+        uploaded_by_hash = uploaded if uploaded is not None else {}
+        for payload_id, payload in payloads.items():
+            if not isinstance(payload.body, InlinePayloadBody):
+                externalized[payload_id] = payload
+                continue
+            receipt = uploaded_by_hash.get(payload.content_hash)
+            if receipt is None:
+                content = payload.inline_bytes()
+                receipt = upload_object(content, payload.content_hash)
+                uploaded_by_hash[payload.content_hash] = receipt
+            externalized[payload_id] = payload.model_copy(
+                update={"body": BlobPayloadBody(ref=receipt.ref)}
+            )
+        return externalized
+
+    def _put_session_payload_object(
+        self,
+        session_id: str,
+        content: bytes,
+        *,
+        content_hash: str,
+    ) -> PayloadObjectReceipt:
+        return self._put_payload_object(
+            (
+                f"{_API_PREFIX}/instrument-sessions/"
+                f"{quote(session_id, safe='')}/payload-objects"
+            ),
+            content,
+            content_hash=content_hash,
+        )
+
+    def _put_run_payload_object(
+        self,
+        run_id: str,
+        lease_id: str,
+        content: bytes,
+        *,
+        content_hash: str,
+    ) -> PayloadObjectReceipt:
+        return self._put_payload_object(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/payload-objects",
+            content,
+            content_hash=content_hash,
+            headers={"X-Scopecat-Lease-ID": lease_id},
+        )
+
+    def _put_payload_object(
+        self,
+        scope_path: str,
+        content: bytes,
+        *,
+        content_hash: str,
+        headers: dict[str, str] | None = None,
+    ) -> PayloadObjectReceipt:
+        """Publish one immutable payload through an authorized scope."""
+
+        actual_hash = sha256_content_hash(content)
+        if content_hash != actual_hash:
+            raise ValueError("payload content does not match content_hash")
+        path = f"{scope_path}/{actual_hash.removeprefix('sha256:')}"
+        response = self._put_payload_content(path, content, headers=headers)
+        receipt = PayloadObjectReceipt.model_validate_json(response.content)
+        if receipt.content_hash != content_hash or receipt.size_bytes != len(content):
+            raise ValueError("daemon payload object receipt does not match upload")
+        return receipt
+
     @staticmethod
     def _instrument_session_path(
         session_id: str,
@@ -663,6 +804,34 @@ class DaemonClient:
         except httpx2.TransportError:
             return self._post_model(path, body, model)
 
+    def _put_payload_content(
+        self,
+        path: str,
+        content: bytes,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> httpx2.Response:
+        """Retry one transport failure against an immutable content PUT."""
+
+        request_headers = {
+            "Content-Type": "application/octet-stream",
+            **(headers or {}),
+        }
+        try:
+            return self._request(
+                "PUT",
+                path,
+                content=content,
+                headers=request_headers,
+            )
+        except httpx2.TransportError:
+            return self._request(
+                "PUT",
+                path,
+                content=content,
+                headers=request_headers,
+            )
+
     def _post_empty_idempotent_model[ModelT: BaseModel](
         self,
         path: str,
@@ -683,8 +852,17 @@ class DaemonClient:
         *,
         params: dict[str, str | int] | None = None,
         json: object | None = None,
+        content: bytes | None = None,
+        headers: dict[str, str] | None = None,
     ) -> httpx2.Response:
-        response = self._http.request(method, path, params=params, json=json)
+        response = self._http.request(
+            method,
+            path,
+            params=params,
+            json=json,
+            content=content,
+            headers=headers,
+        )
         if response.status_code == 404:
             raise DaemonNotFoundError(_error_detail(response), response=response)
         if response.status_code == 409:

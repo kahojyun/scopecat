@@ -18,6 +18,7 @@ from .config_service import ConfigService
 from .executor_service import ExecutorService
 from .instrument_service import InstrumentService
 from .lease_supervisor import ExecutorLeaseSupervisor
+from .payload_service import CommandPayloadService
 from .run_service import RunService
 
 
@@ -35,6 +36,7 @@ class DaemonApplication:
         admission: AdmissionService,
         executor: ExecutorService,
         instruments: InstrumentService,
+        payloads: CommandPayloadService,
         lease_supervisor: ExecutorLeaseSupervisor,
     ) -> None:
         self.project_root = Path(project_root).resolve()
@@ -45,6 +47,7 @@ class DaemonApplication:
         self._admission = admission
         self.executor = executor
         self.instruments = instruments
+        self.payloads = payloads
         self._lease_supervisor = lease_supervisor
 
     def start(self) -> None:

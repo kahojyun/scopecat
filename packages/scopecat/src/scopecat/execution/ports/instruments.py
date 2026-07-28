@@ -13,6 +13,7 @@ from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments.contracts import (
     CollectProductRequest,
     InstrumentStateCommandField,
+    validate_payload_bindings,
 )
 
 
@@ -27,6 +28,15 @@ class RunHardwareApply(_HardwareModel):
     instrument_id: str = Field(min_length=1)
     fields: tuple[InstrumentStateCommandField, ...]
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_payloads(self) -> RunHardwareApply:
+        validate_payload_bindings(
+            fields=self.fields,
+            payloads=self.payloads,
+            label="hardware apply",
+        )
+        return self
 
 
 class RunHardwareCollectBinding(_HardwareModel):

@@ -12,7 +12,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.artifact import CommandPayload
+from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.instrument import (
     CommandChannelBinding as RecordCommandChannelBinding,
 )
@@ -53,6 +53,7 @@ from scopecat.sdk.instruments import (
     validate_collect_command,
     validate_collect_receipt,
     validate_state_command,
+    validate_state_fields,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import (
@@ -415,10 +416,13 @@ def test_instrument_driver_validator_applies_scalar_constraints() -> None:
 
 
 def test_instrument_driver_validator_checks_payload_references_and_schemas() -> None:
-    payload = CommandPayload(
+    payload = command_payload_from_bytes(
         id="program-a",
         schema_id="pulse_program",
-        payload={"samples": [0.0]},
+        codec_id="tests.canonical-json",
+        codec_version=1,
+        media_type="application/json",
+        content=b'{"samples":[0.0]}',
     )
     description = InstrumentDescription(
         instrument_id="source-0",
@@ -447,44 +451,40 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
         value=payload_state(payload.id),
         payloads={payload.id: payload},
     )
-    durable_payload = CommandPayload(
-        id=payload.id,
-        schema_id=payload.schema_id,
-        content_hash="sha256:test-program",
-    )
-    durable_command = command_with_payload.model_copy(
-        update={"payloads": {durable_payload.id: durable_payload}}
-    )
-    command_wire = durable_command.model_dump(mode="json")
+    command_wire = command_with_payload.model_dump(mode="json")
 
     assert command_wire["payloads"][payload.id]["schema_id"] == "pulse_program"
-    assert "kind" not in command_wire["payloads"][payload.id]
+    assert command_wire["payloads"][payload.id]["codec_id"] == "tests.canonical-json"
+    assert command_wire["payloads"][payload.id]["body"]["kind"] == "inline"
     assert (
-        InstrumentStateCommand.model_validate_json(durable_command.model_dump_json())
-        == durable_command
+        InstrumentStateCommand.model_validate_json(
+            command_with_payload.model_dump_json()
+        )
+        == command_with_payload
     )
 
-    valid = validate_state_command(
-        command=_state_command(
-            capability_id="play_program",
-            field_path="program",
-            value=payload_state(payload.id),
-        ),
+    valid = validate_state_fields(
+        instrument_id="source-0",
+        fields=command_with_payload.fields,
         description=description,
-        payloads={payload.id: payload},
+        payload_schemas={payload.id: payload.schema_id},
     )
     command_payload = validate_state_command(
         command=command_with_payload,
         description=description,
     )
-    missing = validate_state_command(
-        command=_state_command(
-            capability_id="play_program",
-            field_path="program",
-            value=payload_state("missing-program"),
-        ),
+    missing = validate_state_fields(
+        instrument_id="source-0",
+        fields=[
+            InstrumentStateCommandField(
+                resource_id="source-0",
+                capability_id="play_program",
+                field_path="program",
+                value=payload_state("missing-program"),
+            )
+        ],
         description=description,
-        payloads={payload.id: payload},
+        payload_schemas={payload.id: payload.schema_id},
     )
     not_a_reference = validate_state_command(
         command=_state_command(
@@ -493,16 +493,12 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
             value=StateValue("program-a"),
         ),
         description=description,
-        payloads={payload.id: payload},
     )
-    wrong_schema = validate_state_command(
-        command=_state_command(
-            capability_id="play_program",
-            field_path="program",
-            value=payload_state(payload.id),
-        ),
+    wrong_schema = validate_state_fields(
+        instrument_id="source-0",
+        fields=command_with_payload.fields,
         description=wrong_schema_description,
-        payloads={payload.id: payload},
+        payload_schemas={payload.id: payload.schema_id},
     )
 
     assert valid == []

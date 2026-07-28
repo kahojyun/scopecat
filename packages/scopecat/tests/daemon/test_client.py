@@ -20,13 +20,25 @@ from scopecat.daemon.views import RunSummary, RunSummaryPage
 from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
+    PayloadObjectReceipt,
     RunAdmission,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
+from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.records.artifact import (
+    BlobPayloadBody,
+    InlinePayloadBody,
+    command_payload_from_bytes,
+)
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.contracts import (
+    ApplyReceipt,
+    InstrumentStateCommand,
+    InstrumentStateCommandField,
+)
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -109,6 +121,120 @@ def test_run_instrument_provision_retries_the_same_operation_after_response_loss
         RunInstrumentProvisionCommand.model_validate_json(request.content)
         for request in requests
     ] == [command, command]
+
+
+def test_apply_externalizes_inline_payload_before_command_post() -> None:
+    requests: list[httpx2.Request] = []
+    content = b"opaque-program"
+    payload = command_payload_from_bytes(
+        id="program-1",
+        schema_id="pulse_program",
+        codec_id="tests.raw",
+        codec_version=1,
+        media_type="application/octet-stream",
+        content=content,
+    )
+    command = InstrumentStateCommand(
+        operation_id="apply-payload-1",
+        instrument_id="source-0",
+        fields=[
+            InstrumentStateCommandField(
+                resource_id="source-0",
+                capability_id="play_program",
+                field_path="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            )
+        ],
+        payloads={payload.id: payload},
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "PUT":
+            return _model(
+                PayloadObjectReceipt(
+                    ref=payload.content_hash,
+                    content_hash=payload.content_hash,
+                    size_bytes=len(content),
+                ),
+                status_code=201,
+            )
+        return _model(ApplyReceipt(status="applied"))
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert (
+        client.apply_instrument_state("session-1", "source-0", command).status
+        == "applied"
+    )
+    assert [request.method for request in requests] == ["PUT", "POST"]
+    assert requests[0].url.path == (
+        "/api/v1/instrument-sessions/session-1/payload-objects/"
+        f"{payload.content_hash.removeprefix('sha256:')}"
+    )
+    assert requests[0].content == content
+    posted = InstrumentStateCommand.model_validate_json(requests[1].content)
+    posted_payload = posted.payloads[payload.id]
+    assert isinstance(payload.body, InlinePayloadBody)
+    assert isinstance(posted_payload.body, BlobPayloadBody)
+    assert posted_payload.body.ref == payload.content_hash
+
+
+def test_payload_object_put_retries_once_after_transport_failure() -> None:
+    requests: list[httpx2.Request] = []
+    content = b"retry-payload"
+    payload = command_payload_from_bytes(
+        id="retry-program",
+        schema_id="pulse_program",
+        codec_id="tests.raw",
+        codec_version=1,
+        media_type="application/octet-stream",
+        content=content,
+    )
+    command = InstrumentStateCommand(
+        operation_id="retry-apply",
+        instrument_id="source-0",
+        fields=[
+            InstrumentStateCommandField(
+                resource_id="source-0",
+                capability_id="play_program",
+                field_path="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            )
+        ],
+        payloads={payload.id: payload},
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx2.ReadError("response was lost", request=request)
+        if request.method == "PUT":
+            return _model(
+                PayloadObjectReceipt(
+                    ref=payload.content_hash,
+                    content_hash=payload.content_hash,
+                    size_bytes=len(content),
+                ),
+                status_code=201,
+            )
+        return _model(ApplyReceipt(status="applied"))
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert (
+        client.apply_instrument_state("session-1", "source-0", command).status
+        == "applied"
+    )
+    assert [request.method for request in requests] == ["PUT", "PUT", "POST"]
+    assert requests[0].url == requests[1].url
+    assert requests[0].content == requests[1].content == content
 
 
 def test_not_found_and_conflict_are_typed_and_other_http_errors_raise() -> None:

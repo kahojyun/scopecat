@@ -27,6 +27,7 @@ from scopecat.kernel.problems import ProblemPhase
 from scopecat.measurements.points import RunPoint
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 
 
 class _CapturedDomainEffectFailure(Exception):
@@ -53,6 +54,7 @@ class RunEffectInterpreter:
         instruments: RunInstrumentHost,
         journal: ExecutionJournal,
         coverage_observer: effect_result.CoverageMeasurementObserver | None = None,
+        payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
     ) -> None:
         self.run_id = run_id
         self.point_ledger = AdmittedPointLedger(
@@ -69,7 +71,10 @@ class RunEffectInterpreter:
         self._terminal_point_indices: set[int] = set()
 
         self._journal = JournaledEffectBoundary(run_id=run_id, journal=journal)
-        self._compute = ComputeEffectExecutor(journal=self._journal)
+        self._compute = ComputeEffectExecutor(
+            journal=self._journal,
+            payload_codecs=payload_codecs,
+        )
         self._hardware = HardwareEffectExecutor(
             instruments=instruments,
             problems=self._journal,

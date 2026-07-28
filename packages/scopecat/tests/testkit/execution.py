@@ -22,6 +22,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderDescription,
     InstrumentProviderResult,
 )
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 from tests.testkit.instrument_host import provision_test_instrument_host
 from tests.testkit.runtime import (
     admit_test_run,
@@ -63,6 +64,7 @@ def execute_bound_run(
     experiment: CoreProgram,
     instruments: Sequence[InstrumentDriver],
     project_root: str | Path,
+    payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
 ) -> RunManifest:
     """Bind a typed test program, then exercise the production executor boundary."""
 
@@ -72,6 +74,7 @@ def execute_bound_run(
         experiment=experiment,
         instrument_provider=provider,
         project_root=project_root,
+        payload_codecs=payload_codecs,
     )
 
 
@@ -127,12 +130,16 @@ def execute_program_run(
     project_root: str | Path,
     request: RunRequest | None = None,
     config_source: RunConfigSource | None = None,
+    payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
 ) -> RunManifest:
     """Execute a typed test program through the unified production boundary."""
 
     environment = build_config_environment(config)
     linked = link_program(experiment, environment)
-    program = ExperimentSystem(provider=instrument_provider).compile(linked)
+    program = ExperimentSystem(
+        provider=instrument_provider,
+        payload_codecs=payload_codecs,
+    ).compile(linked)
     repository = sqlite_run_repository(project_root)
     accepted = admit_test_run(
         config=config,

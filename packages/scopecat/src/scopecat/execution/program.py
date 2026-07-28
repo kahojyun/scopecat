@@ -14,6 +14,7 @@ from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
 )
+from scopecat.sdk.payloads import PayloadCodecRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,11 @@ class RunHostBinding:
     resource_order: tuple[str, ...]
     provider_id: str
     advertised_descriptions: dict[str, InstrumentDescription] = field(repr=False)
+    payload_codecs: PayloadCodecRegistry = field(
+        default_factory=PayloadCodecRegistry,
+        repr=False,
+        compare=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)

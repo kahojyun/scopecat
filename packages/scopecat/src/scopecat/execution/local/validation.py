@@ -17,16 +17,13 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.units import compatible_units
 from scopecat.records.artifact import CommandPayload
 from scopecat.sdk.instruments.contracts import (
     CollectProductRequest,
     InstrumentDescription,
-    InstrumentStateCommand,
-    InstrumentStateCommandField,
     ProductDescription,
-    validate_state_command,
+    validate_state_fields,
 )
 
 
@@ -64,7 +61,11 @@ def validate_local_effect_block_instruments(
                     "description",
                 )
             )
-    payloads = {**available_payloads, **_payload_stubs(tuple(operations))}
+    payload_schemas = {
+        payload_id: payload.schema_id
+        for payload_id, payload in available_payloads.items()
+    }
+    payload_schemas.update(_payload_schemas(tuple(operations)))
     for operation in operations:
         if isinstance(operation, ApplyStateOperation):
             description = descriptions.get(operation.instrument_id)
@@ -75,15 +76,11 @@ def validate_local_effect_block_instruments(
                 for target in operation.targets
             ]
             problems.extend(
-                validate_state_command(
-                    command=InstrumentStateCommand(
-                        operation_id=operation.operation_id,
-                        instrument_id=operation.instrument_id,
-                        fields=fields,
-                        payloads=_referenced_payloads(fields, payloads),
-                    ),
+                validate_state_fields(
+                    instrument_id=operation.instrument_id,
+                    fields=fields,
                     description=description,
-                    payloads=payloads,
+                    payload_schemas=payload_schemas,
                 )
             )
         elif isinstance(operation, CollectOperation):
@@ -121,38 +118,18 @@ def validate_local_effect_block_instruments(
     return problems
 
 
-def _payload_stubs(
+def _payload_schemas(
     operations: tuple[LocalOperation, ...],
-) -> dict[str, CommandPayload]:
-    payloads: dict[str, CommandPayload] = {}
+) -> dict[str, str]:
+    schemas: dict[str, str] = {}
     for operation in operations:
         if not isinstance(operation, ComputeOperation):
             continue
         if operation.payload_slot is None:
             continue
         slot = operation.payload_slot
-        payloads[slot.id] = CommandPayload(
-            id=slot.id,
-            schema_id=slot.schema_id,
-            operation_id=operation.operation_id,
-            payload=object(),
-        )
-    return payloads
-
-
-def _referenced_payloads(
-    fields: Sequence[InstrumentStateCommandField],
-    payloads: Mapping[str, CommandPayload],
-) -> dict[str, CommandPayload]:
-    selected: dict[str, CommandPayload] = {}
-    for field in fields:
-        value = field.value.root
-        if not isinstance(value, PayloadRef):
-            continue
-        payload = payloads.get(value.payload_id)
-        if payload is not None:
-            selected[payload.id] = payload
-    return selected
+        schemas[slot.id] = slot.schema_id
+    return schemas
 
 
 def _matching_product(

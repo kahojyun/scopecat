@@ -54,6 +54,7 @@ from scopecat.runs.repository import (
     RunModelWrite,
     TerminalRunCommit,
 )
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
     problem_from_exception,
@@ -319,6 +320,11 @@ def _execute_instrument_effects(
         instruments=instruments,
         journal=session.journal,
         coverage_observer=coverage_observer,
+        payload_codecs=(
+            EMPTY_PAYLOAD_CODECS
+            if program.host is None
+            else program.host.payload_codecs
+        ),
     )
     return engine.run(
         program.coverage,

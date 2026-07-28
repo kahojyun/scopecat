@@ -47,12 +47,14 @@ from scopecat.kernel.problems import (
     RuntimeLocation,
     problem,
 )
+from scopecat.kernel.state import PayloadRef
 from scopecat.planning.provider_validation import (
     describe_instruments,
     instrument_contract_fingerprint,
     validate_instruments,
 )
-from scopecat.planning.system import ExperimentSystemBuilder
+from scopecat.planning.system import ExperimentSystem, ExperimentSystemBuilder
+from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentSpec,
@@ -74,9 +76,11 @@ from scopecat.sdk.instruments.contracts import (
     validate_collect_receipt,
     validate_state_command,
 )
+from scopecat.sdk.payloads import PayloadCodecRegistry
 
 from .config_service import ConfigService
 from .errors import BackendConflict, BackendNotFound
+from .payload_service import CommandPayloadService
 
 _FINISHED_RUN_CACHE_LIMIT = 256
 
@@ -98,6 +102,7 @@ class _OperationLedger:
 class _LiveDrivers:
     drivers: dict[str, InstrumentDriver]
     descriptions: dict[str, InstrumentDescription]
+    payload_codecs: PayloadCodecRegistry
     ledger: _OperationLedger = field(default_factory=_OperationLedger)
     assumed_states: dict[str, InstrumentStateSnapshot] = field(default_factory=dict)
     lock: RLock = field(default_factory=RLock)
@@ -144,11 +149,13 @@ class InstrumentService:
         runs: SQLiteRunRepository,
         config: ConfigService,
         build_system: ExperimentSystemBuilder | None,
+        payloads: CommandPayloadService,
     ) -> None:
         self._control = control
         self._runs = runs
         self._config = config
         self._build_system = build_system
+        self._payloads = payloads
         self._sessions: dict[str, _LiveDrivers] = {}
         self._finished_runs: OrderedDict[str, _FinishedRunHardware] = OrderedDict()
         self._finished_run_cache_limit = _FINISHED_RUN_CACHE_LIMIT
@@ -161,8 +168,8 @@ class InstrumentService:
         self._finalizing_runs: set[str] = set()
         self._attention_lock = RLock()
         self._provider_lock = RLock()
-        self._provider_content_hash: str | None = None
-        self._cached_provider: InstrumentProvider | None = None
+        self._system_content_hash: str | None = None
+        self._cached_system: ExperimentSystem | None = None
 
     def list_instruments(self) -> InstrumentListView:
         active = self._config.get_active_config()
@@ -214,6 +221,23 @@ class InstrumentService:
             if item.spec.id == instrument_id:
                 return item
         raise BackendNotFound(f"instrument was not found: {instrument_id}")
+
+    def authorize_session_payload_upload(self, session_id: str) -> None:
+        """Require an active daemon-owned session before accepting bytes."""
+
+        try:
+            self._control.validate_instrument_session(session_id)
+            self._live_runtime(session_id)
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
+
+    def authorize_run_payload_upload(self, run_id: str, lease_id: str) -> None:
+        """Fence a run-scoped upload with the current executor lease."""
+
+        with self._run_operation_lock(run_id):
+            self._fence_run(run_id, lease_id)
 
     def provision_run(
         self,
@@ -270,6 +294,7 @@ class InstrumentService:
 
         config = self._runs.read_config_profile_snapshot(run_id)
         try:
+            system = self._system(config)
             provider = self._provider(config)
         except Exception as error:
             return self._reject_run_provision(
@@ -386,6 +411,7 @@ class InstrumentService:
                 config=config,
                 instrument_ids=instrument_ids,
                 expected=advertised,
+                payload_codecs=system.payload_codecs,
             )
         except _ProvisioningRejected as error:
             if _call_all(error.drivers, _close_driver):
@@ -525,23 +551,46 @@ class InstrumentService:
             provision = self._run_provision_state(run_id)
             if provision is None or provision.receipt.status != "ready":
                 raise BackendConflict("run hardware is not ready")
-            cached = provision.batches.get(request.batch.operation_id)
+            runtime = self._run_runtime_state(run_id)
+            if runtime is None:
+                raise BackendConflict("run has no live daemon instrument drivers")
+            preflight_problems = self._preflight_hardware_batch(
+                run_id,
+                runtime,
+                request,
+            )
+            if preflight_problems:
+                return RunHardwareBatchReceipt(
+                    operation_id=request.batch.operation_id,
+                    problems=preflight_problems,
+                )
+            canonical_request = self._payloads.canonicalize_hardware_command(request)
+            cached = provision.batches.get(canonical_request.batch.operation_id)
             if cached is not None:
                 cached_request, cached_receipt = cached
-                if cached_request != request:
+                if cached_request != canonical_request:
                     raise BackendConflict(
                         "hardware batch id has different operation content"
                     )
                 return cached_receipt
-            runtime = self._run_runtime_state(run_id)
-            if runtime is None:
-                raise BackendConflict("run has no live daemon instrument drivers")
-            batch_evidence = request.batch.model_dump(mode="json")
+            driver_request = self._payloads.materialize_hardware_command(
+                canonical_request
+            )
+            batch_evidence = canonical_request.batch.model_dump(
+                mode="json",
+                exclude={
+                    "actions": {
+                        "__all__": {
+                            "payloads": {"__all__": {"body"}},
+                        }
+                    }
+                },
+            )
             self._record_run_operation_event(
                 run_id,
-                token=request.lease_id,
+                token=canonical_request.lease_id,
                 instrument_id=None,
-                operation_id=request.batch.operation_id,
+                operation_id=canonical_request.batch.operation_id,
                 event_kind="run_hardware_batch_started",
                 status=None,
                 details={"batch": batch_evidence},
@@ -551,19 +600,19 @@ class InstrumentService:
             completed_effect_ids: list[str] = []
             effect_receipts: list[JsonValue] = []
             with runtime.lock:
-                for action in request.batch.actions:
+                for action in driver_request.batch.actions:
                     try:
                         if isinstance(action, RunHardwareApply):
                             evidence = self._execute_hardware_apply(
                                 run_id,
-                                request.lease_id,
+                                canonical_request.lease_id,
                                 runtime,
                                 action,
                             )
                         else:
                             collected, evidence = self._execute_hardware_collect(
                                 run_id,
-                                request.lease_id,
+                                canonical_request.lease_id,
                                 runtime,
                                 action,
                             )
@@ -585,7 +634,7 @@ class InstrumentService:
                         )
                         break
             receipt = RunHardwareBatchReceipt(
-                operation_id=request.batch.operation_id,
+                operation_id=canonical_request.batch.operation_id,
                 values=tuple(values),
                 problems=tuple(problems),
             )
@@ -598,9 +647,9 @@ class InstrumentService:
             try:
                 self._record_run_operation_event(
                     run_id,
-                    token=request.lease_id,
+                    token=canonical_request.lease_id,
                     instrument_id=None,
-                    operation_id=request.batch.operation_id,
+                    operation_id=canonical_request.batch.operation_id,
                     event_kind="run_hardware_batch_finished",
                     status="failed" if problems else "completed",
                     details=receipt_evidence,
@@ -609,12 +658,85 @@ class InstrumentService:
                 self._lose_run_runtime(
                     run_id,
                     runtime,
-                    token=request.lease_id,
+                    token=canonical_request.lease_id,
                     reason="run_hardware_batch_audit_unknown",
                 )
                 raise
-            provision.batches[request.batch.operation_id] = (request, receipt)
+            provision.batches[canonical_request.batch.operation_id] = (
+                canonical_request,
+                receipt,
+            )
             return receipt
+
+    def _preflight_hardware_batch(
+        self,
+        run_id: str,
+        runtime: _LiveDrivers,
+        request: RunHardwareBatchCommand,
+    ) -> tuple[Problem, ...]:
+        """Validate the complete batch before the first hardware side effect."""
+
+        problems: list[Problem] = []
+        for action in request.batch.actions:
+            if (
+                action.instrument_id not in runtime.drivers
+                or action.instrument_id not in runtime.descriptions
+                or (
+                    isinstance(action, RunHardwareApply)
+                    and action.instrument_id not in runtime.assumed_states
+                )
+            ):
+                problems.append(
+                    _hardware_problem(
+                        "hardware_instrument_not_live",
+                        (
+                            "instrument is not live for run "
+                            f"{run_id}: {action.instrument_id}"
+                        ),
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                    )
+                )
+                continue
+            if isinstance(action, RunHardwareApply):
+                command = InstrumentStateCommand(
+                    operation_id=action.effect_id,
+                    instrument_id=action.instrument_id,
+                    fields=list(action.fields),
+                    payloads=action.payloads,
+                )
+                validation_problems = validate_state_command(
+                    command=command,
+                    description=runtime.descriptions[action.instrument_id],
+                )
+                problems.extend(validation_problems)
+                problems.extend(
+                    _payload_codec_problems(
+                        command.payloads,
+                        runtime.payload_codecs,
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                    )
+                )
+            else:
+                command = CollectCommand(
+                    operation_id=action.effect_id,
+                    instrument_id=action.instrument_id,
+                    point_index=action.point_index,
+                    point_count=action.point_count,
+                    requests=list(action.requests),
+                )
+                problems.extend(
+                    validate_collect_command(
+                        command=command,
+                        description=runtime.descriptions[action.instrument_id],
+                    )
+                )
+        return tuple(problems)
 
     def _execute_hardware_apply(
         self,
@@ -627,7 +749,10 @@ class InstrumentService:
         fields = tuple(
             field
             for field in action.fields
-            if _state_value(current, field) != field.value
+            # A snapshot retains only the command-local slot id, not payload
+            # content identity, so payload-valued writes cannot be deduplicated.
+            if isinstance(field.value.root, PayloadRef)
+            or _state_value(current, field) != field.value
         )
         if not fields:
             return {
@@ -635,20 +760,21 @@ class InstrumentService:
                 "status": "unchanged",
                 "metadata": {},
             }
+        payload_ids = {
+            field.value.root.payload_id
+            for field in fields
+            if isinstance(field.value.root, PayloadRef)
+        }
         command = InstrumentStateCommand(
             operation_id=action.effect_id,
             instrument_id=action.instrument_id,
             fields=list(fields),
-            payloads=action.payloads,
+            payloads={
+                payload_id: payload
+                for payload_id, payload in action.payloads.items()
+                if payload_id in payload_ids
+            },
         )
-        validation_problems = validate_state_command(
-            command=command,
-            description=runtime.descriptions[action.instrument_id],
-        )
-        if validation_problems:
-            raise BackendConflict(
-                "; ".join(item.message for item in validation_problems)
-            )
         _runtime, driver = self._run_driver(run_id, action.instrument_id)
         try:
             receipt = driver.apply_state(command)
@@ -704,14 +830,6 @@ class InstrumentService:
             point_count=action.point_count,
             requests=list(action.requests),
         )
-        validation_problems = validate_collect_command(
-            command=command,
-            description=runtime.descriptions[action.instrument_id],
-        )
-        if validation_problems:
-            raise BackendConflict(
-                "; ".join(item.message for item in validation_problems)
-            )
         _runtime, driver = self._run_driver(run_id, action.instrument_id)
         try:
             receipt = driver.collect(command)
@@ -974,6 +1092,7 @@ class InstrumentService:
         )
         if missing:
             raise BackendNotFound(f"instrument was not found: {', '.join(missing)}")
+        system = self._system(active.config)
         provider = self._provider(active.config)
         descriptions = self._selected_descriptions(
             provider,
@@ -1001,6 +1120,7 @@ class InstrumentService:
                 config=active.config,
                 instrument_ids=command.instrument_ids,
                 expected=descriptions,
+                payload_codecs=system.payload_codecs,
             )
         except _ProvisioningRejected as error:
             close_failed = _call_all(error.drivers, _close_driver)
@@ -1139,16 +1259,26 @@ class InstrumentService:
             command=command,
             description=runtime.descriptions[command.instrument_id],
         )
-        if validation_problems:
+        codec_issues = _payload_codec_issues(
+            command.payloads,
+            runtime.payload_codecs,
+        )
+        if validation_problems or codec_issues:
             raise BackendConflict(
-                "; ".join(item.message for item in validation_problems)
+                "; ".join(
+                    [
+                        *(item.message for item in validation_problems),
+                        *(message for _code, message in codec_issues),
+                    ]
+                )
             )
-        operation_id = command.operation_id
+        canonical_command = self._payloads.canonicalize_state_command(command)
+        operation_id = canonical_command.operation_id
         assert operation_id is not None
         cached = runtime.apply_receipts.get(operation_id)
         if cached is not None:
             cached_command, cached_receipt = cached
-            if cached_command != command:
+            if cached_command != canonical_command:
                 raise BackendConflict(
                     f"{conflict_scope} operation id has different apply content"
                 )
@@ -1160,15 +1290,16 @@ class InstrumentService:
             raise BackendConflict(
                 f"{conflict_scope} operation id was already used for collect"
             )
+        driver_command = self._payloads.materialize_state_command(canonical_command)
         on_started()
         try:
-            receipt = driver.apply_state(command)
+            receipt = driver.apply_state(driver_command)
         except Exception as error:
             on_unknown("instrument_apply_unknown")
             raise BackendConflict(
                 "instrument apply failed with unknown state"
             ) from error
-        runtime.apply_receipts[operation_id] = (command, receipt)
+        runtime.apply_receipts[operation_id] = (canonical_command, receipt)
         try:
             on_finished(receipt.status)
         except Exception as error:
@@ -1429,8 +1560,8 @@ class InstrumentService:
                 reason="daemon_shutting_down",
             )
         with self._provider_lock:
-            self._provider_content_hash = None
-            self._cached_provider = None
+            self._system_content_hash = None
+            self._cached_system = None
 
     def _end_session(
         self,
@@ -1733,6 +1864,14 @@ class InstrumentService:
         return descriptions
 
     def _provider(self, config: ConfigProfileSnapshot) -> InstrumentProvider:
+        system = self._system(config)
+        if system.provider is None:
+            raise BackendConflict(
+                "project experiment system does not configure an instrument provider"
+            )
+        return system.provider
+
+    def _system(self, config: ConfigProfileSnapshot) -> ExperimentSystem:
         if self._build_system is None:
             raise BackendConflict(
                 "project application does not configure an instrument provider"
@@ -1740,19 +1879,14 @@ class InstrumentService:
         content_hash = config_content_hash(config)
         with self._provider_lock:
             if (
-                self._provider_content_hash == content_hash
-                and self._cached_provider is not None
+                self._system_content_hash == content_hash
+                and self._cached_system is not None
             ):
-                return self._cached_provider
+                return self._cached_system
             system = self._build_system(config)
-            if system.provider is None:
-                raise BackendConflict(
-                    "project experiment system does not configure "
-                    "an instrument provider"
-                )
-            self._provider_content_hash = content_hash
-            self._cached_provider = system.provider
-            return system.provider
+            self._system_content_hash = content_hash
+            self._cached_system = system
+            return system
 
     def _wire_session(
         self,
@@ -1823,6 +1957,7 @@ def _provide_drivers(
     config: ConfigProfileSnapshot,
     instrument_ids: tuple[str, ...],
     expected: Mapping[str, InstrumentDescription],
+    payload_codecs: PayloadCodecRegistry,
 ) -> tuple[_LiveDrivers, dict[str, JsonValue]]:
     drivers: tuple[InstrumentDriver, ...] = ()
     try:
@@ -1877,6 +2012,7 @@ def _provide_drivers(
             _LiveDrivers(
                 drivers={driver.instrument_id: driver for driver in drivers},
                 descriptions=actual_by_id,
+                payload_codecs=payload_codecs,
             ),
             result.metadata,
         )
@@ -1935,6 +2071,53 @@ def _hardware_problem(
             instrument_id=instrument_id,
             point_index=point_index,
         ),
+    )
+
+
+def _payload_codec_issues(
+    payloads: Mapping[str, CommandPayload],
+    registry: PayloadCodecRegistry,
+) -> tuple[tuple[str, str], ...]:
+    issues: list[tuple[str, str]] = []
+    for payload_id, payload in payloads.items():
+        try:
+            registry.validate_descriptor(payload)
+        except LookupError as error:
+            issues.append(
+                (
+                    "instrument_payload_codec_unavailable",
+                    f"payload {payload_id!r}: {error}",
+                )
+            )
+        except ValueError as error:
+            issues.append(
+                (
+                    "instrument_payload_codec_mismatch",
+                    f"payload {payload_id!r}: {error}",
+                )
+            )
+    return tuple(issues)
+
+
+def _payload_codec_problems(
+    payloads: Mapping[str, CommandPayload],
+    registry: PayloadCodecRegistry,
+    *,
+    run_id: str,
+    operation_id: str,
+    instrument_id: str,
+    point_index: int,
+) -> tuple[Problem, ...]:
+    return tuple(
+        _hardware_problem(
+            code,
+            message,
+            run_id=run_id,
+            operation_id=operation_id,
+            instrument_id=instrument_id,
+            point_index=point_index,
+        )
+        for code, message in _payload_codec_issues(payloads, registry)
     )
 
 

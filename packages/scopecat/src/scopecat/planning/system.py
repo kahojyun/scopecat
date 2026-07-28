@@ -73,6 +73,7 @@ from scopecat.sdk.domain.compiler import (
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.view import DomainCallView
 from scopecat.sdk.instruments.contracts import InstrumentProvider
+from scopecat.sdk.payloads import PayloadCodecRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +90,11 @@ class ExperimentSystem:
 
     provider: InstrumentProvider | None = field(default=None, repr=False)
     domain_compiler: DomainCompiler | None = field(default=None, repr=False)
+    payload_codecs: PayloadCodecRegistry = field(
+        default_factory=PayloadCodecRegistry,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if self.provider is None and self.domain_compiler is None:
@@ -230,7 +236,11 @@ def _compile_system_program(
     )
     resource_claims = _sorted_claims((*local_claims, *domain_footprint))
     local_instrument_ids = frozenset(claim.id for claim in local_claims)
-    host = _host_binding(preflight, instrument_ids=local_instrument_ids)
+    host = _host_binding(
+        preflight,
+        instrument_ids=local_instrument_ids,
+        payload_codecs=system.payload_codecs,
+    )
     if host is not None:
         validate_run_host_binding(
             host=host,
@@ -265,6 +275,7 @@ def _host_binding(
     preflight: InstrumentProviderPreflight | None,
     *,
     instrument_ids: frozenset[str],
+    payload_codecs: PayloadCodecRegistry,
 ) -> RunHostBinding | None:
     if preflight is None or not instrument_ids:
         return None
@@ -275,6 +286,7 @@ def _host_binding(
         resource_order=instrument_order,
         provider_id=preflight.provider_id,
         advertised_descriptions=preflight.advertised_descriptions,
+        payload_codecs=payload_codecs,
     )
 
 

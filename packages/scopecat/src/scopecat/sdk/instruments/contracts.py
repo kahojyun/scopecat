@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Annotated, Literal, Protocol
@@ -16,7 +16,6 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.units import compatible_units
 from scopecat.kernel.value_type_wire import CapabilityScalarWire
@@ -190,6 +189,42 @@ class InstrumentStateCommandField(BaseModel):
         return self
 
 
+def validate_payload_bindings(
+    *,
+    fields: Iterable[InstrumentStateCommandField],
+    payloads: Mapping[str, CommandPayload],
+    label: str,
+) -> None:
+    """Require one exact, self-consistent payload map for concrete fields."""
+
+    mismatched_keys = [
+        (payload_id, payload.id)
+        for payload_id, payload in payloads.items()
+        if payload_id != payload.id
+    ]
+    if mismatched_keys:
+        payload_id, descriptor_id = mismatched_keys[0]
+        raise ValueError(
+            f"{label} payload map key {payload_id!r} does not match "
+            f"payload.id {descriptor_id!r}"
+        )
+    referenced_ids = {
+        value.payload_id
+        for field in fields
+        if isinstance((value := field.value.root), PayloadRef)
+    }
+    payload_ids = set(payloads)
+    missing = sorted(referenced_ids - payload_ids)
+    extra = sorted(payload_ids - referenced_ids)
+    issues: list[str] = []
+    if missing:
+        issues.append(f"missing referenced payload ids: {missing!r}")
+    if extra:
+        issues.append(f"unreferenced payload ids: {extra!r}")
+    if issues:
+        raise ValueError(f"{label} payload map has " + "; ".join(issues))
+
+
 class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -199,7 +234,7 @@ class InstrumentStateCommand(BaseModel):
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_unique_targets(self) -> InstrumentStateCommand:
+    def validate_structure(self) -> InstrumentStateCommand:
         identities = [
             _state_target_identity(
                 field.capability_id,
@@ -212,6 +247,11 @@ class InstrumentStateCommand(BaseModel):
         if len(identities) != len(set(identities)):
             msg = "instrument state command field targets must be unique"
             raise ValueError(msg)
+        validate_payload_bindings(
+            fields=self.fields,
+            payloads=self.payloads,
+            label="instrument state command",
+        )
         return self
 
 
@@ -592,16 +632,35 @@ def validate_state_command(
     *,
     command: InstrumentStateCommand,
     description: InstrumentDescription,
-    payloads: dict[str, CommandPayload] | None = None,
 ) -> list[Problem]:
+    """Validate one structurally complete command against a driver contract."""
+
+    return validate_state_fields(
+        instrument_id=command.instrument_id,
+        fields=command.fields,
+        description=description,
+        payload_schemas={
+            payload_id: payload.schema_id
+            for payload_id, payload in command.payloads.items()
+        },
+    )
+
+
+def validate_state_fields(
+    *,
+    instrument_id: str,
+    fields: Sequence[InstrumentStateCommandField],
+    description: InstrumentDescription,
+    payload_schemas: Mapping[str, str],
+) -> list[Problem]:
+    """Validate planned fields using schema declarations instead of payload bodies."""
+
     problems: list[Problem] = []
-    available_payloads = {**command.payloads, **(payloads or {})}
-    if command.instrument_id != description.instrument_id:
+    if instrument_id != description.instrument_id:
         problems.append(
             _problem(
                 "instrument_driver_mismatch",
-                f"{description.instrument_id} cannot apply command for "
-                f"{command.instrument_id}",
+                f"{description.instrument_id} cannot apply command for {instrument_id}",
                 "instrument_id",
             )
         )
@@ -610,12 +669,12 @@ def validate_state_command(
         capability.id: {field.id: field for field in capability.fields}
         for capability in description.capabilities
     }
-    for field in command.fields:
-        if field.resource_id != command.instrument_id:
+    for field in fields:
+        if field.resource_id != instrument_id:
             problems.append(
                 _problem(
                     "instrument_driver_resource_mismatch",
-                    f"{command.instrument_id} cannot control {field.resource_id}",
+                    f"{instrument_id} cannot control {field.resource_id}",
                     "resource_id",
                 )
             )
@@ -625,7 +684,7 @@ def validate_state_command(
             problems.append(
                 _problem(
                     "instrument_driver_unsupported_capability",
-                    f"{command.instrument_id} does not support {field.capability_id}",
+                    f"{instrument_id} does not support {field.capability_id}",
                     "capability_id",
                 )
             )
@@ -635,7 +694,7 @@ def validate_state_command(
             problems.append(
                 _problem(
                     "instrument_driver_unsupported_field",
-                    f"{command.instrument_id} does not support {field.field_path}",
+                    f"{instrument_id} does not support {field.field_path}",
                     "field_path",
                 )
             )
@@ -644,7 +703,7 @@ def validate_state_command(
             problems.append(
                 _problem(
                     "instrument_driver_read_only_field",
-                    f"{command.instrument_id} field {field.field_path} is read-only",
+                    f"{instrument_id} field {field.field_path} is read-only",
                     "field_path",
                 )
             )
@@ -654,7 +713,7 @@ def validate_state_command(
                 field_path=field.field_path,
                 value=field.value,
                 spec=field_spec,
-                payloads=available_payloads,
+                payload_schemas=payload_schemas,
             )
         )
     return problems
@@ -906,20 +965,18 @@ def _validate_state_value(
     field_path: str,
     value: StateValue,
     spec: CapabilityField,
-    payloads: dict[str, CommandPayload],
+    payload_schemas: Mapping[str, str],
 ) -> list[Problem]:
     atom = spec.value_type.atom
     state_literal = value.root
-    literal: object = state_literal
-    literal_path: ValuePath = ("value",)
     if isinstance(atom, PayloadType):
         if not isinstance(state_literal, PayloadRef):
             return _field_value_mismatch(
                 field_path,
                 f"expected payload reference, got {state_literal!r}",
             )
-        payload = payloads.get(state_literal.payload_id)
-        if payload is None:
+        schema_id = payload_schemas.get(state_literal.payload_id)
+        if schema_id is None:
             return [
                 _problem(
                     "instrument_driver_unknown_payload",
@@ -929,10 +986,15 @@ def _validate_state_value(
                     "payload_id",
                 )
             ]
-        literal = PayloadValue(schema_id=payload.schema_id, payload=payload.payload)
-        literal_path = ("value", "payload_id")
+        if schema_id != atom.schema_id:
+            return _field_value_mismatch(
+                field_path,
+                f"expected payload {atom.schema_id!r}, got {schema_id!r}",
+                path=("value", "payload_id"),
+            )
+        return []
     try:
-        validate_literal(spec.value_type, literal, path=literal_path)
+        validate_literal(spec.value_type, state_literal, path=("value",))
     except ValueValidationError as error:
         return _field_value_mismatch(
             field_path,

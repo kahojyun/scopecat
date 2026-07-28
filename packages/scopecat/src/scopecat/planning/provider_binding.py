@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from scopecat.execution.local.program import LocalOperation
+from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.program import RunHostBinding
 from scopecat.kernel.errors import ProviderContractError
@@ -110,9 +110,46 @@ def validate_run_host_binding(
             available_payloads={},
         )
     )
+    selected.extend(_payload_codec_problems(host, effect_blocks))
     if bool(selected):
         raise ProviderContractError(selected)
     return host
+
+
+def _payload_codec_problems(
+    host: RunHostBinding,
+    effect_blocks: Sequence[Sequence[LocalOperation]],
+) -> list[Problem]:
+    missing_schemas: set[str] = set()
+    problems: list[Problem] = []
+    for operations in effect_blocks:
+        for operation in operations:
+            if not isinstance(operation, ComputeOperation):
+                continue
+            slot = operation.payload_slot
+            if (
+                slot is None
+                or slot.schema_id in host.payload_codecs
+                or slot.schema_id in missing_schemas
+            ):
+                continue
+            missing_schemas.add(slot.schema_id)
+            problems.append(
+                problem(
+                    "payload_codec_missing",
+                    f"compute payload schema {slot.schema_id!r} "
+                    "has no registered codec",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location(
+                        "execution_program",
+                        "operations",
+                        operation.operation_id,
+                        "payload_slot",
+                        "schema_id",
+                    ),
+                )
+            )
+    return problems
 
 
 def _validate_described_instruments(

@@ -94,6 +94,7 @@ from tests.testkit.local_materialization import (
     operations_of_type,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
+from tests.testkit.payload_codecs import json_payload_codecs
 from tests.testkit.records import (
     assert_model_round_trip,
 )
@@ -841,11 +842,13 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         {"source-0": ("play_program", "scalar_signal")}
     )
     instrument = SignalInstrumentDriver()
+    payload_codecs = json_payload_codecs("pulse_program")
     manifest = execute_bound_run(
         config=config,
         experiment=spec,
         instruments=[instrument],
         project_root=tmp_path,
+        payload_codecs=payload_codecs,
     )
 
     assert manifest.status == "completed"
@@ -876,13 +879,13 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     assert [payload.implementation_id for payload in payloads] == [
         "python.build-program.v1"
     ] * 6
-    assert [payload.payload for payload in payloads] == [
-        {"value": Quantity(value=4.9, unit="GHz")},
-        {"value": Quantity(value=4.9, unit="GHz")},
-        {"value": Quantity(value=4.9, unit="GHz")},
-        {"value": Quantity(value=5.1, unit="GHz")},
-        {"value": Quantity(value=5.1, unit="GHz")},
-        {"value": Quantity(value=5.1, unit="GHz")},
+    assert [payload_codecs.decode(payload) for payload in payloads] == [
+        {"value": {"value": 4.9, "unit": "GHz"}},
+        {"value": {"value": 4.9, "unit": "GHz"}},
+        {"value": {"value": 4.9, "unit": "GHz"}},
+        {"value": {"value": 5.1, "unit": "GHz"}},
+        {"value": {"value": 5.1, "unit": "GHz"}},
+        {"value": {"value": 5.1, "unit": "GHz"}},
     ]
 
 

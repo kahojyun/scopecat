@@ -27,6 +27,7 @@ from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
 from .services import (
     AdmissionService,
+    CommandPayloadService,
     ConfigService,
     DaemonApplication,
     ExecutorLeaseSupervisor,
@@ -82,6 +83,7 @@ class LocalDaemonRuntime:
 
             project_store = SQLiteProjectStore(database, objects)
             project_store.bootstrap()
+            payloads = CommandPayloadService(project_store.objects)
 
             services = ProjectStateServices(
                 runs=runs,
@@ -107,6 +109,7 @@ class LocalDaemonRuntime:
                 runs=runs,
                 config=config_service,
                 build_system=build_system,
+                payloads=payloads,
             )
             executor = ExecutorService(
                 control=control,
@@ -128,6 +131,7 @@ class LocalDaemonRuntime:
                 admission=admission,
                 executor=executor,
                 instruments=instruments,
+                payloads=payloads,
                 lease_supervisor=lease_supervisor,
             )
             try:

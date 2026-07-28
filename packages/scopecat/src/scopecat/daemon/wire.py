@@ -30,7 +30,7 @@ from scopecat.execution.ports.instruments import RunHardwareBatch
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
@@ -229,6 +229,20 @@ class RunAttachmentCommand(_WireModel):
     def validate_source(self) -> RunAttachmentCommand:
         if (self.text is None) == (self.content_base64 is None):
             raise ValueError("run attachment requires exactly one content source")
+        return self
+
+
+class PayloadObjectReceipt(_WireModel):
+    """One immutable command-payload body accepted by the daemon."""
+
+    ref: Sha256ContentHash
+    content_hash: Sha256ContentHash
+    size_bytes: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> PayloadObjectReceipt:
+        if self.ref != self.content_hash:
+            raise ValueError("payload object ref must equal its content hash")
         return self
 
 
@@ -469,6 +483,7 @@ __all__ = [
     "ManualConfigDraftRevisionSource",
     "MeasurementAppendCommand",
     "MeasurementSealCommand",
+    "PayloadObjectReceipt",
     "RunAdmission",
     "RunAttachmentCommand",
     "RunInstrumentProvisionCommand",

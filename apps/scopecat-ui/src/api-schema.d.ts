@@ -558,6 +558,7 @@ export interface components {
         };
         _NonEmptyId: string;
         _NonEmptyString: string;
+        _NonEmptyText: string;
         _ParameterId: string;
         /** _PayloadWire */
         _PayloadWire: {
@@ -714,6 +715,18 @@ export interface components {
              */
             state: "closed";
         };
+        /**
+         * BlobPayloadBody
+         * @description Content-addressed locator resolved by the payload transport boundary.
+         */
+        BlobPayloadBody: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "blob";
+            ref: components["schemas"]["Sha256ContentHash"];
+        };
         /** CandidateConfigRegistrySource */
         CandidateConfigRegistrySource: {
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
@@ -852,31 +865,35 @@ export interface components {
         };
         /**
          * CommandPayload
-         * @description Runtime command payload referenced by instrument state commands.
+         * @description Process-safe encoded payload referenced by an instrument command.
+         *
+         *     ``content_hash`` identifies the exact codec output bytes, before base64 or
+         *     blob transport. The schema identifies domain meaning while the codec pair
+         *     identifies the byte representation. Arbitrary Python objects are never part
+         *     of this wire model.
          */
         CommandPayload: {
-            /** Content Hash */
-            content_hash?: string | null;
-            /** Id */
-            id: string;
+            body: components["schemas"]["CommandPayloadBody"];
+            codec_id: components["schemas"]["_NonEmptyText"];
+            /** Codec Version */
+            codec_version: number;
+            content_hash: components["schemas"]["Sha256ContentHash"];
+            id: components["schemas"]["_NonEmptyText"];
             /** Implementation Id */
             implementation_id?: string | null;
-            /** Media Type */
-            media_type?: string | null;
+            media_type: components["schemas"]["_NonEmptyText"];
             metadata?: components["schemas"]["JsonMetadata-Input"];
             /** Operation Id */
             operation_id?: string | null;
-            /** Payload */
-            payload?: unknown | null;
             /** Point Index */
             point_index?: number | null;
-            /** Schema Id */
-            schema_id: string;
+            schema_id: components["schemas"]["_NonEmptyText"];
             /** Semantic Operation Id */
             semantic_operation_id?: string | null;
-            /** Uri */
-            uri?: string | null;
+            /** Size Bytes */
+            size_bytes: number;
         };
+        CommandPayloadBody: components["schemas"]["InlinePayloadBody"] | components["schemas"]["BlobPayloadBody"];
         /** ComplexQuantity */
         ComplexQuantity: {
             /** Imag */
@@ -1262,6 +1279,19 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InlinePayloadBody
+         * @description Base64 wire representation of one complete encoded payload.
+         */
+        InlinePayloadBody: {
+            /** Content Base64 */
+            content_base64: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "inline";
         };
         /**
          * InsertParameterRows
@@ -2165,6 +2195,7 @@ export interface components {
             /** Value */
             value: number;
         };
+        Sha256ContentHash: string;
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**
          * StateValue
