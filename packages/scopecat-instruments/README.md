@@ -17,6 +17,14 @@ required for direct instrument work:
 
 ```python
 import scopecat as sc
+from scopecat_instruments.members import (
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
+)
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
@@ -26,22 +34,26 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.describe())
         print(vna.read_state())
         vna.apply(
-            "scopecat.network_sweep/v1",
-            start_frequency=sc.Quantity(5.9, "GHz"),
-            stop_frequency=sc.Quantity(6.1, "GHz"),
-            points=401,
+            {
+                NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(5.9, "GHz"),
+                NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(6.1, "GHz"),
+                NETWORK_SWEEP_POINTS: 401,
+            }
         )
         trace = vna.collect(
-            "scopecat.network_sweep/v1",
-            "sweep",
-            "frequency",
-            "s_parameter",
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_FREQUENCY_RESULT,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
         )
 ```
 
+The member catalog carries interface, component, and member identity together.
+Public experiment authoring, Notebook, and driver call sites use these refs.
+Specs and serialized IR lower them to raw ids.
+
 The context manager opens a durable daemon-owned session and closes it on exit.
 Runs and interactive sessions compete for the same exclusive resource claim.
-Consequential calls accept an explicit `operation_id` when a caller needs to
+Consequential calls accept an explicit `command_id` when a caller needs to
 retry the same logical operation.
 
 ## Configuration

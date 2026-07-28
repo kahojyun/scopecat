@@ -33,7 +33,13 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
+
+_PLAY_WAVEFORMS = InterfaceRef("test.play_waveforms/v1")
+_PLAY_WAVEFORMS_PLAY = _PLAY_WAVEFORMS.operation("play")
+_SET_GAIN = InterfaceRef("test.set_gain/v1")
+_SET_GAIN_VALUE = _SET_GAIN.property("value")
 
 
 def _resolve(module: sc.ExperimentModule[...]) -> None:
@@ -86,12 +92,11 @@ def test_invocation_rejects_an_unregistered_compute_output() -> None:
     with pytest.raises(CheckFailed) as error:
         (
             sc.module_body(id="test.graph.invocation-missing")
-            .resource("drive", requires=("test.play_waveforms/v1",))
+            .resource("drive", requires=(_PLAY_WAVEFORMS,))
             .invoke(
                 "play",
                 resource="drive",
-                interface="test.play_waveforms/v1",
-                operation="play",
+                operation=_PLAY_WAVEFORMS_PLAY,
                 arguments={"program": missing.output},
             )
             .build()
@@ -108,12 +113,11 @@ def test_state_rejects_a_non_payload_compute_output() -> None:
     )
     module = (
         sc.module_body(id="test.graph.state-type")
-        .resource("drive", requires=("test.set_gain/v1",))
+        .resource("drive", requires=(_SET_GAIN,))
         .computes(compute_value)
         .bind_property(
             "drive",
-            interface="test.set_gain/v1",
-            property="value",
+            _SET_GAIN_VALUE,
             value=compute_value.output,
         )
         .build()
@@ -137,11 +141,10 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
         (
             sc.module_body(id="test.graph.table-state-binding")
             .inputs(rows)
-            .resource("drive", requires=("test.set_gain/v1",))
+            .resource("drive", requires=(_SET_GAIN,))
             .bind_property(
                 "drive",
-                interface="test.set_gain/v1",
-                property="value",
+                _SET_GAIN_VALUE,
                 value=rows,
             )
         )

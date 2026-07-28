@@ -245,6 +245,14 @@ The normal project connection exposes the same daemon-owned path:
 
 ```python
 import scopecat as sc
+from scopecat_instruments.members import (
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
+)
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
@@ -255,18 +263,22 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.read_state())
 
         receipt = vna.apply(
-            "scopecat.network_sweep/v1",
-            start_frequency=sc.Quantity(4.8, "GHz"),
-            stop_frequency=sc.Quantity(5.2, "GHz"),
-            points=401,
+            {
+                NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(4.8, "GHz"),
+                NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(5.2, "GHz"),
+                NETWORK_SWEEP_POINTS: 401,
+            }
         )
         trace = vna.collect(
-            "scopecat.network_sweep/v1",
-            "sweep",
-            "frequency",
-            "s_parameter",
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_FREQUENCY_RESULT,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
         )
 ```
+
+Experiment authoring and interactive Python calls use nominal member refs, so
+an acquisition result cannot be accidentally paired with another interface or
+component. Specs, compiler IR, and daemon requests lower them to physical ids.
 
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
 numbers remain valid only where the declared property type accepts them. A
@@ -278,20 +290,26 @@ A multi-instrument session is available when an operation must reserve a
 coherent set:
 
 ```python
+from scopecat_instruments.members import (
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+)
+
 with lab.instruments.open("flux-source", "readout-vna") as session:
     session.apply(
-        "scopecat.dc_source/v2",
         {
-            "source_mode": "voltage",
-            "voltage_level": sc.Quantity(0.05, "V"),
-            "output_enabled": True,
+            DC_SOURCE_MODE: "voltage",
+            DC_SOURCE_VOLTAGE_LEVEL: sc.Quantity(0.05, "V"),
+            DC_SOURCE_OUTPUT_ENABLED: True,
         },
         instrument_id="flux-source",
     )
     trace = session.collect(
-        "scopecat.network_sweep/v1",
-        "sweep",
-        "s_parameter",
+        NETWORK_SWEEP_ACQUISITION,
+        NETWORK_SWEEP_S_PARAMETER_RESULT,
         instrument_id="readout-vna",
     )
 ```

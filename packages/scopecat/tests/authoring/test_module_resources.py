@@ -16,28 +16,42 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.materialized_effects import config_with_physical_resources
+
+_SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
+_SET_FREQUENCY_VALUE_PATH = _SET_FREQUENCY.property("value.path")
+_SET_FREQUENCY_SAMPLE_SIGNAL = _SET_FREQUENCY.acquisition("sample").result("signal")
+_MEASURE_IQ = InterfaceRef("test.measure_iq/v1")
+_MEASURE_IQ_SAMPLE_EXPORTED = _MEASURE_IQ.acquisition("sample").result("exported")
+_MEASURE_PHASE_SAMPLE_FIXED = (
+    InterfaceRef("test.measure_phase/v1").acquisition("sample").result("fixed")
+)
+_MEASURE_POPULATION_SAMPLE_EXPORTED = (
+    InterfaceRef("test.measure_population/v1").acquisition("sample").result("exported")
+)
+_SET_OFFSET = InterfaceRef("test.set_offset/v1")
+_SET_OFFSET_VALUE = _SET_OFFSET.property("value")
+_SET_OFFSET_VALUE_PATH = _SET_OFFSET.property("value.path")
+_SET_POWER_VALUE = InterfaceRef("test.set_power/v1").property("value")
 
 
 def _resource_module() -> sc.ExperimentModule[...]:
     frequency = sc.Quantity(value=5.0, unit="GHz")
     return (
         sc.module_body(id="test.resources.child")
-        .resource("drive.v1", requires=("test.set_frequency/v1",))
+        .resource("drive.v1", requires=(_SET_FREQUENCY,))
         .bind_property(
             "drive.v1",
-            interface="test.set_frequency/v1",
-            property="value.path",
+            _SET_FREQUENCY_VALUE_PATH,
             value=frequency,
         )
         .product("signal")
         .acquire(
             "read-signal",
-            "signal",
             resource="drive.v1",
-            interface="test.set_frequency/v1",
-            acquisition="sample",
+            results={_SET_FREQUENCY_SAMPLE_SIGNAL: "signal"},
         )
         .build()
     )
@@ -113,7 +127,7 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
     )
     root = (
         sc.module_body(id="test.resources.bound-root")
-        .resource("shared", requires=("test.set_frequency/v1",))
+        .resource("shared", requires=(_SET_FREQUENCY,))
         .use(child)
         .build()
     )
@@ -160,11 +174,10 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     )
     child_builder = (
         sc.module_body(id="test.effects.child")
-        .resource("drive.v1", requires=("test.set_frequency/v1",))
+        .resource("drive.v1", requires=(_SET_FREQUENCY,))
         .bind_property(
             "drive.v1",
-            interface="test.set_frequency/v1",
-            property="value.path",
+            _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         .domain(sc.domain_execution(program, id="call"))
@@ -173,10 +186,8 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     child = (
         child_builder.acquire(
             "read-signal",
-            "signal",
             resource="drive.v1",
-            interface="test.set_frequency/v1",
-            acquisition="sample",
+            results={_SET_FREQUENCY_SAMPLE_SIGNAL: "signal"},
         )
         .build()
         .instantiate(
@@ -186,18 +197,16 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     )
     root_builder = (
         sc.module_body(id="test.effects.root")
-        .resource("drive.v1", requires=("test.set_frequency/v1",))
+        .resource("drive.v1", requires=(_SET_FREQUENCY,))
         .bind_property(
             "drive.v1",
-            interface="test.set_frequency/v1",
-            property="value.path",
+            _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         .use(child)
         .bind_property(
             "drive.v1",
-            interface="test.set_frequency/v1",
-            property="value.path",
+            _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         .domain(sc.domain_execution(program, id="root-call"))
@@ -205,10 +214,8 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     )
     module = root_builder.acquire(
         "root-read",
-        "root-signal",
         resource="drive.v1",
-        interface="test.set_frequency/v1",
-        acquisition="sample",
+        results={_SET_FREQUENCY_SAMPLE_SIGNAL: "root-signal"},
     ).build()
     assembly = elaborate_module(module.ir)
 
@@ -298,10 +305,8 @@ def test_acquire_resource_references_are_checked_before_linking() -> None:
             .product("exported")
             .acquire(
                 "read-exported",
-                "exported",
                 resource="missing",
-                interface="test.measure_iq/v1",
-                acquisition="sample",
+                results={_MEASURE_IQ_SAMPLE_EXPORTED: "exported"},
             )
             .build()
         )
@@ -314,21 +319,17 @@ def test_acquire_resource_references_are_checked_before_linking() -> None:
 def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
     module = (
         sc.module_body(id="test.resources.missing-record-interface")
-        .resource("readout", requires=("test.measure_iq/v1",))
+        .resource("readout", requires=(_MEASURE_IQ,))
         .product("fixed", "exported")
         .acquire(
             "read-fixed",
-            "fixed",
             resource="readout",
-            interface="test.measure_phase/v1",
-            acquisition="sample",
+            results={_MEASURE_PHASE_SAMPLE_FIXED: "fixed"},
         )
         .acquire(
             "read-exported",
-            "exported",
             resource="readout",
-            interface="test.measure_population/v1",
-            acquisition="sample",
+            results={_MEASURE_POPULATION_SAMPLE_EXPORTED: "exported"},
         )
         .build()
     )
@@ -352,8 +353,7 @@ def test_state_resource_references_are_checked_before_linking() -> None:
             sc.module_body(id="test.resources.missing-state-port")
             .bind_property(
                 "missing-binding",
-                interface="test.set_offset/v1",
-                property="value",
+                _SET_OFFSET_VALUE,
                 value=1.0,
             )
             .build()
@@ -367,11 +367,10 @@ def test_state_resource_references_are_checked_before_linking() -> None:
 def test_state_resource_interfaces_are_checked_before_linking() -> None:
     module = (
         sc.module_body(id="test.resources.missing-state-interface")
-        .resource("drive", requires=("test.set_frequency/v1",))
+        .resource("drive", requires=(_SET_FREQUENCY,))
         .bind_property(
             "drive",
-            interface="test.set_power/v1",
-            property="value",
+            _SET_POWER_VALUE,
             value=1.0,
         )
         .build()
@@ -388,11 +387,10 @@ def test_state_resource_interfaces_are_checked_before_linking() -> None:
 def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
     child = (
         sc.module_body(id="test.resources.structured-state")
-        .resource("source", requires=("test.set_offset/v1",))
+        .resource("source", requires=(_SET_OFFSET,))
         .bind_property(
             "source",
-            interface="test.set_offset/v1",
-            property="value.path",
+            _SET_OFFSET_VALUE_PATH,
             value=1.0,
         )
         .build()

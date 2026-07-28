@@ -86,6 +86,7 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     TableParameterValue,
 )
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     SIMPLE_MODULE,
@@ -127,6 +128,22 @@ def _table_definition(
 
 
 _QUANTITY_VALUE = authoring.ScalarType(authoring.QuantityType())
+
+_SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
+_SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")
+_SET_FREQUENCY_SIGNAL = _SET_FREQUENCY.acquisition("sample").result("signal")
+_SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
+_SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
+_SCALAR_IQ_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("iq")
+_PLAY_PULSE_PROGRAM = InterfaceRef("test.play_pulse_program/v1")
+_PLAY_PULSE = _PLAY_PULSE_PROGRAM.operation("play")
+_ACQUIRE_SIGNAL = InterfaceRef("test.acquire_signal/v1")
+_SET_OFFSET = InterfaceRef("test.set_offset/v1")
+_SET_OFFSET_VALUE = _SET_OFFSET.property("offset")
+_SET_GAIN = InterfaceRef("test.set_gain/v1")
+_SET_GAIN_VALUE = _SET_GAIN.property("gain")
+_DRIVE_FREQUENCY = InterfaceRef("test.drive_frequency/v1")
+_DRIVE_FREQUENCY_VALUE = _DRIVE_FREQUENCY.property("value")
 
 
 def _around_parameter_axis(
@@ -295,14 +312,12 @@ def test_template_selects_module_products_as_records() -> None:
     module = (
         authoring.module_body(id="test.product_module")
         .inputs(subject)
-        .resource("source", requires=("test.set_frequency/v1", "test.scalar_signal/v1"))
+        .resource("source", requires=(_SET_FREQUENCY, _SCALAR_SIGNAL))
         .product("signal", unit="ratio")
         .acquire(
             "read-signal",
-            "signal",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
+            results={_SCALAR_SIGNAL_VALUE: "signal"},
         )
         .build()
     )
@@ -378,13 +393,12 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     module = (
         authoring.module_body(id="test.compute_provenance")
         .inputs(qubit, pulse_length)
-        .resource("drive", requires=("test.play_pulse_program/v1",))
+        .resource("drive", requires=(_PLAY_PULSE_PROGRAM,))
         .computes(build)
         .invoke(
             "play-program",
             resource="drive",
-            interface="test.play_pulse_program/v1",
-            operation="play",
+            operation=_PLAY_PULSE,
             arguments={"program": build.output},
         )
         .build()
@@ -532,13 +546,12 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         authoring.module_body(id="test.runtime_entity_scan")
         .resource(
             "drive",
-            requires=("test.set_frequency/v1",),
+            requires=(_SET_FREQUENCY,),
             for_entities=(qubit,),
         )
         .bind_property(
             "drive",
-            interface="test.set_frequency/v1",
-            property="frequency",
+            _SET_FREQUENCY_VALUE,
             value=authoring.parameter_lookup(
                 "sample_qubits",
                 key={"qubit": qubit},
@@ -549,10 +562,8 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         .product("signal", unit="ratio")
         .acquire(
             "read-signal",
-            "signal",
             resource="drive",
-            interface="test.set_frequency/v1",
-            acquisition="sample",
+            results={_SET_FREQUENCY_SIGNAL: "signal"},
         )
         .build()
     )
@@ -657,14 +668,12 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
     module = (
         authoring.module_body(id="test.runtime_entity_dependent_points")
         .inputs(qubit)
-        .resource("source", requires=("test.scalar_signal/v1",))
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("signal", unit="ratio")
         .acquire(
             "read-signal",
-            "signal",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
+            results={_SCALAR_SIGNAL_VALUE: "signal"},
         )
         .build()
     )
@@ -705,7 +714,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
 def test_literal_string_values_define_categorical_product_axis() -> None:
     module = (
         authoring.module_body(id="test.categorical_axis")
-        .resource("source", requires=("test.scalar_signal/v1",))
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product(
             "iq",
             dtype="complex128",
@@ -724,10 +733,8 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
         )
         .acquire(
             "read-iq",
-            "iq",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
+            results={_SCALAR_IQ_VALUE: "iq"},
         )
         .build()
     )
@@ -853,8 +860,8 @@ def test_module_construction_rejects_duplicate_resource_ids() -> None:
     with pytest.raises(ValueError, match="duplicate module resource ids"):
         (
             authoring.module_body(id="test.shared_resource.duplicate")
-            .resource("source", requires=("test.set_frequency/v1",))
-            .resource("source", requires=("test.acquire_signal/v1",))
+            .resource("source", requires=(_SET_FREQUENCY,))
+            .resource("source", requires=(_ACQUIRE_SIGNAL,))
             .build()
         )
 
@@ -867,11 +874,10 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
     child = (
         authoring.module_body(id="test.invocation_defaults.child")
         .inputs(drive_frequency)
-        .resource("source", requires=("test.set_frequency/v1",))
+        .resource("source", requires=(_SET_FREQUENCY,))
         .bind_property(
             "source",
-            interface="test.set_frequency/v1",
-            property="frequency",
+            _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
         .build()
@@ -907,11 +913,10 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
     child = (
         authoring.module_body(id="test.invocation_override.child")
         .inputs(drive_frequency)
-        .resource("source", requires=("test.set_frequency/v1",))
+        .resource("source", requires=(_SET_FREQUENCY,))
         .bind_property(
             "source",
-            interface="test.set_frequency/v1",
-            property="frequency",
+            _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
         .build()
@@ -952,11 +957,10 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
     child = (
         authoring.module_body(id="test.invocation_deferred.child")
         .inputs(child_value, unused_parameter, unused_point)
-        .resource("source", requires=("test.set_offset/v1",))
+        .resource("source", requires=(_SET_OFFSET,))
         .bind_property(
             "source",
-            interface="test.set_offset/v1",
-            property="offset",
+            _SET_OFFSET_VALUE,
             value=child_value,
         )
         .build()
@@ -1014,18 +1018,16 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
         )
         .resource(
             "source",
-            requires=("test.set_offset/v1", "test.set_gain/v1"),
+            requires=(_SET_OFFSET, _SET_GAIN),
         )
         .bind_property(
             "source",
-            interface="test.set_offset/v1",
-            property="offset",
+            _SET_OFFSET_VALUE,
             value=used_parameter_input,
         )
         .bind_property(
             "source",
-            interface="test.set_gain/v1",
-            property="gain",
+            _SET_GAIN_VALUE,
             value=used_point_input,
         )
         .build()
@@ -1098,11 +1100,10 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
     child = (
         authoring.module_body(id="test.invocation_parent_input.child")
         .inputs(drive_frequency)
-        .resource("source", requires=("test.set_frequency/v1",))
+        .resource("source", requires=(_SET_FREQUENCY,))
         .bind_property(
             "source",
-            interface="test.set_frequency/v1",
-            property="frequency",
+            _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
         .build()
@@ -1138,11 +1139,10 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     first = (
         authoring.module_body(id="test.invocation_sibling.first")
         .inputs(first_frequency)
-        .resource("source", requires=("test.set_frequency/v1",))
+        .resource("source", requires=(_SET_FREQUENCY,))
         .bind_property(
             "source",
-            interface="test.set_frequency/v1",
-            property="frequency",
+            _SET_FREQUENCY_VALUE,
             value=first_frequency,
         )
         .build()
@@ -1154,11 +1154,10 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     second = (
         authoring.module_body(id="test.invocation_sibling.second")
         .inputs(second_frequency)
-        .resource("detector", requires=("test.set_frequency/v1",))
+        .resource("detector", requires=(_SET_FREQUENCY,))
         .bind_property(
             "detector",
-            interface="test.set_frequency/v1",
-            property="frequency",
+            _SET_FREQUENCY_VALUE,
             value=second_frequency,
         )
         .build()
@@ -1208,13 +1207,12 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         .inputs(qubit, drive_frequency)
         .resource(
             "drive",
-            requires=("test.set_frequency/v1",),
+            requires=(_SET_FREQUENCY,),
             for_entities=(qubit,),
         )
         .bind_property(
             "drive",
-            interface="test.set_frequency/v1",
-            property="frequency",
+            _SET_FREQUENCY_VALUE,
             value=drive_frequency,
         )
         .build()
@@ -1399,13 +1397,12 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         .inputs(qubit)
         .resource(
             "drive",
-            requires=("test.set_frequency/v1",),
+            requires=(_SET_FREQUENCY,),
             for_entities=(qubit,),
         )
         .bind_property(
             "drive",
-            interface="test.set_frequency/v1",
-            property="frequency",
+            _SET_FREQUENCY_VALUE,
             value=authoring.parameter(
                 "drive_frequency",
                 authoring.ScalarType(authoring.QuantityType(unit="GHz")),
@@ -1438,11 +1435,10 @@ def test_explicit_config_links_experiment() -> None:
     )
     module = (
         authoring.module_body(id="test.explicit-config-source")
-        .resource("drive", requires=("test.drive_frequency/v1",))
+        .resource("drive", requires=(_DRIVE_FREQUENCY,))
         .bind_property(
             "drive",
-            interface="test.drive_frequency/v1",
-            property="value",
+            _DRIVE_FREQUENCY_VALUE,
             value=Quantity(value=5.0, unit="GHz"),
         )
         .build()

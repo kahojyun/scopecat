@@ -11,28 +11,31 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.run import AnalysisCandidateRunConfigSource
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
+_SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
+_SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")
+_SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
+_SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
+
 SIMPLE_FREQUENCY_SCAN = (
     authoring.module_body(id="test.session.simple_frequency_scan")
-    .resource("source", requires=("test.set_frequency/v1", "test.scalar_signal/v1"))
+    .resource("source", requires=(_SET_FREQUENCY, _SCALAR_SIGNAL))
     .bind_property(
         "source",
-        interface="test.set_frequency/v1",
-        property="frequency",
+        _SET_FREQUENCY_VALUE,
         value=DRIVE_FREQUENCY_POINT,
     )
     .product("signal", unit="ratio")
     .acquire(
         "read-signal",
-        "signal",
         resource="source",
-        interface="test.scalar_signal/v1",
-        acquisition="sample",
+        results={_SCALAR_SIGNAL_VALUE: "signal"},
     )
     .build()
 )

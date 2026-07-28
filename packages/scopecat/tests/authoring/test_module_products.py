@@ -18,23 +18,25 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config
+
+_SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
+_SAMPLE = _SCALAR_SIGNAL.acquisition("sample")
 
 
 def _product_module() -> sc.ExperimentModule[...]:
     return (
         sc.module_body(id="test.products.source")
-        .resource("source", requires=("test.scalar_signal/v1",))
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product(
             "signal",
             unit="ratio",
         )
         .acquire(
             "read-signal",
-            "signal",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
+            results={_SAMPLE.result("signal"): "signal"},
             metadata={"adapter_mode": "default"},
         )
         .build()
@@ -46,17 +48,15 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 ) -> None:
     module = (
         sc.module_body(id="test.products.metadata")
-        .resource("source", requires=("test.scalar_signal/v1",))
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product(
             "signal",
             metadata={"schema_owner": "analysis"},
         )
         .acquire(
             "read-signal",
-            "signal",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
+            results={_SAMPLE.result("signal"): "signal"},
             metadata={"adapter_mode": "fast"},
         )
         .build()
@@ -82,15 +82,13 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 def test_acquire_is_an_ordered_effect() -> None:
     builder = (
         sc.module_body(id="test.products.acquire")
-        .resource("source", requires=("test.scalar_signal/v1",))
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("signal")
     )
     module = builder.acquire(
         "read-signal",
-        builder.products.signal,
         resource="source",
-        interface="test.scalar_signal/v1",
-        acquisition="sample",
+        results={_SAMPLE.result("signal"): builder.products.signal},
     ).build()
     assembly = elaborate_module(module.ir)
 
@@ -99,30 +97,64 @@ def test_acquire_is_an_ordered_effect() -> None:
     assert acquire.product_ids == (module.products.signal.product_id,)
 
 
-def test_multi_product_result_ids_lower_from_public_authoring_api(
+def test_component_scoped_members_lower_complete_targets() -> None:
+    interface = InterfaceRef("test.component_signal/v1")
+    channel = interface.component("rack").component("channel")
+    module = (
+        sc.module_body(id="test.products.component-targets")
+        .resource("source", requires=(interface,))
+        .bind_property("source", channel.property("gain"), value=1.0)
+        .invoke(
+            "zero-channel",
+            resource="source",
+            operation=channel.operation("zero"),
+        )
+        .product("signal")
+        .acquire(
+            "read-signal",
+            resource="source",
+            results={channel.acquisition("sample").result("signal"): "signal"},
+        )
+        .build()
+    )
+
+    assembly = elaborate_module(module.ir)
+    [binding] = assembly.bindings
+    [invocation] = assembly.invocations
+    [acquisition] = assembly.acquisitions
+
+    assert binding.interface_id == interface.interface_id
+    assert binding.component_path == ("rack", "channel")
+    assert binding.property_id == "gain"
+    assert invocation.interface_id == interface.interface_id
+    assert invocation.component_path == ("rack", "channel")
+    assert invocation.operation_id == "zero"
+    assert acquisition.interface_id == interface.interface_id
+    assert acquisition.component_path == ("rack", "channel")
+    assert acquisition.acquisition_id == "sample"
+    assert acquisition.results[0].result_id == "signal"
+
+
+def test_multi_product_result_mapping_lowers_from_public_authoring_api(
     tmp_path: Path,
 ) -> None:
     builder = (
-        sc.module_body(id="test.products.result-ids")
-        .resource("source", requires=("test.scalar_signal/v1",))
+        sc.module_body(id="test.products.result-mapping")
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("first", "second", "default")
     )
     module = builder.acquire(
         "read-all",
-        "first",
-        builder.products.second,
-        "default",
         resource="source",
-        interface="test.scalar_signal/v1",
-        acquisition="sample",
-        result_ids={
-            "first": "raw-first",
-            builder.products.second: "raw-second",
+        results={
+            _SAMPLE.result("raw-first"): "first",
+            _SAMPLE.result("raw-second"): builder.products.second,
+            _SAMPLE.result("default"): "default",
         },
     ).build()
     call = module()
 
-    @sc.template(id="test.products.result-ids", kind="module_products")
+    @sc.template(id="test.products.result-mapping", kind="module_products")
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call).record_product(
             call.products.first,
@@ -137,49 +169,59 @@ def test_multi_product_result_ids_lower_from_public_authoring_api(
 
     [acquisition] = core_acquisitions(resolved.program)
     assert acquisition.interface_id == "test.scalar_signal/v1"
-    assert {
-        result.product_id.local_id: result.result_id for result in acquisition.results
-    } == {
-        "first": "raw-first",
-        "second": "raw-second",
-        "default": "default",
-    }
+    assert [
+        (result.product_id.local_id, result.result_id) for result in acquisition.results
+    ] == [
+        ("first", "raw-first"),
+        ("second", "raw-second"),
+        ("default", "default"),
+    ]
 
 
-def test_acquire_rejects_invalid_result_id_overrides() -> None:
+def test_acquire_rejects_invalid_result_mappings() -> None:
     builder = (
-        sc.module_body(id="test.products.invalid-result-ids")
-        .resource("source", requires=("test.scalar_signal/v1",))
+        sc.module_body(id="test.products.invalid-result-mapping")
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("first", "second")
     )
 
-    with pytest.raises(ValueError, match="either result_id or result_ids"):
+    with pytest.raises(ValueError, match="non-empty id and result mapping"):
         builder.acquire(
             "read-both",
-            "first",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
-            result_id="raw-first",
-            result_ids={"first": "other-first"},
+            results={},
         )
-    with pytest.raises(ValueError, match="unselected product"):
+    mismatched_results = (
+        _SCALAR_SIGNAL.acquisition("other").result("raw-second"),
+        _SCALAR_SIGNAL.component("channel").acquisition("sample").result("raw-second"),
+        InterfaceRef("test.other_signal/v1").acquisition("sample").result("raw-second"),
+    )
+    for mismatched_result in mismatched_results:
+        with pytest.raises(ValueError, match="one acquisition"):
+            builder.acquire(
+                "read-both",
+                resource="source",
+                results={
+                    _SAMPLE.result("raw-first"): "first",
+                    mismatched_result: "second",
+                },
+            )
+    with pytest.raises(ValueError, match="unique products"):
         builder.acquire(
             "read-both",
-            "first",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
-            result_ids={"second": "raw-second"},
+            results={
+                _SAMPLE.result("raw-first"): "first",
+                _SAMPLE.result("raw-second"): builder.products.first,
+            },
         )
-    with pytest.raises(ValueError, match="values must be non-empty"):
+
+    foreign = sc.module_body(id="test.products.foreign").product("first")
+    with pytest.raises(ValueError, match="outside this builder"):
         builder.acquire(
-            "read-both",
-            "first",
+            "read-foreign",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
-            result_ids={"first": ""},
+            results={_SAMPLE.result("raw-first"): foreign.products.first},
         )
 
 

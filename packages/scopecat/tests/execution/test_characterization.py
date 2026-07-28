@@ -46,6 +46,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
     InstrumentReadback,
     InstrumentStateSnapshot,
+    InterfaceRef,
 )
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
@@ -58,6 +59,9 @@ from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.payload_codecs import json_payload_codecs
 from tests.testkit.run_operations import complete_coverage_operations
 from tests.testkit.runtime import FakeExecutionJournal
+
+_PLAY_PROGRAM = InterfaceRef("test.play_program/v1")
+_PLAY_PROGRAM_PLAY = _PLAY_PROGRAM.operation("play")
 
 
 def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
@@ -143,13 +147,12 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     child = (
         sc.module_body(id="tests.compute_schedule.child")
         .inputs(program)
-        .resource("source", requires=("test.play_program/v1",))
+        .resource("source", requires=(_PLAY_PROGRAM,))
         .computes(consume_program)
         .invoke(
             "play-program",
             resource="source",
-            interface="test.play_program/v1",
-            operation="play",
+            operation=_PLAY_PROGRAM_PLAY,
             arguments={"program": consume_program.output},
         )
         .build()

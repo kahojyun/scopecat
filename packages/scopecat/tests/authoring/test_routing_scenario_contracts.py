@@ -17,12 +17,20 @@ from scopecat.records.config import (
     RoutingEndpointBinding,
     RoutingGraph,
 )
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
     materialized_state_properties,
 )
+
+_DRIVE_FREQUENCY = InterfaceRef("test.drive_frequency/v1")
+_DRIVE_FREQUENCY_VALUE = _DRIVE_FREQUENCY.property("value")
+_READOUT_ACQUIRE = InterfaceRef("test.readout_acquire/v1")
+_READOUT_SAMPLE_IQ = _READOUT_ACQUIRE.acquisition("sample").result("iq")
+_READOUT_EMIT = InterfaceRef("test.readout_emit/v1")
+_READOUT_EMIT_FREQUENCY = _READOUT_EMIT.property("frequency")
 
 
 def _resource_binding_config(
@@ -87,13 +95,12 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         authoring.module_body(id="test.resource-binding-scenarios.entity-routing")
         .resource(
             "drive",
-            requires=("test.drive_frequency/v1",),
+            requires=(_DRIVE_FREQUENCY,),
             for_entities=(qubit,),
         )
         .bind_property(
             "drive",
-            interface="test.drive_frequency/v1",
-            property="value",
+            _DRIVE_FREQUENCY_VALUE,
             value=Quantity(value=5.0, unit="GHz"),
         )
         .build()
@@ -176,16 +183,14 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         authoring.module_body(id="test.resource-binding-scenarios.channel-selection")
         .resource(
             "digitizer",
-            requires=("test.readout_acquire/v1",),
+            requires=(_READOUT_ACQUIRE,),
             for_entities=(qubit,),
         )
         .product("iq", dtype="complex128")
         .acquire(
             "capture-iq",
-            "iq",
             resource="digitizer",
-            interface="test.readout_acquire/v1",
-            acquisition="sample",
+            results={_READOUT_SAMPLE_IQ: "iq"},
         )
         .build()
     )
@@ -262,18 +267,17 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         .inputs(qubit)
         .resource(
             "readout_source",
-            requires=("test.readout_emit/v1",),
+            requires=(_READOUT_EMIT,),
             for_entities=(qubit,),
         )
         .resource(
             "digitizer",
-            requires=("test.readout_acquire/v1",),
+            requires=(_READOUT_ACQUIRE,),
             for_entities=(qubit,),
         )
         .bind_property(
             "readout_source",
-            interface="test.readout_emit/v1",
-            property="frequency",
+            _READOUT_EMIT_FREQUENCY,
             value=Quantity(value=6.5, unit="GHz"),
         )
         .product(
@@ -282,10 +286,8 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         )
         .acquire(
             "capture-iq",
-            "iq",
             resource="digitizer",
-            interface="test.readout_acquire/v1",
-            acquisition="sample",
+            results={_READOUT_SAMPLE_IQ: "iq"},
         )
         .build()
     )

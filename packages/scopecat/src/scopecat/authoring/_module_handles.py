@@ -73,9 +73,14 @@ from scopecat.authoring.values import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
-from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
+from scopecat.kernel.instrument_members import (
+    AcquisitionResultRef,
+    InterfaceRef,
+    OperationRef,
+    PropertyRef,
+)
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -121,9 +126,9 @@ def _is_public_binding_input(value: object) -> bool:
 
 
 def _resource_interfaces(
-    requires: tuple[InterfaceId, ...],
+    requires: Sequence[InterfaceRef],
 ) -> tuple[InterfaceId, ...]:
-    return tuple(require_interface_id(interface) for interface in requires)
+    return tuple(interface.interface_id for interface in requires)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -252,7 +257,7 @@ class ModuleBuilder:
         self,
         id: str,
         *,
-        requires: tuple[InterfaceId, ...] = (),
+        requires: Sequence[InterfaceRef] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> ModuleBuilder:
         interfaces = _resource_interfaces(requires)
@@ -278,13 +283,11 @@ class ModuleBuilder:
     def bind_property(
         self,
         resource: str,
+        property: PropertyRef,
         *,
-        interface: InterfaceId,
-        property: str,
-        component_path: Sequence[str] = (),
         value: BindingInput,
     ) -> ModuleBuilder:
-        """Bind state through explicit interface, component, and property ids."""
+        """Bind one typed persistent device property."""
 
         if _is_payload_binding_input(value):
             raise TypeError("persistent properties cannot contain opaque payloads")
@@ -298,9 +301,9 @@ class ModuleBuilder:
                 ModuleBindingEffect(
                     binding_property(
                         resource,
-                        interface=interface,
-                        component_path=component_path,
-                        property=property,
+                        interface=property.interface_id,
+                        component_path=property.component_path,
+                        property=property.property_id,
                         value=cast("BindingInput", _capture_binding_literal(value)),
                     )
                 ),
@@ -312,10 +315,8 @@ class ModuleBuilder:
         id: str,
         *,
         resource: str,
-        interface: InterfaceId,
-        operation: str,
+        operation: OperationRef,
         arguments: Mapping[str, InvocationInput] | None = None,
-        component_path: Sequence[str] = (),
     ) -> ModuleBuilder:
         """Append one ordered atomic hardware operation."""
 
@@ -335,9 +336,9 @@ class ModuleBuilder:
                     invoke_operation(
                         id,
                         port_id=resource,
-                        interface=interface,
-                        component_path=component_path,
-                        operation=operation,
+                        interface=operation.interface_id,
+                        component_path=operation.component_path,
+                        operation=operation.operation_id,
                         arguments={
                             argument_id: cast(
                                 "InvocationInput",
@@ -361,57 +362,40 @@ class ModuleBuilder:
     def acquire(
         self,
         id: str,
-        *products: str | ProductRef,
+        *,
         resource: str,
-        interface: InterfaceId,
-        acquisition: str,
-        component_path: Sequence[str] = (),
-        result_id: str | None = None,
-        result_ids: Mapping[str | ProductRef, str] | None = None,
+        results: Mapping[AcquisitionResultRef, str | ProductRef],
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleBuilder:
-        """Acquire instrument results through one logical resource interface.
+        """Map results from one typed acquisition target to declared products."""
 
-        ``result_id`` is the single-product shorthand. ``result_ids`` may
-        override result ids for any subset of a multi-product acquisition;
-        products without an override keep their local logical id.
-        """
-
-        if not id or not products:
-            raise ValueError("acquire requires a non-empty id and products")
-        selected_interface = require_interface_id(interface)
-        selected_component_path = tuple(component_path)
-        if not acquisition or any(
-            not component for component in selected_component_path
+        if not id or not results:
+            raise ValueError("acquire requires a non-empty id and result mapping")
+        available_products = self.products
+        selected_results: list[tuple[AcquisitionResultRef, ProductRef]] = []
+        for result, product in results.items():
+            selected_product = (
+                available_products[product] if isinstance(product, str) else product
+            )
+            expected_product = available_products.get(selected_product.id)
+            if (
+                expected_product is None
+                or expected_product.product_id != selected_product.product_id
+                or expected_product.origin != selected_product.origin
+            ):
+                raise ValueError(
+                    "acquire result references a product outside this builder: "
+                    f"{selected_product.id!r}"
+                )
+            selected_results.append((result, expected_product))
+        acquisition = selected_results[0][0].acquisition
+        if any(result.acquisition != acquisition for result, _ in selected_results):
+            raise ValueError("acquire results must belong to one acquisition")
+        selected_products = tuple(product for _, product in selected_results)
+        if len({product.product_id for product in selected_products}) != len(
+            selected_products
         ):
-            raise ValueError("acquire requires non-empty acquisition and component ids")
-        if result_id is not None and result_ids is not None:
-            raise ValueError("acquire accepts either result_id or result_ids")
-        if result_id is not None and len(products) != 1:
-            raise ValueError("acquire result_id is only valid for one product")
-        if result_id is not None and not result_id:
-            raise ValueError("acquire result_id must be non-empty")
-        selected = tuple(
-            self.products[product] if isinstance(product, str) else product
-            for product in products
-        )
-        selected_by_id = {product.id: product for product in selected}
-        result_ids_by_product_id: dict[ProductId, str] = {}
-        for key, selected_result_id in (result_ids or {}).items():
-            if not selected_result_id:
-                raise ValueError("acquire result_ids values must be non-empty")
-            selected_id = key.id if isinstance(key, ProductRef) else key
-            selected_product = selected_by_id.get(selected_id)
-            if selected_product is None:
-                raise ValueError(
-                    f"acquire result_ids references unselected product {selected_id!r}"
-                )
-            if selected_product.product_id in result_ids_by_product_id:
-                raise ValueError(
-                    "acquire result_ids maps one selected product more than once: "
-                    f"{selected_id!r}"
-                )
-            result_ids_by_product_id[selected_product.product_id] = selected_result_id
+            raise ValueError("acquire results must map to unique products")
         selected_metadata = freeze_json_mapping(metadata or {})
         return replace(
             self,
@@ -420,23 +404,16 @@ class ModuleBuilder:
                 ModuleAcquireEffect(
                     id=id,
                     resource_port_id=logical_resource_port_id(resource),
-                    interface_id=selected_interface,
-                    component_path=selected_component_path,
-                    acquisition_id=acquisition,
+                    interface_id=acquisition.interface_id,
+                    component_path=acquisition.component_path,
+                    acquisition_id=acquisition.acquisition_id,
                     results=tuple(
                         ModuleAcquireResult(
                             product=product,
-                            result_id=(
-                                result_id
-                                if result_id is not None
-                                else result_ids_by_product_id.get(
-                                    product.product_id,
-                                    product.local_id,
-                                )
-                            ),
+                            result_id=result.result_id,
                             metadata=selected_metadata,
                         )
-                        for product in selected
+                        for result, product in selected_results
                     ),
                 ),
             ),

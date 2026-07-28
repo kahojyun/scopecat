@@ -20,7 +20,12 @@ from scopecat.compiler.semantic.model import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import template_fixture
+
+_MEASURE = InterfaceRef("test.measure/v1")
+_MEASURE_MODE = _MEASURE.property("mode")
+_MEASURE_SAMPLE_SIGNAL = _MEASURE.acquisition("sample").result("signal")
 
 _INSTANCE_IDS = (
     "alpha",
@@ -74,11 +79,10 @@ def _composable_module() -> sc.ExperimentModule[...]:
     )
     return (
         sc.module_body(id="test.composition-invariant.source")
-        .resource("source", requires=("test.measure/v1",))
+        .resource("source", requires=(_MEASURE,))
         .bind_property(
             "source",
-            interface="test.measure/v1",
-            property="mode",
+            _MEASURE_MODE,
             value="fast",
         )
         .computes(consume, produce)
@@ -86,10 +90,8 @@ def _composable_module() -> sc.ExperimentModule[...]:
         .product("signal", unit="ratio")
         .acquire(
             "read-signal",
-            "signal",
             resource="source",
-            interface="test.measure/v1",
-            acquisition="sample",
+            results={_MEASURE_SAMPLE_SIGNAL: "signal"},
         )
         .build()
     )

@@ -8,8 +8,12 @@ import scopecat as sc
 from scopecat.compiler.typed.program import core_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.typed_program import link_program
+
+_SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
+_SCALAR_SIGNAL_SAMPLE_RAW = _SCALAR_SIGNAL.acquisition("sample").result("raw")
 
 
 def _kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:
@@ -35,7 +39,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
 ) -> None:
     module = (
         sc.module_body(id="test.postprocessor.lowering")
-        .resource("source", requires=("test.scalar_signal/v1",))
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("raw", "derived", "dead")
         .measurement_postprocessors(
             _postprocessor("dead", source="raw", output="dead"),
@@ -43,10 +47,8 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         )
         .acquire(
             "read-raw",
-            "raw",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
+            results={_SCALAR_SIGNAL_SAMPLE_RAW: "raw"},
         )
         .build()
     )
@@ -90,17 +92,15 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     child = (
         sc.module_body(id="test.postprocessor.hidden-id.child")
-        .resource("source", requires=("test.scalar_signal/v1",))
+        .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("raw", "derived")
         .measurement_postprocessors(
             _postprocessor("derive", source="raw", output="derived")
         )
         .acquire(
             "read-raw",
-            "raw",
             resource="source",
-            interface="test.scalar_signal/v1",
-            acquisition="sample",
+            results={_SCALAR_SIGNAL_SAMPLE_RAW: "raw"},
         )
         .build()
     )
