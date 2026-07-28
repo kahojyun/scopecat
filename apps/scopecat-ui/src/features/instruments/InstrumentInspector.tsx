@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type {
   InstrumentCollectReceipt,
+  InstrumentConfiguredDefaultsApplyReceipt,
   InstrumentInterface,
   InstrumentInvokeReceipt,
   InstrumentOperation,
@@ -25,9 +26,11 @@ import type {
   InstrumentStateValue,
   InstrumentView,
 } from "../../api-contract";
+import { ApiError } from "../../api";
 import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
 import {
   applyInstrumentState,
+  applyInstrumentConfiguredDefaults,
   collectInstrumentAcquisition,
   acquisitionResultsForState,
   declaredAcquisitionResults,
@@ -85,7 +88,6 @@ export function InstrumentInspector({
   const instrumentId = instrument.instrument_id;
   const connected = session?.instrument_ids.includes(instrumentId) ?? false;
   const connectionEditable = instrument.connection.kind === "tcpip_socket";
-  const interactionEnabled = connected && !closePending;
   const description =
     session?.descriptions.find((candidate) => candidate.instrument_id === instrumentId) ??
     instrument.description ??
@@ -93,35 +95,45 @@ export function InstrumentInspector({
   const [state, setState] = useState<InstrumentState>();
   const [drafts, setDrafts] = useState<Record<string, DraftValue>>({});
   const [applyResult, setApplyResult] = useState<string>();
+  const [configuredDefaultsResult, setConfiguredDefaultsResult] =
+    useState<InstrumentConfiguredDefaultsApplyReceipt>();
   const [collectResults, setCollectResults] = useState<Record<string, InstrumentCollectReceipt>>(
     {},
   );
   const [invokeResults, setInvokeResults] = useState<Record<string, InstrumentInvokeReceipt>>({});
   const applyCommandIdRef = useRef<string | undefined>(undefined);
+  const configuredDefaultsOperationIdRef = useRef<string | undefined>(undefined);
   const collectCommandIdsRef = useRef<Record<string, string>>({});
   const invokeCommandIdsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (connected) return;
     applyCommandIdRef.current = undefined;
+    configuredDefaultsOperationIdRef.current = undefined;
     collectCommandIdsRef.current = {};
     invokeCommandIdsRef.current = {};
     setState(undefined);
     setDrafts({});
     setApplyResult(undefined);
+    setConfiguredDefaultsResult(undefined);
     setCollectResults({});
     setInvokeResults({});
   }, [connected]);
+
+  const hasConfiguredDefaults =
+    session?.configured_default_instrument_ids.includes(instrumentId) ?? false;
 
   const readMutation = useMutation({
     mutationFn: () => readInstrumentState(requireSession(session), instrumentId),
     onSuccess: (snapshot) => {
       applyCommandIdRef.current = undefined;
+      configuredDefaultsOperationIdRef.current = undefined;
       collectCommandIdsRef.current = {};
       invokeCommandIdsRef.current = {};
       setState(snapshot);
       setDrafts({});
       setApplyResult(undefined);
+      setConfiguredDefaultsResult(undefined);
       setCollectResults({});
       setInvokeResults({});
     },
@@ -181,6 +193,47 @@ export function InstrumentInspector({
     },
     onError: () => {
       void queryClient.invalidateQueries({ queryKey: ["instruments"] });
+    },
+  });
+  const configuredDefaultsMutation = useMutation({
+    mutationFn: ({ operationId }: { operationId: string }) =>
+      applyInstrumentConfiguredDefaults(requireSession(session), instrumentId, operationId),
+    retry: retryTransientInstrumentMutation,
+    retryDelay: 250,
+    onSuccess: (receipt) => {
+      configuredDefaultsOperationIdRef.current = undefined;
+      setConfiguredDefaultsResult(receipt);
+      if (receipt.state) setState(receipt.state);
+      if (receipt.status === "applied" || receipt.status === "unchanged") {
+        applyCommandIdRef.current = undefined;
+        collectCommandIdsRef.current = {};
+        invokeCommandIdsRef.current = {};
+        setApplyResult(undefined);
+        setDrafts({});
+        setCollectResults({});
+        setInvokeResults({});
+      }
+      void queryClient.invalidateQueries({ queryKey: ["instruments"] });
+    },
+    onError: async (cause) => {
+      await queryClient.invalidateQueries({ queryKey: ["instruments"] });
+      if (!(cause instanceof ApiError) || ![404, 409].includes(cause.status ?? 0)) {
+        return;
+      }
+      const canonical = queryClient
+        .getQueryData<{ items: InstrumentView[] }>(["instruments"])
+        ?.items.find((candidate) => candidate.instrument_id === instrumentId);
+      const stillOwned =
+        canonical?.availability === "active" &&
+        canonical.owner_kind === "instrument_session" &&
+        canonical.owner_id === session?.session_id;
+      if (canonical && !stillOwned) {
+        onSessionLost(
+          canonical?.availability === "quarantined"
+            ? "The daemon quarantined this instrument while applying configured defaults."
+            : "The interactive session ended while applying configured defaults.",
+        );
+      }
     },
   });
   const collectMutation = useMutation({
@@ -317,6 +370,12 @@ export function InstrumentInspector({
     setDrafts({});
     applyMutation.reset();
   };
+  const applyConfiguredDefaults = () => {
+    configuredDefaultsOperationIdRef.current ??= createInstrumentCommandId("configured-defaults");
+    configuredDefaultsMutation.mutate({
+      operationId: configuredDefaultsOperationIdRef.current,
+    });
+  };
   const collectAcquisition = (target: InstrumentAcquisitionTarget) => {
     const key = acquisitionKey(target);
     const commandId = collectCommandIdsRef.current[key] ?? createInstrumentCommandId("collect");
@@ -351,9 +410,25 @@ export function InstrumentInspector({
     sessionError ??
     mutationError(readMutation.error) ??
     mutationError(applyMutation.error) ??
+    mutationError(configuredDefaultsMutation.error) ??
     mutationError(collectMutation.error) ??
     mutationError(invokeMutation.error) ??
     mutationError(resolveMutation.error);
+  const interactionPending =
+    readMutation.isPending ||
+    applyMutation.isPending ||
+    configuredDefaultsMutation.isPending ||
+    collectMutation.isPending ||
+    invokeMutation.isPending;
+  const interactionDisabled = closePending || interactionPending;
+  const configuredDefaultsDisabled =
+    interactionDisabled || stagedCount > 0 || resolveMutation.isPending;
+  const configuredDefaultsDisabledReason =
+    stagedCount > 0
+      ? "Apply or reset staged properties first"
+      : configuredDefaultsDisabled
+        ? "Wait for the current instrument interaction to finish"
+        : undefined;
 
   return (
     <section className="instrument-inspector" aria-live="polite">
@@ -403,13 +478,19 @@ export function InstrumentInspector({
         actor={actor}
         connectPending={connectPending}
         closePending={closePending}
+        interactionPending={interactionPending}
         refreshPending={readMutation.isPending}
+        configuredDefaultsVisible={hasConfiguredDefaults}
+        configuredDefaultsPending={configuredDefaultsMutation.isPending}
+        configuredDefaultsDisabled={configuredDefaultsDisabled}
+        configuredDefaultsDisabledReason={configuredDefaultsDisabledReason}
         resolvePending={resolveMutation.isPending}
         onActorChange={onActorChange}
         onConnect={onConnect}
         onClose={onClose}
         onDisconnectOwner={onDisconnectOwner}
         onRefresh={() => readMutation.mutate()}
+        onApplyConfiguredDefaults={applyConfiguredDefaults}
         onResolve={() => resolveMutation.mutate()}
       />
 
@@ -418,6 +499,12 @@ export function InstrumentInspector({
           <AlertTriangle size={15} />
           {interactionError}
         </div>
+      )}
+
+      {configuredDefaultsResult && (
+        <p className={`instrument-receipt ${configuredDefaultsResult.status}`} role="status">
+          {configuredDefaultsReceiptMessage(configuredDefaultsResult)}
+        </p>
       )}
 
       {(instrument.problems ?? []).length > 0 && (
@@ -444,7 +531,8 @@ export function InstrumentInspector({
                 <InterfaceCard
                   key={instrumentInterface.id}
                   instrumentInterface={instrumentInterface}
-                  connected={interactionEnabled}
+                  connected={connected}
+                  interactionDisabled={interactionDisabled}
                   state={state}
                   drafts={drafts}
                   collectResults={collectResults}
@@ -455,7 +543,6 @@ export function InstrumentInspector({
                   invokingTarget={
                     invokeMutation.isPending ? invokeMutation.variables?.target : undefined
                   }
-                  invokePending={invokeMutation.isPending}
                   onStage={(componentPath, property, discriminatedState, draft) =>
                     stage(
                       instrumentInterface.id,
@@ -502,12 +589,7 @@ export function InstrumentInspector({
                 type="button"
                 className="primary-button"
                 onClick={applyStaged}
-                disabled={
-                  closePending ||
-                  invalidDraft ||
-                  stagedProperties.length === 0 ||
-                  applyMutation.isPending
-                }
+                disabled={interactionDisabled || invalidDraft || stagedProperties.length === 0}
               >
                 {applyMutation.isPending ? (
                   <LoaderCircle className="spin" size={14} />
@@ -542,13 +624,19 @@ function InstrumentSessionPanel({
   actor,
   connectPending,
   closePending,
+  interactionPending,
   refreshPending,
+  configuredDefaultsVisible,
+  configuredDefaultsPending,
+  configuredDefaultsDisabled,
+  configuredDefaultsDisabledReason,
   resolvePending,
   onActorChange,
   onConnect,
   onClose,
   onDisconnectOwner,
   onRefresh,
+  onApplyConfiguredDefaults,
   onResolve,
 }: {
   instrument: InstrumentView;
@@ -557,13 +645,19 @@ function InstrumentSessionPanel({
   actor: string;
   connectPending: boolean;
   closePending: boolean;
+  interactionPending: boolean;
   refreshPending: boolean;
+  configuredDefaultsVisible: boolean;
+  configuredDefaultsPending: boolean;
+  configuredDefaultsDisabled: boolean;
+  configuredDefaultsDisabledReason?: string;
   resolvePending: boolean;
   onActorChange: (actor: string) => void;
   onConnect: () => void;
   onClose: () => void;
   onDisconnectOwner: () => void;
   onRefresh: () => void;
+  onApplyConfiguredDefaults: () => void;
   onResolve: () => void;
 }) {
   if (connected && session) {
@@ -581,11 +675,32 @@ function InstrumentSessionPanel({
           </div>
         </div>
         <div className="session-actions">
+          {configuredDefaultsVisible && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onApplyConfiguredDefaults}
+              disabled={configuredDefaultsDisabled}
+              title={configuredDefaultsDisabledReason}
+            >
+              {configuredDefaultsPending ? (
+                <LoaderCircle className="spin" size={14} />
+              ) : (
+                <RotateCcw size={14} />
+              )}
+              Apply configured defaults
+            </button>
+          )}
           <button
             type="button"
             className="secondary-button"
             onClick={onRefresh}
-            disabled={refreshPending || closePending}
+            disabled={interactionPending || closePending}
+            title={
+              interactionPending
+                ? "Wait for the current instrument interaction to finish"
+                : undefined
+            }
           >
             <RefreshCw className={refreshPending ? "spin" : undefined} size={14} />
             Refresh state
@@ -594,7 +709,12 @@ function InstrumentSessionPanel({
             type="button"
             className="secondary-button"
             onClick={onClose}
-            disabled={closePending}
+            disabled={closePending || interactionPending}
+            title={
+              interactionPending
+                ? "Wait for the current instrument interaction to finish"
+                : undefined
+            }
           >
             {closePending ? <LoaderCircle className="spin" size={14} /> : <Unplug size={14} />}
             Disconnect
@@ -737,7 +857,7 @@ function InterfaceCard({
   invokeResults,
   collectingTarget,
   invokingTarget,
-  invokePending,
+  interactionDisabled,
   onStage,
   onCollect,
   onInvoke,
@@ -751,7 +871,7 @@ function InterfaceCard({
   invokeResults: Record<string, InstrumentInvokeReceipt>;
   collectingTarget?: InstrumentAcquisitionTarget;
   invokingTarget?: InstrumentOperationTarget;
-  invokePending: boolean;
+  interactionDisabled: boolean;
   onStage: (
     componentPath: string[],
     property: InstrumentProperty,
@@ -785,7 +905,7 @@ function InterfaceCard({
         invokeResults={invokeResults}
         collectingTarget={collectingTarget}
         invokingTarget={invokingTarget}
-        invokePending={invokePending}
+        interactionDisabled={interactionDisabled}
         onStage={onStage}
         onCollect={onCollect}
         onInvoke={onInvoke}
@@ -811,7 +931,7 @@ function InterfaceEndpoint({
   invokeResults,
   collectingTarget,
   invokingTarget,
-  invokePending,
+  interactionDisabled,
   onStage,
   onCollect,
   onInvoke,
@@ -827,7 +947,7 @@ function InterfaceEndpoint({
   invokeResults: Record<string, InstrumentInvokeReceipt>;
   collectingTarget?: InstrumentAcquisitionTarget;
   invokingTarget?: InstrumentOperationTarget;
-  invokePending: boolean;
+  interactionDisabled: boolean;
   onStage: (
     componentPath: string[],
     property: InstrumentProperty,
@@ -868,7 +988,7 @@ function InterfaceEndpoint({
                     property={property}
                     currentValue={stateValue(state, interfaceId, componentPath, property.id)}
                     draft={drafts[key]}
-                    editable={connected && property.access !== "read_only"}
+                    editable={connected && !interactionDisabled && property.access !== "read_only"}
                     onChange={(draft) =>
                       onStage(componentPath, property, member.state ?? undefined, draft)
                     }
@@ -890,7 +1010,7 @@ function InterfaceEndpoint({
                     connected={connected}
                     result={invokeResults[key]}
                     invoking={invokingTarget !== undefined && operationKey(invokingTarget) === key}
-                    invokePending={invokePending}
+                    interactionDisabled={interactionDisabled}
                     onInvoke={(operationArguments) => onInvoke(target, operationArguments)}
                     onEdit={() => onOperationEdit(target)}
                   />
@@ -911,6 +1031,7 @@ function InterfaceEndpoint({
                     connected={connected}
                     state={state}
                     result={collectResults[key]}
+                    interactionDisabled={interactionDisabled}
                     collecting={
                       collectingTarget !== undefined && acquisitionKey(collectingTarget) === key
                     }
@@ -936,7 +1057,7 @@ function InterfaceEndpoint({
           invokeResults={invokeResults}
           collectingTarget={collectingTarget}
           invokingTarget={invokingTarget}
-          invokePending={invokePending}
+          interactionDisabled={interactionDisabled}
           onStage={onStage}
           onCollect={onCollect}
           onInvoke={onInvoke}
@@ -952,7 +1073,7 @@ function OperationControl({
   connected,
   result,
   invoking,
-  invokePending,
+  interactionDisabled,
   onInvoke,
   onEdit,
 }: {
@@ -960,7 +1081,7 @@ function OperationControl({
   connected: boolean;
   result?: InstrumentInvokeReceipt;
   invoking: boolean;
-  invokePending: boolean;
+  interactionDisabled: boolean;
   onInvoke: (operationArguments: InstrumentOperationArgument[]) => void;
   onEdit: () => void;
 }) {
@@ -999,15 +1120,17 @@ function OperationControl({
           className="secondary-button"
           aria-label={`Invoke ${label}`}
           onClick={() => onInvoke(operationArguments)}
-          disabled={!connected || invokePending || invalid}
+          disabled={!connected || interactionDisabled || invalid}
           title={
             !connected
               ? "Connect before invoking"
-              : payloadUnsupported
-                ? "Payload arguments cannot be encoded in the GUI"
-                : invalid
-                  ? "Fill every operation argument before invoking"
-                  : undefined
+              : interactionDisabled
+                ? "Wait for the current instrument interaction to finish"
+                : payloadUnsupported
+                  ? "Payload arguments cannot be encoded in the GUI"
+                  : invalid
+                    ? "Fill every operation argument before invoking"
+                    : undefined
           }
         >
           {invoking ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
@@ -1021,7 +1144,7 @@ function OperationControl({
               key={argument.id}
               argument={argument}
               draft={drafts[argument.id]}
-              editable={connected && !invokePending}
+              editable={connected && !interactionDisabled}
               onChange={(draft) => edit(argument.id, draft)}
             />
           ))}
@@ -1160,6 +1283,7 @@ function AcquisitionControl({
   state,
   result,
   collecting,
+  interactionDisabled,
   onCollect,
 }: {
   target: InstrumentAcquisitionTarget;
@@ -1167,6 +1291,7 @@ function AcquisitionControl({
   state?: InstrumentState;
   result?: InstrumentCollectReceipt;
   collecting: boolean;
+  interactionDisabled: boolean;
   onCollect: () => void;
 }) {
   const acquisition = target.acquisition;
@@ -1189,10 +1314,16 @@ function AcquisitionControl({
               type="button"
               className="secondary-button"
               onClick={onCollect}
-              disabled={!connected || collecting || blocked}
-              aria-describedby={connected && blocked ? reasonId : undefined}
+              disabled={!connected || interactionDisabled || blocked}
+              aria-describedby={connected && !interactionDisabled && blocked ? reasonId : undefined}
               title={
-                !connected ? "Connect before collecting" : blocked ? readiness.reason : undefined
+                !connected
+                  ? "Connect before collecting"
+                  : interactionDisabled
+                    ? "Wait for the current instrument interaction to finish"
+                    : blocked
+                      ? readiness.reason
+                      : undefined
               }
             >
               {collecting ? <LoaderCircle className="spin" size={14} /> : <Database size={14} />}
@@ -1656,6 +1787,18 @@ function requireSession(session: InstrumentSession | undefined): InstrumentSessi
 
 function mutationError(error: unknown): string | undefined {
   return error === null || error === undefined ? undefined : errorMessage(error);
+}
+
+function configuredDefaultsReceiptMessage(
+  receipt: InstrumentConfiguredDefaultsApplyReceipt,
+): string {
+  if (receipt.status === "applied") return "Configured defaults applied.";
+  if (receipt.status === "unchanged") {
+    return "State already matched the configured defaults.";
+  }
+  return `Configured defaults rejected: ${receipt.problems
+    .map((problem) => problem.message)
+    .join(" ")}`;
 }
 
 function traceValues(receipt: InstrumentCollectReceipt): number[] | undefined {

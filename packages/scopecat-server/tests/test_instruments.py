@@ -16,6 +16,7 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     DirectConfigRevisionSource,
     ExecutorStartRequest,
+    InstrumentConfiguredDefaultsApplyCommand,
     InstrumentSessionOpenCommand,
     RunSubmission,
 )
@@ -26,6 +27,7 @@ from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
+    InstrumentRunStartPolicy,
     TcpipSocketInstrumentConnection,
     VirtualInstrumentConnection,
     config_content_hash,
@@ -247,6 +249,38 @@ class _NonConvergingApplyDriver(_ResyncDriver):
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         self.applied.append(request)
         return ApplyReceipt(status="applied")
+
+
+class _NotAppliedDriver(_ResyncDriver):
+    @override
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied.append(request)
+        return ApplyReceipt(
+            status="not_applied",
+            problems=(
+                problem(
+                    "driver_rejected_apply",
+                    "the driver rejected the requested state",
+                    phase=ProblemPhase.EXECUTION,
+                ),
+            ),
+        )
+
+
+class _UnknownApplyDriver(_ResyncDriver):
+    @override
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied.append(request)
+        return ApplyReceipt(
+            status="unknown",
+            problems=(
+                problem(
+                    "driver_apply_unknown",
+                    "the driver could not determine whether the state changed",
+                    phase=ProblemPhase.EXECUTION,
+                ),
+            ),
+        )
 
 
 class _StatefulDriver(_TrackingDriver):
@@ -894,6 +928,65 @@ def test_direct_collect_requires_the_active_acquisition_state(
                         result_id="monitored_voltage",
                     ),
                 )
+            assert len(driver.collect_requests) == 1
+            daemon.close_instrument_session(session.session_id)
+
+
+def test_collect_replay_precedes_validation_against_changed_state(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-collect-replay-after-state-change",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            command = _variant_collect_command(
+                command_id="collect-voltage-before-state-change",
+                result_id="monitored_voltage",
+            )
+
+            first = daemon.collect_instrument(
+                session.session_id,
+                "source-0",
+                command,
+            )
+            daemon.apply_instrument_state(
+                session.session_id,
+                "source-0",
+                InstrumentStateCommand(
+                    command_id="switch-to-current-after-collect",
+                    instrument_id="source-0",
+                    assignments=[
+                        InstrumentStateAssignment(
+                            resource_id="source-0",
+                            interface_id="test.dc/v1",
+                            property_id="mode",
+                            value=StateValue("current"),
+                        ),
+                        InstrumentStateAssignment(
+                            resource_id="source-0",
+                            interface_id="test.dc/v1",
+                            property_id="current_level",
+                            value=StateValue(0.02),
+                        ),
+                    ],
+                ),
+            )
+
+            replay = daemon.collect_instrument(
+                session.session_id,
+                "source-0",
+                command,
+            )
+
+            assert replay == first
+            [driver] = provider.drivers
             assert len(driver.collect_requests) == 1
             daemon.close_instrument_session(session.session_id)
 
@@ -1637,6 +1730,39 @@ def test_notebook_default_apply_retries_with_same_operation_after_response_loss(
             assert len(driver.applied) == 1
 
 
+def test_configured_defaults_replay_after_response_loss_avoids_hardware_io(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.1, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(
+                _daemon_client(
+                    transport,
+                    drop_response_suffix="/configured-defaults/apply",
+                )
+            ).instruments.open("source-0", actor="alice")
+            _ = handle.session_id
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+
+            receipt = handle.apply_configured_defaults(
+                operation_id="apply-defaults-with-lost-response"
+            )
+
+            assert receipt.status == "applied"
+            assert driver.read_count == 3
+            assert len(driver.applied) == 1
+            handle.close()
+
+
 def test_notebook_default_collect_retries_with_same_operation_after_response_loss(
     tmp_path: Path,
 ) -> None:
@@ -1836,6 +1962,320 @@ def test_direct_session_observes_without_applying_default_state(
             [driver] = provider.drivers
             assert driver.applied == []
             handle.close()
+
+
+def test_missing_configured_defaults_reject_without_hardware_io(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-without-configured-defaults",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            assert session.configured_default_instrument_ids == ()
+            command = InstrumentConfiguredDefaultsApplyCommand(
+                operation_id="apply-missing-configured-defaults"
+            )
+
+            first = daemon.apply_instrument_configured_defaults(
+                session.session_id,
+                "source-0",
+                command,
+            )
+            replay = daemon.apply_instrument_configured_defaults(
+                session.session_id,
+                "source-0",
+                command,
+            )
+
+            assert replay == first
+            assert first.status == "rejected"
+            assert first.problems[0].code == "instrument_configured_defaults_missing"
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            assert driver.read_count == 1
+            assert driver.applied == []
+            assert (
+                runtime.application.executor._control.get_instrument_session(
+                    session.session_id
+                ).state
+                == "active"
+            )
+            daemon.close_instrument_session(session.session_id)
+
+
+def test_configured_defaults_read_fresh_state_and_write_only_pending_values(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.1, unit="GHz")),
+        ),
+        InstrumentPropertyState(
+            interface_id="test.set_gain/v1",
+            property_id="gain",
+            value=StateValue(1.0),
+        ),
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            _ = handle.session_id
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            driver.change_from_front_panel(5.1)
+
+            receipt = handle.apply_configured_defaults(
+                operation_id="apply-sparse-configured-defaults"
+            )
+
+            assert receipt.status == "applied"
+            assert driver.read_count == 3
+            [request] = driver.applied
+            assert [
+                (item.interface_id, item.property_id, item.value.root)
+                for item in request.assignments
+            ] == [("test.set_gain/v1", "gain", 1.0)]
+            handle.close()
+
+
+def test_configured_defaults_skip_write_when_fresh_state_already_matches(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.1, unit="GHz")),
+        ),
+        InstrumentPropertyState(
+            interface_id="test.set_gain/v1",
+            property_id="gain",
+            value=StateValue(0.0),
+        ),
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            _ = handle.session_id
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            driver.change_from_front_panel(5.1)
+
+            receipt = handle.apply_configured_defaults(
+                operation_id="confirm-configured-defaults-unchanged"
+            )
+
+            assert receipt.status == "unchanged"
+            assert driver.read_count == 2
+            assert driver.applied == []
+            handle.close()
+
+
+def test_explicit_defaults_use_session_pinned_preserve_config(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    pinned_config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        ),
+        run_start="preserve",
+    )
+    with _runtime(tmp_path, provider, config=pinned_config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            active = runtime.application.config.get_active_config()
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            _ = handle.session_id
+            later_config = _config_with_default_state(
+                InstrumentPropertyState(
+                    interface_id="test.set_frequency/v1",
+                    property_id="frequency",
+                    value=StateValue(Quantity(value=6.0, unit="GHz")),
+                )
+            ).model_copy(update={"id": "later-defaults"})
+            runtime.application.config.publish_config(
+                ConfigPublishCommand(
+                    source=DirectConfigRevisionSource(config=later_config),
+                    entry_id="later-defaults",
+                    actor="operator",
+                    expected_generation=active.activation.generation,
+                )
+            )
+
+            receipt = handle.apply_configured_defaults(
+                operation_id="apply-pinned-preserve-defaults"
+            )
+
+            assert receipt.status == "applied"
+            assert receipt.config_entry_id == active.entry.id
+            [driver] = provider.drivers
+            [request] = driver.applied
+            assert request.assignments[0].value.root == Quantity(
+                value=5.0,
+                unit="GHz",
+            )
+            handle.close()
+
+
+def test_rejected_configured_defaults_remain_active_and_replayable(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_NotAppliedDriver)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            handle = LabClient(daemon).instruments.open("source-0", actor="alice")
+            session_id = handle.session_id
+
+            first = handle.apply_configured_defaults(
+                operation_id="reject-configured-defaults"
+            )
+            replay = handle.apply_configured_defaults(
+                operation_id="reject-configured-defaults"
+            )
+
+            assert replay == first
+            assert first.status == "rejected"
+            assert first.problems[0].code == "driver_rejected_apply"
+            [driver] = provider.drivers
+            assert isinstance(driver, _NotAppliedDriver)
+            assert driver.read_count == 2
+            assert len(driver.applied) == 1
+            durable = runtime.application.executor._control.get_instrument_session(
+                session_id
+            )
+            assert durable.state == "active"
+            [instrument] = daemon.list_instruments().items
+            assert instrument.availability == "active"
+            handle.close()
+
+
+@pytest.mark.parametrize(
+    ("driver_type", "attention_reason", "read_count"),
+    [
+        (
+            _UnknownApplyDriver,
+            "instrument_configured_defaults_receipt_unknown",
+            2,
+        ),
+        (
+            _NonConvergingApplyDriver,
+            "instrument_configured_defaults_state_unknown",
+            3,
+        ),
+    ],
+)
+def test_indeterminate_configured_defaults_quarantine_the_session(
+    tmp_path: Path,
+    *,
+    driver_type: type[_TrackingDriver],
+    attention_reason: str,
+    read_count: int,
+) -> None:
+    provider = _TrackingProvider(driver_type)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            handle = LabClient(daemon).instruments.open("source-0", actor="alice")
+            session_id = handle.session_id
+
+            with pytest.raises(DaemonConflictError):
+                handle.apply_configured_defaults(
+                    operation_id="indeterminate-configured-defaults"
+                )
+
+            durable = runtime.application.executor._control.get_instrument_session(
+                session_id
+            )
+            assert durable.state == "attention_required"
+            assert durable.attention_reason == attention_reason
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            assert driver.read_count == read_count
+            assert len(driver.applied) == 1
+            assert driver.abort_count == 1
+            assert driver.disconnect_count == 1
+            [instrument] = daemon.list_instruments().items
+            assert instrument.availability == "quarantined"
+
+
+def test_configured_defaults_read_failure_cleanly_closes_the_session(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            handle = LabClient(daemon).instruments.open("source-0", actor="alice")
+            session_id = handle.session_id
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            driver.fail_next_read = True
+
+            with pytest.raises(
+                DaemonConflictError,
+                match="state read failed",
+            ):
+                handle.apply_configured_defaults(
+                    operation_id="read-fails-before-configured-defaults"
+                )
+
+            durable = runtime.application.executor._control.get_instrument_session(
+                session_id
+            )
+            assert durable.state == "closed"
+            assert durable.end_status == "aborted"
+            assert driver.applied == []
+            assert driver.abort_count == 0
+            assert driver.disconnect_count == 1
+            [instrument] = daemon.list_instruments().items
+            assert instrument.availability == "available"
+            end_receipt = handle.close()
+            assert end_receipt is not None
+            assert end_receipt.status == "aborted"
 
 
 def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
@@ -2221,12 +2661,13 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
 
 def _config_with_default_state(
     *properties: InstrumentPropertyState,
+    run_start: InstrumentRunStartPolicy = "apply_default_state",
 ) -> ConfigProfileSnapshot:
     config = load_config()
     [instrument] = config.instrument_registry.instruments
     configured = instrument.model_copy(
         update={
-            "run_start": "apply_default_state",
+            "run_start": run_start,
             "default_state": list(properties),
         }
     )

@@ -22,6 +22,8 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
     PayloadObjectReceipt,
     RunAdmission,
@@ -37,6 +39,7 @@ from scopecat.records.artifact import (
     command_payload_from_bytes,
 )
 from scopecat.records.config import config_content_hash
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import (
@@ -152,6 +155,47 @@ def test_run_instrument_provision_retries_the_same_operation_after_response_loss
         RunInstrumentProvisionCommand.model_validate_json(request.content)
         for request in requests
     ] == [command, command]
+
+
+def test_apply_configured_defaults_posts_the_typed_command_to_the_instrument() -> None:
+    requests: list[httpx2.Request] = []
+    command = InstrumentConfiguredDefaultsApplyCommand(operation_id="defaults.apply-1")
+    receipt = InstrumentConfiguredDefaultsApplyReceipt(
+        session_id="session-1",
+        operation_id=command.operation_id,
+        instrument_id="source-0",
+        config_entry_id="baseline",
+        status="applied",
+        state=InstrumentStateSnapshot(instrument_id="source-0"),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert (
+        client.apply_instrument_configured_defaults(
+            "session-1",
+            "source-0",
+            command,
+        )
+        == receipt
+    )
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == (
+        "/api/v1/instrument-sessions/session-1/"
+        "instruments/source-0/configured-defaults/apply"
+    )
+    assert (
+        InstrumentConfiguredDefaultsApplyCommand.model_validate_json(request.content)
+        == command
+    )
 
 
 def test_invoke_externalizes_inline_payload_before_command_post() -> None:

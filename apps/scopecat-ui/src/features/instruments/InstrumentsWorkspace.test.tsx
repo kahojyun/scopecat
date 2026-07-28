@@ -14,6 +14,7 @@ import type {
 import { InstrumentsWorkspace } from "./InstrumentsWorkspace";
 import {
   abortInstrumentSession,
+  applyInstrumentConfiguredDefaults,
   applyInstrumentState,
   closeInstrumentSession,
   collectInstrumentAcquisition,
@@ -29,6 +30,7 @@ import {
 vi.mock("./instrument-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./instrument-api")>()),
   abortInstrumentSession: vi.fn(),
+  applyInstrumentConfiguredDefaults: vi.fn(),
   applyInstrumentState: vi.fn(),
   closeInstrumentSession: vi.fn(),
   collectInstrumentAcquisition: vi.fn(),
@@ -50,6 +52,9 @@ beforeEach(() => {
   vi.mocked(getActiveConfig).mockResolvedValue(activeConfig());
   vi.mocked(openInstrumentSession).mockResolvedValue(session());
   vi.mocked(readInstrumentState).mockResolvedValue(instrumentState());
+  vi.mocked(applyInstrumentConfiguredDefaults).mockResolvedValue(
+    configuredDefaultsReceipt("applied", instrumentState(6_000_000_000)),
+  );
   vi.mocked(applyInstrumentState).mockResolvedValue({
     status: "applied",
     problems: [],
@@ -191,6 +196,231 @@ describe("instrument workspace", () => {
     rendered.unmount();
 
     await waitFor(() => expect(closeInstrumentSession).toHaveBeenCalledWith("session-1", true));
+  });
+
+  it("shows and applies only session-authoritative configured defaults", async () => {
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({ configured_default_instrument_ids: ["drive-source"] }),
+    );
+    renderWorkspace();
+
+    await screen.findByText("Drive source");
+    expect(
+      screen.queryByRole("button", { name: "Apply configured defaults" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    const applyDefaults = await screen.findByRole("button", {
+      name: "Apply configured defaults",
+    });
+    fireEvent.click(applyDefaults);
+
+    await waitFor(() =>
+      expect(applyInstrumentConfiguredDefaults).toHaveBeenCalledWith(
+        expect.objectContaining({ session_id: "session-1" }),
+        "drive-source",
+        expect.stringMatching(/^ui-configured-defaults-/),
+      ),
+    );
+    expect(await screen.findByText("Configured defaults applied.")).toBeVisible();
+    expect(screen.getByRole("spinbutton", { name: /CW frequency/ })).toHaveValue(6_000_000_000);
+  });
+
+  it("clears stale operation results after applying configured defaults", async () => {
+    const withOperations = instrumentWithOperations();
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      problems: [],
+      items: [withOperations],
+    });
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({
+        configured_default_instrument_ids: ["drive-source"],
+        descriptions: [withOperations.description!],
+      }),
+    );
+    renderWorkspace();
+
+    await screen.findByText("Reset fault");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Invoke Reset fault" }));
+    expect(await screen.findByText("Invoke receipt: Invoked")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply configured defaults" }));
+    expect(await screen.findByText("Configured defaults applied.")).toBeVisible();
+    expect(screen.queryByText("Invoke receipt: Invoked")).not.toBeInTheDocument();
+  });
+
+  it("hides configured defaults when the pinned session has none", async () => {
+    renderWorkspace();
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await screen.findByText("Interactive session connected");
+
+    expect(
+      screen.queryByRole("button", { name: "Apply configured defaults" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("disables configured defaults for staged values and pending interactions", async () => {
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({ configured_default_instrument_ids: ["drive-source"] }),
+    );
+    let finishCollect: (() => void) | undefined;
+    vi.mocked(collectInstrumentAcquisition).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishCollect = () =>
+            resolve({
+              status: "collected",
+              problems: [],
+              readback: { values: {} },
+            });
+        }),
+    );
+    renderWorkspace();
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    const frequency = await screen.findByRole("spinbutton", { name: /CW frequency/ });
+    const applyDefaults = screen.getByRole("button", {
+      name: "Apply configured defaults",
+    });
+
+    fireEvent.change(frequency, { target: { value: "6000000000" } });
+    expect(applyDefaults).toBeDisabled();
+    expect(applyDefaults).toHaveAttribute("title", "Apply or reset staged properties first");
+
+    fireEvent.click(screen.getByRole("button", { name: "Collect" }));
+    await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: "Apply staged" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refresh state" })).toBeDisabled();
+    expect(applyDefaults).toBeDisabled();
+    expect(applyDefaults).toHaveAttribute("title", "Apply or reset staged properties first");
+    finishCollect?.();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Apply staged" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(applyDefaults).toBeEnabled();
+  });
+
+  it("blocks other device interactions while configured defaults are pending", async () => {
+    const withOperations = instrumentWithOperations();
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      problems: [],
+      items: [withOperations],
+    });
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({
+        configured_default_instrument_ids: ["drive-source"],
+        descriptions: [withOperations.description!],
+      }),
+    );
+    let finishDefaults:
+      | ((receipt: Awaited<ReturnType<typeof applyInstrumentConfiguredDefaults>>) => void)
+      | undefined;
+    vi.mocked(applyInstrumentConfiguredDefaults).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishDefaults = resolve;
+        }),
+    );
+    renderWorkspace();
+    await screen.findByText("Reset fault");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    const applyDefaults = await screen.findByRole("button", {
+      name: "Apply configured defaults",
+    });
+    await waitFor(() => expect(applyDefaults).toBeEnabled());
+
+    fireEvent.click(applyDefaults);
+    await waitFor(() => expect(applyInstrumentConfiguredDefaults).toHaveBeenCalledOnce());
+
+    expect(screen.getByRole("button", { name: "Refresh state" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Collect" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Invoke Reset fault" })).toBeDisabled();
+    expect(screen.getByRole("spinbutton", { name: /CW frequency/ })).toBeDisabled();
+    expect(applyDefaults).toHaveAttribute(
+      "title",
+      "Wait for the current instrument interaction to finish",
+    );
+
+    finishDefaults?.(configuredDefaultsReceipt("unchanged", instrumentState()));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Refresh state" })).toBeEnabled(),
+    );
+  });
+
+  it("shows configured-default rejection problems without losing the session", async () => {
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({ configured_default_instrument_ids: ["drive-source"] }),
+    );
+    vi.mocked(applyInstrumentConfiguredDefaults).mockResolvedValueOnce({
+      session_id: "session-1",
+      operation_id: "defaults-rejected",
+      instrument_id: "drive-source",
+      config_entry_id: "lab-default",
+      status: "rejected",
+      problems: [
+        {
+          code: "driver_rejected",
+          message: "Driver refused the configured state.",
+          phase: "execution",
+          related_locations: [],
+        },
+      ],
+      state: null,
+    });
+    renderWorkspace();
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply configured defaults" }));
+
+    expect(
+      await screen.findByText("Configured defaults rejected: Driver refused the configured state."),
+    ).toBeVisible();
+    expect(screen.getByText("Interactive session connected")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Connect" })).not.toBeInTheDocument();
+  });
+
+  it("reuses the configured-default operation id while retrying a network failure", async () => {
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({ configured_default_instrument_ids: ["drive-source"] }),
+    );
+    vi.mocked(applyInstrumentConfiguredDefaults)
+      .mockRejectedValueOnce(new ApiError("Defaults request lost."))
+      .mockResolvedValueOnce(configuredDefaultsReceipt("unchanged", instrumentState()));
+    renderWorkspace();
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    const applyDefaults = await screen.findByRole("button", {
+      name: "Apply configured defaults",
+    });
+
+    fireEvent.click(applyDefaults);
+
+    await waitFor(() => expect(applyInstrumentConfiguredDefaults).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(applyInstrumentConfiguredDefaults).mock.calls[0]?.[2]).toBe(
+      vi.mocked(applyInstrumentConfiguredDefaults).mock.calls[1]?.[2],
+    );
+    expect(await screen.findByText("State already matched the configured defaults.")).toBeVisible();
+  });
+
+  it("refreshes ownership after a configured-default conflict", async () => {
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({ configured_default_instrument_ids: ["drive-source"] }),
+    );
+    vi.mocked(applyInstrumentConfiguredDefaults).mockRejectedValueOnce(
+      new ApiError("The session is no longer active.", 409),
+    );
+    renderWorkspace();
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply configured defaults" }));
+
+    expect(
+      await screen.findByText("The interactive session ended while applying configured defaults."),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeVisible();
   });
 
   it("allows an operator to disconnect a daemon-owned interactive session", async () => {
@@ -1051,9 +1281,25 @@ function session(overrides: Partial<InstrumentSession> = {}): InstrumentSession 
     config_entry_id: "lab-default",
     config_content_hash: "sha256:active",
     instrument_ids: ["drive-source"],
+    configured_default_instrument_ids: [],
     descriptions: [instrument().description!],
     opened_at: "2026-07-27T09:00:00Z",
     ...overrides,
+  };
+}
+
+function configuredDefaultsReceipt(
+  status: "applied" | "unchanged",
+  state: InstrumentState,
+): Awaited<ReturnType<typeof applyInstrumentConfiguredDefaults>> {
+  return {
+    session_id: "session-1",
+    operation_id: "defaults-1",
+    instrument_id: "drive-source",
+    config_entry_id: "lab-default",
+    status,
+    problems: [],
+    state,
   };
 }
 

@@ -47,6 +47,8 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
@@ -273,6 +275,22 @@ class DaemonClient:
             ),
             command,
             ApplyReceipt,
+        )
+
+    def apply_instrument_configured_defaults(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentConfiguredDefaultsApplyCommand,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        return self._post_idempotent_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "configured-defaults/apply",
+            ),
+            command,
+            InstrumentConfiguredDefaultsApplyReceipt,
         )
 
     def invoke_instrument(

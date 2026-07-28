@@ -223,7 +223,9 @@ hardware implicitly.
 Run evidence records both the fresh `observed_state` and the resulting
 `prepared_state`. Direct GUI and Notebook sessions always use fresh observation
 with preserve semantics; saved defaults never change a device merely because a
-user opened an interactive session.
+user opened an interactive session. An explicit configured-default action reads
+again and uses the immutable config entry pinned when that session opened, even
+if another revision has since become active.
 
 The GUI's connection editor follows the same immutable workflow as other
 configuration: load the active complete snapshot, edit the selected
@@ -253,14 +255,16 @@ operator explicitly selects **Connect**, after which the detail view:
 1. reads a fresh state snapshot;
 2. renders interface components and property controls from
    `InstrumentDescription`;
-3. disables `read_only` properties and never tries to read `write_only` values;
-4. stages edits locally, showing current and proposed values separately;
-5. submits all staged properties in one **Apply** operation;
-6. offers one-shot controls for declared operations whose arguments the GUI can
+3. offers an explicit **Apply configured defaults** action when the session's
+   pinned config contains a sparse default state;
+4. disables `read_only` properties and never tries to read `write_only` values;
+5. stages edits locally, showing current and proposed values separately;
+6. submits all staged properties in one **Apply** operation;
+7. offers one-shot controls for declared operations whose arguments the GUI can
    encode;
-7. offers **Collect** per declared acquisition and requests its declared
+8. offers **Collect** per declared acquisition and requests its declared
    results;
-8. releases session ownership on explicit disconnect or workspace teardown.
+9. releases session ownership on explicit disconnect or workspace teardown.
 
 If a browser teardown request does not reach the daemon, the next client can
 disconnect the still-visible interactive session. This is ordinary ownership
@@ -300,6 +304,7 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.describe())
         print(vna.read_state())
 
+        prepared = vna.apply_configured_defaults()
         receipt = vna.apply(
             {
                 NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(4.8, "GHz"),

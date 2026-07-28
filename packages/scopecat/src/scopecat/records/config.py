@@ -102,7 +102,10 @@ type InstrumentRunStartPolicy = Literal["preserve", "apply_default_state"]
 
 
 class InstrumentSpec(BaseModel):
-    """Configured instrument with a stable scheduler-only physical access domain."""
+    """Configured instrument with a stable physical access domain.
+
+    Defaults are sparse patches over freshly observed state.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

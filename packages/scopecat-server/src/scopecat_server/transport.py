@@ -48,6 +48,8 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
@@ -248,6 +250,21 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: InstrumentStateCommand,
     ) -> ApplyReceipt:
         return application.instruments.apply_state(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/configured-defaults/apply"
+    )
+    def apply_instrument_configured_defaults(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentConfiguredDefaultsApplyCommand,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        return application.instruments.apply_configured_defaults(
             session_id,
             instrument_id,
             command,

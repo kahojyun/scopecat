@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
@@ -31,6 +32,8 @@ from scopecat.daemon.wire import (
     DirectConfigRevisionSource,
     ExecutionTransitionAppend,
     ExecutorLease,
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
     MeasurementAppendCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
@@ -506,6 +509,90 @@ def test_rejected_run_instrument_provision_has_no_state_evidence() -> None:
             problems=(problem,),
             observed_state=(source,),
         )
+
+
+def test_configured_defaults_apply_command_requires_operation_identity() -> None:
+    command = InstrumentConfiguredDefaultsApplyCommand(operation_id="defaults.apply-1")
+
+    assert (
+        InstrumentConfiguredDefaultsApplyCommand.model_validate_json(
+            command.model_dump_json()
+        )
+        == command
+    )
+    with pytest.raises(ValidationError):
+        InstrumentConfiguredDefaultsApplyCommand(operation_id="")
+
+
+@pytest.mark.parametrize("status", ["applied", "unchanged"])
+def test_successful_configured_defaults_apply_requires_synchronized_state(
+    status: Literal["applied", "unchanged"],
+) -> None:
+    state = InstrumentStateSnapshot(instrument_id="source-a")
+    receipt = InstrumentConfiguredDefaultsApplyReceipt(
+        session_id="session-1",
+        operation_id="defaults.apply-1",
+        instrument_id="source-a",
+        config_entry_id="baseline",
+        status=status,
+        state=state,
+    )
+
+    assert (
+        InstrumentConfiguredDefaultsApplyReceipt.model_validate_json(
+            receipt.model_dump_json()
+        )
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="requires synchronized state"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"state"})
+        )
+    with pytest.raises(ValidationError, match="cannot contain problems"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"problems"}),
+            problems=(_configured_defaults_problem(),),
+        )
+    with pytest.raises(ValidationError, match="must match instrument_id"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"state"}),
+            state=state.model_copy(update={"instrument_id": "source-b"}),
+        )
+
+
+def test_rejected_configured_defaults_apply_has_problem_without_state() -> None:
+    receipt = InstrumentConfiguredDefaultsApplyReceipt(
+        session_id="session-1",
+        operation_id="defaults.apply-1",
+        instrument_id="source-a",
+        config_entry_id="baseline",
+        status="rejected",
+        problems=(_configured_defaults_problem(),),
+    )
+
+    assert (
+        InstrumentConfiguredDefaultsApplyReceipt.model_validate_json(
+            receipt.model_dump_json()
+        )
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="requires a problem"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"problems"})
+        )
+    with pytest.raises(ValidationError, match="cannot report state"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"state"}),
+            state=InstrumentStateSnapshot(instrument_id="source-a"),
+        )
+
+
+def _configured_defaults_problem() -> Problem:
+    return Problem(
+        code="configured_defaults_rejected",
+        phase=ProblemPhase.EXECUTION,
+        message="configured defaults were rejected",
+    )
 
 
 def test_effect_commands_do_not_repeat_durable_identity() -> None:

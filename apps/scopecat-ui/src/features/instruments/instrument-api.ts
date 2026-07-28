@@ -7,6 +7,7 @@ import type {
   InstrumentApplyReceipt,
   InstrumentCollectReceipt,
   InstrumentConnection,
+  InstrumentConfiguredDefaultsApplyReceipt,
   InstrumentInvokeReceipt,
   InstrumentOperation,
   InstrumentSession,
@@ -112,6 +113,20 @@ export async function applyInstrumentState(
       instrument_id: instrumentId,
       assignments: [assignment(first), ...remaining.map(assignment)],
     } satisfies DaemonUiApi["instrumentApplyCommand"]),
+  );
+}
+
+export async function applyInstrumentConfiguredDefaults(
+  session: InstrumentSession,
+  instrumentId: string,
+  operationId = createInstrumentCommandId("configured-defaults"),
+): Promise<InstrumentConfiguredDefaultsApplyReceipt> {
+  return request<InstrumentConfiguredDefaultsApplyReceipt>(
+    instrumentSessionPath(session.session_id, instrumentId, "configured-defaults/apply"),
+    undefined,
+    jsonRequest({
+      operation_id: operationId,
+    } satisfies DaemonUiApi["instrumentConfiguredDefaultsApplyCommand"]),
   );
 }
 
@@ -253,7 +268,7 @@ export function retryTransientInstrumentMutation(failureCount: number, error: un
 function instrumentSessionPath(
   sessionId: string,
   instrumentId: string,
-  operation: "state" | "state/apply" | "invoke" | "collect",
+  operation: "state" | "state/apply" | "configured-defaults/apply" | "invoke" | "collect",
 ): string {
   return (
     `${SESSION_API}/${encodeURIComponent(sessionId)}/instruments/` +

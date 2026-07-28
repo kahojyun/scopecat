@@ -31,6 +31,8 @@ from scopecat.daemon.views import (
     VirtualInstrumentConnectionSummary,
 )
 from scopecat.daemon.wire import (
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
@@ -132,18 +134,46 @@ type _DriverHardwareRequest = (
 
 @dataclass(slots=True)
 class _InstrumentOperationLedger:
-    apply_receipts: dict[str, tuple[InstrumentStateCommand, ApplyReceipt]] = field(
-        default_factory=dict
-    )
-    invoke_receipts: dict[str, tuple[InvokeCommand, InvokeReceipt]] = field(
-        default_factory=dict
-    )
-    collect_receipts: dict[str, tuple[CollectCommand, CollectReceipt]] = field(
-        default_factory=dict
-    )
-    collect_failures: dict[str, tuple[CollectCommand, str]] = field(
-        default_factory=dict
-    )
+    operations: dict[str, _InstrumentOperationReplay] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class _ApplyReplay:
+    command: InstrumentStateCommand
+    receipt: ApplyReceipt
+
+
+@dataclass(frozen=True, slots=True)
+class _InvokeReplay:
+    command: InvokeCommand
+    receipt: InvokeReceipt
+
+
+@dataclass(frozen=True, slots=True)
+class _CollectReceiptReplay:
+    command: CollectCommand
+    receipt: CollectReceipt
+
+
+@dataclass(frozen=True, slots=True)
+class _CollectFailureReplay:
+    command: CollectCommand
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ConfiguredDefaultsReplay:
+    command: InstrumentConfiguredDefaultsApplyCommand
+    receipt: InstrumentConfiguredDefaultsApplyReceipt
+
+
+type _InstrumentOperationReplay = (
+    _ApplyReplay
+    | _InvokeReplay
+    | _CollectReceiptReplay
+    | _CollectFailureReplay
+    | _ConfiguredDefaultsReplay
+)
 
 
 @dataclass(slots=True)
@@ -753,56 +783,19 @@ class InstrumentService:
             spec = specs[instrument_id]
             if spec.run_start != "apply_default_state":
                 continue
-            assignments = [
-                InstrumentStateAssignment(
-                    resource_id=instrument_id,
-                    interface_id=item.interface_id,
-                    component_path=list(item.component_path),
-                    property_id=item.property_id,
-                    value=item.value,
-                )
-                for item in spec.default_state
-            ]
-            command = InstrumentStateCommand(
-                command_id=f"{operation_id}.default_state.{instrument_id}",
+            assignments = _configured_default_assignments(
+                spec,
+                runtime.instruments[instrument_id],
+            )
+            command = _pending_configured_defaults_command(
                 instrument_id=instrument_id,
                 assignments=assignments,
+                instrument=runtime.instruments[instrument_id],
+                observed_state=observed[instrument_id],
+                operation_id=f"{operation_id}.default_state.{instrument_id}",
             )
-            # Default state must select its own case instead of depending on idle state.
-            contract_problems = validate_reconciled_state_assignments(
-                instrument_id=instrument_id,
-                assignments=command.assignments,
-                description=runtime.instruments[instrument_id].description,
-                require_explicit_state_case=True,
-            )
-            if contract_problems:
-                raise _DefaultStateReconciliationRejected(
-                    problems=tuple(contract_problems),
-                    changed_state=False,
-                )
-            pending = [
-                assignment
-                for assignment in assignments
-                if not _state_assignment_satisfied(
-                    observed[instrument_id],
-                    assignment,
-                )
-            ]
-            if not pending:
-                continue
-            command = command.model_copy(update={"assignments": pending})
-            state_problems = validate_reconciled_state_assignments(
-                instrument_id=instrument_id,
-                assignments=command.assignments,
-                description=runtime.instruments[instrument_id].description,
-                baseline=observed[instrument_id],
-            )
-            if state_problems:
-                raise _DefaultStateReconciliationRejected(
-                    problems=tuple(state_problems),
-                    changed_state=False,
-                )
-            commands.append(command)
+            if command is not None:
+                commands.append(command)
 
         reconciled = {
             instrument_id: state.model_copy(deep=True)
@@ -1716,6 +1709,253 @@ class InstrumentService:
                 ),
             )
 
+    def apply_configured_defaults(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentConfiguredDefaultsApplyCommand,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        """Apply sparse defaults from the config entry pinned by this session."""
+
+        runtime = self._live_runtime(session_id)
+        with runtime.lock:
+            session, _runtime, instrument = self._session_instrument(
+                session_id,
+                instrument_id,
+            )
+            ledger = runtime.ledgers[instrument_id]
+            replay = ledger.operations.get(command.operation_id)
+            if replay is not None:
+                if not isinstance(replay, _ConfiguredDefaultsReplay):
+                    raise BackendConflict(
+                        "interactive command id was already used for another "
+                        "command kind"
+                    )
+                if replay.command != command:
+                    raise BackendConflict(
+                        "interactive command id has different configured-default "
+                        "content"
+                    )
+                return replay.receipt
+
+            pinned_config = self._pinned_session_config(session)
+            spec = next(
+                (
+                    candidate
+                    for candidate in pinned_config.instrument_registry.instruments
+                    if candidate.id == instrument_id
+                ),
+                None,
+            )
+            if spec is None:
+                raise BackendConflict(
+                    "instrument is absent from the session pinned config"
+                )
+            if not spec.default_state:
+                return self._reject_configured_defaults(
+                    session=session,
+                    runtime=runtime,
+                    ledger=ledger,
+                    command=command,
+                    instrument_id=instrument_id,
+                    problems=(
+                        _provision_problem(
+                            "instrument_configured_defaults_missing",
+                            "instrument has no configured default state",
+                            operation_id=command.operation_id,
+                            instrument_id=instrument_id,
+                        ),
+                    ),
+                )
+            try:
+                assignments = _configured_default_assignments(spec, instrument)
+            except _DefaultStateReconciliationRejected as error:
+                return self._reject_configured_defaults(
+                    session=session,
+                    runtime=runtime,
+                    ledger=ledger,
+                    command=command,
+                    instrument_id=instrument_id,
+                    problems=error.problems,
+                )
+
+            try:
+                observed = _observe_instrument(instrument)
+            except BackendConflict:
+                self._end_failed_observation(session, runtime)
+                raise
+            instrument.adopt_state(observed)
+            try:
+                state_command = _pending_configured_defaults_command(
+                    instrument_id=instrument_id,
+                    assignments=assignments,
+                    instrument=instrument,
+                    observed_state=observed,
+                    operation_id=command.operation_id,
+                )
+            except _DefaultStateReconciliationRejected as error:
+                return self._reject_configured_defaults(
+                    session=session,
+                    runtime=runtime,
+                    ledger=ledger,
+                    command=command,
+                    instrument_id=instrument_id,
+                    problems=error.problems,
+                )
+
+            self._record_operation_started(
+                session,
+                instrument_id=instrument_id,
+                operation_id=command.operation_id,
+                kind="apply",
+            )
+            if state_command is None:
+                return self._finish_configured_defaults(
+                    session=session,
+                    runtime=runtime,
+                    ledger=ledger,
+                    command=command,
+                    receipt=InstrumentConfiguredDefaultsApplyReceipt(
+                        session_id=session_id,
+                        operation_id=command.operation_id,
+                        instrument_id=instrument_id,
+                        config_entry_id=session.config_entry_id,
+                        status="unchanged",
+                        state=observed,
+                    ),
+                )
+
+            try:
+                driver_receipt = instrument.apply_state(
+                    lower_driver_apply_request(state_command)
+                )
+            except Exception as error:
+                self._lose_runtime(
+                    session,
+                    runtime,
+                    reason="instrument_configured_defaults_unknown",
+                )
+                raise BackendConflict(
+                    "configured-default apply failed with unknown state"
+                ) from error
+            if driver_receipt.status == "unknown":
+                self._lose_runtime(
+                    session,
+                    runtime,
+                    reason="instrument_configured_defaults_receipt_unknown",
+                )
+                raise BackendConflict(
+                    "configured-default apply failed with unknown state"
+                )
+            if driver_receipt.status == "not_applied":
+                return self._finish_configured_defaults(
+                    session=session,
+                    runtime=runtime,
+                    ledger=ledger,
+                    command=command,
+                    receipt=InstrumentConfiguredDefaultsApplyReceipt(
+                        session_id=session_id,
+                        operation_id=command.operation_id,
+                        instrument_id=instrument_id,
+                        config_entry_id=session.config_entry_id,
+                        status="rejected",
+                        problems=driver_receipt.problems,
+                    ),
+                )
+            try:
+                state = _confirmed_applied_state(
+                    instrument,
+                    driver_receipt,
+                    state_command.assignments,
+                )
+            except BackendConflict as error:
+                self._lose_runtime(
+                    session,
+                    runtime,
+                    reason="instrument_configured_defaults_state_unknown",
+                )
+                raise BackendConflict(
+                    f"configured-default apply completed but {error}"
+                ) from error
+            instrument.adopt_state(state)
+            return self._finish_configured_defaults(
+                session=session,
+                runtime=runtime,
+                ledger=ledger,
+                command=command,
+                receipt=InstrumentConfiguredDefaultsApplyReceipt(
+                    session_id=session_id,
+                    operation_id=command.operation_id,
+                    instrument_id=instrument_id,
+                    config_entry_id=session.config_entry_id,
+                    status="applied",
+                    state=state,
+                ),
+            )
+
+    def _reject_configured_defaults(
+        self,
+        *,
+        session: InstrumentSession,
+        runtime: _OwnershipRuntime,
+        ledger: _InstrumentOperationLedger,
+        command: InstrumentConfiguredDefaultsApplyCommand,
+        instrument_id: str,
+        problems: tuple[Problem, ...],
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        self._record_operation_started(
+            session,
+            instrument_id=instrument_id,
+            operation_id=command.operation_id,
+            kind="apply",
+        )
+        return self._finish_configured_defaults(
+            session=session,
+            runtime=runtime,
+            ledger=ledger,
+            command=command,
+            receipt=InstrumentConfiguredDefaultsApplyReceipt(
+                session_id=session.session_id,
+                operation_id=command.operation_id,
+                instrument_id=instrument_id,
+                config_entry_id=session.config_entry_id,
+                status="rejected",
+                problems=problems,
+            ),
+        )
+
+    def _finish_configured_defaults(
+        self,
+        *,
+        session: InstrumentSession,
+        runtime: _OwnershipRuntime,
+        ledger: _InstrumentOperationLedger,
+        command: InstrumentConfiguredDefaultsApplyCommand,
+        receipt: InstrumentConfiguredDefaultsApplyReceipt,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        ledger.operations[command.operation_id] = _ConfiguredDefaultsReplay(
+            command=command,
+            receipt=receipt,
+        )
+        try:
+            self._record_operation_finished(
+                session,
+                instrument_id=receipt.instrument_id,
+                operation_id=command.operation_id,
+                kind="apply",
+                status=receipt.status,
+            )
+        except Exception as error:
+            self._lose_runtime(
+                session,
+                runtime,
+                reason="instrument_configured_defaults_audit_unknown",
+            )
+            raise BackendConflict(
+                "configured-default apply completed but audit recording failed"
+            ) from error
+        return receipt
+
     def invoke(
         self,
         session_id: str,
@@ -1811,22 +2051,18 @@ class InstrumentService:
     ) -> ApplyReceipt:
         command_id = command.command_id
         ledger = runtime.ledgers[instrument.instrument_id]
-        cached = ledger.apply_receipts.get(command_id)
-        if cached is not None:
-            cached_command, cached_receipt = cached
-            if cached_command != command:
+        replay = ledger.operations.get(command_id)
+        if replay is not None:
+            if not isinstance(replay, _ApplyReplay):
+                raise BackendConflict(
+                    f"{conflict_scope} command id was already used for another "
+                    "command kind"
+                )
+            if replay.command != command:
                 raise BackendConflict(
                     f"{conflict_scope} command id has different apply content"
                 )
-            return cached_receipt
-        if (
-            command_id in ledger.collect_receipts
-            or command_id in ledger.collect_failures
-            or command_id in ledger.invoke_receipts
-        ):
-            raise BackendConflict(
-                f"{conflict_scope} command id was already used for another command kind"
-            )
+            return replay.receipt
         description = instrument.description
         current = instrument.assumed_state
         if current is None:
@@ -1863,7 +2099,7 @@ class InstrumentService:
                 ) from error
             instrument.adopt_state(next_state)
             receipt = receipt.model_copy(update={"state": next_state})
-        ledger.apply_receipts[command_id] = (command, receipt)
+        ledger.operations[command_id] = _ApplyReplay(command=command, receipt=receipt)
         try:
             on_finished(receipt.status)
         except Exception as error:
@@ -1886,6 +2122,13 @@ class InstrumentService:
         on_finished: Callable[[str], None],
         on_unknown: Callable[[str], None],
     ) -> InvokeReceipt:
+        command_id = command.command_id
+        ledger = runtime.ledgers[instrument.instrument_id]
+        replay = ledger.operations.get(command_id)
+        if replay is not None and not isinstance(replay, _InvokeReplay):
+            raise BackendConflict(
+                f"{conflict_scope} command id was already used for another command kind"
+            )
         validation_problems = validate_invoke_command(
             command=command,
             description=instrument.description,
@@ -1904,24 +2147,12 @@ class InstrumentService:
                 )
             )
         canonical_command = self._payloads.canonicalize_invoke_command(command)
-        command_id = canonical_command.command_id
-        ledger = runtime.ledgers[instrument.instrument_id]
-        cached = ledger.invoke_receipts.get(command_id)
-        if cached is not None:
-            cached_command, cached_receipt = cached
-            if cached_command != canonical_command:
+        if replay is not None:
+            if replay.command != canonical_command:
                 raise BackendConflict(
                     f"{conflict_scope} command id has different invoke content"
                 )
-            return cached_receipt
-        if (
-            command_id in ledger.apply_receipts
-            or command_id in ledger.collect_receipts
-            or command_id in ledger.collect_failures
-        ):
-            raise BackendConflict(
-                f"{conflict_scope} command id was already used for another command kind"
-            )
+            return replay.receipt
         driver_request = lower_driver_invoke_request(
             canonical_command,
             materialized_payloads=self._payloads.materialize_payloads(
@@ -1955,7 +2186,10 @@ class InstrumentService:
                 )
             instrument.adopt_state(next_state)
             receipt = receipt.model_copy(update={"state": next_state})
-        ledger.invoke_receipts[command_id] = (canonical_command, receipt)
+        ledger.operations[command_id] = _InvokeReplay(
+            command=canonical_command,
+            receipt=receipt,
+        )
         try:
             on_finished(receipt.status)
         except Exception as error:
@@ -1978,6 +2212,25 @@ class InstrumentService:
         on_finished: Callable[[str], None],
         on_unknown: Callable[[str], None],
     ) -> CollectReceipt:
+        command_id = command.command_id
+        ledger = runtime.ledgers[instrument.instrument_id]
+        replay = ledger.operations.get(command_id)
+        if replay is not None:
+            if not isinstance(
+                replay,
+                (_CollectReceiptReplay, _CollectFailureReplay),
+            ):
+                raise BackendConflict(
+                    f"{conflict_scope} command id was already used for another "
+                    "command kind"
+                )
+            if replay.command != command:
+                raise BackendConflict(
+                    f"{conflict_scope} command id has different collect content"
+                )
+            if isinstance(replay, _CollectFailureReplay):
+                raise BackendConflict(replay.message)
+            return replay.receipt
         validation_problems = validate_collect_command(
             command=command,
             description=instrument.description,
@@ -1986,28 +2239,6 @@ class InstrumentService:
         if validation_problems:
             raise BackendConflict(
                 "; ".join(item.message for item in validation_problems)
-            )
-        command_id = command.command_id
-        ledger = runtime.ledgers[instrument.instrument_id]
-        cached = ledger.collect_receipts.get(command_id)
-        if cached is not None:
-            cached_command, cached_receipt = cached
-            if cached_command != command:
-                raise BackendConflict(
-                    f"{conflict_scope} command id has different collect content"
-                )
-            return cached_receipt
-        cached_failure = ledger.collect_failures.get(command_id)
-        if cached_failure is not None:
-            cached_command, cached_message = cached_failure
-            if cached_command != command:
-                raise BackendConflict(
-                    f"{conflict_scope} command id has different collect content"
-                )
-            raise BackendConflict(cached_message)
-        if command_id in ledger.apply_receipts or command_id in ledger.invoke_receipts:
-            raise BackendConflict(
-                f"{conflict_scope} command id was already used for another command kind"
             )
         driver_request = lower_driver_collect_request(command)
         on_started()
@@ -2031,9 +2262,15 @@ class InstrumentService:
                 raise BackendConflict(
                     "instrument collect completed but audit recording failed"
                 ) from error
-            ledger.collect_failures[command_id] = (command, message)
+            ledger.operations[command_id] = _CollectFailureReplay(
+                command=command,
+                message=message,
+            )
             raise BackendConflict(message)
-        ledger.collect_receipts[command_id] = (command, receipt)
+        ledger.operations[command_id] = _CollectReceiptReplay(
+            command=command,
+            receipt=receipt,
+        )
         try:
             on_finished(receipt.status)
         except Exception as error:
@@ -2569,18 +2806,41 @@ class InstrumentService:
         session: InstrumentSession,
         runtime: _OwnershipRuntime,
     ) -> InstrumentSessionOpenReceipt:
+        configured = {
+            spec.id
+            for spec in self._pinned_session_config(
+                session
+            ).instrument_registry.instruments
+            if spec.default_state
+        }
         return InstrumentSessionOpenReceipt(
             session_id=session.session_id,
             actor=session.actor,
             config_entry_id=session.config_entry_id,
             config_content_hash=session.config_content_hash,
             instrument_ids=session.instrument_ids,
+            configured_default_instrument_ids=tuple(
+                instrument_id
+                for instrument_id in session.instrument_ids
+                if instrument_id in configured
+            ),
             descriptions=tuple(
                 runtime.instruments[instrument_id].description
                 for instrument_id in session.instrument_ids
             ),
             opened_at=session.acquired_at,
         )
+
+    def _pinned_session_config(
+        self,
+        session: InstrumentSession,
+    ) -> ConfigProfileSnapshot:
+        pinned = self._config.get_config_entry(session.config_entry_id)
+        if pinned.entry.content_hash != session.config_content_hash:
+            raise BackendConflict(
+                "instrument session pinned config content does not match its entry"
+            )
+        return pinned.config
 
     @staticmethod
     def _instrument_view(
@@ -2807,6 +3067,67 @@ def _state_assignment_satisfied(
     actual = _state_value(current, target)
     return actual is not None and (
         scalar_identity(actual.root) == scalar_identity(target.value.root)
+    )
+
+
+def _configured_default_assignments(
+    spec: InstrumentSpec,
+    instrument: OwnedInstrument,
+) -> tuple[InstrumentStateAssignment, ...]:
+    assignments = tuple(
+        InstrumentStateAssignment(
+            resource_id=spec.id,
+            interface_id=item.interface_id,
+            component_path=list(item.component_path),
+            property_id=item.property_id,
+            value=item.value,
+        )
+        for item in spec.default_state
+    )
+    problems = validate_reconciled_state_assignments(
+        instrument_id=spec.id,
+        assignments=assignments,
+        description=instrument.description,
+        require_explicit_state_case=True,
+    )
+    if problems:
+        raise _DefaultStateReconciliationRejected(
+            problems=tuple(problems),
+            changed_state=False,
+        )
+    return assignments
+
+
+def _pending_configured_defaults_command(
+    *,
+    instrument_id: str,
+    assignments: Sequence[InstrumentStateAssignment],
+    instrument: OwnedInstrument,
+    observed_state: InstrumentStateSnapshot,
+    operation_id: str,
+) -> InstrumentStateCommand | None:
+    pending = [
+        assignment
+        for assignment in assignments
+        if not _state_assignment_satisfied(observed_state, assignment)
+    ]
+    if not pending:
+        return None
+    problems = validate_reconciled_state_assignments(
+        instrument_id=instrument_id,
+        assignments=pending,
+        description=instrument.description,
+        baseline=observed_state,
+    )
+    if problems:
+        raise _DefaultStateReconciliationRejected(
+            problems=tuple(problems),
+            changed_state=False,
+        )
+    return InstrumentStateCommand(
+        command_id=operation_id,
+        instrument_id=instrument_id,
+        assignments=pending,
     )
 
 

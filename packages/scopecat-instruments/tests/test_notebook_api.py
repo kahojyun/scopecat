@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import override
 
+import pytest
 from scopecat.api._instruments import InstrumentSessionHandle
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
@@ -54,6 +57,7 @@ class _CollectingDaemon(DaemonClient):
             config_entry_id="config-1",
             config_content_hash=f"sha256:{'0' * 64}",
             instrument_ids=command.instrument_ids,
+            configured_default_instrument_ids=(),
             descriptions=(self.description,),
             opened_at=datetime(2026, 7, 29, tzinfo=UTC),
         )
@@ -87,6 +91,125 @@ class _CollectingDaemon(DaemonClient):
                 }
             )
         )
+
+
+class _ConfiguredDefaultsDaemon(DaemonClient):
+    def __init__(self) -> None:
+        super().__init__("http://unused.test")
+        self.open_commands: list[InstrumentSessionOpenCommand] = []
+        self.apply_calls: list[
+            tuple[str, str, InstrumentConfiguredDefaultsApplyCommand]
+        ] = []
+
+    @override
+    def open_instrument_session(
+        self,
+        command: InstrumentSessionOpenCommand,
+    ) -> InstrumentSessionOpenReceipt:
+        self.open_commands.append(command)
+        return InstrumentSessionOpenReceipt(
+            session_id="session-1",
+            actor=command.actor,
+            config_entry_id="config-1",
+            config_content_hash=f"sha256:{'0' * 64}",
+            instrument_ids=command.instrument_ids,
+            configured_default_instrument_ids=command.instrument_ids,
+            descriptions=tuple(
+                InstrumentDescription(
+                    instrument_id=instrument_id,
+                    implementation_id="tests.instrument",
+                    implementation_version="1",
+                )
+                for instrument_id in command.instrument_ids
+            ),
+            opened_at=datetime(2026, 7, 29, tzinfo=UTC),
+        )
+
+    @override
+    def apply_instrument_configured_defaults(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentConfiguredDefaultsApplyCommand,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        self.apply_calls.append((session_id, instrument_id, command))
+        return InstrumentConfiguredDefaultsApplyReceipt(
+            session_id=session_id,
+            operation_id=command.operation_id,
+            instrument_id=instrument_id,
+            config_entry_id="config-1",
+            status="unchanged",
+            state=InstrumentStateSnapshot(instrument_id=instrument_id),
+        )
+
+
+def test_apply_configured_defaults_lazily_opens_and_generates_operation_id() -> None:
+    daemon = _ConfiguredDefaultsDaemon()
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("source-a",),
+        actor="test",
+    )
+
+    try:
+        assert daemon.open_commands == []
+
+        receipt = handle.apply_configured_defaults()
+
+        assert len(daemon.open_commands) == 1
+        [(session_id, instrument_id, command)] = daemon.apply_calls
+        assert session_id == "session-1"
+        assert instrument_id == "source-a"
+        assert command.operation_id.startswith(
+            "interactive.configured_defaults.source-a."
+        )
+        assert receipt.operation_id == command.operation_id
+    finally:
+        daemon.close()
+
+
+def test_apply_configured_defaults_preserves_explicit_operation_id() -> None:
+    daemon = _ConfiguredDefaultsDaemon()
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("source-a",),
+        actor="test",
+    )
+
+    try:
+        handle.apply_configured_defaults(operation_id="defaults.manual-1")
+
+        [(_, _, command)] = daemon.apply_calls
+        assert command.operation_id == "defaults.manual-1"
+    finally:
+        daemon.close()
+
+
+def test_apply_configured_defaults_requires_multi_instrument_selection() -> None:
+    daemon = _ConfiguredDefaultsDaemon()
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("source-a", "source-b"),
+        actor="test",
+    )
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="multi-instrument sessions require an instrument_id",
+        ):
+            handle.apply_configured_defaults()
+
+        assert daemon.open_commands == []
+
+        receipt = handle.apply_configured_defaults(instrument_id="source-b")
+
+        assert receipt.instrument_id == "source-b"
+        [(_, instrument_id, _)] = daemon.apply_calls
+        assert instrument_id == "source-b"
+        assert daemon.open_commands[0].instrument_ids == ("source-a", "source-b")
+    finally:
+        daemon.close()
 
 
 def test_gs200_notebook_monitor_defaults_to_the_current_mode_result() -> None:

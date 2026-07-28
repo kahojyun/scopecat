@@ -10,6 +10,8 @@ from uuid import uuid4
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
@@ -159,6 +161,28 @@ class InstrumentSessionHandle:
         return self._client.read_instrument_state(
             session.session_id,
             selected,
+        )
+
+    def apply_configured_defaults(
+        self,
+        *,
+        instrument_id: str | None = None,
+        operation_id: str | None = None,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        """Apply sparse defaults pinned at session open without resetting hardware."""
+
+        selected = self._selected_instrument_id(instrument_id)
+        session = self._require_session()
+        return self._client.apply_instrument_configured_defaults(
+            session.session_id,
+            selected,
+            InstrumentConfiguredDefaultsApplyCommand(
+                operation_id=_select_command_id(
+                    operation_id,
+                    kind="configured_defaults",
+                    subject=selected,
+                )
+            ),
         )
 
     def apply(

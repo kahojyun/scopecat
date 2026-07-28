@@ -8,6 +8,7 @@ import type {
 } from "../../api-contract";
 import { setConfigDefault } from "../config/config-api";
 import {
+  applyInstrumentConfiguredDefaults,
   applyInstrumentState,
   closeInstrumentSession,
   collectInstrumentAcquisition,
@@ -123,6 +124,35 @@ describe("instrument configuration publishing", () => {
 });
 
 describe("interactive collection request shaping", () => {
+  it("applies configured defaults without exposing assignments to the browser", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            session_id: "session-1",
+            operation_id: "defaults-retry",
+            instrument_id: "vna-1",
+            config_entry_id: "lab-default",
+            status: "unchanged",
+            problems: [],
+            state: { instrument_id: "vna-1", properties: [] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await applyInstrumentConfiguredDefaults(session(), "vna-1", "defaults-retry");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/instrument-sessions/session-1/instruments/vna-1/configured-defaults/apply",
+    );
+    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
+      operation_id: "defaults-retry",
+    });
+  });
+
   it("shapes GUI operation arguments without exposing a payload map", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
@@ -514,6 +544,7 @@ function session(): InstrumentSession {
     config_entry_id: "lab-default",
     config_content_hash: "sha256:active",
     instrument_ids: ["vna-1"],
+    configured_default_instrument_ids: [],
     descriptions: [],
     opened_at: "2026-07-27T08:00:00Z",
   };

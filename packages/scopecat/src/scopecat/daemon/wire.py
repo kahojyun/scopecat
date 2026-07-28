@@ -443,6 +443,7 @@ class InstrumentSessionOpenReceipt(_WireModel):
     config_entry_id: NonEmptyText
     config_content_hash: ConfigContentHash
     instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+    configured_default_instrument_ids: tuple[NonEmptyText, ...]
     descriptions: tuple[InstrumentDescription, ...]
     opened_at: datetime
 
@@ -456,6 +457,50 @@ class InstrumentSessionOpenReceipt(_WireModel):
             raise ValueError(
                 "instrument session descriptions must match instrument_ids in order"
             )
+        configured = set(self.configured_default_instrument_ids)
+        if self.configured_default_instrument_ids != tuple(
+            instrument_id
+            for instrument_id in self.instrument_ids
+            if instrument_id in configured
+        ):
+            raise ValueError(
+                "configured default ids must be an ordered subset of instrument_ids"
+            )
+        return self
+
+
+class InstrumentConfiguredDefaultsApplyCommand(_WireModel):
+    """Reconcile one session instrument with its pinned configured defaults."""
+
+    operation_id: NonEmptyText
+
+
+class InstrumentConfiguredDefaultsApplyReceipt(_WireModel):
+    session_id: NonEmptyText
+    operation_id: NonEmptyText
+    instrument_id: NonEmptyText
+    config_entry_id: NonEmptyText
+    status: Literal["applied", "unchanged", "rejected"]
+    problems: tuple[Problem, ...] = ()
+    state: InstrumentStateSnapshot | None = None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> InstrumentConfiguredDefaultsApplyReceipt:
+        if self.status in {"applied", "unchanged"}:
+            if self.problems:
+                raise ValueError(
+                    "successful configured-default apply cannot contain problems"
+                )
+            if self.state is None:
+                raise ValueError(
+                    "successful configured-default apply requires synchronized state"
+                )
+        elif not self.problems:
+            raise ValueError("rejected configured-default apply requires a problem")
+        elif self.state is not None:
+            raise ValueError("rejected configured-default apply cannot report state")
+        if self.state is not None and self.state.instrument_id != self.instrument_id:
+            raise ValueError("configured-default state must match instrument_id")
         return self
 
 
@@ -499,6 +544,8 @@ __all__ = [
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",
+    "InstrumentConfiguredDefaultsApplyCommand",
+    "InstrumentConfiguredDefaultsApplyReceipt",
     "InstrumentContractCatalogRequest",
     "InstrumentSessionEndReceipt",
     "InstrumentSessionOpenCommand",

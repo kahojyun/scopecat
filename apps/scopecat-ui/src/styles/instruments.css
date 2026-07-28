@@ -425,7 +425,9 @@
 
 .session-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 7px;
+  justify-content: flex-end;
 }
 
 .instrument-actor-field {
@@ -957,6 +959,7 @@
 }
 
 .instrument-receipt.applied,
+.instrument-receipt.unchanged,
 .instrument-receipt.invoked {
   color: var(--accent);
   border-color: rgb(var(--accent-rgb) / 24%);
@@ -965,6 +968,7 @@
 
 .instrument-receipt.unknown,
 .instrument-receipt.not_applied,
+.instrument-receipt.rejected,
 .instrument-receipt.not_invoked {
   color: var(--yellow);
   border-color: rgb(207 173 104 / 25%);

@@ -243,6 +243,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Instrument Configured Defaults */
+        post: operations["apply_instrument_configured_defaults_api_v1_instrument_sessions__session_id__instruments__instrument_id__configured_defaults_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke": {
         parameters: {
             query?: never;
@@ -1370,6 +1387,31 @@ export interface components {
                 }[]
             ];
         };
+        /**
+         * InstrumentConfiguredDefaultsApplyCommand
+         * @description Reconcile one session instrument with its pinned configured defaults.
+         */
+        InstrumentConfiguredDefaultsApplyCommand: {
+            operation_id: components["schemas"]["NonEmptyText"];
+        };
+        /** InstrumentConfiguredDefaultsApplyReceipt */
+        InstrumentConfiguredDefaultsApplyReceipt: {
+            config_entry_id: components["schemas"]["NonEmptyText"];
+            instrument_id: components["schemas"]["NonEmptyText"];
+            operation_id: components["schemas"]["NonEmptyText"];
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            session_id: components["schemas"]["NonEmptyText"];
+            state?: components["schemas"]["InstrumentStateSnapshot"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "applied" | "unchanged" | "rejected";
+        };
         "InstrumentConnection-Input": components["schemas"]["VirtualInstrumentConnection-Input"] | components["schemas"]["TcpipSocketInstrumentConnection-Input"];
         "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"];
         InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"];
@@ -1477,6 +1519,8 @@ export interface components {
             actor: components["schemas"]["NonEmptyText"];
             config_content_hash: components["schemas"]["ConfigContentHash"];
             config_entry_id: components["schemas"]["NonEmptyText"];
+            /** Configured Default Instrument Ids */
+            configured_default_instrument_ids: components["schemas"]["NonEmptyText"][];
             /** Descriptions */
             descriptions: components["schemas"]["InstrumentDescription"][];
             /** Instrument Ids */
@@ -1493,7 +1537,9 @@ export interface components {
         };
         /**
          * InstrumentSpec
-         * @description Configured instrument with a stable scheduler-only physical access domain.
+         * @description Configured instrument with a stable physical access domain.
+         *
+         *     Defaults are sparse patches over freshly observed state.
          */
         "InstrumentSpec-Input": {
             connection: components["schemas"]["InstrumentConnection-Input"];
@@ -1509,7 +1555,9 @@ export interface components {
         };
         /**
          * InstrumentSpec
-         * @description Configured instrument with a stable scheduler-only physical access domain.
+         * @description Configured instrument with a stable physical access domain.
+         *
+         *     Defaults are sparse patches over freshly observed state.
          */
         "InstrumentSpec-Output": {
             connection: components["schemas"]["InstrumentConnection-Output"];
@@ -3041,6 +3089,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_instrument_configured_defaults_api_v1_instrument_sessions__session_id__instruments__instrument_id__configured_defaults_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentConfiguredDefaultsApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentConfiguredDefaultsApplyReceipt"];
                 };
             };
             /** @description Validation Error */

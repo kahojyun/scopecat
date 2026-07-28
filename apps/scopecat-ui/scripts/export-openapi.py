@@ -34,6 +34,11 @@ _OPERATIONS = {
     ),
     (
         "/api/v1/instrument-sessions/{session_id}/instruments/"
+        "{instrument_id}/configured-defaults/apply",
+        "post",
+    ),
+    (
+        "/api/v1/instrument-sessions/{session_id}/instruments/"
         "{instrument_id}/state/apply",
         "post",
     ),
