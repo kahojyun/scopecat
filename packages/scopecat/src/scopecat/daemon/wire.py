@@ -463,10 +463,11 @@ class InstrumentSessionOpenReceipt(_WireModel):
     instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
     configured_default_instrument_ids: tuple[NonEmptyText, ...]
     descriptions: tuple[InstrumentDescription, ...]
+    observed_state: tuple[InstrumentStateSnapshot, ...]
     opened_at: datetime
 
     @model_validator(mode="after")
-    def validate_descriptions(self) -> InstrumentSessionOpenReceipt:
+    def validate_contents(self) -> InstrumentSessionOpenReceipt:
         _aware_datetime(self.opened_at, field_name="opened_at")
         described_ids = tuple(
             description.instrument_id for description in self.descriptions
@@ -474,6 +475,11 @@ class InstrumentSessionOpenReceipt(_WireModel):
         if described_ids != self.instrument_ids:
             raise ValueError(
                 "instrument session descriptions must match instrument_ids in order"
+            )
+        observed_ids = tuple(state.instrument_id for state in self.observed_state)
+        if observed_ids != self.instrument_ids:
+            raise ValueError(
+                "instrument session observed state must match instrument_ids in order"
             )
         configured = set(self.configured_default_instrument_ids)
         if self.configured_default_instrument_ids != tuple(

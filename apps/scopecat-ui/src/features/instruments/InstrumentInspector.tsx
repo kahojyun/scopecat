@@ -92,6 +92,9 @@ export function InstrumentInspector({
     session?.descriptions.find((candidate) => candidate.instrument_id === instrumentId) ??
     instrument.description ??
     undefined;
+  const synchronizedState = session?.observed_state.find(
+    (snapshot) => snapshot.instrument_id === instrumentId,
+  );
   const [state, setState] = useState<InstrumentState>();
   const [drafts, setDrafts] = useState<Record<string, DraftValue>>({});
   const [applyResult, setApplyResult] = useState<string>();
@@ -105,20 +108,6 @@ export function InstrumentInspector({
   const configuredDefaultsOperationIdRef = useRef<string | undefined>(undefined);
   const collectCommandIdsRef = useRef<Record<string, string>>({});
   const invokeCommandIdsRef = useRef<Record<string, string>>({});
-
-  useEffect(() => {
-    if (connected) return;
-    applyCommandIdRef.current = undefined;
-    configuredDefaultsOperationIdRef.current = undefined;
-    collectCommandIdsRef.current = {};
-    invokeCommandIdsRef.current = {};
-    setState(undefined);
-    setDrafts({});
-    setApplyResult(undefined);
-    setConfiguredDefaultsResult(undefined);
-    setCollectResults({});
-    setInvokeResults({});
-  }, [connected]);
 
   const hasConfiguredDefaults =
     session?.configured_default_instrument_ids.includes(instrumentId) ?? false;
@@ -138,11 +127,20 @@ export function InstrumentInspector({
       setInvokeResults({});
     },
   });
+  const resetReadMutation = readMutation.reset;
   useEffect(() => {
-    if (connected && session) readMutation.mutate();
-    // Only a newly opened session should trigger fresh observation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, instrumentId, session?.session_id]);
+    applyCommandIdRef.current = undefined;
+    configuredDefaultsOperationIdRef.current = undefined;
+    collectCommandIdsRef.current = {};
+    invokeCommandIdsRef.current = {};
+    setState(connected ? synchronizedState : undefined);
+    setDrafts({});
+    setApplyResult(undefined);
+    setConfiguredDefaultsResult(undefined);
+    setCollectResults({});
+    setInvokeResults({});
+    resetReadMutation();
+  }, [connected, instrumentId, resetReadMutation, session?.session_id, synchronizedState]);
   const visiblePropertyKeys = useMemo(
     () => instrumentVisiblePropertyKeys(description?.interfaces ?? [], state, drafts),
     [description?.interfaces, drafts, state],

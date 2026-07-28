@@ -837,6 +837,14 @@ def test_interactive_apply_tracks_observed_discriminated_state(
                     {_DC_CURRENT_LEVEL: 0.02},
                     command_id="invalid-current-patch",
                 )
+            with pytest.raises(
+                DaemonConflictError,
+                match="requires all writable case properties",
+            ):
+                handle.apply(
+                    {_DC_MODE: "current"},
+                    command_id="incomplete-current-switch",
+                )
 
             switched = handle.apply(
                 {
@@ -1063,7 +1071,7 @@ def test_apply_rejects_logical_assignments_for_one_physical_property(
 
 
 def test_open_retry_reuses_session_without_reprovisioning(tmp_path: Path) -> None:
-    provider = _TrackingProvider()
+    provider = _TrackingProvider(_ResyncDriver)
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
@@ -1074,9 +1082,16 @@ def test_open_retry_reuses_session_without_reprovisioning(tmp_path: Path) -> Non
             )
 
             first = daemon.open_instrument_session(command)
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            assert driver.read_count == 1
+            driver.change_from_front_panel(5.1)
+
             second = daemon.open_instrument_session(command)
 
             assert second == first
+            assert second.observed_state == first.observed_state
+            assert driver.read_count == 1
             assert len(provider.drivers) == 1
             daemon.close_instrument_session(first.session_id)
 
@@ -2362,10 +2377,7 @@ def test_provider_instance_and_virtual_state_survive_across_sessions(
                 instrument_ids=("source-0",),
             )
         )
-        state = daemon.read_instrument_state(
-            second.session_id,
-            "source-0",
-        )
+        [state] = second.observed_state
         daemon.close_instrument_session(second.session_id)
 
     property_state = next(

@@ -41,6 +41,7 @@ from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
+    InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
@@ -61,7 +62,7 @@ from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
-from scopecat.sdk.instruments import InstrumentStateAssignment
+from scopecat.sdk.instruments import InstrumentDescription, InstrumentStateAssignment
 from tests.testkit.workflow_fixtures import load_config
 
 
@@ -586,6 +587,50 @@ def test_rejected_run_instrument_provision_has_no_state_evidence() -> None:
             problems=(problem,),
             observed_state=(source,),
         )
+
+
+def test_instrument_session_open_requires_ordered_observed_state() -> None:
+    instrument_ids = ("source-a", "source-b")
+    descriptions = tuple(
+        InstrumentDescription(
+            instrument_id=instrument_id,
+            implementation_id="tests.source",
+            implementation_version="1",
+        )
+        for instrument_id in instrument_ids
+    )
+    observed_state = tuple(
+        InstrumentStateSnapshot(instrument_id=instrument_id)
+        for instrument_id in instrument_ids
+    )
+    receipt = InstrumentSessionOpenReceipt(
+        session_id="session-1",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'0' * 64}",
+        instrument_ids=instrument_ids,
+        configured_default_instrument_ids=("source-b",),
+        descriptions=descriptions,
+        observed_state=observed_state,
+        opened_at=datetime(2026, 7, 29, tzinfo=UTC),
+    )
+
+    assert (
+        InstrumentSessionOpenReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    for invalid_state in (
+        observed_state[:1],
+        tuple(reversed(observed_state)),
+    ):
+        with pytest.raises(
+            ValidationError,
+            match="observed state must match instrument_ids in order",
+        ):
+            InstrumentSessionOpenReceipt(
+                **receipt.model_dump(exclude={"observed_state"}),
+                observed_state=invalid_state,
+            )
 
 
 def test_configured_defaults_apply_command_requires_operation_identity() -> None:

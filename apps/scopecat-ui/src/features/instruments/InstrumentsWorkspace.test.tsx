@@ -167,7 +167,8 @@ describe("instrument workspace", () => {
     expect(within(heading as HTMLElement).queryByText("v1")).not.toBeInTheDocument();
   });
 
-  it("connects explicitly, observes current state, and closes on unmount", async () => {
+  it("uses session-open state without another read, refreshes explicitly, and closes", async () => {
+    vi.mocked(readInstrumentState).mockResolvedValueOnce(instrumentState(6_000_000_000));
     const rendered = renderWorkspace();
 
     await screen.findByText("Drive source");
@@ -184,13 +185,17 @@ describe("instrument workspace", () => {
         expect.stringMatching(/^ui-open-/),
       ),
     );
+    expect(readInstrumentState).not.toHaveBeenCalled();
+    expect(await screen.findByDisplayValue("5000000000")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh state" }));
     await waitFor(() =>
       expect(readInstrumentState).toHaveBeenCalledWith(
         expect.objectContaining({ session_id: "session-1" }),
         "drive-source",
       ),
     );
-    expect(await screen.findByDisplayValue("5000000000")).toBeVisible();
+    expect(await screen.findByDisplayValue("6000000000")).toBeVisible();
     expect(screen.queryByText("session-1")).not.toBeInTheDocument();
 
     rendered.unmount();
@@ -489,9 +494,11 @@ describe("instrument workspace", () => {
       items: [variantInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({ descriptions: [variantInstrument.description!] }),
+      session({
+        descriptions: [variantInstrument.description!],
+        observed_state: [discriminatedInstrumentState("voltage")],
+      }),
     );
-    vi.mocked(readInstrumentState).mockResolvedValue(discriminatedInstrumentState("voltage"));
     renderWorkspace();
 
     await screen.findByText("DC source");
@@ -524,9 +531,11 @@ describe("instrument workspace", () => {
       items: [variantInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({ descriptions: [variantInstrument.description!] }),
+      session({
+        descriptions: [variantInstrument.description!],
+        observed_state: [discriminatedInstrumentState("voltage")],
+      }),
     );
-    vi.mocked(readInstrumentState).mockResolvedValue(discriminatedInstrumentState("voltage"));
     vi.mocked(applyInstrumentState).mockResolvedValueOnce(
       discriminatedApplyReceipt("current", 6_000_000_000),
     );
@@ -616,9 +625,11 @@ describe("instrument workspace", () => {
       items: [variantInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({ descriptions: [variantInstrument.description!] }),
+      session({
+        descriptions: [variantInstrument.description!],
+        observed_state: [discriminatedInstrumentState("voltage")],
+      }),
     );
-    vi.mocked(readInstrumentState).mockResolvedValue(discriminatedInstrumentState("voltage"));
     renderWorkspace();
 
     await screen.findByText("DC source");
@@ -1283,6 +1294,7 @@ function session(overrides: Partial<InstrumentSession> = {}): InstrumentSession 
     instrument_ids: ["drive-source"],
     configured_default_instrument_ids: [],
     descriptions: [instrument().description!],
+    observed_state: [instrumentState()],
     opened_at: "2026-07-27T09:00:00Z",
     ...overrides,
   };

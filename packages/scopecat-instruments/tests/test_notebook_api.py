@@ -59,6 +59,7 @@ class _CollectingDaemon(DaemonClient):
             instrument_ids=command.instrument_ids,
             configured_default_instrument_ids=(),
             descriptions=(self.description,),
+            observed_state=(self.state,),
             opened_at=datetime(2026, 7, 29, tzinfo=UTC),
         )
 
@@ -122,6 +123,10 @@ class _ConfiguredDefaultsDaemon(DaemonClient):
                 )
                 for instrument_id in command.instrument_ids
             ),
+            observed_state=tuple(
+                InstrumentStateSnapshot(instrument_id=instrument_id)
+                for instrument_id in command.instrument_ids
+            ),
             opened_at=datetime(2026, 7, 29, tzinfo=UTC),
         )
 
@@ -164,6 +169,32 @@ def test_apply_configured_defaults_lazily_opens_and_generates_operation_id() -> 
             "interactive.configured_defaults.source-a."
         )
         assert receipt.operation_id == command.operation_id
+    finally:
+        daemon.close()
+
+
+def test_session_handle_exposes_opening_observation_without_refresh() -> None:
+    description = InstrumentDescription(
+        instrument_id="source-a",
+        implementation_id="tests.source",
+        implementation_version="1",
+    )
+    state = InstrumentStateSnapshot(instrument_id="source-a")
+    daemon = _CollectingDaemon(description, state)
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("source-a",),
+        actor="test",
+    )
+
+    try:
+        observed = handle.observed_state()
+
+        assert observed == state
+        assert observed is not state
+        assert daemon.state_reads == 0
+        assert handle.read_state() == state
+        assert daemon.state_reads == 1
     finally:
         daemon.close()
 

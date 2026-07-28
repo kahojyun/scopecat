@@ -1528,6 +1528,8 @@ export interface components {
                 components["schemas"]["NonEmptyText"],
                 ...components["schemas"]["NonEmptyText"][]
             ];
+            /** Observed State */
+            observed_state: components["schemas"]["InstrumentStateSnapshot"][];
             /**
              * Opened At
              * Format: date-time

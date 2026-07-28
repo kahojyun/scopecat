@@ -100,14 +100,16 @@ implicit claims that serialize unrelated experiments.
 
 Every new owner reads the device before its first write, including when it
 reuses an idle connection. This accepts legitimate front-panel changes without
-background polling or pretending the daemon observed idle hardware. If that
-refresh fails on a reused connection, the actor retires it and retries once
-with a new connection. Normal release leaves a healthy connection available;
-an unknown hardware outcome faults and disconnects it. Daemon shutdown first
-fences new owners, then drains durable ownership, disconnects actor handles,
-and shuts down the endpoint. If driver cleanup exceeds the shutdown grace
-period, the daemon fences the whole worker generation; pending consequential
-calls become unknown and the worker is terminated.
+background polling or pretending the daemon observed idle hardware. A direct
+session returns that synchronized snapshot in its open receipt; replaying the
+same open operation returns the same evidence without touching hardware again.
+If the initial refresh fails on a reused connection, the actor retires it and
+retries once with a new connection. Normal release leaves a healthy connection
+available; an unknown hardware outcome faults and disconnects it. Daemon
+shutdown first fences new owners, then drains durable ownership, disconnects
+actor handles, and shuts down the endpoint. If driver cleanup exceeds the
+shutdown grace period, the daemon fences the whole worker generation; pending
+consequential calls become unknown and the worker is terminated.
 
 A state snapshot is complete public physical state for every advertised static
 component. Logical entity and channel bindings remain command provenance; they
@@ -273,7 +275,7 @@ shows:
 Opening the workspace does not acquire an instrument automatically. The
 operator explicitly selects **Connect**, after which the detail view:
 
-1. reads a fresh state snapshot;
+1. renders the fresh state snapshot returned by session open;
 2. renders interface components and property controls from
    `InstrumentDescription`;
 3. offers an explicit **Apply configured defaults** action when the session's
@@ -286,6 +288,9 @@ operator explicitly selects **Connect**, after which the detail view:
 8. offers **Collect** per declared acquisition and requests its declared
    results;
 9. releases session ownership on explicit disconnect or workspace teardown.
+
+**Refresh state** performs a new read when the operator wants to synchronize
+again; connecting does not issue a redundant second read.
 
 If a browser teardown request does not reach the daemon, the next client can
 disconnect the still-visible interactive session. This is ordinary ownership
@@ -323,7 +328,7 @@ with sc.open_project(".").connect(operator="alice") as lab:
 
     with lab.instruments.open("readout-vna") as vna:
         print(vna.describe())
-        print(vna.read_state())
+        print(vna.observed_state())
 
         prepared = vna.apply_configured_defaults()
         receipt = vna.apply(
@@ -347,8 +352,8 @@ component. Specs, compiler IR, and daemon requests lower them to physical ids.
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
 numbers remain valid only where the declared property type accepts them. A
 `scopecat.dc_source/v2` state belongs to either its voltage or current case.
-Include `source_mode` when switching cases; protection and output properties
-are common to both.
+When switching cases, include `source_mode` and every writable target-case
+property; protection and output properties are common to both.
 
 A multi-instrument session is available when an operation must reserve a
 coherent set:
@@ -358,6 +363,7 @@ from scopecat_instruments.members import (
     DC_SOURCE_MODE,
     DC_SOURCE_OUTPUT_ENABLED,
     DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_S_PARAMETER_RESULT,
 )
@@ -366,6 +372,7 @@ with lab.instruments.open("flux-source", "readout-vna") as session:
     session.apply(
         {
             DC_SOURCE_MODE: "voltage",
+            DC_SOURCE_VOLTAGE_RANGE: sc.Quantity(1.0, "V"),
             DC_SOURCE_VOLTAGE_LEVEL: sc.Quantity(0.05, "V"),
             DC_SOURCE_OUTPUT_ENABLED: True,
         },

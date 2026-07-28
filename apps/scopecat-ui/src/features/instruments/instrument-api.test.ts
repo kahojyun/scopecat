@@ -546,6 +546,7 @@ function session(): InstrumentSession {
     instrument_ids: ["vna-1"],
     configured_default_instrument_ids: [],
     descriptions: [],
+    observed_state: [],
     opened_at: "2026-07-27T08:00:00Z",
   };
 }

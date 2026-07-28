@@ -181,6 +181,7 @@ class _OwnershipRuntime:
     instruments: dict[str, OwnedInstrument]
     payload_catalog: PayloadCodecCatalog
     ledgers: dict[str, _InstrumentOperationLedger]
+    opening_state: tuple[InstrumentStateSnapshot, ...] = ()
     lock: RLock = field(default_factory=RLock)
 
 
@@ -656,6 +657,9 @@ class InstrumentService:
                 raise
             for state in observed:
                 runtime.instruments[state.instrument_id].adopt_state(state)
+            runtime.opening_state = tuple(
+                state.model_copy(deep=True) for state in observed
+            )
             return runtime, observed
         raise AssertionError("instrument observation retry must return or raise")
 
@@ -1582,7 +1586,7 @@ class InstrumentService:
             return self._wire_session(session, existing_runtime)
 
         try:
-            runtime, _observed_state = self._open_ownership(
+            runtime, _ = self._open_ownership(
                 endpoint=endpoint,
                 config=active.config,
                 owner=InstrumentOwnerKey(
@@ -2827,6 +2831,9 @@ class InstrumentService:
             descriptions=tuple(
                 runtime.instruments[instrument_id].description
                 for instrument_id in session.instrument_ids
+            ),
+            observed_state=tuple(
+                state.model_copy(deep=True) for state in runtime.opening_state
             ),
             opened_at=session.acquired_at,
         )

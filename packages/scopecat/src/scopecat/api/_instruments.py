@@ -152,6 +152,20 @@ class InstrumentSessionHandle:
             if description.instrument_id == selected
         )
 
+    def observed_state(
+        self,
+        instrument_id: str | None = None,
+    ) -> InstrumentStateSnapshot:
+        """Return the state observed when this session opened."""
+
+        selected = self._selected_instrument_id(instrument_id)
+        session = self._require_session()
+        return next(
+            state.model_copy(deep=True)
+            for state in session.observed_state
+            if state.instrument_id == selected
+        )
+
     def read_state(
         self,
         instrument_id: str | None = None,

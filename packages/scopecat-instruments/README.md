@@ -32,7 +32,7 @@ with sc.open_project(".").connect(operator="alice") as lab:
 
     with lab.instruments.open("readout-vna") as vna:
         print(vna.describe())
-        print(vna.read_state())
+        print(vna.observed_state())
         vna.apply(
             {
                 NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(5.9, "GHz"),
@@ -63,6 +63,7 @@ Virtual instrument:
 ```json
 {
   "id": "flux",
+  "exclusivity_key": "flux",
   "driver_id": "scopecat.virtual.dc_source",
   "connection": {
     "kind": "virtual"
@@ -72,6 +73,14 @@ Virtual instrument:
       "interface_id": "scopecat.dc_source/v2",
       "property_id": "source_mode",
       "value": "voltage"
+    },
+    {
+      "interface_id": "scopecat.dc_source/v2",
+      "property_id": "voltage_range",
+      "value": {
+        "value": 1,
+        "unit": "V"
+      }
     },
     {
       "interface_id": "scopecat.dc_source/v2",
@@ -96,6 +105,7 @@ TCP/IP instrument:
 ```json
 {
   "id": "readout-lo",
+  "exclusivity_key": "readout-lo",
   "driver_id": "scopecat.rohde_schwarz.sgs100a",
   "connection": {
     "kind": "tcpip_socket",
