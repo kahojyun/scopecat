@@ -10,8 +10,10 @@ from typing import Protocol, cast, overload, override
 
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
+    InvocationIntent,
     ResourcePort,
     ResourceSelector,
+    invoke_operation,
     resource_port,
 )
 from scopecat.authoring._binding_intents import (
@@ -33,6 +35,7 @@ from scopecat.authoring._module_ir import (
     ModuleInstanceIR,
     ModuleInstanceLookup,
     ModuleInterfaceIR,
+    ModuleInvokeEffect,
     ModuleIR,
     ModulePythonImplementation,
     ModuleResourceBinding,
@@ -79,12 +82,12 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.kernel.value_types import Payload
 from scopecat.measurements.results import MeasurementDType
 
-type StateLiteral = (
-    Quantity | EntityRef | PayloadValue | str | int | float | bool | None
-)
+type StateLiteral = Quantity | EntityRef | str | int | float | bool | None
 type BindingInput = StateLiteral | ValueRef
+type InvocationInput = BindingInput
 
 
 class ModuleCall(Protocol):
@@ -112,7 +115,7 @@ def _is_public_binding_input(value: object) -> bool:
         or value is None
         or isinstance(
             value,
-            Quantity | EntityRef | PayloadValue | str | int | float | bool,
+            Quantity | EntityRef | str | int | float | bool,
         )
     )
 
@@ -204,6 +207,14 @@ class ModuleBuilder:
             if isinstance(effect, ModuleAcquireEffect)
         )
 
+    @property
+    def invocations(self) -> tuple[InvocationIntent, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleInvokeEffect)
+        )
+
     def inputs(self, *values: ValueRef) -> ModuleBuilder:
         """Register typed input values declared with :func:`scopecat.input`."""
 
@@ -275,6 +286,8 @@ class ModuleBuilder:
     ) -> ModuleBuilder:
         """Bind state through explicit interface, component, and property ids."""
 
+        if _is_payload_binding_input(value):
+            raise TypeError("persistent properties cannot contain opaque payloads")
         if not _is_public_binding_input(value):
             msg = "module bindings require a scalar typed value or scalar literal"
             raise TypeError(msg)
@@ -288,7 +301,50 @@ class ModuleBuilder:
                         interface=interface,
                         component_path=component_path,
                         property=property,
-                        value=cast("BindingInput", _capture_state_literal(value)),
+                        value=cast("BindingInput", _capture_binding_literal(value)),
+                    )
+                ),
+            ),
+        )
+
+    def invoke(
+        self,
+        id: str,
+        *,
+        resource: str,
+        interface: InterfaceId,
+        operation: str,
+        arguments: Mapping[str, InvocationInput] | None = None,
+        component_path: Sequence[str] = (),
+    ) -> ModuleBuilder:
+        """Append one ordered atomic hardware operation."""
+
+        selected_arguments = arguments or {}
+        if any(
+            not argument_id or not _is_public_binding_input(value)
+            for argument_id, value in selected_arguments.items()
+        ):
+            raise TypeError(
+                "module invocation arguments require non-empty ids and scalar values"
+            )
+        return replace(
+            self,
+            procedure=(
+                *self.procedure,
+                ModuleInvokeEffect(
+                    invoke_operation(
+                        id,
+                        port_id=resource,
+                        interface=interface,
+                        component_path=component_path,
+                        operation=operation,
+                        arguments={
+                            argument_id: cast(
+                                "InvocationInput",
+                                _capture_binding_literal(value),
+                            )
+                            for argument_id, value in selected_arguments.items()
+                        },
                     )
                 ),
             ),
@@ -609,6 +665,10 @@ class ExperimentModule[**P]:
         return self._ir.body.domain_executions
 
     @property
+    def invocations(self) -> tuple[InvocationIntent, ...]:
+        return self._ir.body.invocations
+
+    @property
     def procedure(self) -> tuple[ModuleEffectIR, ...]:
         return self._ir.body.procedure
 
@@ -844,12 +904,18 @@ def _module_input_value_ref(
     return internal_literal_value_ref(value, value_type, path=path)
 
 
-def _capture_state_literal(value: object) -> object:
+def _capture_binding_literal(value: object) -> object:
     if isinstance(value, ValueRef):
         return value
-    if isinstance(value, PayloadValue):
-        return value
     return capture_runtime_input(value)
+
+
+def _is_payload_binding_input(value: object) -> bool:
+    return isinstance(value, PayloadValue) or (
+        isinstance(value, ValueRef)
+        and isinstance(value.value_type, ScalarType)
+        and isinstance(value.value_type.atom, Payload)
+    )
 
 
 def build_module_ir(

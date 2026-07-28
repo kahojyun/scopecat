@@ -16,7 +16,7 @@ import {
   abortInstrumentSession,
   closeInstrumentSession,
   connectionSummary,
-  createInstrumentOperationId,
+  createInstrumentCommandId,
   getActiveConfig,
   getInstruments,
   openInstrumentSession,
@@ -165,7 +165,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
     if (openAttemptRef.current?.key !== key) {
       openAttemptRef.current = {
         key,
-        operationId: createInstrumentOperationId("open"),
+        operationId: createInstrumentCommandId("open"),
       };
     }
     connectMutation.mutate({
@@ -402,7 +402,13 @@ function InstrumentListItem({
       </dl>
       {instrument.owner_id && (
         <span className="instrument-list-owner">
-          {instrument.owner_kind === "run" ? "Run" : "Session"} <code>{instrument.owner_id}</code>
+          {instrument.owner_kind === "run" ? (
+            <>
+              Run <code>{instrument.owner_id}</code>
+            </>
+          ) : (
+            "Interactive session"
+          )}
           {instrument.owner_actor ? ` · ${instrument.owner_actor}` : ""}
         </span>
       )}

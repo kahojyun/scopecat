@@ -169,6 +169,15 @@ def _verify_property_resource_ports(
             location=model_location("acquisitions", index, "resource_port"),
             problems=problems,
         )
+    for index, invocation in enumerate(assembly.invocations):
+        _verify_interface_resource_port(
+            invocation.port_id,
+            invocation.interface_id,
+            ports,
+            context="invocation",
+            location=model_location("invocations", index, "resource"),
+            problems=problems,
+        )
 
 
 def _verify_interface_resource_port(
@@ -228,6 +237,14 @@ def _verify_binding_compute_values(
         (model_location("bindings", index, "value"), binding.value)
         for index, binding in enumerate(assembly.bindings)
     ]
+    values.extend(
+        (
+            model_location("invocations", invocation_index, "arguments", argument.id),
+            argument.value,
+        )
+        for invocation_index, invocation in enumerate(assembly.invocations)
+        for argument in invocation.arguments
+    )
     for location, value in values:
         if not isinstance(value, ValueRef) or not internal_value_ref_requires_execution(
             value

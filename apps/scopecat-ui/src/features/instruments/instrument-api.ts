@@ -6,6 +6,8 @@ import type {
   InstrumentApplyReceipt,
   InstrumentCollectReceipt,
   InstrumentConnection,
+  InstrumentInvokeReceipt,
+  InstrumentOperation,
   InstrumentSession,
   InstrumentState,
   InstrumentStateValue,
@@ -38,6 +40,16 @@ export interface InstrumentAcquisitionReadiness {
   reason?: string;
 }
 
+export interface InstrumentOperationTarget {
+  interfaceId: string;
+  componentPath: string[];
+  operation: InstrumentOperation;
+}
+
+export type InstrumentOperationArgument = NonNullable<
+  DaemonUiApi["instrumentInvokeCommand"]["arguments"]
+>[number];
+
 export async function getInstruments(signal?: AbortSignal): Promise<InstrumentList> {
   return request<InstrumentList>(INSTRUMENT_API, signal);
 }
@@ -56,7 +68,7 @@ export async function getActiveConfig(signal?: AbortSignal): Promise<ActiveConfi
 export async function openInstrumentSession(
   instrumentId: string,
   actor: string,
-  operationId = createInstrumentOperationId("open"),
+  operationId = createInstrumentCommandId("open"),
 ): Promise<InstrumentSession> {
   return request<InstrumentSession>(
     SESSION_API,
@@ -80,13 +92,13 @@ export async function applyInstrumentState(
   session: InstrumentSession,
   instrumentId: string,
   properties: StagedInstrumentProperty[],
-  operationId = createInstrumentOperationId("apply"),
+  commandId = createInstrumentCommandId("apply"),
 ): Promise<InstrumentApplyReceipt> {
   return request<InstrumentApplyReceipt>(
     instrumentSessionPath(session.session_id, instrumentId, "state/apply"),
     undefined,
     jsonRequest({
-      operation_id: operationId,
+      command_id: commandId,
       instrument_id: instrumentId,
       assignments: properties.map((property) => ({
         resource_id: instrumentId,
@@ -104,7 +116,7 @@ export async function collectInstrumentAcquisition(
   instrumentId: string,
   target: InstrumentAcquisitionTarget,
   state?: InstrumentState,
-  operationId = createInstrumentOperationId("collect"),
+  commandId = createInstrumentCommandId("collect"),
 ): Promise<InstrumentCollectReceipt> {
   const plan = planInstrumentAcquisition(target, state);
   if (!plan.ready) throw new Error(plan.reason);
@@ -112,12 +124,34 @@ export async function collectInstrumentAcquisition(
     instrumentSessionPath(session.session_id, instrumentId, "collect"),
     undefined,
     jsonRequest({
-      operation_id: operationId,
+      command_id: commandId,
       instrument_id: instrumentId,
       point_index: 0,
       point_count: 1,
       requests: plan.requests,
     } satisfies DaemonUiApi["instrumentCollectCommand"]),
+  );
+}
+
+export async function invokeInstrumentOperation(
+  session: InstrumentSession,
+  instrumentId: string,
+  target: InstrumentOperationTarget,
+  arguments_: InstrumentOperationArgument[],
+  commandId = createInstrumentCommandId("invoke"),
+): Promise<InstrumentInvokeReceipt> {
+  return request<InstrumentInvokeReceipt>(
+    instrumentSessionPath(session.session_id, instrumentId, "invoke"),
+    undefined,
+    jsonRequest({
+      command_id: commandId,
+      instrument_id: instrumentId,
+      resource_id: instrumentId,
+      interface_id: target.interfaceId,
+      component_path: target.componentPath,
+      operation_id: target.operation.id,
+      arguments: arguments_,
+    } satisfies DaemonUiApi["instrumentInvokeCommand"]),
   );
 }
 
@@ -176,7 +210,7 @@ export async function publishInstrumentConnection({
   );
   if (!spec) throw new Error(`The active config no longer contains ${instrumentId}.`);
   spec.connection = connection;
-  const suffix = createInstrumentOperationId("config");
+  const suffix = createInstrumentCommandId("config");
   const entryId = safeConfigEntryId(`${config.id}-instrument-${instrumentId}-${suffix}`);
   config.id = entryId;
   await setConfigDefault({
@@ -200,7 +234,7 @@ export function connectionSummary(connection: InstrumentView["spec"]["connection
   }
 }
 
-export function createInstrumentOperationId(prefix: string): string {
+export function createInstrumentCommandId(prefix: string): string {
   const random =
     typeof globalThis.crypto?.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
@@ -215,7 +249,7 @@ export function retryTransientInstrumentMutation(failureCount: number, error: un
 function instrumentSessionPath(
   sessionId: string,
   instrumentId: string,
-  operation: "state" | "state/apply" | "collect",
+  operation: "state" | "state/apply" | "invoke" | "collect",
 ): string {
   return (
     `${SESSION_API}/${encodeURIComponent(sessionId)}/instruments/` +

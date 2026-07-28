@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         DriverFault,
         InstrumentDescription,
         InstrumentDriver,
+        InstrumentOperationArgument,
         InstrumentProvider,
         InstrumentProviderContext,
         InstrumentProviderDescription,
@@ -35,6 +36,8 @@ if TYPE_CHECKING:
         InstrumentStateAssignment,
         InstrumentStateCommand,
         InterfaceSpec,
+        InvokeCommand,
+        InvokeReceipt,
         OperationArgumentSpec,
         OperationSpec,
         PropertySpec,
@@ -50,11 +53,11 @@ if TYPE_CHECKING:
         interface,
         operation,
         operation_argument,
-        payload_property,
         quantity_property,
         string_property,
         validate_collect_command,
         validate_collect_receipt,
+        validate_invoke_command,
         validate_state_assignments,
         validate_state_command,
     )
@@ -93,6 +96,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "InstrumentDescription",
     ),
     "InstrumentDriver": ("scopecat.sdk.instruments.contracts", "InstrumentDriver"),
+    "InstrumentOperationArgument": (
+        "scopecat.sdk.instruments.contracts",
+        "InstrumentOperationArgument",
+    ),
     "InstrumentProvider": ("scopecat.sdk.instruments.contracts", "InstrumentProvider"),
     "InstrumentProviderContext": (
         "scopecat.sdk.instruments.contracts",
@@ -123,6 +130,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.records.instrument",
         "InstrumentStateSnapshot",
     ),
+    "InvokeCommand": ("scopecat.sdk.instruments.contracts", "InvokeCommand"),
+    "InvokeReceipt": ("scopecat.sdk.instruments.contracts", "InvokeReceipt"),
     "OperationArgumentSpec": (
         "scopecat.sdk.instruments.contracts",
         "OperationArgumentSpec",
@@ -153,7 +162,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "operation_argument",
     ),
-    "payload_property": ("scopecat.sdk.instruments.contracts", "payload_property"),
     "quantity_property": (
         "scopecat.sdk.instruments.contracts",
         "quantity_property",
@@ -174,6 +182,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "validate_collect_receipt": (
         "scopecat.sdk.instruments.contracts",
         "validate_collect_receipt",
+    ),
+    "validate_invoke_command": (
+        "scopecat.sdk.instruments.contracts",
+        "validate_invoke_command",
     ),
     "PayloadRef": ("scopecat.kernel.state", "PayloadRef"),
     "StateValue": ("scopecat.kernel.state", "StateValue"),

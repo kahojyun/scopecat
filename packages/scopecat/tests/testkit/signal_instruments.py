@@ -24,6 +24,8 @@ from scopecat.sdk.instruments import (
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InvokeCommand,
+    InvokeReceipt,
     acquisition,
     acquisition_result,
     interface,
@@ -154,6 +156,7 @@ class TestSignalInstrument:
         self.result_ids = ("signal", *additional_result_ids)
         self._state: dict[tuple[str, str], StateValue] = {}
         self.applied_commands: list[InstrumentStateCommand] = []
+        self.invoked_commands: list[InvokeCommand] = []
         self.collect_commands: list[CollectCommand] = []
 
     def describe(self) -> InstrumentDescription:
@@ -202,6 +205,10 @@ class TestSignalInstrument:
                 assignment.value
             )
         return ApplyReceipt(status="applied")
+
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        self.invoked_commands.append(command)
+        return InvokeReceipt(status="invoked", state=self.read_state())
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)

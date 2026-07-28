@@ -10,9 +10,9 @@ from pydantic import ValidationError
 import scopecat.sdk.instruments as instrument_sdk
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.kernel.value_types import Entity, Float, Scalar
+from scopecat.kernel.value_types import Entity, Float, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
+from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.instrument import (
     CommandChannelBinding as RecordCommandChannelBinding,
 )
@@ -32,12 +32,15 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     CollectResultRequest,
     InstrumentDescription,
+    InstrumentOperationArgument,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InvokeCommand,
+    OperationArgumentSpec,
     PropertySpec,
     acquisition,
     acquisition_axis,
@@ -48,12 +51,13 @@ from scopecat.sdk.instruments import (
     float_property,
     int_property,
     interface,
-    payload_property,
+    operation,
+    operation_argument,
     quantity_property,
     string_property,
     validate_collect_command,
     validate_collect_receipt,
-    validate_state_assignments,
+    validate_invoke_command,
     validate_state_command,
 )
 from tests.testkit.execution import execute_bound_run
@@ -61,7 +65,6 @@ from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,
     load_config,
     number_state,
-    payload_state,
     quantity_state,
 )
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
@@ -116,16 +119,6 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
                 "value_type": {"type": "quantity", "unit": "GHz"},
             },
         ),
-        (
-            payload_property("program", schema_id="pulse_program"),
-            {
-                "id": "program",
-                "value_type": {
-                    "type": "payload",
-                    "schema_id": "pulse_program",
-                },
-            },
-        ),
     ],
 )
 def test_property_spec_has_stable_scalar_wire_format(
@@ -160,18 +153,32 @@ def test_property_spec_wire_schema_matches_supported_state_values() -> None:
         "float",
         "string",
         "quantity",
-        "payload",
     ]
     assert all(variant["additionalProperties"] is False for variant in variants)
     assert variants[2]["properties"]["finite"]["const"] is True
     assert variants[4]["properties"]["finite"]["const"] is True
-    assert variants[-1]["required"] == ["type", "schema_id"]
+
+
+def test_operation_argument_spec_supports_opaque_payloads() -> None:
+    argument = OperationArgumentSpec(
+        id="program",
+        value_type=Scalar(Payload(schema_id="pulse_program")),
+    )
+
+    assert argument.model_dump(mode="json", exclude_defaults=True) == {
+        "id": "program",
+        "value_type": {
+            "type": "payload",
+            "schema_id": "pulse_program",
+        },
+    }
 
 
 @pytest.mark.parametrize(
     "value_type",
     [
         Scalar(Entity()),
+        Scalar(Payload(schema_id="pulse_program")),
         Scalar(Float(finite=False)),
         {"type": "float", "finite": "false"},
         {"type": "quantity", "minimum": 1.0},
@@ -434,7 +441,17 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
         interfaces=[
             interface(
                 "test.play_program/v1",
-                properties=[payload_property("program", schema_id="pulse_program")],
+                operations=[
+                    operation(
+                        "play",
+                        arguments=[
+                            operation_argument(
+                                "program",
+                                value_type=Scalar(Payload(schema_id="pulse_program")),
+                            )
+                        ],
+                    )
+                ],
             )
         ],
     )
@@ -443,17 +460,35 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
             "interfaces": [
                 interface(
                     "test.play_program/v1",
-                    properties=[
-                        payload_property("program", schema_id="readout_program")
+                    operations=[
+                        operation(
+                            "play",
+                            arguments=[
+                                operation_argument(
+                                    "program",
+                                    value_type=Scalar(
+                                        Payload(schema_id="readout_program")
+                                    ),
+                                )
+                            ],
+                        )
                     ],
                 )
             ]
         }
     )
-    command_with_payload = _state_command(
+    command_with_payload = InvokeCommand(
+        command_id="invoke-program",
+        instrument_id="source-0",
+        resource_id="source-0",
         interface_id="test.play_program/v1",
-        property_id="program",
-        value=payload_state(payload.id),
+        operation_id="play",
+        arguments=[
+            InstrumentOperationArgument(
+                id="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            )
+        ],
         payloads={payload.id: payload},
     )
     command_wire = command_with_payload.model_dump(mode="json")
@@ -462,55 +497,53 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
     assert command_wire["payloads"][payload.id]["codec_id"] == "tests.canonical-json"
     assert command_wire["payloads"][payload.id]["body"]["kind"] == "inline"
     assert (
-        InstrumentStateCommand.model_validate_json(
-            command_with_payload.model_dump_json()
-        )
+        InvokeCommand.model_validate_json(command_with_payload.model_dump_json())
         == command_with_payload
     )
 
-    valid = validate_state_assignments(
-        instrument_id="source-0",
-        assignments=command_with_payload.assignments,
-        description=description,
-        payload_schemas={payload.id: payload.schema_id},
-    )
-    command_payload = validate_state_command(
+    valid = validate_invoke_command(
         command=command_with_payload,
         description=description,
     )
-    missing = validate_state_assignments(
-        instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id="test.play_program/v1",
-                property_id="program",
-                value=payload_state("missing-program"),
-            )
-        ],
-        description=description,
-        payload_schemas={payload.id: payload.schema_id},
-    )
-    not_a_reference = validate_state_command(
-        command=_state_command(
+    with pytest.raises(ValidationError, match="missing referenced payload"):
+        InvokeCommand(
+            instrument_id="source-0",
+            resource_id="source-0",
             interface_id="test.play_program/v1",
-            property_id="program",
-            value=StateValue("program-a"),
+            operation_id="play",
+            arguments=[
+                InstrumentOperationArgument(
+                    id="program",
+                    value=StateValue(PayloadRef(payload_id="missing-program")),
+                )
+            ],
+            payloads={payload.id: payload},
+        )
+    not_a_reference = validate_invoke_command(
+        command=InvokeCommand(
+            instrument_id="source-0",
+            resource_id="source-0",
+            interface_id="test.play_program/v1",
+            operation_id="play",
+            arguments=[
+                InstrumentOperationArgument(
+                    id="program",
+                    value=StateValue("program-a"),
+                )
+            ],
         ),
         description=description,
     )
-    wrong_schema = validate_state_assignments(
-        instrument_id="source-0",
-        assignments=command_with_payload.assignments,
+    wrong_schema = validate_invoke_command(
+        command=command_with_payload,
         description=wrong_schema_description,
-        payload_schemas={payload.id: payload.schema_id},
     )
 
     assert valid == []
-    assert command_payload == []
-    assert missing[0].code == "instrument_driver_unknown_payload"
-    assert not_a_reference[0].code == "instrument_driver_property_value_mismatch"
-    assert wrong_schema[0].code == "instrument_driver_property_value_mismatch"
+    assert (
+        not_a_reference[0].code == "instrument_driver_operation_argument_value_mismatch"
+    )
+    assert wrong_schema[0].code == "instrument_driver_operation_argument_value_mismatch"
 
 
 def test_provider_builds_fresh_drivers() -> None:
@@ -853,7 +886,6 @@ def _state_command(
     interface_id: str,
     property_id: str,
     value: StateValue,
-    payloads: dict[str, CommandPayload] | None = None,
 ) -> InstrumentStateCommand:
     return InstrumentStateCommand(
         instrument_id="source-0",
@@ -865,7 +897,6 @@ def _state_command(
                 value=value,
             )
         ],
-        payloads=payloads or {},
     )
 
 

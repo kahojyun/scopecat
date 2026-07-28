@@ -6,14 +6,16 @@ from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.records.artifact import CommandPayload
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import CommandChannelBinding, InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments.contracts import (
     CollectResultRequest,
+    InstrumentOperationArgument,
     InstrumentStateAssignment,
-    validate_payload_bindings,
+    InvokeCommand,
 )
 
 
@@ -27,14 +29,35 @@ class RunHardwareApply(_HardwareModel):
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
     assignments: tuple[InstrumentStateAssignment, ...]
+
+
+class RunHardwareInvoke(_HardwareModel):
+    kind: Literal["invoke"] = "invoke"
+    effect_id: str = Field(min_length=1)
+    point_index: int = Field(ge=0)
+    instrument_id: str = Field(min_length=1)
+    resource_id: str = Field(min_length=1)
+    interface_id: InterfaceId
+    component_path: tuple[str, ...] = ()
+    operation_id: str = Field(min_length=1)
+    arguments: tuple[InstrumentOperationArgument, ...] = ()
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
     @model_validator(mode="after")
-    def validate_payloads(self) -> RunHardwareApply:
-        validate_payload_bindings(
-            assignments=self.assignments,
+    def validate_command(self) -> RunHardwareInvoke:
+        InvokeCommand(
+            command_id=self.effect_id,
+            instrument_id=self.instrument_id,
+            resource_id=self.resource_id,
+            interface_id=self.interface_id,
+            component_path=list(self.component_path),
+            operation_id=self.operation_id,
+            arguments=list(self.arguments),
             payloads=self.payloads,
-            label="hardware apply",
+            entity_ids=list(self.entity_ids),
+            channel_bindings=list(self.channel_bindings),
         )
         return self
 
@@ -63,7 +86,7 @@ class RunHardwareCollect(_HardwareModel):
 
 
 type RunHardwareAction = Annotated[
-    RunHardwareApply | RunHardwareCollect,
+    RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
     Field(discriminator="kind"),
 ]
 
@@ -130,6 +153,7 @@ __all__ = [
     "RunHardwareCollect",
     "RunHardwareCollectBinding",
     "RunHardwareFinalizationReceipt",
+    "RunHardwareInvoke",
     "RunHardwareValue",
     "RunInstrumentHost",
 ]

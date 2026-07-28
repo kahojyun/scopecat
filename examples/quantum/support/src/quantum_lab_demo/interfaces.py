@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from scopecat.sdk.instruments import InterfaceSpec, interface, payload_property
+from scopecat.kernel.value_types import Payload, Scalar
+from scopecat.sdk.instruments import (
+    InterfaceSpec,
+    interface,
+    operation,
+    operation_argument,
+)
 
 PLAY_PULSE_PROGRAM = "quantum_lab.play_pulse_program/v1"
 READOUT_PULSE = "quantum_lab.readout_pulse/v1"
@@ -13,11 +19,17 @@ def play_pulse_program_interface() -> InterfaceSpec:
     return interface(
         PLAY_PULSE_PROGRAM,
         label="Play pulse program",
-        properties=[
-            payload_property(
-                "program",
-                schema_id="pulse_program",
-                label="Pulse program",
+        operations=[
+            operation(
+                "play",
+                label="Play pulse program",
+                arguments=[
+                    operation_argument(
+                        "program",
+                        value_type=Scalar(Payload("pulse_program")),
+                        label="Pulse program",
+                    )
+                ],
             )
         ],
     )

@@ -45,12 +45,15 @@
     grid-template-columns: minmax(280px, 315px) minmax(0, 1fr);
   }
 
-  .interface-properties {
+  .interface-properties,
+  .operation-arguments {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .interface-property,
-  .interface-property:nth-child(2n) {
+  .interface-property:nth-child(2n),
+  .operation-argument,
+  .operation-argument:nth-child(2n) {
     border-right: 0;
   }
 }
@@ -583,11 +586,13 @@
   }
 
   .interface-card > header,
-  .acquisition-control > header {
+  .acquisition-control > header,
+  .operation-control > header {
     display: flex;
   }
 
-  .interface-property {
+  .interface-property,
+  .operation-argument {
     grid-template-columns: minmax(0, 1fr);
   }
 

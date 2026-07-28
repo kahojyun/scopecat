@@ -63,9 +63,9 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.execution.ports.instruments import (
-    RunHardwareApply,
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
+    RunHardwareInvoke,
 )
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.records.artifact import (
@@ -89,6 +89,8 @@ from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectReceipt,
     InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
 )
 
 _API_PREFIX = "/api/v1"
@@ -250,7 +252,6 @@ class DaemonClient:
         instrument_id: str,
         command: InstrumentStateCommand,
     ) -> ApplyReceipt:
-        command = self._externalize_state_command(session_id, command)
         return self._post_idempotent_model(
             self._instrument_session_path(
                 session_id,
@@ -259,6 +260,23 @@ class DaemonClient:
             ),
             command,
             ApplyReceipt,
+        )
+
+    def invoke_instrument(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InvokeCommand,
+    ) -> InvokeReceipt:
+        command = self._externalize_invoke_command(session_id, command)
+        return self._post_idempotent_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "invoke",
+            ),
+            command,
+            InvokeReceipt,
         )
 
     def collect_instrument(
@@ -641,11 +659,11 @@ class DaemonClient:
         response = self._request("GET", path, params=params)
         return model.model_validate_json(response.content)
 
-    def _externalize_state_command(
+    def _externalize_invoke_command(
         self,
         session_id: str,
-        command: InstrumentStateCommand,
-    ) -> InstrumentStateCommand:
+        command: InvokeCommand,
+    ) -> InvokeCommand:
         return command.model_copy(
             update={
                 "payloads": self._externalize_payloads(
@@ -685,7 +703,7 @@ class DaemonClient:
                     )
                 }
             )
-            if isinstance(action, RunHardwareApply)
+            if isinstance(action, RunHardwareInvoke)
             else action
             for action in command.batch.actions
         )

@@ -109,6 +109,7 @@ from tests.testkit.signal_instruments import (
 from tests.testkit.typed_program import (
     compute_result,
     instrument_acquisition,
+    instrument_invocation,
     link_program,
     observable_product,
     typed_program,
@@ -808,12 +809,13 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                 interfaces=("test.play_program/v1", "test.scalar_signal/v1"),
             ),
         ),
-        state=[
-            set_state_property(
+        invocations=[
+            instrument_invocation(
+                id="play-program",
                 resource_port_id=logical_resource_port_id("source"),
-                interface_id="test.play_program/v1",
-                property_id="program",
-                value=compute_result("build-program"),
+                interface="test.play_program/v1",
+                operation="play",
+                arguments={"program": compute_result("build-program")},
             )
         ],
         product_defs=[product],
@@ -867,7 +869,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         Quantity(value=5.1, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
-    assert len(instrument.applied) == 6
+    assert len(instrument.invoked) == 6
     assert all(
         transition.stage != "compute"
         for transition in sqlite_execution_session(
@@ -875,7 +877,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
             manifest.run_id,
         ).journal.entries()
     )
-    payloads = [next(iter(command.payloads.values())) for command in instrument.applied]
+    payloads = [next(iter(command.payloads.values())) for command in instrument.invoked]
     payload_ids = [payload.id for payload in payloads]
     assert len(set(payload_ids)) == 6
     assert all(

@@ -15,9 +15,14 @@ from scopecat.sdk.instruments import (
     InstrumentDescription,
     InstrumentPropertyState,
     InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
 )
 from scopecat.sdk.instruments import (
     validate_collect_command as validate_collect_contract,
+)
+from scopecat.sdk.instruments import (
+    validate_invoke_command as validate_invoke_contract,
 )
 from scopecat.sdk.instruments import (
     validate_state_command as validate_state_contract,
@@ -163,6 +168,26 @@ def validate_collect_command(
 
 def not_applied(problems: Iterable[Problem]) -> ApplyReceipt:
     return ApplyReceipt(status="not_applied", problems=tuple(problems))
+
+
+def unsupported_invoke(
+    command: InvokeCommand,
+    description: InstrumentDescription,
+) -> InvokeReceipt:
+    """Reject calls outside a driver's declared operation surface."""
+
+    problems = validate_invoke_contract(command=command, description=description)
+    if not problems:
+        problems = [
+            execution_problem(
+                "instrument_operation_not_implemented",
+                f"{description.instrument_id} does not implement "
+                f"{command.operation_id}",
+                "invoke_command",
+                "operation_id",
+            )
+        ]
+    return InvokeReceipt(status="not_invoked", problems=tuple(problems))
 
 
 def apply_unknown(instrument_id: str, error: Exception) -> ApplyReceipt:

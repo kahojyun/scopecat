@@ -22,27 +22,35 @@ from scopecat.execution.ports.instruments import (
     RunHardwareBatch,
     RunHardwareCollect,
     RunHardwareCollectBinding,
+    RunHardwareInvoke,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.kernel.state import StateValue
+from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.planning.system import ExperimentSystem
+from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     CollectResultRequest,
+    InstrumentOperationArgument,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from tests.testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
 from scopecat_server.instrument_service import InstrumentService
+
+type _FailAction = Literal["apply", "invoke", "cleanup", "abort", "close"] | None
 
 
 class _Driver(SignalInstrumentDriver):
@@ -50,11 +58,11 @@ class _Driver(SignalInstrumentDriver):
         self,
         instrument_id: str,
         *,
-        fail_action: Literal["apply", "cleanup", "abort", "close"] | None = None,
+        fail_action: _FailAction = None,
         apply_barrier: Barrier | None = None,
     ) -> None:
         super().__init__(instrument_id=instrument_id)
-        self.fail_action = fail_action
+        self.fail_action: _FailAction = fail_action
         self.apply_barrier = apply_barrier
         self.read_count = 0
         self.cleanup_count = 0
@@ -73,6 +81,13 @@ class _Driver(SignalInstrumentDriver):
         if self.fail_action == "apply":
             raise RuntimeError("apply outcome lost")
         return super().apply_state(command)
+
+    @override
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        self.invoked.append(command)
+        if self.fail_action == "invoke":
+            raise RuntimeError("invoke outcome lost")
+        return InvokeReceipt(status="invoked")
 
     @override
     def cleanup(self) -> None:
@@ -99,12 +114,10 @@ class _Provider:
     def __init__(
         self,
         *,
-        fail_action: Literal["apply", "cleanup", "abort", "close"] | None = None,
+        fail_action: _FailAction = None,
         apply_barrier: Barrier | None = None,
     ) -> None:
-        self.fail_action: Literal["apply", "cleanup", "abort", "close"] | None = (
-            fail_action
-        )
+        self.fail_action: _FailAction = fail_action
         self.apply_barrier = apply_barrier
         self.provide_count = 0
         self.drivers: list[_Driver] = []
@@ -205,6 +218,46 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         ]
 
 
+def test_run_invoke_reads_back_state_before_later_actions(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        reads_before_invoke = driver.read_count
+        payload = command_payload_from_bytes(
+            id="program-1",
+            schema_id="pulse_program",
+            codec_id="tests.canonical-json",
+            codec_version=1,
+            media_type="application/json",
+            content=b'{"samples":[0.0]}',
+        )
+
+        receipt = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "invoke-batch",
+                _invoke_action(
+                    "source-0",
+                    effect_id="invoke-1",
+                    payload=payload,
+                ),
+            ),
+        )
+
+        assert receipt.problems == ()
+        assert len(driver.invoked) == 1
+        assert driver.read_count == reads_before_invoke + 1
+        assert driver.invoked[0].payloads[payload.id].inline_bytes() == (
+            b'{"samples":[0.0]}'
+        )
+
+
 def test_provision_rejects_contract_changed_after_admission(tmp_path: Path) -> None:
     provider = _Provider()
     with _runtime(tmp_path, provider) as runtime:
@@ -268,6 +321,47 @@ def test_unknown_driver_action_quarantines_and_discards_run_state(
             )
 
         [driver] = provider.drivers
+        assert driver.abort_count == 1
+        assert driver.close_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state == (
+            "attention_required"
+        )
+        _assert_run_state_discarded(instruments, run_id)
+
+
+def test_unknown_invoke_quarantines_and_discards_run_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="invoke")
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        payload = command_payload_from_bytes(
+            id="program-1",
+            schema_id="pulse_program",
+            codec_id="tests.canonical-json",
+            codec_version=1,
+            media_type="application/json",
+            content=b'{"samples":[0.0]}',
+        )
+
+        with pytest.raises(BackendConflict, match="unknown state"):
+            instruments.execute_run_hardware(
+                run_id,
+                _batch_command(
+                    lease_id,
+                    "invoke-unknown",
+                    _invoke_action(
+                        "source-0",
+                        effect_id="invoke-unknown-1",
+                        payload=payload,
+                    ),
+                ),
+            )
+
+        [driver] = provider.drivers
+        assert len(driver.invoked) == 1
         assert driver.abort_count == 1
         assert driver.close_count == 1
         assert runtime.application.executor._control.get_run(run_id).state == (
@@ -445,7 +539,10 @@ def _runtime(
 ) -> LocalDaemonRuntime:
     def factory(_root: Path) -> LabApplication:
         return LabApplication(
-            build_system=lambda _config: ExperimentSystem(provider=provider)
+            build_system=lambda _config: ExperimentSystem(
+                provider=provider,
+                payload_codecs=json_payload_codecs("pulse_program"),
+            )
         )
 
     return LocalDaemonRuntime(
@@ -515,7 +612,7 @@ def _provision(lease_id: str) -> RunInstrumentProvisionCommand:
 def _batch_command(
     lease_id: str,
     operation_id: str,
-    *actions: RunHardwareApply | RunHardwareCollect,
+    *actions: RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
 ) -> RunHardwareBatchCommand:
     return RunHardwareBatchCommand(
         lease_id=lease_id,
@@ -543,6 +640,29 @@ def _apply_action(
                 value=StateValue(Quantity(value=5.0, unit="GHz")),
             ),
         ),
+    )
+
+
+def _invoke_action(
+    instrument_id: str,
+    *,
+    effect_id: str,
+    payload: CommandPayload,
+) -> RunHardwareInvoke:
+    return RunHardwareInvoke(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id=instrument_id,
+        resource_id=instrument_id,
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=(
+            InstrumentOperationArgument(
+                id="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            ),
+        ),
+        payloads={payload.id: payload},
     )
 
 

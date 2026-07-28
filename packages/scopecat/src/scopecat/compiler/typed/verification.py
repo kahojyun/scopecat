@@ -19,6 +19,7 @@ from scopecat.compiler.typed.program import (
     ValueInput,
     core_acquisitions,
     core_domain_executions,
+    core_invocations,
     core_state,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
@@ -251,6 +252,21 @@ def _program_relation_consumers(
                 ProgramRelationConsumerKind.STATE_VALUE,
                 state.value_use.value,
                 model_location("state", state_index, "value"),
+            )
+
+    for invocation_index, invocation in enumerate(core_invocations(program)):
+        for argument in invocation.arguments:
+            if isinstance(argument.value_use, ComputeResultRef):
+                continue
+            yield _consumer(
+                ProgramRelationConsumerKind.INVOCATION_ARGUMENT,
+                argument.value_use.value,
+                model_location(
+                    "invocations",
+                    invocation_index,
+                    "arguments",
+                    argument.id,
+                ),
             )
 
 

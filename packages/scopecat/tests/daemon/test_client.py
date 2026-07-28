@@ -35,9 +35,9 @@ from scopecat.records.artifact import (
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import (
-    ApplyReceipt,
-    InstrumentStateAssignment,
-    InstrumentStateCommand,
+    InstrumentOperationArgument,
+    InvokeCommand,
+    InvokeReceipt,
 )
 from tests.testkit.workflow_fixtures import load_config
 
@@ -123,7 +123,7 @@ def test_run_instrument_provision_retries_the_same_operation_after_response_loss
     ] == [command, command]
 
 
-def test_apply_externalizes_inline_payload_before_command_post() -> None:
+def test_invoke_externalizes_inline_payload_before_command_post() -> None:
     requests: list[httpx2.Request] = []
     content = b"opaque-program"
     payload = command_payload_from_bytes(
@@ -134,14 +134,15 @@ def test_apply_externalizes_inline_payload_before_command_post() -> None:
         media_type="application/octet-stream",
         content=content,
     )
-    command = InstrumentStateCommand(
-        operation_id="apply-payload-1",
+    command = InvokeCommand(
+        command_id="invoke-payload-1",
         instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id="test.play_program/v1",
-                property_id="program",
+        resource_id="source-0",
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=[
+            InstrumentOperationArgument(
+                id="program",
                 value=StateValue(PayloadRef(payload_id=payload.id)),
             )
         ],
@@ -159,7 +160,7 @@ def test_apply_externalizes_inline_payload_before_command_post() -> None:
                 ),
                 status_code=201,
             )
-        return _model(ApplyReceipt(status="applied"))
+        return _model(InvokeReceipt(status="invoked"))
 
     client = DaemonClient(
         "http://daemon.local/",
@@ -167,8 +168,7 @@ def test_apply_externalizes_inline_payload_before_command_post() -> None:
     )
 
     assert (
-        client.apply_instrument_state("session-1", "source-0", command).status
-        == "applied"
+        client.invoke_instrument("session-1", "source-0", command).status == "invoked"
     )
     assert [request.method for request in requests] == ["PUT", "POST"]
     assert requests[0].url.path == (
@@ -176,7 +176,8 @@ def test_apply_externalizes_inline_payload_before_command_post() -> None:
         f"{payload.content_hash.removeprefix('sha256:')}"
     )
     assert requests[0].content == content
-    posted = InstrumentStateCommand.model_validate_json(requests[1].content)
+    assert requests[1].url.path.endswith("/instruments/source-0/invoke")
+    posted = InvokeCommand.model_validate_json(requests[1].content)
     posted_payload = posted.payloads[payload.id]
     assert isinstance(payload.body, InlinePayloadBody)
     assert isinstance(posted_payload.body, BlobPayloadBody)
@@ -194,14 +195,15 @@ def test_payload_object_put_retries_once_after_transport_failure() -> None:
         media_type="application/octet-stream",
         content=content,
     )
-    command = InstrumentStateCommand(
-        operation_id="retry-apply",
+    command = InvokeCommand(
+        command_id="retry-invoke",
         instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id="test.play_program/v1",
-                property_id="program",
+        resource_id="source-0",
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=[
+            InstrumentOperationArgument(
+                id="program",
                 value=StateValue(PayloadRef(payload_id=payload.id)),
             )
         ],
@@ -221,7 +223,7 @@ def test_payload_object_put_retries_once_after_transport_failure() -> None:
                 ),
                 status_code=201,
             )
-        return _model(ApplyReceipt(status="applied"))
+        return _model(InvokeReceipt(status="invoked"))
 
     client = DaemonClient(
         "http://daemon.local/",
@@ -229,8 +231,7 @@ def test_payload_object_put_retries_once_after_transport_failure() -> None:
     )
 
     assert (
-        client.apply_instrument_state("session-1", "source-0", command).status
-        == "applied"
+        client.invoke_instrument("session-1", "source-0", command).status == "invoked"
     )
     assert [request.method for request in requests] == ["PUT", "PUT", "POST"]
     assert requests[0].url == requests[1].url

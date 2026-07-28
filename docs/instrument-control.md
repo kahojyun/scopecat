@@ -35,8 +35,8 @@ run's inputs.
 `InstrumentDescription` is the pure driver contract used without opening
 hardware. It declares the versioned interfaces the device implements. An
 interface or nested component may contain persistent properties, atomic
-operations, and acquisitions with typed results. Property and acquisition GUI
-controls plus experiment validation are derived from this description.
+operations, and acquisitions with typed results. GUI controls and experiment
+validation are derived from this description.
 
 `InstrumentSession` is an explicit daemon-owned connection. The daemon pins
 the active config revision, claims all requested instruments, provisions the
@@ -128,9 +128,11 @@ selects **Connect**, after which the detail view:
 3. disables `read_only` properties and never tries to read `write_only` values;
 4. stages edits locally, showing current and proposed values separately;
 5. submits all staged properties in one **Apply** operation;
-6. offers **Collect** per declared acquisition and requests its declared
+6. offers one-shot controls for declared operations whose arguments the GUI can
+   encode;
+7. offers **Collect** per declared acquisition and requests its declared
    results;
-7. closes the session on explicit disconnect or workspace teardown.
+8. closes the session on explicit disconnect or workspace teardown.
 
 If a browser teardown request does not reach the daemon, the next client can
 disconnect the still-visible interactive session. This is ordinary ownership
@@ -200,14 +202,21 @@ with lab.instruments.open("flux-source", "readout-vna") as session:
 ```
 
 The handle is synchronous to match the existing notebook API. It generates a
-new operation id for every apply or collect unless the caller supplies one,
-and closes or aborts through the daemon when leaving the context. If an HTTP
-response is lost, retry with the same `operation_id`: the daemon returns the
+new command id for every apply, invoke, or collect unless the caller supplies
+one, and closes or aborts through the daemon when leaving the context. If an
+HTTP response is lost, retry with the same `command_id`: the daemon returns the
 recorded receipt instead of touching the device again. The daemon client
 automatically retries one transport failure with the same complete command;
 callers can supply an id when they need to continue that retry explicitly.
-Opening also has a retry identity. Close and abort are naturally idempotent
-because the daemon records the session's terminal status.
+Opening has a separate retry identity. Close and abort are naturally
+idempotent because the daemon records the session's terminal status.
+
+Opaque values such as compiled pulse programs are operation arguments, never
+persistent properties. A registered codec converts the in-memory value to an
+exact byte payload; the command carries only a typed reference plus a
+content-addressed envelope. The daemon resolves and verifies every payload
+before a hardware batch begins, then passes the same process-safe command to
+the driver. This boundary can move unchanged to an isolated driver worker.
 
 An operator can recover a session left by another notebook kernel with
 `lab.instruments.abort_session(session_id)`. This asks the daemon to run the
@@ -222,15 +231,15 @@ hardware. Only the external notebook executor needs a renewable lease and
 fencing token; direct driver calls already execute inside the owning daemon.
 
 Reads are observational: a failed read reports an error but does not by itself
-claim the physical state changed. Apply and collect are consequential:
+claim the physical state changed. Apply, invoke, and collect are consequential:
 
-- `applied` or `collected` means the driver confirmed the outcome;
-- `not_applied` or `not_collected` proves it did not happen;
+- `applied`, `invoked`, or `collected` means the driver confirmed the outcome;
+- `not_applied`, `not_invoked`, or `not_collected` proves it did not happen;
 - `unknown` means the command may have reached the instrument.
 
 The last case aborts and closes the live drivers, retains quarantined resource
 claims, and requires operator resolution. Automatic retry would be unsafe.
-Operation ids provide session-local de-duplication, and durable started/finished
+Command ids provide session-local de-duplication, and durable started/finished
 events provide an audit trail around consequential calls. A daemon restart
 releases an idle session, but the durable active-operation marker lets it
 quarantine a session interrupted between those two events.
@@ -255,9 +264,11 @@ diagnostics, not independent retry identities.
 
 The daemon's reconciliation cache is an assumed state: it starts from observed
 readback and advances only after confirmed writes, using driver-returned state
-when available. It is not presented as fresh physical observation. Drivers for
-devices whose properties drift independently can later require explicit
-readback without changing the batch boundary.
+when available. After an atomic operation it adopts the receipt state or reads
+the device again before executing later state effects. The cache is not
+presented as fresh physical observation. Drivers for devices whose properties
+drift independently can later require explicit readback without changing the
+batch boundary.
 
 ## Initial superconducting-lab driver set
 

@@ -9,6 +9,7 @@ from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
+    InvokeOperation,
     LocalOperation,
 )
 from scopecat.execution.program import RunCoverageEffect
@@ -54,7 +55,7 @@ def local_operation_resource_claims(
 
     if isinstance(
         operation,
-        ApplyStateOperation | CollectOperation,
+        ApplyStateOperation | InvokeOperation | CollectOperation,
     ):
         return (ResourceClaim(operation.instrument_id),)
     return ()

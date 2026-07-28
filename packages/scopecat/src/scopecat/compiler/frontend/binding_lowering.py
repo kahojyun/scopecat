@@ -8,6 +8,7 @@ from typing import cast
 
 from scopecat.authoring._binding_intents import (
     BindingIntent,
+    InvocationIntent,
     ResourcePort,
 )
 from scopecat.authoring._value_refs import (
@@ -30,6 +31,11 @@ from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     verify_scalar_value_expr,
 )
+from scopecat.compiler.typed.invocation import (
+    InvokeArgument,
+    InvokeEffect,
+    InvokeId,
+)
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     set_state_property,
@@ -42,6 +48,7 @@ from scopecat.graph.relations.model import (
 )
 from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Entity, Scalar
 from scopecat.records.config import Topology
 
@@ -76,6 +83,52 @@ def lower_state_binding(
                 expected_type=value_type,
             )
         ),
+    )
+
+
+def lower_invocation(
+    intent: InvocationIntent,
+    *,
+    inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
+) -> InvokeEffect:
+    """Lower one verified atomic operation invocation."""
+
+    arguments: list[InvokeArgument] = []
+    for argument in intent.arguments:
+        value_type: Scalar | None
+        if isinstance(argument.value, ValueRef):
+            value_type = cast("Scalar", argument.value.value_type)
+            lowered = internal_lower_value_ref(argument.value)
+        else:
+            value_type = None
+            lowered = as_scalar_expr(argument.value)
+        arguments.append(
+            InvokeArgument(
+                id=argument.id,
+                value_use=(
+                    lowered
+                    if isinstance(lowered, ComputeResultRef)
+                    else relation_use(
+                        verify_scalar_value_expr(
+                            bind_scalar_input_refs(
+                                cast("ScalarExpr", lowered),
+                                inputs,
+                            ),
+                            bindings=type_bindings,
+                            expected_type=value_type,
+                        )
+                    )
+                ),
+            )
+        )
+    return InvokeEffect(
+        id=InvokeId(SymbolId(scope=intent.scope, local_id=intent.id)),
+        resource_port_id=intent.port_id,
+        interface_id=intent.interface_id,
+        component_path=intent.component_path,
+        operation_id=intent.operation_id,
+        arguments=tuple(arguments),
     )
 
 

@@ -20,6 +20,10 @@ from scopecat.compiler.relations.context import (
     ParameterRelationData,
 )
 from scopecat.compiler.semantic.model import AcquireEffect
+from scopecat.compiler.typed.invocation import (
+    InvokeEffect,
+    evaluate_invoke_argument,
+)
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
@@ -33,6 +37,7 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectionResultBinding,
     CollectOperation,
+    InvokeOperation,
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageEffect
@@ -71,6 +76,7 @@ from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
     CollectCommand,
     CollectResultRequest,
+    InstrumentOperationArgument,
 )
 
 type _ChannelBindingIdentity = tuple[
@@ -159,10 +165,11 @@ def materialize_local_execution(
     )
     known_compute_results = {node.result.id for node in program.compute_nodes}
     demanded_payload_results = {
-        effect.value_use.value_id
+        argument.value_use.value_id
         for effect in program.effects
-        if isinstance(effect, SetStateSpec)
-        and isinstance(effect.value_use, ComputeResultRef)
+        if isinstance(effect, InvokeEffect)
+        for argument in effect.arguments
+        if isinstance(argument.value_use, ComputeResultRef)
     }
     payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {}
     compute_effects: list[RunCoverageEffect] = []
@@ -209,21 +216,45 @@ def materialize_local_execution(
                         RunCoverageEffect(ordinal, collect)
                     )
             continue
+        if isinstance(effect, InvokeEffect):
+            for ordinal in ordinals:
+                point = point_by_ordinal[ordinal]
+                invocation = _bind_invocation(
+                    effect,
+                    resources_by_ordinal[ordinal],
+                    point_uid=point.logical_id.value,
+                    point_index=ordinal,
+                    ctx=EvalContext(
+                        params=params_by_ordinal[ordinal],
+                        point_row=point.row,
+                    ),
+                    payload_ids=payload_ids_by_ordinal[ordinal],
+                    known_compute_results=known_compute_results,
+                    problems=problems,
+                )
+                if invocation is not None:
+                    effect_operations[effect_index].append(
+                        RunCoverageEffect(ordinal, invocation)
+                    )
+            continue
         if effect_index and not isinstance(
             program.effects[effect_index - 1],
-            TypedDomainExecution | AcquireEffect,
+            TypedDomainExecution | AcquireEffect | InvokeEffect,
         ):
             continue
         state_end = effect_index + 1
         while state_end < len(program.effects) and not isinstance(
             program.effects[state_end],
-            TypedDomainExecution | AcquireEffect,
+            TypedDomainExecution | AcquireEffect | InvokeEffect,
         ):
             state_end += 1
         state_group: list[tuple[int, SetStateSpec]] = []
         for index in range(effect_index, state_end):
             state = program.effects[index]
-            if isinstance(state, TypedDomainExecution | AcquireEffect):
+            if isinstance(
+                state,
+                TypedDomainExecution | AcquireEffect | InvokeEffect,
+            ):
                 raise AssertionError("state group contains a non-state effect")
             state_group.append((index, state))
         for ordinal in ordinals:
@@ -245,8 +276,6 @@ def materialize_local_execution(
                 point_uid=point.logical_id.value,
                 state_group_index=effect_index,
                 resources=resources,
-                payload_ids=payload_ids_by_ordinal[ordinal],
-                known_compute_results=known_compute_results,
                 point_index=ordinal,
                 problems=problems,
             )
@@ -468,6 +497,8 @@ def _active_resource_port_ids(
                 product_id in demanded_products for product_id in effect.product_ids
             ):
                 selected.add(effect.resource_port_id)
+        elif isinstance(effect, InvokeEffect):
+            selected.add(effect.resource_port_id)
         elif not isinstance(effect, TypedDomainExecution):
             selected.update(_state_resource_port_ids(effect))
     return frozenset(selected)
@@ -485,8 +516,6 @@ def _bind_desired_state(
     point_uid: str,
     state_group_index: int,
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
-    payload_ids: Mapping[ValueId, str],
-    known_compute_results: set[ValueId],
     point_index: int,
     problems: list[Problem],
 ) -> tuple[ApplyStateOperation, ...]:
@@ -529,34 +558,13 @@ def _bind_desired_state(
         interface_id = record.interface_id
         component_path = record.component_path
         property_id = record.property_id
-        if isinstance(record.value, ComputeResultRef):
-            if record.value.value_id not in known_compute_results:
-                problems.append(
-                    _problem(
-                        "compute_payload_unknown_output",
-                        "state references unknown compute result "
-                        f"{record.value.value_id.qualified_name!r}",
-                        model_location("desired_state", "value"),
-                    )
-                )
-                continue
-            if record.value.value_id not in payload_ids:
-                problems.append(
-                    _problem(
-                        "compute_payload_unavailable",
-                        "state compute output is not an available payload: "
-                        f"{record.value.value_id.qualified_name!r}",
-                        model_location("desired_state", "value"),
-                    )
-                )
-                continue
-        state_value = _state_value(record.value, payload_ids=payload_ids)
+        state_value = _state_value(record.value)
         if state_value is None:
             problems.append(
                 _problem(
                     "state_value_unsupported",
                     "state values must be finite numbers, quantities, "
-                    "or payload outputs",
+                    "strings, or booleans",
                     model_location("desired_state", "value"),
                 )
             )
@@ -658,12 +666,134 @@ def _bind_desired_state(
 
 def _state_value(
     value: object,
-    *,
-    payload_ids: Mapping[ValueId, str],
 ) -> StateValue | None:
-    if isinstance(value, ComputeResultRef):
-        payload_id = payload_ids.get(value.value_id)
-        return StateValue(PayloadRef(payload_id=payload_id)) if payload_id else None
+    if isinstance(value, Quantity):
+        return StateValue(value) if math.isfinite(value.value) else None
+    if isinstance(value, bool | int | str):
+        return StateValue(value)
+    if isinstance(value, float):
+        return StateValue(value) if math.isfinite(value) else None
+    return None
+
+
+def _bind_invocation(
+    effect: InvokeEffect,
+    resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
+    *,
+    point_uid: str,
+    point_index: int,
+    ctx: EvalContext,
+    payload_ids: Mapping[ValueId, str],
+    known_compute_results: set[ValueId],
+    problems: list[Problem],
+) -> InvokeOperation | None:
+    try:
+        binding = _bind_state_resource(
+            effect.resource_port_id,
+            interface_id=effect.interface_id,
+            resources=resources,
+        )
+    except ResourceBindingError as error:
+        problems.append(
+            _problem(
+                error.code,
+                str(error),
+                model_location("invocations", effect.id.qualified_name, "resource"),
+            )
+        )
+        return None
+
+    arguments: list[InstrumentOperationArgument] = []
+    for argument in effect.arguments:
+        try:
+            value = evaluate_invoke_argument(argument, ctx=ctx)
+        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+            problems.append(
+                _problem(
+                    "instrument_invocation_argument_evaluation_failed",
+                    f"invocation {effect.id.qualified_name!r} argument "
+                    f"{argument.id!r} failed for point {point_index}: {error}",
+                    model_location(
+                        "invocations",
+                        effect.id.qualified_name,
+                        "arguments",
+                        argument.id,
+                    ),
+                )
+            )
+            continue
+        if isinstance(value, ComputeResultRef):
+            if value.value_id not in known_compute_results:
+                problems.append(
+                    _problem(
+                        "compute_payload_unknown_output",
+                        "invocation references unknown compute result "
+                        f"{value.value_id.qualified_name!r}",
+                        model_location(
+                            "invocations",
+                            effect.id.qualified_name,
+                            "arguments",
+                            argument.id,
+                        ),
+                    )
+                )
+                continue
+            payload_id = payload_ids.get(value.value_id)
+            if payload_id is None:
+                problems.append(
+                    _problem(
+                        "compute_payload_unavailable",
+                        "invocation compute output is not an available payload: "
+                        f"{value.value_id.qualified_name!r}",
+                        model_location(
+                            "invocations",
+                            effect.id.qualified_name,
+                            "arguments",
+                            argument.id,
+                        ),
+                    )
+                )
+                continue
+            selected_value = StateValue(PayloadRef(payload_id=payload_id))
+        else:
+            selected_value = _invocation_argument_value(value)
+            if selected_value is None:
+                problems.append(
+                    _problem(
+                        "instrument_invocation_argument_unsupported",
+                        f"invocation {effect.id.qualified_name!r} argument "
+                        f"{argument.id!r} must be a finite scalar value",
+                        model_location(
+                            "invocations",
+                            effect.id.qualified_name,
+                            "arguments",
+                            argument.id,
+                        ),
+                    )
+                )
+                continue
+        arguments.append(
+            InstrumentOperationArgument(
+                id=argument.id,
+                value=selected_value,
+            )
+        )
+    if len(arguments) != len(effect.arguments):
+        return None
+    return InvokeOperation(
+        effect_id=f"{point_uid}.invoke.{effect.id.qualified_name}",
+        instrument_id=binding.instrument_id,
+        resource_id=binding.instrument_id,
+        interface_id=effect.interface_id,
+        component_path=effect.component_path,
+        operation_id=effect.operation_id,
+        arguments=tuple(arguments),
+        entity_ids=binding.entity_ids,
+        channel_bindings=binding.channel_bindings,
+    )
+
+
+def _invocation_argument_value(value: object) -> StateValue | None:
     if isinstance(value, Quantity):
         return StateValue(value) if math.isfinite(value.value) else None
     if isinstance(value, bool | int | str):
@@ -803,7 +933,7 @@ def _bind_collect(
             for result, _product, product_use_ids in selected
         ),
         command=CollectCommand(
-            operation_id=operation_id,
+            command_id=operation_id,
             instrument_id=instrument_id,
             point_index=point_index,
             point_count=point_count,

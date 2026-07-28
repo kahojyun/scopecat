@@ -14,14 +14,14 @@ from scopecat.daemon.wire import (
     PayloadObjectReceipt,
     RunHardwareBatchCommand,
 )
-from scopecat.execution.ports.instruments import RunHardwareApply
+from scopecat.execution.ports.instruments import RunHardwareInvoke
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.records.artifact import (
     BlobPayloadBody,
     CommandPayload,
     InlinePayloadBody,
 )
-from scopecat.sdk.instruments.contracts import InstrumentStateCommand
+from scopecat.sdk.instruments.contracts import InvokeCommand
 
 DEFAULT_MAX_PAYLOAD_OBJECT_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_INLINE_PAYLOAD_BYTES = 1024 * 1024
@@ -116,10 +116,10 @@ class CommandPayloadService:
             expected_content_hash=expected_content_hash,
         )
 
-    def canonicalize_state_command(
+    def canonicalize_invoke_command(
         self,
-        command: InstrumentStateCommand,
-    ) -> InstrumentStateCommand:
+        command: InvokeCommand,
+    ) -> InvokeCommand:
         """Publish inline bodies and return the canonical blob descriptor."""
 
         return command.model_copy(
@@ -135,7 +135,7 @@ class CommandPayloadService:
         self,
         command: RunHardwareBatchCommand,
     ) -> RunHardwareBatchCommand:
-        """Canonicalize every apply payload before idempotency comparison."""
+        """Canonicalize every invoke payload before idempotency comparison."""
 
         refs_by_hash: dict[str, str] = {}
         actions = tuple(
@@ -147,7 +147,7 @@ class CommandPayloadService:
                     )
                 }
             )
-            if isinstance(action, RunHardwareApply)
+            if isinstance(action, RunHardwareInvoke)
             else action
             for action in command.batch.actions
         )
@@ -155,10 +155,10 @@ class CommandPayloadService:
             update={"batch": command.batch.model_copy(update={"actions": actions})}
         )
 
-    def materialize_state_command(
+    def materialize_invoke_command(
         self,
-        command: InstrumentStateCommand,
-    ) -> InstrumentStateCommand:
+        command: InvokeCommand,
+    ) -> InvokeCommand:
         """Return a command whose payloads all carry verified inline bytes."""
 
         return command.model_copy(
@@ -174,7 +174,7 @@ class CommandPayloadService:
         self,
         command: RunHardwareBatchCommand,
     ) -> RunHardwareBatchCommand:
-        """Resolve every apply body atomically before a batch touches hardware."""
+        """Resolve every invoke body atomically before a batch touches hardware."""
 
         content_by_ref: dict[str, bytes] = {}
         actions = tuple(
@@ -186,7 +186,7 @@ class CommandPayloadService:
                     )
                 }
             )
-            if isinstance(action, RunHardwareApply)
+            if isinstance(action, RunHardwareInvoke)
             else action
             for action in command.batch.actions
         )

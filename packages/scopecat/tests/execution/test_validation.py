@@ -150,7 +150,7 @@ def _collect_program(
                     operation_id=operation_id,
                     instrument_id="source-0",
                     command=CollectCommand(
-                        operation_id=operation_id,
+                        command_id=operation_id,
                         instrument_id="source-0",
                         point_index=0,
                         point_count=1,

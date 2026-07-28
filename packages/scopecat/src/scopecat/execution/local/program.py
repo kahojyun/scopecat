@@ -19,6 +19,7 @@ from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
+    InstrumentOperationArgument,
     InstrumentStateAssignment,
 )
 
@@ -100,6 +101,21 @@ class ApplyStateOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class InvokeOperation:
+    """One concrete atomic instrument-operation target."""
+
+    effect_id: str
+    instrument_id: str
+    resource_id: str
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    operation_id: str
+    arguments: tuple[InstrumentOperationArgument, ...]
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class CollectionResultBinding:
     """Map one collect request correlation id to its logical product uses."""
 
@@ -117,7 +133,9 @@ class CollectOperation:
     result_bindings: tuple[CollectionResultBinding, ...]
 
 
-type LocalOperation = ComputeOperation | ApplyStateOperation | CollectOperation
+type LocalOperation = (
+    ComputeOperation | ApplyStateOperation | InvokeOperation | CollectOperation
+)
 
 
 __all__ = [
@@ -128,6 +146,7 @@ __all__ = [
     "ComputeInput",
     "ComputeKernel",
     "ComputeOperation",
+    "InvokeOperation",
     "LocalOperation",
     "OutputInput",
     "PayloadSlot",

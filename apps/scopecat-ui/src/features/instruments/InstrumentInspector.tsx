@@ -8,6 +8,7 @@ import {
   Database,
   LoaderCircle,
   Pencil,
+  Play,
   RefreshCw,
   RotateCcw,
   ShieldAlert,
@@ -16,6 +17,8 @@ import {
 import type {
   InstrumentCollectReceipt,
   InstrumentInterface,
+  InstrumentInvokeReceipt,
+  InstrumentOperation,
   InstrumentProperty,
   InstrumentSession,
   InstrumentState,
@@ -26,17 +29,21 @@ import { errorMessage, formatRelative, titleCase } from "../../lib/presentation"
 import {
   applyInstrumentState,
   collectInstrumentAcquisition,
-  createInstrumentOperationId,
+  createInstrumentCommandId,
   instrumentAcquisitionReadiness,
+  invokeInstrumentOperation,
   readInstrumentState,
   resolveInstrumentAttention,
   retryTransientInstrumentMutation,
   type InstrumentAcquisitionTarget,
+  type InstrumentOperationArgument,
+  type InstrumentOperationTarget,
   type StagedInstrumentProperty,
 } from "./instrument-api";
 
 interface DraftValue {
   raw: string | boolean;
+  unit?: string;
   value?: InstrumentStateValue;
 }
 
@@ -82,28 +89,34 @@ export function InstrumentInspector({
   const [collectResults, setCollectResults] = useState<Record<string, InstrumentCollectReceipt>>(
     {},
   );
-  const applyOperationIdRef = useRef<string | undefined>(undefined);
-  const collectOperationIdsRef = useRef<Record<string, string>>({});
+  const [invokeResults, setInvokeResults] = useState<Record<string, InstrumentInvokeReceipt>>({});
+  const applyCommandIdRef = useRef<string | undefined>(undefined);
+  const collectCommandIdsRef = useRef<Record<string, string>>({});
+  const invokeCommandIdsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (connected) return;
-    applyOperationIdRef.current = undefined;
-    collectOperationIdsRef.current = {};
+    applyCommandIdRef.current = undefined;
+    collectCommandIdsRef.current = {};
+    invokeCommandIdsRef.current = {};
     setState(undefined);
     setDrafts({});
     setApplyResult(undefined);
     setCollectResults({});
+    setInvokeResults({});
   }, [connected]);
 
   const readMutation = useMutation({
     mutationFn: () => readInstrumentState(requireSession(session), instrumentId),
     onSuccess: (snapshot) => {
-      applyOperationIdRef.current = undefined;
-      collectOperationIdsRef.current = {};
+      applyCommandIdRef.current = undefined;
+      collectCommandIdsRef.current = {};
+      invokeCommandIdsRef.current = {};
       setState(snapshot);
       setDrafts({});
       setApplyResult(undefined);
       setCollectResults({});
+      setInvokeResults({});
     },
   });
   useEffect(() => {
@@ -116,20 +129,22 @@ export function InstrumentInspector({
   const applyMutation = useMutation({
     mutationFn: ({
       properties,
-      operationId,
+      commandId,
     }: {
       properties: StagedInstrumentProperty[];
-      operationId: string;
-    }) => applyInstrumentState(requireSession(session), instrumentId, properties, operationId),
+      commandId: string;
+    }) => applyInstrumentState(requireSession(session), instrumentId, properties, commandId),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
     onSuccess: (receipt) => {
-      applyOperationIdRef.current = undefined;
+      applyCommandIdRef.current = undefined;
       setApplyResult(receipt.status);
       if (receipt.state) setState(receipt.state);
       if (receipt.status === "applied") {
-        collectOperationIdsRef.current = {};
+        collectCommandIdsRef.current = {};
+        invokeCommandIdsRef.current = {};
         setCollectResults({});
+        setInvokeResults({});
         setDrafts({});
       } else if (receipt.status === "unknown") {
         onSessionLost(
@@ -146,28 +161,66 @@ export function InstrumentInspector({
     mutationFn: ({
       target,
       stateSnapshot,
-      operationId,
+      commandId,
     }: {
       target: InstrumentAcquisitionTarget;
       stateSnapshot?: InstrumentState;
-      operationId: string;
+      commandId: string;
     }) =>
       collectInstrumentAcquisition(
         requireSession(session),
         instrumentId,
         target,
         stateSnapshot,
-        operationId,
+        commandId,
       ),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
     onSuccess: (receipt, { target }) => {
       const key = acquisitionKey(target);
-      delete collectOperationIdsRef.current[key];
+      delete collectCommandIdsRef.current[key];
       setCollectResults((current) => ({ ...current, [key]: receipt }));
       if (receipt.status === "unknown") {
         onSessionLost(
           "The collection result is unknown. The daemon quarantined this session for operator review.",
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey: ["instruments"] });
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ["instruments"] });
+    },
+  });
+  const invokeMutation = useMutation({
+    mutationFn: ({
+      target,
+      operationArguments,
+      commandId,
+    }: {
+      target: InstrumentOperationTarget;
+      operationArguments: InstrumentOperationArgument[];
+      commandId: string;
+    }) =>
+      invokeInstrumentOperation(
+        requireSession(session),
+        instrumentId,
+        target,
+        operationArguments,
+        commandId,
+      ),
+    retry: retryTransientInstrumentMutation,
+    retryDelay: 250,
+    onSuccess: (receipt, { target }) => {
+      const key = operationKey(target);
+      delete invokeCommandIdsRef.current[key];
+      setInvokeResults((current) => ({ ...current, [key]: receipt }));
+      if (receipt.state) setState(receipt.state);
+      if (receipt.status === "invoked") {
+        collectCommandIdsRef.current = {};
+        setCollectResults({});
+      } else if (receipt.status === "unknown") {
+        onSessionLost(
+          "The operation result is unknown. The daemon quarantined this session for operator review.",
         );
       }
       void queryClient.invalidateQueries({ queryKey: ["instruments"] });
@@ -195,7 +248,7 @@ export function InstrumentInspector({
     draft?: DraftValue,
   ) => {
     const key = propertyKey(interfaceId, componentPath, property.id);
-    applyOperationIdRef.current = undefined;
+    applyCommandIdRef.current = undefined;
     setDrafts((current) => {
       const next = { ...current };
       if (draft === undefined) delete next[key];
@@ -206,33 +259,53 @@ export function InstrumentInspector({
     applyMutation.reset();
   };
   const applyStaged = () => {
-    applyOperationIdRef.current ??= createInstrumentOperationId("apply");
+    applyCommandIdRef.current ??= createInstrumentCommandId("apply");
     applyMutation.mutate({
       properties: stagedProperties,
-      operationId: applyOperationIdRef.current,
+      commandId: applyCommandIdRef.current,
     });
   };
   const resetStaged = () => {
-    applyOperationIdRef.current = undefined;
+    applyCommandIdRef.current = undefined;
     setDrafts({});
     applyMutation.reset();
   };
   const collectAcquisition = (target: InstrumentAcquisitionTarget) => {
     const key = acquisitionKey(target);
-    const operationId =
-      collectOperationIdsRef.current[key] ?? createInstrumentOperationId("collect");
-    collectOperationIdsRef.current[key] = operationId;
+    const commandId = collectCommandIdsRef.current[key] ?? createInstrumentCommandId("collect");
+    collectCommandIdsRef.current[key] = commandId;
     collectMutation.mutate({
       target,
       stateSnapshot: state,
-      operationId,
+      commandId,
     });
+  };
+  const invokeOperation = (
+    target: InstrumentOperationTarget,
+    operationArguments: InstrumentOperationArgument[],
+  ) => {
+    const key = operationKey(target);
+    const commandId = invokeCommandIdsRef.current[key] ?? createInstrumentCommandId("invoke");
+    invokeCommandIdsRef.current[key] = commandId;
+    invokeMutation.mutate({ target, operationArguments, commandId });
+  };
+  const editOperation = (target: InstrumentOperationTarget) => {
+    const key = operationKey(target);
+    delete invokeCommandIdsRef.current[key];
+    setInvokeResults((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    invokeMutation.reset();
   };
   const interactionError =
     sessionError ??
     mutationError(readMutation.error) ??
     mutationError(applyMutation.error) ??
     mutationError(collectMutation.error) ??
+    mutationError(invokeMutation.error) ??
     mutationError(resolveMutation.error);
 
   return (
@@ -323,13 +396,22 @@ export function InstrumentInspector({
                   state={state}
                   drafts={drafts}
                   collectResults={collectResults}
+                  invokeResults={invokeResults}
                   collectingTarget={
                     collectMutation.isPending ? collectMutation.variables?.target : undefined
                   }
+                  invokingTarget={
+                    invokeMutation.isPending ? invokeMutation.variables?.target : undefined
+                  }
+                  invokePending={invokeMutation.isPending}
                   onStage={(componentPath, property, draft) =>
                     stage(instrumentInterface.id, componentPath, property, draft)
                   }
                   onCollect={(target) => collectAcquisition(target)}
+                  onInvoke={(target, operationArguments) =>
+                    invokeOperation(target, operationArguments)
+                  }
+                  onOperationEdit={editOperation}
                 />
               ))}
             </div>
@@ -337,7 +419,7 @@ export function InstrumentInspector({
             <InspectorEmpty
               icon={<CircleOff />}
               title="No interactive interfaces"
-              detail="This driver does not declare GUI-safe properties or acquisitions."
+              detail="This driver does not declare GUI-safe properties, operations, or acquisitions."
             />
           )}
 
@@ -570,7 +652,13 @@ function OwnerDescription({ instrument }: { instrument: InstrumentView }) {
       <div>
         <dt>Owner</dt>
         <dd>
-          {ownerKind} <code>{instrument.owner_id}</code>
+          {ownerKind}
+          {instrument.owner_kind === "run" && instrument.owner_id && (
+            <>
+              {" "}
+              <code>{instrument.owner_id}</code>
+            </>
+          )}
         </dd>
       </div>
       {instrument.owner_actor && (
@@ -589,18 +677,31 @@ function InterfaceCard({
   state,
   drafts,
   collectResults,
+  invokeResults,
   collectingTarget,
+  invokingTarget,
+  invokePending,
   onStage,
   onCollect,
+  onInvoke,
+  onOperationEdit,
 }: {
   instrumentInterface: InstrumentInterface;
   connected: boolean;
   state?: InstrumentState;
   drafts: Record<string, DraftValue>;
   collectResults: Record<string, InstrumentCollectReceipt>;
+  invokeResults: Record<string, InstrumentInvokeReceipt>;
   collectingTarget?: InstrumentAcquisitionTarget;
+  invokingTarget?: InstrumentOperationTarget;
+  invokePending: boolean;
   onStage: (componentPath: string[], property: InstrumentProperty, draft?: DraftValue) => void;
   onCollect: (target: InstrumentAcquisitionTarget) => void;
+  onInvoke: (
+    target: InstrumentOperationTarget,
+    operationArguments: InstrumentOperationArgument[],
+  ) => void;
+  onOperationEdit: (target: InstrumentOperationTarget) => void;
 }) {
   return (
     <article className="interface-card">
@@ -619,9 +720,14 @@ function InterfaceCard({
         state={state}
         drafts={drafts}
         collectResults={collectResults}
+        invokeResults={invokeResults}
         collectingTarget={collectingTarget}
+        invokingTarget={invokingTarget}
+        invokePending={invokePending}
         onStage={onStage}
         onCollect={onCollect}
+        onInvoke={onInvoke}
+        onOperationEdit={onOperationEdit}
       />
     </article>
   );
@@ -640,9 +746,14 @@ function InterfaceEndpoint({
   state,
   drafts,
   collectResults,
+  invokeResults,
   collectingTarget,
+  invokingTarget,
+  invokePending,
   onStage,
   onCollect,
+  onInvoke,
+  onOperationEdit,
 }: {
   interfaceId: string;
   componentPath: string[];
@@ -651,12 +762,22 @@ function InterfaceEndpoint({
   state?: InstrumentState;
   drafts: Record<string, DraftValue>;
   collectResults: Record<string, InstrumentCollectReceipt>;
+  invokeResults: Record<string, InstrumentInvokeReceipt>;
   collectingTarget?: InstrumentAcquisitionTarget;
+  invokingTarget?: InstrumentOperationTarget;
+  invokePending: boolean;
   onStage: (componentPath: string[], property: InstrumentProperty, draft?: DraftValue) => void;
   onCollect: (target: InstrumentAcquisitionTarget) => void;
+  onInvoke: (
+    target: InstrumentOperationTarget,
+    operationArguments: InstrumentOperationArgument[],
+  ) => void;
+  onOperationEdit: (target: InstrumentOperationTarget) => void;
 }) {
   const hasLocalControls =
-    (member.properties ?? []).length > 0 || (member.acquisitions ?? []).length > 0;
+    (member.properties ?? []).length > 0 ||
+    (member.operations ?? []).length > 0 ||
+    (member.acquisitions ?? []).length > 0;
   return (
     <>
       {hasLocalControls && (
@@ -681,6 +802,27 @@ function InterfaceEndpoint({
                     draft={drafts[key]}
                     editable={connected && property.access !== "read_only"}
                     onChange={(draft) => onStage(componentPath, property, draft)}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {(member.operations ?? []).length > 0 && (
+            <div className="operation-list">
+              {(member.operations ?? []).map((operation) => {
+                const target = { interfaceId, componentPath, operation };
+                const key = operationKey(target);
+                return (
+                  <OperationControl
+                    key={operation.id}
+                    target={target}
+                    connected={connected}
+                    result={invokeResults[key]}
+                    invoking={invokingTarget !== undefined && operationKey(invokingTarget) === key}
+                    invokePending={invokePending}
+                    onInvoke={(operationArguments) => onInvoke(target, operationArguments)}
+                    onEdit={() => onOperationEdit(target)}
                   />
                 );
               })}
@@ -721,12 +863,224 @@ function InterfaceEndpoint({
           state={state}
           drafts={drafts}
           collectResults={collectResults}
+          invokeResults={invokeResults}
           collectingTarget={collectingTarget}
+          invokingTarget={invokingTarget}
+          invokePending={invokePending}
           onStage={onStage}
           onCollect={onCollect}
+          onInvoke={onInvoke}
+          onOperationEdit={onOperationEdit}
         />
       ))}
     </>
+  );
+}
+
+function OperationControl({
+  target,
+  connected,
+  result,
+  invoking,
+  invokePending,
+  onInvoke,
+  onEdit,
+}: {
+  target: InstrumentOperationTarget;
+  connected: boolean;
+  result?: InstrumentInvokeReceipt;
+  invoking: boolean;
+  invokePending: boolean;
+  onInvoke: (operationArguments: InstrumentOperationArgument[]) => void;
+  onEdit: () => void;
+}) {
+  const operation = target.operation;
+  const argumentSpecs = operation.arguments ?? [];
+  const [drafts, setDrafts] = useState<Record<string, DraftValue>>({});
+  const payloadUnsupported = argumentSpecs.some(
+    (argument) => argument.value_type.type === "payload",
+  );
+  const operationArguments = argumentSpecs.flatMap((argument) => {
+    const value = drafts[argument.id]?.value;
+    return value === undefined ? [] : [{ id: argument.id, value }];
+  });
+  const invalid = payloadUnsupported || operationArguments.length !== argumentSpecs.length;
+  const label = operation.label ?? titleCase(operation.id);
+
+  const edit = (argumentId: string, draft?: DraftValue) => {
+    setDrafts((current) => {
+      const next = { ...current };
+      if (draft === undefined) delete next[argumentId];
+      else next[argumentId] = draft;
+      return next;
+    });
+    onEdit();
+  };
+
+  return (
+    <section className="operation-control">
+      <header>
+        <div>
+          <strong>{label}</strong>
+          {operation.description && <p>{operation.description}</p>}
+        </div>
+        <button
+          type="button"
+          className="secondary-button"
+          aria-label={`Invoke ${label}`}
+          onClick={() => onInvoke(operationArguments)}
+          disabled={!connected || invokePending || invalid}
+          title={
+            !connected
+              ? "Connect before invoking"
+              : payloadUnsupported
+                ? "Payload arguments cannot be encoded in the GUI"
+                : invalid
+                  ? "Fill every operation argument before invoking"
+                  : undefined
+          }
+        >
+          {invoking ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+          Invoke
+        </button>
+      </header>
+      {argumentSpecs.length > 0 && (
+        <div className="operation-arguments">
+          {argumentSpecs.map((argument) => (
+            <OperationArgumentEditor
+              key={argument.id}
+              argument={argument}
+              draft={drafts[argument.id]}
+              editable={connected && !invokePending}
+              onChange={(draft) => edit(argument.id, draft)}
+            />
+          ))}
+        </div>
+      )}
+      {payloadUnsupported && (
+        <small className="operation-payload-warning">
+          Payload arguments require an encoded command payload and are not supported in the GUI.
+        </small>
+      )}
+      {result && (
+        <p className={`instrument-receipt ${result.status}`}>
+          Invoke receipt: {titleCase(result.status)}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function OperationArgumentEditor({
+  argument,
+  draft,
+  editable,
+  onChange,
+}: {
+  argument: NonNullable<InstrumentOperation["arguments"]>[number];
+  draft?: DraftValue;
+  editable: boolean;
+  onChange: (draft?: DraftValue) => void;
+}) {
+  const type = argument.value_type;
+  const label = argument.label ?? titleCase(argument.id);
+  const raw = draft?.raw ?? "";
+  return (
+    <label className="operation-argument">
+      <span className="property-label">
+        <span>
+          <strong>{label}</strong>
+        </span>
+        <small>Argument</small>
+      </span>
+      {type.type === "bool" ? (
+        <select
+          value={typeof raw === "boolean" ? String(raw) : ""}
+          disabled={!editable}
+          onChange={(event) => {
+            const value = event.target.value === "true";
+            onChange({ raw: value, value });
+          }}
+        >
+          <option value="" disabled>
+            Select…
+          </option>
+          <option value="true">On</option>
+          <option value="false">Off</option>
+        </select>
+      ) : type.type === "string" && type.choices ? (
+        <select
+          value={typeof raw === "string" ? raw : ""}
+          disabled={!editable}
+          onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
+        >
+          <option value="" disabled>
+            Select…
+          </option>
+          {type.choices.map((choice) => (
+            <option key={choice} value={choice}>
+              {choice}
+            </option>
+          ))}
+        </select>
+      ) : type.type === "int" || type.type === "float" || type.type === "quantity" ? (
+        <span className={`number-unit-editor ${type.type === "quantity" ? "" : "number-only"}`}>
+          <input
+            type="number"
+            step={type.type === "int" ? 1 : "any"}
+            min={type.minimum ?? undefined}
+            max={type.maximum ?? undefined}
+            value={typeof raw === "string" ? raw : ""}
+            placeholder={editable ? "Enter value" : "—"}
+            disabled={!editable}
+            aria-invalid={draft !== undefined && draft.value === undefined}
+            onChange={(event) =>
+              onChange(operationArgumentDraft(type, event.target.value, draft?.unit))
+            }
+          />
+          {type.type === "quantity" &&
+            (type.unit ? (
+              <span>{type.unit}</span>
+            ) : (
+              <input
+                className="operation-unit-input"
+                type="text"
+                aria-label={`${label} unit`}
+                value={draft?.unit ?? ""}
+                placeholder="Unit"
+                disabled={!editable}
+                onChange={(event) =>
+                  onChange(
+                    operationArgumentDraft(
+                      type,
+                      typeof raw === "string" ? raw : "",
+                      event.target.value,
+                    ),
+                  )
+                }
+              />
+            ))}
+        </span>
+      ) : type.type === "string" ? (
+        <input
+          type="text"
+          value={typeof raw === "string" ? raw : ""}
+          placeholder={editable ? "Enter value" : "—"}
+          disabled={!editable}
+          onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
+        />
+      ) : (
+        <input type="text" value="Payload encoding unavailable in GUI" disabled />
+      )}
+      {argument.description && (
+        <small className="property-description">{argument.description}</small>
+      )}
+      {draft && (
+        <button type="button" className="property-reset" onClick={() => onChange()}>
+          Clear argument
+        </button>
+      )}
+    </label>
   );
 }
 
@@ -1031,6 +1385,37 @@ function quantityValue(
   return undefined;
 }
 
+type NumericOperationArgumentType = Extract<
+  NonNullable<InstrumentOperation["arguments"]>[number]["value_type"],
+  { type: "int" | "float" | "quantity" }
+>;
+
+function operationArgumentDraft(
+  type: NumericOperationArgumentType,
+  raw: string,
+  unit?: string,
+): DraftValue {
+  const number = Number(raw);
+  const valid =
+    raw.length > 0 &&
+    Number.isFinite(number) &&
+    (type.type !== "int" || Number.isInteger(number)) &&
+    (type.minimum === null || type.minimum === undefined || number >= type.minimum) &&
+    (type.maximum === null || type.maximum === undefined || number <= type.maximum);
+  const resolvedUnit = type.type === "quantity" ? (type.unit ?? unit?.trim()) : undefined;
+  const value =
+    valid && type.type === "quantity" && resolvedUnit
+      ? { value: number, unit: resolvedUnit }
+      : valid && type.type !== "quantity"
+        ? number
+        : undefined;
+  return {
+    raw,
+    unit: type.type === "quantity" ? (type.unit ?? unit ?? "") : undefined,
+    value,
+  };
+}
+
 function stagedInstrumentProperties(
   drafts: Record<string, DraftValue>,
 ): StagedInstrumentProperty[] {
@@ -1054,6 +1439,10 @@ function propertyKey(interfaceId: string, componentPath: string[], propertyId: s
 
 function acquisitionKey(target: InstrumentAcquisitionTarget): string {
   return [target.interfaceId, ...target.componentPath, target.acquisition.id].join("\u0000");
+}
+
+function operationKey(target: InstrumentOperationTarget): string {
+  return [target.interfaceId, ...target.componentPath, target.operation.id].join("\u0000");
 }
 
 function accessLabel(access: InstrumentProperty["access"]): string {

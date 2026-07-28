@@ -821,7 +821,7 @@ class SQLiteControlPlane:
         kind: str,
         at: datetime | None = None,
     ) -> InstrumentSession:
-        if kind not in {"apply", "collect"}:
+        if kind not in {"apply", "invoke", "collect"}:
             raise ValueError(f"unsupported instrument operation kind: {kind}")
         if not operation_id:
             raise ValueError("instrument operation id must be non-empty")

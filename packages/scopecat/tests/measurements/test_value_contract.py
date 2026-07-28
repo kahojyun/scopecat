@@ -271,7 +271,7 @@ def _collect_operation(
         operation_id=operation_id,
         instrument_id="source",
         command=CollectCommand(
-            operation_id=operation_id,
+            command_id=operation_id,
             instrument_id="source",
             point_index=0,
             point_count=1,

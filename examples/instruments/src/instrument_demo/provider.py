@@ -16,6 +16,8 @@ from scopecat.sdk.instruments import (
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InvokeCommand,
+    InvokeReceipt,
     StateValue,
 )
 from scopecat_instruments import ConfiguredInstrumentProvider
@@ -92,6 +94,9 @@ class _BiasSafeDriver:
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         return self._driver.apply_state(command)
 
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        return self._driver.invoke(command)
+
     def collect(self, command: CollectCommand) -> CollectReceipt:
         return self._driver.collect(command)
 
@@ -113,7 +118,7 @@ class _BiasSafeDriver:
     def _disable_bias(self, phase: str) -> None:
         receipt = self._driver.apply_state(
             InstrumentStateCommand(
-                operation_id=f"instrument-demo.{phase}.bias-off",
+                command_id=f"instrument-demo.{phase}.bias-off",
                 instrument_id=self.instrument_id,
                 assignments=[
                     InstrumentStateAssignment(

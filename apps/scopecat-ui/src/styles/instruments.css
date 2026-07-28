@@ -645,15 +645,18 @@
   font-size: 0.51rem;
 }
 
-.acquisition-list {
+.acquisition-list,
+.operation-list {
   display: grid;
 }
 
-.acquisition-control {
+.acquisition-control,
+.operation-control {
   border-top: 1px solid var(--line);
 }
 
-.acquisition-control > header {
+.acquisition-control > header,
+.operation-control > header {
   display: flex;
   gap: 14px;
   align-items: flex-start;
@@ -661,9 +664,14 @@
   padding: 10px 12px;
 }
 
-.acquisition-control > header strong {
+.acquisition-control > header strong,
+.operation-control > header strong {
   color: var(--text-soft);
   font-size: 0.66rem;
+}
+
+.operation-control > header .secondary-button {
+  flex: none;
 }
 
 .acquisition-collect-action {
@@ -689,13 +697,15 @@
   margin-top: 1px;
 }
 
-.interface-properties {
+.interface-properties,
+.operation-arguments {
   display: grid;
   grid-template-columns: repeat(2, minmax(230px, 1fr));
   gap: 0;
 }
 
-.interface-property {
+.interface-property,
+.operation-argument {
   position: relative;
   display: grid;
   grid-template-columns: minmax(130px, 1fr) minmax(140px, 0.85fr);
@@ -708,7 +718,8 @@
   background: transparent;
 }
 
-.interface-property:nth-child(2n) {
+.interface-property:nth-child(2n),
+.operation-argument:nth-child(2n) {
   border-right: 0;
 }
 
@@ -750,6 +761,9 @@
 .interface-property input[type="text"],
 .interface-property input[type="number"],
 .interface-property select,
+.operation-argument input[type="text"],
+.operation-argument input[type="number"],
+.operation-argument select,
 .instrument-connection-form input,
 .instrument-connection-form select {
   width: 100%;
@@ -766,19 +780,24 @@
 
 .interface-property input:focus,
 .interface-property select:focus,
+.operation-argument input:focus,
+.operation-argument select:focus,
 .instrument-connection-form input:focus,
 .instrument-connection-form select:focus {
   border-color: var(--accent);
 }
 
 .interface-property input:disabled,
-.interface-property select:disabled {
+.interface-property select:disabled,
+.operation-argument input:disabled,
+.operation-argument select:disabled {
   color: var(--text-dim);
   cursor: not-allowed;
   opacity: 0.72;
 }
 
-.interface-property input[aria-invalid="true"] {
+.interface-property input[aria-invalid="true"],
+.operation-argument input[aria-invalid="true"] {
   border-color: var(--red);
 }
 
@@ -819,6 +838,16 @@
   font-size: 0.57rem;
 }
 
+.number-unit-editor.number-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.number-unit-editor .operation-unit-input {
+  min-width: 64px;
+  border-left: 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
 .property-description {
   grid-column: 1 / -1;
   color: var(--text-dim);
@@ -836,6 +865,21 @@
   background: transparent;
   cursor: pointer;
   font-size: 0.49rem;
+}
+
+.operation-payload-warning {
+  display: block;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--yellow);
+  background: var(--yellow-soft);
+  font-size: 0.54rem;
+  line-height: 1.45;
+}
+
+.operation-control > .instrument-receipt {
+  border-width: 1px 0 0;
+  border-radius: 0;
 }
 
 .acquisition-results {
@@ -912,14 +956,16 @@
   font-size: 0.61rem;
 }
 
-.instrument-receipt.applied {
+.instrument-receipt.applied,
+.instrument-receipt.invoked {
   color: var(--accent);
   border-color: rgb(var(--accent-rgb) / 24%);
   background: var(--accent-soft);
 }
 
 .instrument-receipt.unknown,
-.instrument-receipt.not_applied {
+.instrument-receipt.not_applied,
+.instrument-receipt.not_invoked {
   color: var(--yellow);
   border-color: rgb(207 173 104 / 25%);
   background: var(--yellow-soft);

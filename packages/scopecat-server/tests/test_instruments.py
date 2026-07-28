@@ -20,6 +20,7 @@ from scopecat.kernel.problems import ProblemPhase, model_location, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.planning.system import ExperimentSystem
+from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
@@ -32,8 +33,12 @@ from scopecat.sdk.instruments import (
     InstrumentReadback,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InstrumentStateSnapshot,
+    InvokeCommand,
+    InvokeReceipt,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from tests.testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server import LocalDaemonRuntime
 
@@ -125,6 +130,22 @@ class _InvalidCollectDriver(_TrackingDriver):
                 values={"signal": Quantity(value=1.0, unit="K")}
             )
         )
+
+
+class _InvokeReadbackDriver(_TrackingDriver):
+    def __init__(self, instrument_id: str) -> None:
+        super().__init__(instrument_id)
+        self.read_count = 0
+
+    @override
+    def read_state(self) -> InstrumentStateSnapshot:
+        self.read_count += 1
+        return super().read_state()
+
+    @override
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        self.invoked.append(command)
+        return InvokeReceipt(status="invoked")
 
 
 class _StatefulDriver(_TrackingDriver):
@@ -224,19 +245,35 @@ def test_notebook_direct_interaction_owns_and_releases_driver(
                 description = instrument.describe()
                 state_receipt = instrument.apply(
                     "test.set_frequency/v1",
-                    operation_id="notebook-apply-1",
+                    command_id="notebook-apply-1",
                     frequency=Quantity(value=5.1, unit="GHz"),
+                )
+                payload = command_payload_from_bytes(
+                    id="program-1",
+                    schema_id="pulse_program",
+                    codec_id="tests.canonical-json",
+                    codec_version=1,
+                    media_type="application/json",
+                    content=b'{"samples":[0.0]}',
+                )
+                invoke_receipt = instrument.invoke(
+                    "test.play_program/v1",
+                    "play",
+                    command_id="notebook-invoke-1",
+                    program=payload,
                 )
                 collect_receipt = instrument.collect(
                     "test.scalar_signal/v1",
                     "sample",
                     "signal",
-                    operation_id="notebook-collect-1",
+                    command_id="notebook-collect-1",
                 )
                 [owned] = lab.instruments.list().items
 
                 assert description.instrument_id == "source-0"
                 assert state_receipt.status == "applied"
+                assert invoke_receipt.status == "invoked"
+                assert invoke_receipt.state is not None
                 assert collect_receipt.status == "collected"
                 assert owned.availability == "active"
                 assert owned.owner_kind == "instrument_session"
@@ -246,10 +283,50 @@ def test_notebook_direct_interaction_owns_and_releases_driver(
             [driver] = provider.drivers
             assert released.availability == "available"
             assert driver.closed
-            assert driver.applied[0].operation_id == "notebook-apply-1"
-            assert driver.collect_commands[0].operation_id == "notebook-collect-1"
+            assert driver.applied[0].command_id == "notebook-apply-1"
+            assert driver.invoked[0].command_id == "notebook-invoke-1"
+            assert driver.invoked[0].payloads[payload.id].inline_bytes() == (
+                b'{"samples":[0.0]}'
+            )
+            assert driver.collect_commands[0].command_id == "notebook-collect-1"
             assert driver.collect_commands[0].point_index == 0
             assert driver.collect_commands[0].point_count == 1
+
+
+def test_invoke_without_reported_state_reads_back_before_returning(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_InvokeReadbackDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            _ = handle.session_id
+            [driver] = provider.drivers
+            assert isinstance(driver, _InvokeReadbackDriver)
+            reads_before_invoke = driver.read_count
+            payload = command_payload_from_bytes(
+                id="program-1",
+                schema_id="pulse_program",
+                codec_id="tests.canonical-json",
+                codec_version=1,
+                media_type="application/json",
+                content=b'{"samples":[0.0]}',
+            )
+
+            receipt = handle.invoke(
+                "test.play_program/v1",
+                "play",
+                program=payload,
+            )
+            handle.close()
+
+            assert receipt.status == "invoked"
+            assert receipt.state is not None
+            assert receipt.state.instrument_id == "source-0"
+            assert driver.read_count == reads_before_invoke + 1
 
 
 def test_operation_retry_is_deduplicated_and_conflicting_content_is_rejected(
@@ -349,7 +426,7 @@ def test_notebook_open_retry_reuses_operation_after_response_loss(
             handle = LabClient(daemon).instruments.open(
                 "source-0",
                 actor="alice",
-                operation_id="open-after-loss",
+                command_id="open-after-loss",
             )
 
             state = handle.read_state()
@@ -451,7 +528,7 @@ def test_notebook_default_apply_retries_with_same_operation_after_response_loss(
             assert receipt.status == "applied"
             [driver] = provider.drivers
             assert len(driver.applied) == 1
-            assert driver.applied[0].operation_id is not None
+            assert driver.applied[0].command_id is not None
 
 
 def test_notebook_default_collect_retries_with_same_operation_after_response_loss(
@@ -479,7 +556,7 @@ def test_notebook_default_collect_retries_with_same_operation_after_response_los
             assert receipt.status == "collected"
             [driver] = provider.drivers
             assert len(driver.collect_commands) == 1
-            assert driver.collect_commands[0].operation_id is not None
+            assert driver.collect_commands[0].command_id is not None
 
 
 def test_read_failure_keeps_session_active_and_does_not_quarantine(
@@ -523,7 +600,7 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
                 )
             )
             request = CollectCommand(
-                operation_id="collect-invalid",
+                command_id="collect-invalid",
                 instrument_id="source-0",
                 point_index=0,
                 point_count=1,
@@ -674,7 +751,10 @@ def _runtime(
 ) -> LocalDaemonRuntime:
     def factory(_root: Path) -> LabApplication:
         return LabApplication(
-            build_system=lambda _config: ExperimentSystem(provider=provider)
+            build_system=lambda _config: ExperimentSystem(
+                provider=provider,
+                payload_codecs=json_payload_codecs("pulse_program"),
+            )
         )
 
     return LocalDaemonRuntime(
@@ -731,7 +811,7 @@ def _selected_ids(context: InstrumentProviderContext) -> Sequence[str]:
 
 def _apply_command(*, value: float) -> InstrumentStateCommand:
     return InstrumentStateCommand(
-        operation_id="apply-1",
+        command_id="apply-1",
         instrument_id="source-0",
         assignments=[
             InstrumentStateAssignment(

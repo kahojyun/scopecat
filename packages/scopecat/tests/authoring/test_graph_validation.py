@@ -77,7 +77,7 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
     assert error.value.problems[0].code == "module_compute_foreign_definition"
 
 
-def test_state_rejects_an_unregistered_compute_output() -> None:
+def test_invocation_rejects_an_unregistered_compute_output() -> None:
     missing = sc.compute(
         "missing-program",
         fn=lambda: {"program": True},
@@ -85,13 +85,14 @@ def test_state_rejects_an_unregistered_compute_output() -> None:
     )
     with pytest.raises(CheckFailed) as error:
         (
-            sc.module_body(id="test.graph.state-missing")
+            sc.module_body(id="test.graph.invocation-missing")
             .resource("drive", requires=("test.play_waveforms/v1",))
-            .bind_property(
-                "drive",
+            .invoke(
+                "play",
+                resource="drive",
                 interface="test.play_waveforms/v1",
-                property="program",
-                value=missing.output,
+                operation="play",
+                arguments={"program": missing.output},
             )
             .build()
         )

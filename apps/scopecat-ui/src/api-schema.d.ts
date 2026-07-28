@@ -243,6 +243,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Invoke Instrument */
+        post: operations["invoke_instrument_api_v1_instrument_sessions__session_id__instruments__instrument_id__invoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state": {
         parameters: {
             query?: never;
@@ -543,7 +560,8 @@ export interface components {
             /** Unit */
             unit?: string | null;
         };
-        _InstrumentScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_PayloadWire"];
+        _InstrumentOperationScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_PayloadWire"];
+        _InstrumentPropertyScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"];
         /** _IntWire */
         _IntWire: {
             /** Maximum */
@@ -803,11 +821,10 @@ export interface components {
         };
         /** CollectCommand */
         CollectCommand: {
+            command_id?: components["schemas"]["_NonEmptyId"] | null;
             /** Instrument Id */
             instrument_id: string;
             metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Operation Id */
-            operation_id?: string | null;
             /** Point Count */
             point_count: number;
             /** Point Index */
@@ -1377,6 +1394,13 @@ export interface components {
              */
             problems: components["schemas"]["Problem-Output"][];
         };
+        /** InstrumentOperationArgument */
+        InstrumentOperationArgument: {
+            id: components["schemas"]["_NonEmptyId"];
+            value: components["schemas"]["StateValue"];
+        };
+        InstrumentOperationScalarWire: components["schemas"]["_InstrumentOperationScalarModel"];
+        InstrumentPropertyScalarWire: components["schemas"]["_InstrumentPropertyScalarModel"];
         /** InstrumentPropertyState */
         InstrumentPropertyState: {
             /** Channel Bindings */
@@ -1407,7 +1431,6 @@ export interface components {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Output"][];
         };
-        InstrumentScalarWire: components["schemas"]["_InstrumentScalarModel"];
         /** InstrumentSessionEndReceipt */
         InstrumentSessionEndReceipt: {
             session_id: components["schemas"]["NonEmptyText"];
@@ -1486,14 +1509,9 @@ export interface components {
         InstrumentStateCommand: {
             /** Assignments */
             assignments?: components["schemas"]["InstrumentStateAssignment"][];
+            command_id?: components["schemas"]["_NonEmptyId"] | null;
             /** Instrument Id */
             instrument_id: string;
-            /** Operation Id */
-            operation_id?: string | null;
-            /** Payloads */
-            payloads?: {
-                [key: string]: components["schemas"]["CommandPayload"];
-            };
         };
         /** InstrumentStateSnapshot */
         InstrumentStateSnapshot: {
@@ -1545,6 +1563,45 @@ export interface components {
             operations?: components["schemas"]["OperationSpec"][];
             /** Properties */
             properties?: components["schemas"]["PropertySpec"][];
+        };
+        /** InvokeCommand */
+        InvokeCommand: {
+            /** Arguments */
+            arguments?: components["schemas"]["InstrumentOperationArgument"][];
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            command_id?: components["schemas"]["_NonEmptyId"] | null;
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            instrument_id: components["schemas"]["_NonEmptyId"];
+            interface_id: components["schemas"]["InterfaceId"];
+            operation_id: components["schemas"]["_NonEmptyId"];
+            /** Payloads */
+            payloads?: {
+                [key: string]: components["schemas"]["CommandPayload"];
+            };
+            resource_id: components["schemas"]["_NonEmptyId"];
+        };
+        /**
+         * InvokeReceipt
+         * @description Outcome reported after one atomic instrument operation.
+         */
+        InvokeReceipt: {
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            state?: components["schemas"]["InstrumentStateSnapshot"] | null;
+            /**
+             * Status
+             * @default invoked
+             * @enum {string}
+             */
+            status: "invoked" | "not_invoked" | "unknown";
         };
         "JsonMetadata-Input": {
             [key: string]: components["schemas"]["JsonValue-Input"];
@@ -1710,7 +1767,7 @@ export interface components {
             id: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
-            value_type: components["schemas"]["InstrumentScalarWire"];
+            value_type: components["schemas"]["InstrumentOperationScalarWire"];
         };
         /** OperationSpec */
         OperationSpec: {
@@ -1899,7 +1956,7 @@ export interface components {
             id: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
-            value_type: components["schemas"]["InstrumentScalarWire"];
+            value_type: components["schemas"]["InstrumentPropertyScalarWire"];
         };
         pydantic__types__JsonValue: unknown;
         /**
@@ -2882,6 +2939,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invoke_instrument_api_v1_instrument_sessions__session_id__instruments__instrument_id__invoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvokeCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvokeReceipt"];
                 };
             };
             /** @description Validation Error */

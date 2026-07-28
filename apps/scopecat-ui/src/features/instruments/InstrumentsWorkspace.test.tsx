@@ -14,6 +14,7 @@ import {
   collectInstrumentAcquisition,
   getActiveConfig,
   getInstruments,
+  invokeInstrumentOperation,
   openInstrumentSession,
   publishInstrumentConnection,
   readInstrumentState,
@@ -28,6 +29,7 @@ vi.mock("./instrument-api", async (importOriginal) => ({
   collectInstrumentAcquisition: vi.fn(),
   getActiveConfig: vi.fn(),
   getInstruments: vi.fn(),
+  invokeInstrumentOperation: vi.fn(),
   openInstrumentSession: vi.fn(),
   publishInstrumentConnection: vi.fn(),
   readInstrumentState: vi.fn(),
@@ -55,6 +57,11 @@ beforeEach(() => {
     status: "collected",
     problems: [],
     readback: { values: {} },
+  });
+  vi.mocked(invokeInstrumentOperation).mockResolvedValue({
+    status: "invoked",
+    problems: [],
+    state: instrumentState(7_000_000_000),
   });
   vi.mocked(publishInstrumentConnection).mockResolvedValue();
   vi.mocked(resolveInstrumentAttention).mockResolvedValue();
@@ -205,6 +212,7 @@ describe("instrument workspace", () => {
     renderWorkspace();
 
     expect(await screen.findByText("Read-only while owned")).toBeVisible();
+    expect(screen.queryByText("session-stale")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Disconnect session" }));
 
     await waitFor(() => expect(abortInstrumentSession).toHaveBeenCalledWith("session-stale"));
@@ -246,7 +254,117 @@ describe("instrument workspace", () => {
     expect(await screen.findByText("Apply receipt: Applied")).toBeVisible();
   });
 
-  it("reuses operation ids while retrying mutations", async () => {
+  it("fills typed operation arguments locally and invokes once outside staged apply", async () => {
+    const withOperations = instrumentWithOperations();
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      config_content_hash: "sha256:active",
+      problems: [],
+      items: [withOperations],
+    });
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({ descriptions: [withOperations.description!] }),
+    );
+    renderWorkspace();
+
+    await screen.findByText("Configure trigger");
+    expect(screen.getByRole("button", { name: "Invoke Configure trigger" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Invoke Upload waveform" })).toBeDisabled();
+    expect(
+      screen.getByText(
+        "Payload arguments require an encoded command payload and are not supported in the GUI.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("payload_id")).not.toBeInTheDocument();
+    expect(screen.queryByText("waveform/v1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: /Enable correction/ }), {
+      target: { value: "true" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Average count/ }), {
+      target: { value: "3" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Threshold/ }), {
+      target: { value: "0.75" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: /Profile name/ }), {
+      target: { value: "fast" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Settling time/ }), {
+      target: { value: "0.25" },
+    });
+
+    expect(screen.queryByText(/staged propert/)).not.toBeInTheDocument();
+    expect(applyInstrumentState).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Invoke Configure trigger" }));
+
+    await waitFor(() => expect(invokeInstrumentOperation).toHaveBeenCalledOnce());
+    expect(invokeInstrumentOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ session_id: "session-1" }),
+      "drive-source",
+      expect.objectContaining({
+        interfaceId: "scopecat.rf_output/v1",
+        componentPath: [],
+        operation: expect.objectContaining({ id: "configure_trigger" }),
+      }),
+      [
+        { id: "enabled", value: true },
+        { id: "averages", value: 3 },
+        { id: "threshold", value: 0.75 },
+        { id: "profile", value: "fast" },
+        { id: "settling", value: { value: 0.25, unit: "s" } },
+      ],
+      expect.stringMatching(/^ui-invoke-/),
+    );
+    expect(await screen.findByText("Invoke receipt: Invoked")).toBeVisible();
+    expect(screen.getByRole("spinbutton", { name: /CW frequency/ })).toHaveValue(7_000_000_000);
+    const commandId = vi.mocked(invokeInstrumentOperation).mock.calls[0]?.[4];
+    expect(commandId).toBeDefined();
+    expect(screen.queryByText(commandId!)).not.toBeInTheDocument();
+    expect(screen.queryByText("session-1")).not.toBeInTheDocument();
+    expect(applyInstrumentState).not.toHaveBeenCalled();
+  });
+
+  it("uses the existing quarantine semantics for an unknown invoke receipt", async () => {
+    const withOperations = instrumentWithOperations();
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      config_content_hash: "sha256:active",
+      problems: [],
+      items: [withOperations],
+    });
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({ descriptions: [withOperations.description!] }),
+    );
+    vi.mocked(invokeInstrumentOperation).mockResolvedValueOnce({
+      status: "unknown",
+      problems: [
+        {
+          code: "instrument_invoke_unknown",
+          message: "The hardware may have accepted the operation.",
+          phase: "execution",
+          related_locations: [],
+        },
+      ],
+      state: null,
+    });
+    renderWorkspace();
+
+    await screen.findByText("Reset fault");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Invoke Reset fault" }));
+
+    expect(
+      await screen.findByText(
+        "The operation result is unknown. The daemon quarantined this session for operator review.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("session-1")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Connect" })).toBeVisible();
+  });
+
+  it("reuses command ids while retrying mutations", async () => {
     vi.mocked(applyInstrumentState).mockRejectedValueOnce(new Error("Apply network failed."));
     vi.mocked(collectInstrumentAcquisition).mockRejectedValueOnce(
       new Error("Collect network failed."),
@@ -294,7 +412,7 @@ describe("instrument workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
     expect(await screen.findByText("Collect request lost.")).toBeVisible();
-    const staleCollectId = vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[4];
+    const staleCollectCommandId = vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[4];
 
     fireEvent.change(frequency, { target: { value: "6000000000" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply staged" }));
@@ -302,7 +420,9 @@ describe("instrument workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
 
     await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[4]).not.toBe(staleCollectId);
+    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[4]).not.toBe(
+      staleCollectCommandId,
+    );
   });
 
   it("disables collection when an acquisition result has an unresolved dynamic axis", async () => {
@@ -505,6 +625,7 @@ describe("instrument workspace", () => {
 
     expect(await screen.findByText("Operator resolution required")).toBeVisible();
     expect(screen.getByText("Grace")).toBeVisible();
+    expect(screen.queryByText("session-stale")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Resolve quarantine" }));
     await waitFor(() => expect(resolveInstrumentAttention).toHaveBeenCalledWith("session-stale"));
   });
@@ -588,6 +709,71 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
     problems: [],
     ...overrides,
   };
+}
+
+function instrumentWithOperations(): InstrumentView {
+  const view = instrument();
+  const description = view.description!;
+  const instrumentInterface = description.interfaces![0]!;
+  view.description = {
+    ...description,
+    interfaces: [
+      {
+        ...instrumentInterface,
+        operations: [
+          {
+            id: "configure_trigger",
+            label: "Configure trigger",
+            description: "Configure and arm the trigger in one hardware operation.",
+            arguments: [
+              {
+                id: "enabled",
+                label: "Enable correction",
+                value_type: { type: "bool" },
+              },
+              {
+                id: "averages",
+                label: "Average count",
+                value_type: { type: "int", minimum: 1, maximum: 16 },
+              },
+              {
+                id: "threshold",
+                label: "Threshold",
+                value_type: { type: "float", finite: true, minimum: 0, maximum: 1 },
+              },
+              {
+                id: "profile",
+                label: "Profile name",
+                value_type: { type: "string" },
+              },
+              {
+                id: "settling",
+                label: "Settling time",
+                value_type: { type: "quantity", finite: true, unit: "s", minimum: 0 },
+              },
+            ],
+          },
+          {
+            id: "reset_fault",
+            label: "Reset fault",
+            arguments: [],
+          },
+          {
+            id: "upload_waveform",
+            label: "Upload waveform",
+            arguments: [
+              {
+                id: "waveform",
+                label: "Waveform file",
+                value_type: { type: "payload", schema_id: "waveform/v1" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  return view;
 }
 
 function session(overrides: Partial<InstrumentSession> = {}): InstrumentSession {

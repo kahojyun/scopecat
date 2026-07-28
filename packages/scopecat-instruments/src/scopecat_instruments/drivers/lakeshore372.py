@@ -14,6 +14,8 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentDescription,
     InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
 )
 
 from scopecat_instruments._support import (
@@ -27,6 +29,7 @@ from scopecat_instruments._support import (
     parse_identity,
     parse_int,
     state_property,
+    unsupported_invoke,
     validate_collect_command,
     validate_writable_command,
 )
@@ -137,6 +140,9 @@ class LakeShore372:
             return ApplyReceipt(status="applied", state=self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
+
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        return unsupported_invoke(command, self.describe())
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         problems = validate_collect_command(command, self.describe())

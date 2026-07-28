@@ -22,6 +22,9 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommand,
     InstrumentStateSnapshot,
     InterfaceSpec,
+    InvokeCommand,
+    InvokeReceipt,
+    validate_invoke_command,
 )
 from scopecat.sdk.problems import (
     Problem,
@@ -102,6 +105,21 @@ class _VirtualInstrumentDriver:
                 assignment.value
             )
         return ApplyReceipt(status="applied")
+
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        problems = validate_invoke_command(
+            command=command,
+            description=self.describe(),
+        )
+        if problems:
+            return InvokeReceipt(status="not_invoked", problems=tuple(problems))
+        return InvokeReceipt(
+            metadata={
+                "interface_id": command.interface_id,
+                "operation_id": command.operation_id,
+                "payload_count": len(command.payloads),
+            }
+        )
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command

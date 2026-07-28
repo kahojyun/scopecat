@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.kernel.state import StateValue
+from scopecat.kernel.value_types import Payload as PayloadType
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.sdk.instruments import (
     ApplyReceipt,
@@ -13,11 +15,14 @@ from scopecat.sdk.instruments import (
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InvokeCommand,
+    InvokeReceipt,
     acquisition,
     acquisition_result,
     float_property,
     interface,
-    payload_property,
+    operation,
+    operation_argument,
     quantity_property,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
@@ -30,6 +35,7 @@ class SignalInstrumentDriver:
         self.implementation_version = "v0"
         self._state: dict[tuple[str, str], StateValue] = {}
         self.applied: list[InstrumentStateCommand] = []
+        self.invoked: list[InvokeCommand] = []
         self.collect_commands: list[CollectCommand] = []
 
     @property
@@ -52,7 +58,19 @@ class SignalInstrumentDriver:
                 ),
                 interface(
                     "test.play_program/v1",
-                    properties=[payload_property("program", schema_id="pulse_program")],
+                    operations=[
+                        operation(
+                            "play",
+                            arguments=[
+                                operation_argument(
+                                    "program",
+                                    value_type=Scalar(
+                                        PayloadType(schema_id="pulse_program")
+                                    ),
+                                )
+                            ],
+                        )
+                    ],
                 ),
                 interface(
                     "test.scalar_signal/v1",
@@ -88,6 +106,10 @@ class SignalInstrumentDriver:
             )
         return ApplyReceipt(status="applied")
 
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        self.invoked.append(command)
+        return InvokeReceipt(status="invoked", state=self.read_state())
+
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
         if "signal" not in {request.id for request in command.requests}:
@@ -119,7 +141,3 @@ def quantity_state(value: float, unit: str) -> StateValue:
 
 def number_state(value: float) -> StateValue:
     return StateValue(value)
-
-
-def payload_state(payload_id: str) -> StateValue:
-    return StateValue(PayloadRef(payload_id=payload_id))

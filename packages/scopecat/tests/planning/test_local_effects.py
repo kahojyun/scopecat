@@ -15,13 +15,11 @@ from scopecat.compiler.typed.program import (
     product_axis,
     record_product,
 )
-from scopecat.compiler.typed.program import (
-    set_state_property as set_typed_state_property,
-)
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
     ComputeOperation,
+    InvokeOperation,
 )
 from scopecat.graph.relations.model import (
     CellValue,
@@ -58,6 +56,7 @@ from tests.testkit.relation_plans import (
 from tests.testkit.typed_program import (
     compute_result,
     instrument_acquisition,
+    instrument_invocation,
     observable_product,
     overlay_parameter_cell,
     typed_program,
@@ -224,12 +223,13 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
         id="preview-waveform-boundary",
         kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
-        state=[
-            set_typed_state_property(
+        invocations=[
+            instrument_invocation(
+                id="play-waveform",
                 resource_port_id=drive,
-                interface_id="test.play_waveforms/v1",
-                property_id="program",
-                value=compute_result("build-waveform"),
+                interface="test.play_waveforms/v1",
+                operation="play",
+                arguments={"program": compute_result("build-waveform")},
             )
         ],
         resource_requirements=(
@@ -268,16 +268,22 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
         step.payload_slot.schema_id,
     ) == (0, "build-waveform", "waveform_bundle")
     assert step.payload_slot.id == f"{step.operation_id}.payload"
-    assert [
-        (
-            state.instrument_id,
-            target.interface_id,
-            target.property_id,
-        )
-        for state in operations_of_type(preview, ApplyStateOperation, point_index=0)
-        for target in state.targets
-        if isinstance(target.value.root, PayloadRef)
-    ] == [("drive-a", "test.play_waveforms/v1", "program")]
+    [invocation] = operations_of_type(preview, InvokeOperation, point_index=0)
+    payload_ref = invocation.arguments[0].value.root
+    assert isinstance(payload_ref, PayloadRef)
+    assert (
+        invocation.instrument_id,
+        invocation.interface_id,
+        invocation.operation_id,
+        invocation.arguments[0].id,
+        payload_ref.payload_id,
+    ) == (
+        "drive-a",
+        "test.play_waveforms/v1",
+        "play",
+        "program",
+        step.payload_slot.id,
+    )
 
 
 def test_materialized_effects_groups_shared_typed_compute_result() -> None:
@@ -297,18 +303,20 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
                 interfaces=("test.play_waveforms/v1",),
             ),
         ),
-        state=[
-            set_state_property(
-                "drive-a",
-                interface_id="test.play_waveforms/v1",
-                property_id="program",
-                value=compute_result("build-waveform"),
+        invocations=[
+            instrument_invocation(
+                id="play-waveform",
+                resource_port_id="drive-a",
+                interface="test.play_waveforms/v1",
+                operation="play",
+                arguments={"program": compute_result("build-waveform")},
             ),
-            set_state_property(
-                "drive-a",
-                interface_id="test.play_waveforms/v1",
-                property_id="preview",
-                value=compute_result("build-waveform"),
+            instrument_invocation(
+                id="preview-waveform",
+                resource_port_id="drive-a",
+                interface="test.play_waveforms/v1",
+                operation="preview",
+                arguments={"program": compute_result("build-waveform")},
             ),
         ],
         compute_nodes=[
@@ -336,14 +344,28 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     assert step.payload_slot is not None
     assert step.payload_slot.id == f"{step.operation_id}.payload"
     assert step.payload_slot.schema_id == "waveform_bundle"
+    invocations = operations_of_type(preview, InvokeOperation, point_index=0)
     assert [
-        (target.interface_id, target.property_id)
-        for state in operations_of_type(preview, ApplyStateOperation, point_index=0)
-        for target in state.targets
-        if isinstance(target.value.root, PayloadRef)
+        (
+            invocation.interface_id,
+            invocation.operation_id,
+            invocation.arguments[0].id,
+            invocation.arguments[0].value.root,
+        )
+        for invocation in invocations
     ] == [
-        ("test.play_waveforms/v1", "program"),
-        ("test.play_waveforms/v1", "preview"),
+        (
+            "test.play_waveforms/v1",
+            "play",
+            "program",
+            PayloadRef(payload_id=step.payload_slot.id),
+        ),
+        (
+            "test.play_waveforms/v1",
+            "preview",
+            "program",
+            PayloadRef(payload_id=step.payload_slot.id),
+        ),
     ]
 
 

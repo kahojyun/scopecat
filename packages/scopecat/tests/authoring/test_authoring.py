@@ -380,11 +380,12 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         .inputs(qubit, pulse_length)
         .resource("drive", requires=("test.play_pulse_program/v1",))
         .computes(build)
-        .bind_property(
-            "drive",
+        .invoke(
+            "play-program",
+            resource="drive",
             interface="test.play_pulse_program/v1",
-            property="program",
-            value=build.output,
+            operation="play",
+            arguments={"program": build.output},
         )
         .build()
     )

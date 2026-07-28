@@ -17,6 +17,8 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentDescription,
     InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
 )
 
 from scopecat_instruments._support import (
@@ -30,6 +32,7 @@ from scopecat_instruments._support import (
     quantity_value,
     state_property,
     string_value,
+    unsupported_invoke,
     validate_collect_command,
     validate_writable_command,
 )
@@ -107,6 +110,9 @@ class VirtualRfSource:
             else:
                 self.set_reference_source(string_value(assignment.value))
         return ApplyReceipt(status="applied", state=self.read_state())
+
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        return unsupported_invoke(command, self.describe())
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         problems = validate_collect_command(command, self.describe())
@@ -310,6 +316,9 @@ class VirtualDcSource:
             self.set_output(True)
         return ApplyReceipt(status="applied", state=self.read_state())
 
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        return unsupported_invoke(command, self.describe())
+
     def collect(self, command: CollectCommand) -> CollectReceipt:
         problems = validate_collect_command(command, self.describe())
         if problems:
@@ -493,6 +502,9 @@ class VirtualTemperatureMonitor:
             return not_applied(problems)
         return ApplyReceipt(status="applied", state=self.read_state())
 
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        return unsupported_invoke(command, self.describe())
+
     def collect(self, command: CollectCommand) -> CollectReceipt:
         problems = validate_collect_command(command, self.describe())
         if problems:
@@ -632,6 +644,9 @@ class VirtualNetworkAnalyzer:
                 else:
                     state.s_parameter = string_value(assignment.value)
         return ApplyReceipt(status="applied", state=self.read_state())
+
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        return unsupported_invoke(command, self.describe())
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         problems = validate_collect_command(command, self.describe())

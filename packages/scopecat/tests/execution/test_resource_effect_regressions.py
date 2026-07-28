@@ -52,6 +52,8 @@ from scopecat.sdk.instruments import (
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InvokeCommand,
+    InvokeReceipt,
     apply_state_command_to_snapshot,
     float_property,
     interface,
@@ -645,6 +647,10 @@ class _ScopedStateDriver:
         self.applied.append(command)
         self.state = apply_state_command_to_snapshot(self.state, command)
         return ApplyReceipt(status="applied")
+
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        del command
+        return InvokeReceipt(status="invoked", state=self.read_state())
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command

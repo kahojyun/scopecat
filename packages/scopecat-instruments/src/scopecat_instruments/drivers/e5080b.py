@@ -16,6 +16,8 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentDescription,
     InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
 )
 
 from scopecat_instruments._support import (
@@ -37,6 +39,7 @@ from scopecat_instruments._support import (
     state_property,
     string_value,
     strip_scpi_string,
+    unsupported_invoke,
     validate_collect_command,
     validate_writable_command,
 )
@@ -159,6 +162,9 @@ class KeysightE5080B:
             return ApplyReceipt(status="applied", state=self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
+
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        return unsupported_invoke(command, self.describe())
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         problems = validate_collect_command(command, self.describe())

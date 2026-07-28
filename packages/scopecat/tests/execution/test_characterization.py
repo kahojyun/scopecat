@@ -141,11 +141,12 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         .inputs(program)
         .resource("source", requires=("test.play_program/v1",))
         .computes(consume_program)
-        .bind_property(
-            "source",
+        .invoke(
+            "play-program",
+            resource="source",
             interface="test.play_program/v1",
-            property="program",
-            value=consume_program.output,
+            operation="play",
+            arguments={"program": consume_program.output},
         )
         .build()
     )
@@ -189,11 +190,11 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
 
     assert run.manifest.status == "completed"
     assert calls == ["produce", "consume"]
-    assert len(driver.applied) == 1
-    applied = driver.applied[0]
-    payload_ref = applied.assignments[0].value.root
+    assert len(driver.invoked) == 1
+    invoked = driver.invoked[0]
+    payload_ref = invoked.arguments[0].value.root
     assert isinstance(payload_ref, PayloadRef)
-    command_payload = applied.payloads[payload_ref.payload_id]
+    command_payload = invoked.payloads[payload_ref.payload_id]
     assert payload_codecs.decode(command_payload) == {"consumed": {"source": "parent"}}
     assert command_payload.content_hash
 
@@ -382,7 +383,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         operation_id=operation_id,
         instrument_id=driver.instrument_id,
         command=CollectCommand(
-            operation_id=operation_id,
+            command_id=operation_id,
             instrument_id=driver.instrument_id,
             point_index=0,
             point_count=1,
@@ -602,7 +603,7 @@ def _collect_operation(
         operation_id=operation_id,
         instrument_id=instrument_id,
         command=CollectCommand(
-            operation_id=operation_id,
+            command_id=operation_id,
             instrument_id=instrument_id,
             point_index=0,
             point_count=1,

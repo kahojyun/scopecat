@@ -10,6 +10,7 @@ from scopecat.execution.ports.instruments import (
     RunHardwareBatchReceipt,
     RunHardwareCollect,
     RunHardwareFinalizationReceipt,
+    RunHardwareInvoke,
     RunHardwareValue,
 )
 from scopecat.kernel.problems import Problem
@@ -24,6 +25,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderContext,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InvokeCommand,
     apply_state_command_to_snapshot,
 )
 from scopecat.sdk.runtime_problems import runtime_problem
@@ -79,10 +81,9 @@ class TestRunInstrumentHost:
                 if not assignments:
                     continue
                 command = InstrumentStateCommand(
-                    operation_id=action.effect_id,
+                    command_id=action.effect_id,
                     instrument_id=action.instrument_id,
                     assignments=assignments,
-                    payloads=action.payloads,
                 )
                 receipt = driver.apply_state(command)
                 problems.extend(receipt.problems)
@@ -93,10 +94,33 @@ class TestRunInstrumentHost:
                     receipt.state or apply_state_command_to_snapshot(current, command)
                 )
                 continue
+            if isinstance(action, RunHardwareInvoke):
+                receipt = driver.invoke(
+                    InvokeCommand(
+                        command_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        resource_id=action.resource_id,
+                        interface_id=action.interface_id,
+                        component_path=list(action.component_path),
+                        operation_id=action.operation_id,
+                        arguments=list(action.arguments),
+                        payloads=action.payloads,
+                        entity_ids=list(action.entity_ids),
+                        channel_bindings=list(action.channel_bindings),
+                    )
+                )
+                problems.extend(receipt.problems)
+                if receipt.status != "invoked":
+                    indeterminate = receipt.status == "unknown"
+                    break
+                self._assumed_states[action.instrument_id] = (
+                    receipt.state or driver.read_state()
+                )
+                continue
             assert isinstance(action, RunHardwareCollect)
             receipt = driver.collect(
                 CollectCommand(
-                    operation_id=action.effect_id,
+                    command_id=action.effect_id,
                     instrument_id=action.instrument_id,
                     point_index=action.point_index,
                     point_count=action.point_count,

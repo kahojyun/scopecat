@@ -21,10 +21,10 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 from scopecat.execution.ports.instruments import (
-    RunHardwareApply,
     RunHardwareBatch,
     RunHardwareCollect,
     RunHardwareCollectBinding,
+    RunHardwareInvoke,
 )
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.state import PayloadRef, StateValue
@@ -34,11 +34,12 @@ from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     CollectResultRequest,
+    InstrumentOperationArgument,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
-    InstrumentStateAssignment,
-    InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
@@ -62,14 +63,14 @@ class _PayloadConsumerDriver(SignalInstrumentDriver):
         self.consumed_payloads: list[bytes] = []
 
     @override
-    def apply_state(self, command: InstrumentStateCommand):  # type: ignore[no-untyped-def]
-        for assignment in command.assignments:
-            value = assignment.value.root
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt:
+        for argument in command.arguments:
+            value = argument.value.root
             if isinstance(value, PayloadRef):
                 self.consumed_payloads.append(
                     command.payloads[value.payload_id].inline_bytes()
                 )
-        return super().apply_state(command)
+        return super().invoke(command)
 
 
 class _PayloadProvider:
@@ -133,7 +134,7 @@ def test_binary_command_payload_crosses_real_json_http_boundary(
         assert '"body":' not in evidence
 
 
-def test_direct_apply_uses_the_same_payload_object_boundary(
+def test_direct_invoke_uses_the_same_payload_object_boundary(
     tmp_path: Path,
 ) -> None:
     provider = _PayloadProvider()
@@ -150,35 +151,36 @@ def test_direct_apply_uses_the_same_payload_object_boundary(
             )
         )
         payload = _inline_payload("direct-program", _PAYLOAD_BYTES)
-        command = InstrumentStateCommand(
-            operation_id="direct-payload-apply",
+        command = InvokeCommand(
+            command_id="direct-payload-invoke",
             instrument_id="source-0",
-            assignments=[
-                InstrumentStateAssignment(
-                    resource_id="source-0",
-                    interface_id="test.play_program/v1",
-                    property_id="program",
+            resource_id="source-0",
+            interface_id="test.play_program/v1",
+            operation_id="play",
+            arguments=[
+                InstrumentOperationArgument(
+                    id="program",
                     value=StateValue(PayloadRef(payload_id=payload.id)),
                 )
             ],
             payloads={payload.id: payload},
         )
 
-        receipt = daemon.apply_instrument_state(
+        receipt = daemon.invoke_instrument(
             session.session_id,
             "source-0",
             command,
         )
         daemon.close_instrument_session(session.session_id)
 
-        assert receipt.status == "applied"
+        assert receipt.status == "invoked"
         [driver] = provider.drivers
         assert driver.consumed_payloads == [_PAYLOAD_BYTES]
-        assert driver.applied[0].payloads[payload.id].inline_bytes() == _PAYLOAD_BYTES
+        assert driver.invoked[0].payloads[payload.id].inline_bytes() == _PAYLOAD_BYTES
 
 
 @pytest.mark.parametrize("first_body_kind", ["inline", "blob"])
-def test_direct_apply_idempotency_uses_payload_content_not_transport_body(
+def test_direct_invoke_idempotency_uses_payload_content_not_transport_body(
     tmp_path: Path,
     first_body_kind: Literal["inline", "blob"],
 ) -> None:
@@ -213,11 +215,11 @@ def test_direct_apply_idempotency_uses_payload_content_not_transport_body(
         )
         commands = {
             "inline": _direct_payload_command(
-                "canonical-apply",
+                "canonical-invoke",
                 inline,
             ),
             "blob": _direct_payload_command(
-                "canonical-apply",
+                "canonical-invoke",
                 blob,
             ),
         }
@@ -225,7 +227,7 @@ def test_direct_apply_idempotency_uses_payload_content_not_transport_body(
         second = commands["blob" if first_body_kind == "inline" else "inline"]
         path = (
             f"/api/v1/instrument-sessions/{session.session_id}/"
-            "instruments/source-0/state/apply"
+            "instruments/source-0/invoke"
         )
 
         first_response = transport.post(
@@ -242,7 +244,7 @@ def test_direct_apply_idempotency_uses_payload_content_not_transport_body(
         assert second_response.status_code == 200
         assert second_response.json() == first_response.json()
         [driver] = provider.drivers
-        assert len(driver.applied) == 1
+        assert len(driver.invoked) == 1
         assert driver.consumed_payloads == [_PAYLOAD_BYTES]
 
 
@@ -322,7 +324,7 @@ def test_payload_object_upload_rejects_hash_mismatch(tmp_path: Path) -> None:
             sha256_content_hash(_PAYLOAD_BYTES),
         ).exists()
         [driver] = provider.drivers
-        assert driver.applied == []
+        assert driver.invoked == []
 
 
 def test_payload_object_upload_rejects_oversize_before_storage(
@@ -359,7 +361,7 @@ def test_payload_object_upload_rejects_oversize_before_storage(
         assert response.status_code == 413
         assert not _payload_object_path(runtime, content_hash).exists()
         [driver] = provider.drivers
-        assert driver.applied == []
+        assert driver.invoked == []
 
 
 def test_payload_object_stream_enforces_limit_across_chunks(
@@ -410,8 +412,8 @@ def test_blob_descriptor_is_bounded_before_object_store_read(tmp_path: Path) -> 
     )
 
     with pytest.raises(CommandPayloadTooLarge):
-        service.materialize_state_command(
-            _direct_payload_command("oversized-blob-apply", blob)
+        service.materialize_invoke_command(
+            _direct_payload_command("oversized-blob-invoke", blob)
         )
 
 
@@ -438,15 +440,15 @@ def test_closed_direct_session_cannot_leave_an_uploaded_payload(
         assert not object_path.exists()
 
         with pytest.raises(DaemonConflictError):
-            daemon.apply_instrument_state(
+            daemon.invoke_instrument(
                 session.session_id,
                 "source-0",
-                _direct_payload_command("closed-session-apply", payload),
+                _direct_payload_command("closed-session-invoke", payload),
             )
 
         assert not object_path.exists()
         [driver] = provider.drivers
-        assert driver.applied == []
+        assert driver.invoked == []
         assert driver.consumed_payloads == []
 
 
@@ -476,7 +478,7 @@ def test_stale_run_lease_cannot_leave_an_uploaded_payload(tmp_path: Path) -> Non
 
         assert not object_path.exists()
         [driver] = provider.drivers
-        assert driver.applied == []
+        assert driver.invoked == []
         assert driver.consumed_payloads == []
 
 
@@ -514,7 +516,7 @@ def test_missing_payload_blob_is_rejected_before_driver_call(tmp_path: Path) -> 
         assert "payload object was not found" in caught.value.response.text
         [driver] = provider.drivers
         assert driver.consumed_payloads == []
-        assert driver.applied == []
+        assert driver.invoked == []
 
 
 def test_batch_materializes_all_payloads_before_first_driver_call(
@@ -567,14 +569,14 @@ def test_batch_materializes_all_payloads_before_first_driver_call(
         assert caught.value.response.status_code == 422
         [driver] = provider.drivers
         assert driver.consumed_payloads == []
-        assert driver.applied == []
+        assert driver.invoked == []
         assert not any(
             event.kind == "run_hardware_batch_started"
             for event in daemon.replay_events(run_id=run_id).items
         )
 
 
-def test_payload_assignments_are_not_suppressed_by_reused_payload_id(
+def test_payload_invocations_are_not_suppressed_by_reused_payload_id(
     tmp_path: Path,
 ) -> None:
     provider = _PayloadProvider()
@@ -610,7 +612,7 @@ def test_payload_assignments_are_not_suppressed_by_reused_payload_id(
         assert receipt.problems == ()
         [driver] = provider.drivers
         assert driver.consumed_payloads == [b"first-program", b"second-program"]
-        assert len(driver.applied) == 2
+        assert len(driver.invoked) == 2
 
 
 @pytest.mark.parametrize(
@@ -652,7 +654,7 @@ def test_batch_prevalidates_every_action_before_first_driver_call(
         assert receipt.problems
         [driver] = provider.drivers
         assert driver.consumed_payloads == []
-        assert driver.applied == []
+        assert driver.invoked == []
         assert driver.collect_commands == []
         assert not any(
             event.kind == "run_hardware_batch_started"
@@ -807,17 +809,18 @@ def _payload_with_contract(
 
 
 def _direct_payload_command(
-    operation_id: str,
+    command_id: str,
     payload: CommandPayload,
-) -> InstrumentStateCommand:
-    return InstrumentStateCommand(
-        operation_id=operation_id,
+) -> InvokeCommand:
+    return InvokeCommand(
+        command_id=command_id,
         instrument_id="source-0",
-        assignments=[
-            InstrumentStateAssignment(
-                resource_id="source-0",
-                interface_id="test.play_program/v1",
-                property_id="program",
+        resource_id="source-0",
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=[
+            InstrumentOperationArgument(
+                id="program",
                 value=StateValue(PayloadRef(payload_id=payload.id)),
             )
         ],
@@ -835,15 +838,16 @@ def _payload_batch(
         batch=RunHardwareBatch(
             operation_id=operation_id,
             actions=(
-                RunHardwareApply(
-                    effect_id=f"{operation_id}.apply",
+                RunHardwareInvoke(
+                    effect_id=f"{operation_id}.invoke",
                     point_index=0,
                     instrument_id="source-0",
-                    assignments=(
-                        InstrumentStateAssignment(
-                            resource_id="source-0",
-                            interface_id="test.play_program/v1",
-                            property_id="program",
+                    resource_id="source-0",
+                    interface_id="test.play_program/v1",
+                    operation_id="play",
+                    arguments=(
+                        InstrumentOperationArgument(
+                            id="program",
                             value=StateValue(PayloadRef(payload_id=payload.id)),
                         ),
                     ),
@@ -858,7 +862,7 @@ def _invalid_contract_action(
     invalid_contract: Literal["payload_schema", "payload_codec", "collect"],
     *,
     lease_id: str,
-) -> RunHardwareApply | RunHardwareCollect:
+) -> RunHardwareInvoke | RunHardwareCollect:
     if invalid_contract == "collect":
         return RunHardwareCollect(
             effect_id="preflight-invalid-collect.collect",
@@ -897,6 +901,7 @@ def _invalid_contract_action(
         f"preflight-invalid-{invalid_contract}",
         payload,
     ).batch.actions
+    assert isinstance(action, RunHardwareInvoke)
     return action
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from scopecat.authoring._value_refs import ValueRef
@@ -14,11 +14,11 @@ from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
+from scopecat.kernel.value_types import Payload, Scalar
 
 type EntitySource = ValueRef
-type BindingValue = (
-    ValueRef | Quantity | EntityRef | PayloadValue | str | int | float | bool | None
-)
+type BindingValue = ValueRef | Quantity | EntityRef | str | int | float | bool | None
+type InvocationArgumentValue = BindingValue
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,23 @@ class BindingIntent:
 
 
 ExperimentBindingIntent = BindingIntent
+
+
+@dataclass(frozen=True)
+class InvocationArgumentIntent:
+    id: str
+    value: InvocationArgumentValue
+
+
+@dataclass(frozen=True)
+class InvocationIntent:
+    id: str
+    port_id: LogicalResourcePortId
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    operation_id: str
+    arguments: tuple[InvocationArgumentIntent, ...]
+    scope: tuple[str, ...] = ()
 
 
 def requires(
@@ -103,10 +120,56 @@ def bind_property(
     ):
         msg = "binding port, component, and property ids must be non-empty"
         raise ValueError(msg)
+    if _is_payload_value(value):
+        raise TypeError("persistent properties cannot contain opaque payloads")
     return BindingIntent(
         port_id=logical_resource_port_id(port_id),
         interface_id=require_interface_id(interface),
         component_path=selected_component_path,
         property_id=property,
         value=value,
+    )
+
+
+def invoke_operation(
+    id: str,
+    *,
+    port_id: str,
+    interface: InterfaceId,
+    operation: str,
+    arguments: Mapping[str, InvocationArgumentValue],
+    component_path: Sequence[str] = (),
+) -> InvocationIntent:
+    """Build one ordered atomic operation invocation."""
+
+    selected_component_path = tuple(component_path)
+    if (
+        not id
+        or not port_id
+        or not operation
+        or any(not component for component in selected_component_path)
+    ):
+        raise ValueError(
+            "invocation, port, component, and operation ids must be non-empty"
+        )
+    if any(not argument_id for argument_id in arguments):
+        raise ValueError("invocation argument ids must be non-empty")
+    return InvocationIntent(
+        id=id,
+        port_id=logical_resource_port_id(port_id),
+        interface_id=require_interface_id(interface),
+        component_path=selected_component_path,
+        operation_id=operation,
+        arguments=tuple(
+            InvocationArgumentIntent(argument_id, value)
+            for argument_id, value in arguments.items()
+        ),
+    )
+
+
+def _is_payload_value(value: object) -> bool:
+    return isinstance(value, PayloadValue) or (
+        isinstance(value, ValueRef)
+        and isinstance(value.value_type, Scalar)
+        and isinstance(value.value_type.atom, Payload)
     )

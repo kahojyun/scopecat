@@ -27,6 +27,7 @@ from scopecat.compiler.typed.program import (
     CoreEffect,
     TypedDomainExecution,
     core_domain_executions,
+    core_invocations,
     core_state,
 )
 from scopecat.execution.program import (
@@ -169,6 +170,7 @@ def _compile_system_program(
         local_product_use_ids
         or linked.program.compute_nodes
         or core_state(linked.program)
+        or core_invocations(linked.program)
     )
     implementation_problems = list(
         _implementation_problems(

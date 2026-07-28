@@ -83,6 +83,8 @@ from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectReceipt,
     InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
 )
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -238,6 +240,21 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: InstrumentStateCommand,
     ) -> ApplyReceipt:
         return application.instruments.apply_state(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/invoke"
+    )
+    def invoke_instrument(
+        session_id: str,
+        instrument_id: str,
+        command: InvokeCommand,
+    ) -> InvokeReceipt:
+        return application.instruments.invoke(
             session_id,
             instrument_id,
             command,
@@ -662,7 +679,7 @@ def _is_payload_command_request(scope: Scope) -> bool:
     if scope["type"] != "http" or method != "POST":
         return False
     path = cast("str", scope.get("path", ""))
-    return path.endswith(("/state/apply", "/hardware/execute"))
+    return path.endswith(("/invoke", "/hardware/execute"))
 
 
 def _content_length(scope: Scope) -> int | None:

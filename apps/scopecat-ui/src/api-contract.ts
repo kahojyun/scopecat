@@ -55,6 +55,10 @@ export interface DaemonUiApi {
     paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect"]["post"],
     200
   >;
+  instrumentInvokeReceipt: JsonResponse<
+    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke"]["post"],
+    200
+  >;
   instrumentSessionEndReceipt: JsonResponse<
     paths["/api/v1/instrument-sessions/{session_id}/close"]["post"],
     200
@@ -69,6 +73,9 @@ export interface DaemonUiApi {
   >;
   instrumentCollectCommand: JsonRequest<
     paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect"]["post"]
+  >;
+  instrumentInvokeCommand: JsonRequest<
+    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke"]["post"]
   >;
 }
 
@@ -98,6 +105,9 @@ export type InstrumentCollectReceipt = DaemonUiApi["instrumentCollectReceipt"];
 export type InstrumentConnection = components["schemas"]["InstrumentConnection-Input"];
 export type InstrumentDescription = components["schemas"]["InstrumentDescription"];
 export type InstrumentInterface = components["schemas"]["InterfaceSpec"];
+export type InstrumentInvokeCommand = DaemonUiApi["instrumentInvokeCommand"];
+export type InstrumentInvokeReceipt = DaemonUiApi["instrumentInvokeReceipt"];
+export type InstrumentOperation = components["schemas"]["OperationSpec"];
 export type InstrumentProperty = components["schemas"]["PropertySpec"];
 export type InstrumentSession = DaemonUiApi["instrumentSession"];
 export type InstrumentSpec = components["schemas"]["InstrumentSpec-Input"];

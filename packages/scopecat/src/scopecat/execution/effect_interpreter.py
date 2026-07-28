@@ -13,6 +13,7 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
     ComputeOperation,
+    InvokeOperation,
 )
 from scopecat.execution.points import AdmittedPointLedger
 from scopecat.execution.ports.instruments import RunInstrumentHost
@@ -166,7 +167,8 @@ class RunEffectInterpreter:
         hardware: list[RunCoverageEffect] = []
         for operation in operations:
             if isinstance(operation, RunCoverageEffect) and isinstance(
-                operation.operation, ApplyStateOperation | CollectOperation
+                operation.operation,
+                ApplyStateOperation | InvokeOperation | CollectOperation,
             ):
                 self._point_state(operation.point_index)
                 hardware.append(operation)

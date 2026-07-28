@@ -21,6 +21,7 @@ from typing import Protocol, cast
 
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
+    InvocationIntent,
     ResourcePort,
 )
 from scopecat.authoring._identities import (
@@ -207,6 +208,13 @@ class ModuleBindingEffect:
 
 
 @dataclass(frozen=True, slots=True)
+class ModuleInvokeEffect:
+    """Invoke one atomic hardware operation at this procedure position."""
+
+    intent: InvocationIntent
+
+
+@dataclass(frozen=True, slots=True)
 class ModuleDomainEffect:
     """Invoke one opaque domain program at this position."""
 
@@ -259,7 +267,11 @@ class ModuleAcquireEffect:
 
 
 type ModuleEffectIR = (
-    ModuleInstanceIR | ModuleBindingEffect | ModuleDomainEffect | ModuleAcquireEffect
+    ModuleInstanceIR
+    | ModuleBindingEffect
+    | ModuleInvokeEffect
+    | ModuleDomainEffect
+    | ModuleAcquireEffect
 )
 
 
@@ -296,6 +308,10 @@ class ModuleBodyIR:
         _require_unique(
             "module acquisition",
             tuple(item.id for item in self.acquisitions),
+        )
+        _require_unique(
+            "module invocation effect",
+            tuple(item.id for item in self.invocations),
         )
         _require_unique(
             "module measurement postprocessor",
@@ -376,6 +392,14 @@ class ModuleBodyIR:
             effect.execution
             for effect in self.procedure
             if isinstance(effect, ModuleDomainEffect)
+        )
+
+    @property
+    def invocations(self) -> tuple[InvocationIntent, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleInvokeEffect)
         )
 
     @property
@@ -648,6 +672,11 @@ def _module_lexical_value_refs(module: ModuleIR) -> tuple[ValueRef, ...]:
     )
     roots.extend(binding.value for binding in module.body.bindings)
     roots.extend(
+        argument.value
+        for invocation in module.body.invocations
+        for argument in invocation.arguments
+    )
+    roots.extend(
         value
         for execution in module.body.domain_executions
         for _name, value in (
@@ -701,6 +730,7 @@ def _nested_value_refs(
 def _module_resource_uses(module: ModuleIR) -> tuple[LogicalResourcePortId, ...]:
     selected: list[LogicalResourcePortId] = []
     selected.extend(binding.port_id for binding in module.body.bindings)
+    selected.extend(invocation.port_id for invocation in module.body.invocations)
     selected.extend(acquire.resource_port_id for acquire in module.body.acquisitions)
     return tuple(selected)
 

@@ -19,7 +19,10 @@ from pydantic import (
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.units import compatible_units
-from scopecat.kernel.value_type_wire import InstrumentScalarWire
+from scopecat.kernel.value_type_wire import (
+    InstrumentOperationScalarWire,
+    InstrumentPropertyScalarWire,
+)
 from scopecat.kernel.value_types import Bool as BoolType
 from scopecat.kernel.value_types import Float as FloatType
 from scopecat.kernel.value_types import Int as IntType
@@ -79,12 +82,12 @@ class PropertySpec(BaseModel):
     label: str | None = None
     description: str | None = None
     access: Literal["read_only", "write_only", "read_write"] = "read_write"
-    value_type: InstrumentScalarWire
+    value_type: InstrumentPropertyScalarWire
 
     @field_validator("value_type")
     @classmethod
     def validate_value_type(cls, value: Scalar) -> Scalar:
-        return _validate_instrument_scalar(value)
+        return _validate_instrument_scalar(value, allow_payload=False)
 
 
 class AcquisitionAxisSpec(BaseModel):
@@ -127,12 +130,12 @@ class OperationArgumentSpec(BaseModel):
     id: _NonEmptyId
     label: str | None = None
     description: str | None = None
-    value_type: InstrumentScalarWire
+    value_type: InstrumentOperationScalarWire
 
     @field_validator("value_type")
     @classmethod
     def validate_value_type(cls, value: Scalar) -> Scalar:
-        return _validate_instrument_scalar(value)
+        return _validate_instrument_scalar(value, allow_payload=True)
 
 
 class OperationSpec(BaseModel):
@@ -243,13 +246,13 @@ class InstrumentStateAssignment(BaseModel):
         return self
 
 
-def validate_payload_bindings(
+def _validate_payload_bindings(
     *,
-    assignments: Iterable[InstrumentStateAssignment],
+    values: Iterable[StateValue],
     payloads: Mapping[str, CommandPayload],
     label: str,
 ) -> None:
-    """Require one exact, self-consistent payload map for concrete assignments."""
+    """Require one exact, self-consistent payload map for command values."""
 
     mismatched_keys = [
         (payload_id, payload.id)
@@ -264,8 +267,8 @@ def validate_payload_bindings(
         )
     referenced_ids = {
         value.payload_id
-        for assignment in assignments
-        if isinstance((value := assignment.value.root), PayloadRef)
+        for item in values
+        if isinstance((value := item.root), PayloadRef)
     }
     payload_ids = set(payloads)
     missing = sorted(referenced_ids - payload_ids)
@@ -282,10 +285,9 @@ def validate_payload_bindings(
 class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    operation_id: str | None = None
+    command_id: _NonEmptyId | None = None
     instrument_id: str
     assignments: list[InstrumentStateAssignment] = Field(default_factory=list)
-    payloads: dict[str, CommandPayload] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_structure(self) -> InstrumentStateCommand:
@@ -302,11 +304,6 @@ class InstrumentStateCommand(BaseModel):
         if len(identities) != len(set(identities)):
             msg = "instrument state command property targets must be unique"
             raise ValueError(msg)
-        validate_payload_bindings(
-            assignments=self.assignments,
-            payloads=self.payloads,
-            label="instrument state command",
-        )
         return self
 
 
@@ -376,7 +373,7 @@ class CollectResultRequest(BaseModel):
 class CollectCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    operation_id: str | None = None
+    command_id: _NonEmptyId | None = None
     instrument_id: str
     point_index: int
     point_count: int
@@ -389,6 +386,61 @@ class CollectCommand(BaseModel):
         if len(request_ids) != len(set(request_ids)):
             msg = "collect command request ids must be unique"
             raise ValueError(msg)
+        return self
+
+
+class InstrumentOperationArgument(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: _NonEmptyId
+    value: StateValue
+
+
+class InvokeCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command_id: _NonEmptyId | None = None
+    instrument_id: _NonEmptyId
+    resource_id: _NonEmptyId
+    interface_id: InterfaceId
+    component_path: list[_NonEmptyId] = Field(default_factory=list)
+    operation_id: _NonEmptyId
+    arguments: list[InstrumentOperationArgument] = Field(default_factory=list)
+    payloads: dict[str, CommandPayload] = Field(default_factory=dict)
+    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
+    channel_bindings: list[_CommandChannelBinding] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_structure(self) -> InvokeCommand:
+        _require_unique(
+            (argument.id for argument in self.arguments),
+            "instrument operation argument ids",
+        )
+        _validate_entity_target(self.entity_ids, self.channel_bindings)
+        _validate_payload_bindings(
+            values=(argument.value for argument in self.arguments),
+            payloads=self.payloads,
+            label="instrument invoke command",
+        )
+        return self
+
+
+class InvokeReceipt(BaseModel):
+    """Outcome reported after one atomic instrument operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["invoked", "not_invoked", "unknown"] = "invoked"
+    problems: tuple[Problem, ...] = ()
+    state: _InstrumentStateSnapshot | None = None
+    metadata: JsonMetadata = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_outcome_truth_table(self) -> InvokeReceipt:
+        if self.status == "invoked" and self.problems:
+            raise ValueError("an invoked receipt cannot contain problems")
+        if self.status != "invoked" and not self.problems:
+            raise ValueError("a negative or unknown invoke receipt requires a problem")
         return self
 
 
@@ -444,6 +496,8 @@ class InstrumentDriver(Protocol):
     def read_state(self) -> _InstrumentStateSnapshot: ...
 
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt: ...
+
+    def invoke(self, command: InvokeCommand) -> InvokeReceipt: ...
 
     def collect(self, command: CollectCommand) -> CollectReceipt: ...
 
@@ -619,7 +673,7 @@ def acquisition(
 def operation_argument(
     id: str,
     *,
-    value_type: InstrumentScalarWire,
+    value_type: InstrumentOperationScalarWire,
     label: str | None = None,
     description: str | None = None,
 ) -> OperationArgumentSpec:
@@ -747,23 +801,6 @@ def enum_property(
     )
 
 
-def payload_property(
-    id: str,
-    *,
-    schema_id: str,
-    label: str | None = None,
-    description: str | None = None,
-    access: Literal["read_only", "write_only", "read_write"] = "read_write",
-) -> PropertySpec:
-    return PropertySpec(
-        id=id,
-        label=label,
-        description=description,
-        access=access,
-        value_type=Scalar(PayloadType(schema_id=schema_id)),
-    )
-
-
 def validate_state_command(
     *,
     command: InstrumentStateCommand,
@@ -775,10 +812,6 @@ def validate_state_command(
         instrument_id=command.instrument_id,
         assignments=command.assignments,
         description=description,
-        payload_schemas={
-            payload_id: payload.schema_id
-            for payload_id, payload in command.payloads.items()
-        },
     )
 
 
@@ -787,9 +820,8 @@ def validate_state_assignments(
     instrument_id: str,
     assignments: Sequence[InstrumentStateAssignment],
     description: InstrumentDescription,
-    payload_schemas: Mapping[str, str],
 ) -> list[Problem]:
-    """Validate property assignments using schemas instead of payload bodies."""
+    """Validate persistent property assignments against one driver contract."""
 
     problems: list[Problem] = []
     if instrument_id != description.instrument_id:
@@ -868,6 +900,112 @@ def validate_state_assignments(
                 property_id=assignment.property_id,
                 value=assignment.value,
                 spec=property_spec,
+            )
+        )
+    return problems
+
+
+def validate_invoke_command(
+    *,
+    command: InvokeCommand,
+    description: InstrumentDescription,
+) -> list[Problem]:
+    """Validate one atomic operation invocation against a driver contract."""
+
+    if command.instrument_id != description.instrument_id:
+        return [
+            _problem(
+                "instrument_driver_mismatch",
+                f"{description.instrument_id} cannot invoke for "
+                f"{command.instrument_id}",
+                "instrument_id",
+            )
+        ]
+    if command.resource_id != command.instrument_id:
+        return [
+            _problem(
+                "instrument_driver_resource_mismatch",
+                f"{command.instrument_id} cannot control {command.resource_id}",
+                "resource_id",
+            )
+        ]
+    interface_spec = next(
+        (
+            interface
+            for interface in description.interfaces
+            if interface.id == command.interface_id
+        ),
+        None,
+    )
+    if interface_spec is None:
+        return [
+            _problem(
+                "instrument_driver_unsupported_interface",
+                f"{command.instrument_id} does not support {command.interface_id}",
+                "interface_id",
+            )
+        ]
+    component_spec = _resolve_component(interface_spec, command.component_path)
+    if component_spec is None:
+        return [
+            _problem(
+                "instrument_driver_unsupported_component",
+                f"{command.instrument_id} does not support component "
+                f"{'/'.join(command.component_path)!r} under {command.interface_id}",
+                "component_path",
+            )
+        ]
+    operation_spec = next(
+        (
+            operation
+            for operation in component_spec.operations
+            if operation.id == command.operation_id
+        ),
+        None,
+    )
+    if operation_spec is None:
+        return [
+            _problem(
+                "instrument_driver_unsupported_operation",
+                f"{command.instrument_id} does not support operation "
+                f"{command.operation_id} under {command.interface_id}",
+                "operation_id",
+            )
+        ]
+
+    declared = {argument.id: argument for argument in operation_spec.arguments}
+    supplied = {argument.id: argument for argument in command.arguments}
+    problems: list[Problem] = []
+    for argument_id in sorted(declared.keys() - supplied.keys()):
+        problems.append(
+            _problem(
+                "instrument_driver_missing_operation_argument",
+                f"{command.instrument_id} operation {command.operation_id} "
+                f"requires argument {argument_id}",
+                "arguments",
+                argument_id,
+            )
+        )
+    for argument_id in sorted(supplied.keys() - declared.keys()):
+        problems.append(
+            _problem(
+                "instrument_driver_unsupported_operation_argument",
+                f"{command.instrument_id} operation {command.operation_id} "
+                f"does not accept argument {argument_id}",
+                "arguments",
+                argument_id,
+            )
+        )
+    payload_schemas = {
+        payload_id: payload.schema_id
+        for payload_id, payload in command.payloads.items()
+    }
+    for argument_id in sorted(declared.keys() & supplied.keys()):
+        problems.extend(
+            _validate_operation_argument(
+                argument_id=argument_id,
+                value=supplied[argument_id].value,
+                spec=declared[argument_id],
                 payload_schemas=payload_schemas,
             )
         )
@@ -1164,36 +1302,9 @@ def _validate_state_value(
     property_id: str,
     value: StateValue,
     spec: PropertySpec,
-    payload_schemas: Mapping[str, str],
 ) -> list[Problem]:
-    atom = spec.value_type.atom
-    state_literal = value.root
-    if isinstance(atom, PayloadType):
-        if not isinstance(state_literal, PayloadRef):
-            return _property_value_mismatch(
-                property_id,
-                f"expected payload reference, got {state_literal!r}",
-            )
-        schema_id = payload_schemas.get(state_literal.payload_id)
-        if schema_id is None:
-            return [
-                _problem(
-                    "instrument_driver_unknown_payload",
-                    f"{property_id} references unknown payload "
-                    f"{state_literal.payload_id}",
-                    "value",
-                    "payload_id",
-                )
-            ]
-        if schema_id != atom.schema_id:
-            return _property_value_mismatch(
-                property_id,
-                f"expected payload {atom.schema_id!r}, got {schema_id!r}",
-                path=("value", "payload_id"),
-            )
-        return []
     try:
-        validate_literal(spec.value_type, state_literal, path=("value",))
+        validate_literal(spec.value_type, value.root, path=("value",))
     except ValueValidationError as error:
         return _property_value_mismatch(
             property_id,
@@ -1201,6 +1312,68 @@ def _validate_state_value(
             path=error.path,
         )
     return []
+
+
+def _validate_operation_argument(
+    *,
+    argument_id: str,
+    value: StateValue,
+    spec: OperationArgumentSpec,
+    payload_schemas: Mapping[str, str],
+) -> list[Problem]:
+    atom = spec.value_type.atom
+    literal = value.root
+    if isinstance(atom, PayloadType):
+        if not isinstance(literal, PayloadRef):
+            return _operation_argument_value_mismatch(
+                argument_id,
+                f"expected payload reference, got {literal!r}",
+            )
+        schema_id = payload_schemas.get(literal.payload_id)
+        if schema_id is None:
+            return [
+                _problem(
+                    "instrument_driver_unknown_payload",
+                    f"{argument_id} references unknown payload {literal.payload_id}",
+                    "arguments",
+                    argument_id,
+                    "value",
+                    "payload_id",
+                )
+            ]
+        if schema_id != atom.schema_id:
+            return _operation_argument_value_mismatch(
+                argument_id,
+                f"expected payload {atom.schema_id!r}, got {schema_id!r}",
+                path=("value", "payload_id"),
+            )
+        return []
+    try:
+        validate_literal(spec.value_type, literal, path=("value",))
+    except ValueValidationError as error:
+        return _operation_argument_value_mismatch(
+            argument_id,
+            error.reason,
+            path=error.path,
+        )
+    return []
+
+
+def _operation_argument_value_mismatch(
+    argument_id: str,
+    reason: str,
+    *,
+    path: ValuePath = ("value",),
+) -> list[Problem]:
+    return [
+        _problem(
+            "instrument_driver_operation_argument_value_mismatch",
+            f"{argument_id}: {reason}",
+            "arguments",
+            argument_id,
+            *path,
+        )
+    ]
 
 
 def _property_value_mismatch(
@@ -1218,7 +1391,11 @@ def _property_value_mismatch(
     ]
 
 
-def _validate_instrument_scalar(value: Scalar) -> Scalar:
+def _validate_instrument_scalar(
+    value: Scalar,
+    *,
+    allow_payload: bool,
+) -> Scalar:
     if not isinstance(
         value.atom,
         BoolType | IntType | FloatType | StringType | QuantityType | PayloadType,
@@ -1226,6 +1403,8 @@ def _validate_instrument_scalar(value: Scalar) -> Scalar:
         raise ValueError(
             "instrument values support bool, int, float, string, quantity, and payload"
         )
+    if isinstance(value.atom, PayloadType) and not allow_payload:
+        raise ValueError("instrument properties cannot contain payload values")
     if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
         raise ValueError("instrument numeric values must require finite values")
     return value

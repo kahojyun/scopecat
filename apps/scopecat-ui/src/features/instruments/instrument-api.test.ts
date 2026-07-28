@@ -3,6 +3,7 @@ import type {
   ConfigProfileSnapshot,
   InstrumentAcquisition,
   InstrumentConnection,
+  InstrumentOperation,
   InstrumentSession,
 } from "../../api-contract";
 import { setConfigDefault } from "../config/config-api";
@@ -11,6 +12,7 @@ import {
   closeInstrumentSession,
   collectInstrumentAcquisition,
   connectionSummary,
+  invokeInstrumentOperation,
   openInstrumentSession,
   publishInstrumentConnection,
   type ActiveConfig,
@@ -99,6 +101,57 @@ describe("instrument configuration publishing", () => {
 });
 
 describe("interactive collection request shaping", () => {
+  it("shapes GUI operation arguments without exposing a payload map", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "invoked",
+            problems: [],
+            state: { instrument_id: "vna-1", properties: [] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const operation: InstrumentOperation = {
+      id: "recalibrate",
+      arguments: [
+        {
+          id: "delay",
+          value_type: { type: "quantity", finite: true, unit: "s" },
+        },
+      ],
+    };
+
+    await invokeInstrumentOperation(
+      session(),
+      "vna-1",
+      {
+        interfaceId: "scopecat.network_sweep/v1",
+        componentPath: ["source"],
+        operation,
+      },
+      [{ id: "delay", value: { value: 0.25, unit: "s" } }],
+      "invoke-retry",
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/instrument-sessions/session-1/instruments/vna-1/invoke",
+    );
+    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
+      command_id: "invoke-retry",
+      instrument_id: "vna-1",
+      resource_id: "vna-1",
+      interface_id: "scopecat.network_sweep/v1",
+      component_path: ["source"],
+      operation_id: "recalibrate",
+      arguments: [{ id: "delay", value: { value: 0.25, unit: "s" } }],
+    });
+  });
+
   it("leaves a wholly dynamic result unspecified until every axis is known", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
@@ -215,7 +268,7 @@ describe("interactive collection request shaping", () => {
     ]);
   });
 
-  it("uses the caller operation id across repeated mutating requests", async () => {
+  it("uses caller idempotency ids across repeated mutating requests", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
         new Response("{}", {
@@ -234,30 +287,45 @@ describe("interactive collection request shaping", () => {
       componentPath: [],
       acquisition,
     };
+    const operationTarget = {
+      interfaceId: "scopecat.network_sweep/v1",
+      componentPath: [],
+      operation: { id: "recalibrate", arguments: [] },
+    };
 
     await openInstrumentSession("vna-1", "Ada", "open-retry");
     await openInstrumentSession("vna-1", "Ada", "open-retry");
     await applyInstrumentState(session(), "vna-1", [], "apply-retry");
     await applyInstrumentState(session(), "vna-1", [], "apply-retry");
+    await invokeInstrumentOperation(session(), "vna-1", operationTarget, [], "invoke-retry");
+    await invokeInstrumentOperation(session(), "vna-1", operationTarget, [], "invoke-retry");
     await collectInstrumentAcquisition(session(), "vna-1", target, undefined, "collect-retry");
     await collectInstrumentAcquisition(session(), "vna-1", target, undefined, "collect-retry");
     await closeInstrumentSession("session-1");
     await closeInstrumentSession("session-1");
 
-    const bodies = fetchMock.mock.calls.slice(0, 6).map(([, init]) => requestBody(init));
+    const bodies = fetchMock.mock.calls.slice(0, 8).map(([, init]) => requestBody(init));
     expect(bodies.slice(0, 2).map((body) => body.operation_id)).toEqual([
       "open-retry",
       "open-retry",
     ]);
-    expect(bodies.slice(2, 4).map((body) => body.operation_id)).toEqual([
+    expect(bodies.slice(2, 4).map((body) => body.command_id)).toEqual([
       "apply-retry",
       "apply-retry",
+    ]);
+    expect(bodies.slice(4, 6).map((body) => body.command_id)).toEqual([
+      "invoke-retry",
+      "invoke-retry",
     ]);
     expect(bodies.slice(4, 6).map((body) => body.operation_id)).toEqual([
+      "recalibrate",
+      "recalibrate",
+    ]);
+    expect(bodies.slice(6, 8).map((body) => body.command_id)).toEqual([
       "collect-retry",
       "collect-retry",
     ]);
-    expect(fetchMock.mock.calls.slice(6, 8).map(([input]) => String(input))).toEqual([
+    expect(fetchMock.mock.calls.slice(8, 10).map(([input]) => String(input))).toEqual([
       "/api/v1/instrument-sessions/session-1/close",
       "/api/v1/instrument-sessions/session-1/close",
     ]);
@@ -341,12 +409,16 @@ function session(): InstrumentSession {
 }
 
 function requestBody(init: RequestInit | undefined): {
+  command_id?: string;
   operation_id?: string;
+  [key: string]: unknown;
   requests?: Array<{ dimensions: unknown[] }>;
 } {
   if (typeof init?.body !== "string") throw new Error("Expected a JSON request body.");
   return JSON.parse(init.body) as {
+    command_id?: string;
     operation_id?: string;
+    [key: string]: unknown;
     requests?: Array<{ dimensions: unknown[] }>;
   };
 }

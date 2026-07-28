@@ -41,6 +41,10 @@ _OPERATIONS = {
         "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state",
         "get",
     ),
+    (
+        "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke",
+        "post",
+    ),
     ("/api/v1/runs", "get"),
     ("/api/v1/runs/{run_id}", "get"),
     ("/api/v1/runs/{run_id}/analyses", "get"),

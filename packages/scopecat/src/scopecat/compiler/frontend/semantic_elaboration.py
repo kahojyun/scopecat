@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.authoring._binding_intents import ExperimentBindingIntent
+from scopecat.authoring._binding_intents import (
+    ExperimentBindingIntent,
+    InvocationIntent,
+)
 from scopecat.authoring._identities import ComputeDeclarationKey
 from scopecat.authoring._intents import (
     ComputeNodeInputValue,
@@ -82,7 +85,10 @@ class SemanticElaboration:
     graph: SemanticGraphIR
     implementations: Mapping[OperationId, LocalPythonImplementation]
     effects: tuple[
-        ExperimentBindingIntent | SemanticDomainExecution | AcquireEffect,
+        ExperimentBindingIntent
+        | InvocationIntent
+        | SemanticDomainExecution
+        | AcquireEffect,
         ...,
     ]
 
@@ -93,7 +99,10 @@ def elaborate_semantic_graph(
     *,
     measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
     effects: Sequence[
-        ExperimentBindingIntent | LoweredDomainExecution | AcquireEffect
+        ExperimentBindingIntent
+        | InvocationIntent
+        | LoweredDomainExecution
+        | AcquireEffect
     ] = (),
     value_roots: Sequence[object] = (),
     input_types: Mapping[str, ValueType] | None = None,
@@ -272,7 +281,10 @@ class _SemanticGraphBuilder:
         self,
         *,
         effects: tuple[
-            ExperimentBindingIntent | SemanticDomainExecution | AcquireEffect,
+            ExperimentBindingIntent
+            | InvocationIntent
+            | SemanticDomainExecution
+            | AcquireEffect,
             ...,
         ],
     ) -> SemanticElaboration:

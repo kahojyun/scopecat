@@ -27,6 +27,7 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     BoundInput,
     ComputeOperation,
+    InvokeOperation,
     OutputInput,
 )
 from scopecat.graph.relations.model import (
@@ -68,7 +69,12 @@ from tests.testkit.local_materialization import (
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.relation_plans import scalar_value_expr
-from tests.testkit.typed_program import compute_result, link_program, typed_program
+from tests.testkit.typed_program import (
+    compute_result,
+    instrument_invocation,
+    link_program,
+    typed_program,
+)
 
 
 class _FirstIntegerToken(IntEnum):
@@ -267,12 +273,13 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 interfaces=("test.play_program/v1",),
             ),
         ),
-        state=(
-            set_state_property(
+        invocations=(
+            instrument_invocation(
+                id="play-program",
                 resource_port_id=_resource("source-0"),
-                interface_id="test.play_program/v1",
-                property_id="program",
-                value=compute_result(consumer_output_id),
+                interface="test.play_program/v1",
+                operation="play",
+                arguments={"program": compute_result(consumer_output_id)},
             ),
         ),
     )
@@ -321,13 +328,14 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         assert consumer.payload_slot is not None
         payload_ids.append(consumer.payload_slot.id)
 
-        state_value = (
-            operations_of_type(plan, ApplyStateOperation, point_index=point.ordinal)[0]
-            .targets[0]
-            .value.root
-        )
-        assert isinstance(state_value, PayloadRef)
-        assert state_value.payload_id == consumer.payload_slot.id
+        invocation = operations_of_type(
+            plan,
+            InvokeOperation,
+            point_index=point.ordinal,
+        )[0]
+        payload_ref = invocation.arguments[0].value.root
+        assert isinstance(payload_ref, PayloadRef)
+        assert payload_ref.payload_id == consumer.payload_slot.id
 
     assert len(set(payload_ids)) == 3
     repeated_payload_ids: list[str] = []

@@ -8,6 +8,7 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
     ComputeOperation,
+    InvokeOperation,
     LocalOperation,
 )
 from scopecat.kernel.problems import (
@@ -17,7 +18,10 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.units import compatible_units
+from scopecat.kernel.value_types import Payload
+from scopecat.kernel.value_validation import ValueValidationError, validate_literal
 from scopecat.records.artifact import CommandPayload
 from scopecat.sdk.instruments.contracts import (
     AcquisitionResultSpec,
@@ -25,6 +29,7 @@ from scopecat.sdk.instruments.contracts import (
     ComponentSpec,
     InstrumentDescription,
     InterfaceSpec,
+    OperationSpec,
     validate_state_assignments,
 )
 
@@ -46,7 +51,7 @@ def validate_local_effect_block_instruments(
                     for operation in operations
                     if isinstance(
                         operation,
-                        ApplyStateOperation | CollectOperation,
+                        ApplyStateOperation | InvokeOperation | CollectOperation,
                     )
                 ),
             )
@@ -82,7 +87,6 @@ def validate_local_effect_block_instruments(
                     instrument_id=operation.instrument_id,
                     assignments=assignments,
                     description=description,
-                    payload_schemas=payload_schemas,
                 )
             )
         elif isinstance(operation, CollectOperation):
@@ -119,6 +123,35 @@ def validate_local_effect_block_instruments(
                         result=result,
                     )
                 )
+        elif isinstance(operation, InvokeOperation):
+            description = descriptions.get(operation.instrument_id)
+            if description is None:
+                continue
+            operation_spec = _matching_operation(
+                description,
+                interface_id=operation.interface_id,
+                component_path=operation.component_path,
+                operation_id=operation.operation_id,
+            )
+            if operation_spec is None:
+                problems.append(
+                    _problem(
+                        "instrument_operation_unsupported",
+                        f"instrument {operation.instrument_id} does not support "
+                        f"operation {operation.operation_id!r} under "
+                        f"{operation.interface_id!r}",
+                        "operations",
+                        operation.effect_id,
+                    )
+                )
+                continue
+            problems.extend(
+                _validate_invocation_arguments(
+                    operation,
+                    operation_spec,
+                    payload_schemas=payload_schemas,
+                )
+            )
     return problems
 
 
@@ -177,6 +210,106 @@ def _matching_result(
         (result for result in selected_acquisition.results if result.id == result_id),
         None,
     )
+
+
+def _matching_operation(
+    description: InstrumentDescription,
+    *,
+    interface_id: str,
+    component_path: Sequence[str],
+    operation_id: str,
+) -> OperationSpec | None:
+    selected_interface = next(
+        (
+            interface
+            for interface in description.interfaces
+            if interface.id == interface_id
+        ),
+        None,
+    )
+    if selected_interface is None:
+        return None
+    component: InterfaceSpec | ComponentSpec = selected_interface
+    for component_id in component_path:
+        selected_component = next(
+            (child for child in component.components if child.id == component_id),
+            None,
+        )
+        if selected_component is None:
+            return None
+        component = selected_component
+    return next(
+        (
+            operation
+            for operation in component.operations
+            if operation.id == operation_id
+        ),
+        None,
+    )
+
+
+def _validate_invocation_arguments(
+    invocation: InvokeOperation,
+    operation: OperationSpec,
+    *,
+    payload_schemas: Mapping[str, str],
+) -> list[Problem]:
+    declared = {argument.id: argument for argument in operation.arguments}
+    supplied = {argument.id: argument for argument in invocation.arguments}
+    path = ("operations", invocation.effect_id, "arguments")
+    problems: list[Problem] = []
+    for argument_id in sorted(declared.keys() - supplied.keys()):
+        problems.append(
+            _problem(
+                "instrument_operation_argument_missing",
+                f"operation {operation.id!r} requires argument {argument_id!r}",
+                *path,
+                argument_id,
+            )
+        )
+    for argument_id in sorted(supplied.keys() - declared.keys()):
+        problems.append(
+            _problem(
+                "instrument_operation_argument_unsupported",
+                f"operation {operation.id!r} does not accept argument {argument_id!r}",
+                *path,
+                argument_id,
+            )
+        )
+    for argument_id in sorted(declared.keys() & supplied.keys()):
+        value = supplied[argument_id].value.root
+        value_type = declared[argument_id].value_type
+        atom = value_type.atom
+        if isinstance(atom, Payload):
+            schema_id = (
+                payload_schemas.get(value.payload_id)
+                if isinstance(value, PayloadRef)
+                else None
+            )
+            if schema_id != atom.schema_id:
+                problems.append(
+                    _problem(
+                        "instrument_operation_argument_payload_mismatch",
+                        f"operation argument {argument_id!r} requires payload "
+                        f"{atom.schema_id!r}",
+                        *path,
+                        argument_id,
+                    )
+                )
+            continue
+        try:
+            validate_literal(value_type, value)
+        except ValueValidationError as error:
+            problems.append(
+                _problem(
+                    "instrument_operation_argument_value_mismatch",
+                    f"operation argument {argument_id!r}: {error.reason}",
+                    *path,
+                    argument_id,
+                    *error.path,
+                )
+            )
+    return problems
 
 
 def _validate_result(

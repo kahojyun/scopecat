@@ -24,7 +24,7 @@ type ResourceKind = Literal["target", "instrument"]
 type ResourceClaimStatus = Literal["active", "quarantined"]
 type ResourceOwnerKind = Literal["run", "instrument_session"]
 type InstrumentSessionState = Literal["active", "attention_required", "closed"]
-type InstrumentOperationKind = Literal["apply", "collect"]
+type InstrumentOperationKind = Literal["apply", "invoke", "collect"]
 type InstrumentSessionEndStatus = Literal["closed", "aborted"]
 
 

@@ -38,6 +38,7 @@ from scopecat.execution.ports.instruments import (
     RunHardwareBatchReceipt,
     RunHardwareCollect,
     RunHardwareFinalizationReceipt,
+    RunHardwareInvoke,
     RunHardwareValue,
 )
 from scopecat.kernel.problems import (
@@ -47,7 +48,6 @@ from scopecat.kernel.problems import (
     RuntimeLocation,
     problem,
 )
-from scopecat.kernel.state import PayloadRef
 from scopecat.planning.provider_validation import (
     describe_instruments,
     instrument_contract_fingerprint,
@@ -74,9 +74,12 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderContext,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InvokeCommand,
+    InvokeReceipt,
     apply_state_command_to_snapshot,
     validate_collect_command,
     validate_collect_receipt,
+    validate_invoke_command,
     validate_state_command,
 )
 from scopecat.sdk.payloads import PayloadCodecRegistry
@@ -91,6 +94,9 @@ _FINISHED_RUN_CACHE_LIMIT = 256
 @dataclass(slots=True)
 class _OperationLedger:
     apply_receipts: dict[str, tuple[InstrumentStateCommand, ApplyReceipt]] = field(
+        default_factory=dict
+    )
+    invoke_receipts: dict[str, tuple[InvokeCommand, InvokeReceipt]] = field(
         default_factory=dict
     )
     collect_receipts: dict[str, tuple[CollectCommand, CollectReceipt]] = field(
@@ -119,6 +125,10 @@ class _LiveDrivers:
     @property
     def collect_receipts(self) -> dict[str, tuple[CollectCommand, CollectReceipt]]:
         return self.ledger.collect_receipts
+
+    @property
+    def invoke_receipts(self) -> dict[str, tuple[InvokeCommand, InvokeReceipt]]:
+        return self.ledger.invoke_receipts
 
     @property
     def collect_failures(self) -> dict[str, tuple[CollectCommand, str]]:
@@ -612,6 +622,13 @@ class InstrumentService:
                                 runtime,
                                 action,
                             )
+                        elif isinstance(action, RunHardwareInvoke):
+                            evidence = self._execute_hardware_invoke(
+                                run_id,
+                                canonical_request.lease_id,
+                                runtime,
+                                action,
+                            )
                         else:
                             collected, evidence = self._execute_hardware_collect(
                                 run_id,
@@ -685,7 +702,7 @@ class InstrumentService:
                 action.instrument_id not in runtime.drivers
                 or action.instrument_id not in runtime.descriptions
                 or (
-                    isinstance(action, RunHardwareApply)
+                    isinstance(action, RunHardwareApply | RunHardwareInvoke)
                     and action.instrument_id not in runtime.assumed_states
                 )
             ):
@@ -705,16 +722,35 @@ class InstrumentService:
                 continue
             if isinstance(action, RunHardwareApply):
                 command = InstrumentStateCommand(
-                    operation_id=action.effect_id,
+                    command_id=action.effect_id,
                     instrument_id=action.instrument_id,
                     assignments=list(action.assignments),
+                )
+                problems.extend(
+                    validate_state_command(
+                        command=command,
+                        description=runtime.descriptions[action.instrument_id],
+                    )
+                )
+            elif isinstance(action, RunHardwareInvoke):
+                command = InvokeCommand(
+                    command_id=action.effect_id,
+                    instrument_id=action.instrument_id,
+                    resource_id=action.resource_id,
+                    interface_id=action.interface_id,
+                    component_path=list(action.component_path),
+                    operation_id=action.operation_id,
+                    arguments=list(action.arguments),
                     payloads=action.payloads,
+                    entity_ids=list(action.entity_ids),
+                    channel_bindings=list(action.channel_bindings),
                 )
-                validation_problems = validate_state_command(
-                    command=command,
-                    description=runtime.descriptions[action.instrument_id],
+                problems.extend(
+                    validate_invoke_command(
+                        command=command,
+                        description=runtime.descriptions[action.instrument_id],
+                    )
                 )
-                problems.extend(validation_problems)
                 problems.extend(
                     _payload_codec_problems(
                         command.payloads,
@@ -727,7 +763,7 @@ class InstrumentService:
                 )
             else:
                 command = CollectCommand(
-                    operation_id=action.effect_id,
+                    command_id=action.effect_id,
                     instrument_id=action.instrument_id,
                     point_index=action.point_index,
                     point_count=action.point_count,
@@ -752,10 +788,7 @@ class InstrumentService:
         assignments = tuple(
             assignment
             for assignment in action.assignments
-            # A snapshot retains only the command-local slot id, not payload
-            # content identity, so payload-valued writes cannot be deduplicated.
-            if isinstance(assignment.value.root, PayloadRef)
-            or _state_value(current, assignment) != assignment.value
+            if _state_value(current, assignment) != assignment.value
         )
         if not assignments:
             return {
@@ -763,20 +796,10 @@ class InstrumentService:
                 "status": "unchanged",
                 "metadata": {},
             }
-        payload_ids = {
-            assignment.value.root.payload_id
-            for assignment in assignments
-            if isinstance(assignment.value.root, PayloadRef)
-        }
         command = InstrumentStateCommand(
-            operation_id=action.effect_id,
+            command_id=action.effect_id,
             instrument_id=action.instrument_id,
             assignments=list(assignments),
-            payloads={
-                payload_id: payload
-                for payload_id, payload in action.payloads.items()
-                if payload_id in payload_ids
-            },
         )
         _runtime, driver = self._run_driver(run_id, action.instrument_id)
         try:
@@ -819,6 +842,81 @@ class InstrumentService:
             "metadata": dict(receipt.metadata),
         }
 
+    def _execute_hardware_invoke(
+        self,
+        run_id: str,
+        token: str,
+        runtime: _LiveDrivers,
+        action: RunHardwareInvoke,
+    ) -> dict[str, JsonValue]:
+        command = InvokeCommand(
+            command_id=action.effect_id,
+            instrument_id=action.instrument_id,
+            resource_id=action.resource_id,
+            interface_id=action.interface_id,
+            component_path=list(action.component_path),
+            operation_id=action.operation_id,
+            arguments=list(action.arguments),
+            payloads=action.payloads,
+            entity_ids=list(action.entity_ids),
+            channel_bindings=list(action.channel_bindings),
+        )
+        _runtime, driver = self._run_driver(run_id, action.instrument_id)
+        try:
+            receipt = driver.invoke(command)
+        except Exception as error:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_invoke_unknown",
+            )
+            raise BackendConflict(
+                "instrument invoke failed with unknown state"
+            ) from error
+        if receipt.status == "unknown":
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_invoke_receipt_unknown",
+            )
+        if receipt.status != "invoked":
+            raise BackendConflict(
+                "; ".join(item.message for item in receipt.problems)
+                or f"instrument invoke returned {receipt.status}"
+            )
+        try:
+            next_state = receipt.state or _read_driver_state(
+                driver,
+                instrument_id=action.instrument_id,
+            )
+        except Exception as error:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_invoke_state_unknown",
+            )
+            raise BackendConflict(
+                "instrument invoke completed but state synchronization failed"
+            ) from error
+        if next_state.instrument_id != action.instrument_id:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason="run_instrument_invoke_state_mismatch",
+            )
+            raise BackendConflict("instrument invoke returned state for another device")
+        runtime.assumed_states[action.instrument_id] = next_state.model_copy(deep=True)
+        receipt = receipt.model_copy(update={"state": next_state})
+        return {
+            "effect_id": action.effect_id,
+            "status": receipt.status,
+            "metadata": dict(receipt.metadata),
+        }
+
     def _execute_hardware_collect(
         self,
         run_id: str,
@@ -827,7 +925,7 @@ class InstrumentService:
         action: RunHardwareCollect,
     ) -> tuple[tuple[RunHardwareValue, ...], dict[str, JsonValue]]:
         command = CollectCommand(
-            operation_id=action.effect_id,
+            command_id=action.effect_id,
             instrument_id=action.instrument_id,
             point_index=action.point_index,
             point_count=action.point_count,
@@ -1177,8 +1275,8 @@ class InstrumentService:
                 session_id,
                 instrument_id,
             )
-            operation_id = command.operation_id
-            assert operation_id is not None
+            command_id = command.command_id
+            assert command_id is not None
             return self._apply_live(
                 runtime,
                 driver,
@@ -1187,14 +1285,55 @@ class InstrumentService:
                 on_started=lambda: self._record_operation_started(
                     session,
                     instrument_id=instrument_id,
-                    operation_id=operation_id,
+                    operation_id=command_id,
                     kind="apply",
                 ),
                 on_finished=lambda status: self._record_operation_finished(
                     session,
                     instrument_id=instrument_id,
-                    operation_id=operation_id,
+                    operation_id=command_id,
                     kind="apply",
+                    status=status,
+                ),
+                on_unknown=lambda reason: self._lose_runtime(
+                    session,
+                    runtime,
+                    reason=reason,
+                ),
+            )
+
+    def invoke(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InvokeCommand,
+    ) -> InvokeReceipt:
+        if command.instrument_id != instrument_id:
+            raise BackendConflict("instrument invoke command does not match its route")
+        runtime = self._live_runtime(session_id)
+        with runtime.lock:
+            session, _runtime, driver = self._session_driver(
+                session_id,
+                instrument_id,
+            )
+            command_id = command.command_id
+            assert command_id is not None
+            return self._invoke_live(
+                runtime,
+                driver,
+                command=command,
+                conflict_scope="interactive",
+                on_started=lambda: self._record_operation_started(
+                    session,
+                    instrument_id=instrument_id,
+                    operation_id=command_id,
+                    kind="invoke",
+                ),
+                on_finished=lambda status: self._record_operation_finished(
+                    session,
+                    instrument_id=instrument_id,
+                    operation_id=command_id,
+                    kind="invoke",
                     status=status,
                 ),
                 on_unknown=lambda reason: self._lose_runtime(
@@ -1220,8 +1359,8 @@ class InstrumentService:
                 session_id,
                 instrument_id,
             )
-            operation_id = command.operation_id
-            assert operation_id is not None
+            command_id = command.command_id
+            assert command_id is not None
             return self._collect_live(
                 runtime,
                 driver,
@@ -1230,13 +1369,13 @@ class InstrumentService:
                 on_started=lambda: self._record_operation_started(
                     session,
                     instrument_id=instrument_id,
-                    operation_id=operation_id,
+                    operation_id=command_id,
                     kind="collect",
                 ),
                 on_finished=lambda status: self._record_operation_finished(
                     session,
                     instrument_id=instrument_id,
-                    operation_id=operation_id,
+                    operation_id=command_id,
                     kind="collect",
                     status=status,
                 ),
@@ -1262,6 +1401,63 @@ class InstrumentService:
             command=command,
             description=runtime.descriptions[command.instrument_id],
         )
+        if validation_problems:
+            raise BackendConflict(
+                "; ".join(item.message for item in validation_problems)
+            )
+        command_id = command.command_id
+        assert command_id is not None
+        cached = runtime.apply_receipts.get(command_id)
+        if cached is not None:
+            cached_command, cached_receipt = cached
+            if cached_command != command:
+                raise BackendConflict(
+                    f"{conflict_scope} command id has different apply content"
+                )
+            return cached_receipt
+        if (
+            command_id in runtime.collect_receipts
+            or command_id in runtime.collect_failures
+            or command_id in runtime.invoke_receipts
+        ):
+            raise BackendConflict(
+                f"{conflict_scope} command id was already used for another command kind"
+            )
+        on_started()
+        try:
+            receipt = driver.apply_state(command)
+        except Exception as error:
+            on_unknown("instrument_apply_unknown")
+            raise BackendConflict(
+                "instrument apply failed with unknown state"
+            ) from error
+        runtime.apply_receipts[command_id] = (command, receipt)
+        try:
+            on_finished(receipt.status)
+        except Exception as error:
+            on_unknown("instrument_apply_audit_unknown")
+            raise BackendConflict(
+                "instrument apply completed but audit recording failed"
+            ) from error
+        if receipt.status == "unknown":
+            on_unknown("instrument_apply_receipt_unknown")
+        return receipt
+
+    def _invoke_live(
+        self,
+        runtime: _LiveDrivers,
+        driver: InstrumentDriver,
+        *,
+        command: InvokeCommand,
+        conflict_scope: str,
+        on_started: Callable[[], None],
+        on_finished: Callable[[str], None],
+        on_unknown: Callable[[str], None],
+    ) -> InvokeReceipt:
+        validation_problems = validate_invoke_command(
+            command=command,
+            description=runtime.descriptions[command.instrument_id],
+        )
         codec_issues = _payload_codec_issues(
             command.payloads,
             runtime.payload_codecs,
@@ -1275,43 +1471,64 @@ class InstrumentService:
                     ]
                 )
             )
-        canonical_command = self._payloads.canonicalize_state_command(command)
-        operation_id = canonical_command.operation_id
-        assert operation_id is not None
-        cached = runtime.apply_receipts.get(operation_id)
+        canonical_command = self._payloads.canonicalize_invoke_command(command)
+        command_id = canonical_command.command_id
+        assert command_id is not None
+        cached = runtime.invoke_receipts.get(command_id)
         if cached is not None:
             cached_command, cached_receipt = cached
             if cached_command != canonical_command:
                 raise BackendConflict(
-                    f"{conflict_scope} operation id has different apply content"
+                    f"{conflict_scope} command id has different invoke content"
                 )
             return cached_receipt
         if (
-            operation_id in runtime.collect_receipts
-            or operation_id in runtime.collect_failures
+            command_id in runtime.apply_receipts
+            or command_id in runtime.collect_receipts
+            or command_id in runtime.collect_failures
         ):
             raise BackendConflict(
-                f"{conflict_scope} operation id was already used for collect"
+                f"{conflict_scope} command id was already used for another command kind"
             )
-        driver_command = self._payloads.materialize_state_command(canonical_command)
+        driver_command = self._payloads.materialize_invoke_command(canonical_command)
         on_started()
         try:
-            receipt = driver.apply_state(driver_command)
+            receipt = driver.invoke(driver_command)
         except Exception as error:
-            on_unknown("instrument_apply_unknown")
+            on_unknown("instrument_invoke_unknown")
             raise BackendConflict(
-                "instrument apply failed with unknown state"
+                "instrument invoke failed with unknown state"
             ) from error
-        runtime.apply_receipts[operation_id] = (canonical_command, receipt)
+        if receipt.status == "invoked":
+            try:
+                next_state = receipt.state or _read_driver_state(
+                    driver,
+                    instrument_id=command.instrument_id,
+                )
+            except Exception as error:
+                on_unknown("instrument_invoke_state_unknown")
+                raise BackendConflict(
+                    "instrument invoke completed but state synchronization failed"
+                ) from error
+            if next_state.instrument_id != command.instrument_id:
+                on_unknown("instrument_invoke_state_mismatch")
+                raise BackendConflict(
+                    "instrument invoke returned state for another device"
+                )
+            runtime.assumed_states[command.instrument_id] = next_state.model_copy(
+                deep=True
+            )
+            receipt = receipt.model_copy(update={"state": next_state})
+        runtime.invoke_receipts[command_id] = (canonical_command, receipt)
         try:
             on_finished(receipt.status)
         except Exception as error:
-            on_unknown("instrument_apply_audit_unknown")
+            on_unknown("instrument_invoke_audit_unknown")
             raise BackendConflict(
-                "instrument apply completed but audit recording failed"
+                "instrument invoke completed but audit recording failed"
             ) from error
         if receipt.status == "unknown":
-            on_unknown("instrument_apply_receipt_unknown")
+            on_unknown("instrument_invoke_receipt_unknown")
         return receipt
 
     def _collect_live(
@@ -1333,27 +1550,30 @@ class InstrumentService:
             raise BackendConflict(
                 "; ".join(item.message for item in validation_problems)
             )
-        operation_id = command.operation_id
-        assert operation_id is not None
-        cached = runtime.collect_receipts.get(operation_id)
+        command_id = command.command_id
+        assert command_id is not None
+        cached = runtime.collect_receipts.get(command_id)
         if cached is not None:
             cached_command, cached_receipt = cached
             if cached_command != command:
                 raise BackendConflict(
-                    f"{conflict_scope} operation id has different collect content"
+                    f"{conflict_scope} command id has different collect content"
                 )
             return cached_receipt
-        cached_failure = runtime.collect_failures.get(operation_id)
+        cached_failure = runtime.collect_failures.get(command_id)
         if cached_failure is not None:
             cached_command, cached_message = cached_failure
             if cached_command != command:
                 raise BackendConflict(
-                    f"{conflict_scope} operation id has different collect content"
+                    f"{conflict_scope} command id has different collect content"
                 )
             raise BackendConflict(cached_message)
-        if operation_id in runtime.apply_receipts:
+        if (
+            command_id in runtime.apply_receipts
+            or command_id in runtime.invoke_receipts
+        ):
             raise BackendConflict(
-                f"{conflict_scope} operation id was already used for apply"
+                f"{conflict_scope} command id was already used for another command kind"
             )
         on_started()
         try:
@@ -1376,9 +1596,9 @@ class InstrumentService:
                 raise BackendConflict(
                     "instrument collect completed but audit recording failed"
                 ) from error
-            runtime.collect_failures[operation_id] = (command, message)
+            runtime.collect_failures[command_id] = (command, message)
             raise BackendConflict(message)
-        runtime.collect_receipts[operation_id] = (command, receipt)
+        runtime.collect_receipts[command_id] = (command, receipt)
         try:
             on_finished(receipt.status)
         except Exception as error:
@@ -1717,7 +1937,7 @@ class InstrumentService:
         *,
         instrument_id: str,
         operation_id: str,
-        kind: Literal["apply", "collect"],
+        kind: Literal["apply", "invoke", "collect"],
     ) -> None:
         try:
             self._control.start_instrument_operation(
@@ -1735,7 +1955,7 @@ class InstrumentService:
         *,
         instrument_id: str,
         operation_id: str,
-        kind: Literal["apply", "collect"],
+        kind: Literal["apply", "invoke", "collect"],
         status: str,
     ) -> None:
         try:
