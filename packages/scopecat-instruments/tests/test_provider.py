@@ -105,6 +105,7 @@ def test_provider_probes_real_device_before_returning_driver() -> None:
     config = _config(
         InstrumentSpec(
             id="lo",
+            exclusivity_key="lo",
             driver_id=ROHDE_SCHWARZ_SGS100A,
             connection=TcpipSocketInstrumentConnection(
                 host="127.0.0.1",
@@ -128,6 +129,7 @@ def test_provider_rejects_wrong_device_identity() -> None:
     config = _config(
         InstrumentSpec(
             id="lo",
+            exclusivity_key="lo",
             driver_id=ROHDE_SCHWARZ_SGS100A,
             connection=TcpipSocketInstrumentConnection(
                 host="127.0.0.1",
@@ -150,12 +152,14 @@ def test_virtual_state_survives_driver_recreation() -> None:
     config = _config(
         InstrumentSpec(
             id="flux",
+            exclusivity_key="flux",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
             run_start="preserve",
         ),
         InstrumentSpec(
             id="unused",
+            exclusivity_key="unused",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
             run_start="preserve",
@@ -189,12 +193,14 @@ def test_provider_connects_exact_requested_instrument() -> None:
     config = _config(
         InstrumentSpec(
             id="a",
+            exclusivity_key="a",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
             run_start="preserve",
         ),
         InstrumentSpec(
             id="b",
+            exclusivity_key="b",
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
             run_start="preserve",

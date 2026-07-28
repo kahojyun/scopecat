@@ -9,8 +9,9 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.api.lab import LabClient
-from scopecat.control.models import ResourceKey, RunPlanSummary
+from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
+from scopecat.daemon.views import ActiveConfigView
 from scopecat.daemon.wire import (
     ConfigPublishCommand,
     DirectConfigRevisionSource,
@@ -564,6 +565,7 @@ def test_instrument_views_expose_only_safe_configuration_summaries(
     assert detail_response.json() == by_id["source-0"]
     for forbidden in (
         "spec",
+        "exclusivity_key",
         "config_content_hash",
         "timeout_seconds",
         "options",
@@ -1129,6 +1131,132 @@ def test_config_activation_reuses_matching_connection_with_fresh_state(
             assert driver.read_count == 2
             assert driver.disconnect_count == 0
             daemon.close_instrument_session(reopened.session_id)
+
+
+def test_session_open_fences_an_activation_after_active_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _TrackingProvider()
+    config = load_config()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            get_active = runtime.application.config.get_active_config
+
+            def resolve_then_activate() -> ActiveConfigView:
+                resolved = get_active()
+                runtime.application.config.publish_config(
+                    ConfigPublishCommand(
+                        source=DirectConfigRevisionSource(
+                            config=config.model_copy(
+                                update={"id": "activated-during-open"}
+                            )
+                        ),
+                        entry_id="activated-during-open",
+                        actor="operator",
+                        expected_generation=resolved.activation.generation,
+                    )
+                )
+                return resolved
+
+            monkeypatch.setattr(
+                runtime.application.config,
+                "get_active_config",
+                resolve_then_activate,
+            )
+            daemon = _daemon_client(transport)
+
+            with pytest.raises(
+                DaemonConflictError,
+                match="active configuration changed",
+            ):
+                daemon.open_instrument_session(
+                    InstrumentSessionOpenCommand(
+                        operation_id="open-during-config-activation",
+                        actor="alice",
+                        instrument_ids=("source-0",),
+                    )
+                )
+
+            control = runtime.application.executor._control
+            assert control.list_instrument_sessions() == ()
+            with control.transaction() as connection:
+                assert control.list_resource_claims_in_transaction(connection) == ()
+            assert provider.drivers == []
+
+
+def test_exclusivity_key_survives_logical_instrument_rename(tmp_path: Path) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            first = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-before-instrument-rename",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            original_config = load_config()
+            [source] = original_config.instrument_registry.instruments
+            renamed_id = "renamed-source"
+            registry = original_config.instrument_registry.model_copy(
+                update={"instruments": [source.model_copy(update={"id": renamed_id})]}
+            )
+            routing = original_config.routing.model_copy(
+                update={
+                    "bindings": [
+                        binding.model_copy(update={"instrument_id": renamed_id})
+                        for binding in original_config.routing.bindings
+                    ]
+                }
+            )
+            renamed = original_config.model_copy(
+                update={
+                    "id": "renamed-config",
+                    "system": original_config.system.model_copy(
+                        update={
+                            "instrument_registry": registry,
+                            "routing": routing,
+                        }
+                    ),
+                }
+            )
+            runtime.application.config.publish_config(
+                ConfigPublishCommand(
+                    source=DirectConfigRevisionSource(config=renamed),
+                    entry_id="renamed-config",
+                    actor="operator",
+                    expected_generation=1,
+                )
+            )
+
+            [current] = daemon.list_instruments().items
+            assert current.instrument_id == renamed_id
+            assert current.availability == "active"
+            assert current.owner_actor == "alice"
+            with pytest.raises(DaemonConflictError, match="resources are busy"):
+                daemon.open_instrument_session(
+                    InstrumentSessionOpenCommand(
+                        operation_id="open-renamed-while-owned",
+                        actor="bob",
+                        instrument_ids=(renamed_id,),
+                    )
+                )
+            assert len(provider.drivers) == 1
+
+            daemon.close_instrument_session(first.session_id)
+            second = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-after-instrument-rename",
+                    actor="bob",
+                    instrument_ids=(renamed_id,),
+                )
+            )
+
+            assert len(provider.drivers) == 2
+            assert provider.drivers[0].disconnect_count == 1
+            daemon.close_instrument_session(second.session_id)
 
 
 @pytest.mark.parametrize(
@@ -1919,6 +2047,53 @@ def test_run_and_interactive_session_compete_for_the_same_resource(
                 )
 
 
+def test_run_admission_rejects_alternate_key_for_active_connection(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    config = load_config()
+    [source] = config.instrument_registry.instruments
+    changed_registry = config.instrument_registry.model_copy(
+        update={
+            "instruments": [
+                source.model_copy(update={"exclusivity_key": "alternate-source"})
+            ]
+        }
+    )
+    changed = config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={"instrument_registry": changed_registry}
+            )
+        }
+    )
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-authoritative-key",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+
+            with pytest.raises(
+                DaemonConflictError,
+                match="instrument inventory differs",
+            ):
+                daemon.submit_run(_submission(changed))
+
+            admission = daemon.submit_run(_submission(config))
+            with pytest.raises(DaemonConflictError, match="resources are busy"):
+                daemon.start_executor(
+                    admission.run_id,
+                    ExecutorStartRequest(executor_id="notebook"),
+                )
+            assert len(provider.drivers) == 1
+            daemon.close_instrument_session(session.session_id)
+
+
 def _runtime(
     root: Path,
     provider: InstrumentProvider,
@@ -2028,7 +2203,12 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
         update={
             "instruments": [
                 source,
-                source.model_copy(update={"id": "source-1"}),
+                source.model_copy(
+                    update={
+                        "id": "source-1",
+                        "exclusivity_key": "source-1",
+                    }
+                ),
             ]
         }
     )
@@ -2092,6 +2272,7 @@ def _config_with_private_instrument_settings() -> ConfigProfileSnapshot:
 
 
 def _submission(config: ConfigProfileSnapshot) -> RunSubmission:
+    [instrument] = config.instrument_registry.instruments
     return RunSubmission(
         submission_id="interactive-exclusion",
         config=config,
@@ -2100,6 +2281,11 @@ def _submission(config: ConfigProfileSnapshot) -> RunSubmission:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
-            run_resource_claims=(ResourceKey(kind="instrument", id="source-0"),),
+            run_resource_requirements=(
+                RunResourceRequirement(
+                    kind="instrument",
+                    id=instrument.id,
+                ),
+            ),
         ),
     )

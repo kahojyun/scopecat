@@ -1163,6 +1163,7 @@ function activeConfig(): Awaited<ReturnType<typeof getActiveConfig>> {
 function configuredInstrument() {
   return {
     id: "drive-source",
+    exclusivity_key: "drive-source",
     driver_id: "virtual.rf_source",
     connection: { kind: "virtual" as const },
     default_state: [],

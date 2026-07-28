@@ -70,6 +70,7 @@ class OwnedInstrument:
         "_binding",
         "_description",
         "_epoch",
+        "_instrument_id",
         "_owner",
         "_reused_connection",
     )
@@ -78,6 +79,7 @@ class OwnedInstrument:
         self,
         actor: _InstrumentActor,
         *,
+        instrument_id: str,
         binding: InstrumentBindingKey,
         owner: InstrumentOwnerKey,
         epoch: int,
@@ -85,6 +87,7 @@ class OwnedInstrument:
         reused_connection: bool,
     ) -> None:
         self._actor = actor
+        self._instrument_id = instrument_id
         self._binding = binding
         self._owner = owner
         self._epoch = epoch
@@ -93,7 +96,7 @@ class OwnedInstrument:
 
     @property
     def instrument_id(self) -> str:
-        return self._actor.instrument_id
+        return self._instrument_id
 
     @property
     def binding(self) -> InstrumentBindingKey:
@@ -160,8 +163,8 @@ class OwnedInstrument:
 class _InstrumentActor:
     """Serialize one physical instrument without treating idle state as observed."""
 
-    def __init__(self, instrument_id: str) -> None:
-        self.instrument_id = instrument_id
+    def __init__(self, exclusivity_key: str) -> None:
+        self._exclusivity_key = exclusivity_key
         self._lock = RLock()
         self._binding: InstrumentBindingKey | None = None
         self._description: InstrumentDescription | None = None
@@ -175,6 +178,7 @@ class _InstrumentActor:
     def acquire(
         self,
         *,
+        instrument_id: str,
         binding: InstrumentBindingKey,
         owner: InstrumentOwnerKey,
         endpoint: InstrumentBackendEndpoint,
@@ -183,7 +187,7 @@ class _InstrumentActor:
         with self._lock:
             if self._shutdown:
                 raise InstrumentActorShutdown(
-                    f"instrument actor is shut down: {self.instrument_id}"
+                    f"instrument actor is shut down: {self._exclusivity_key}"
                 )
             if self._owned is not None:
                 if self._binding != binding or self._endpoint is not endpoint:
@@ -191,7 +195,7 @@ class _InstrumentActor:
                         "owned instrument cannot change backend binding"
                     )
                 raise InstrumentActorConflict(
-                    f"instrument is already owned: {self.instrument_id}"
+                    f"instrument is already owned: {self._exclusivity_key}"
                 )
             if self._handle is not None and (
                 self._binding != binding or self._endpoint is not endpoint
@@ -209,6 +213,7 @@ class _InstrumentActor:
             self._epoch += 1
             owned = OwnedInstrument(
                 self,
+                instrument_id=instrument_id,
                 binding=binding,
                 owner=owner,
                 epoch=self._epoch,
@@ -339,7 +344,7 @@ class _InstrumentActor:
             or self._handle is None
         ):
             raise InstrumentActorConflict(
-                f"stale instrument ownership handle: {self.instrument_id}"
+                f"stale instrument ownership handle: {self._exclusivity_key}"
             )
         return self._endpoint, self._handle
 
@@ -363,7 +368,7 @@ class _InstrumentActor:
 
 
 class InstrumentActorRegistry:
-    """Own one actor per instrument and fence acquisition during shutdown."""
+    """Own one actor per exclusive resource and fence acquisition during shutdown."""
 
     def __init__(self) -> None:
         self._actors: dict[str, _InstrumentActor] = {}
@@ -373,6 +378,7 @@ class InstrumentActorRegistry:
 
     def acquire(
         self,
+        exclusivity_key: str,
         instrument_id: str,
         *,
         binding: InstrumentBindingKey,
@@ -384,10 +390,11 @@ class InstrumentActorRegistry:
             if not self._accepting:
                 raise InstrumentActorShutdown("instrument actor registry is shut down")
             actor = self._actors.setdefault(
-                instrument_id,
-                _InstrumentActor(instrument_id),
+                exclusivity_key,
+                _InstrumentActor(exclusivity_key),
             )
         owned = actor.acquire(
+            instrument_id=instrument_id,
             binding=binding,
             owner=owner,
             endpoint=endpoint,

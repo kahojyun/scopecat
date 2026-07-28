@@ -635,6 +635,155 @@ def test_publish_runs_full_config_semantic_validation(tmp_path: Path) -> None:
     )
 
 
+def test_publish_rejects_rekeying_an_existing_logical_instrument(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    [instrument] = config.instrument_registry.instruments
+    changed_registry = config.instrument_registry.model_copy(
+        update={
+            "instruments": [
+                instrument.model_copy(update={"exclusivity_key": "replacement-key"})
+            ]
+        }
+    )
+    changed = config.model_copy(
+        update={
+            "id": "rekeyed",
+            "system": config.system.model_copy(
+                update={"instrument_registry": changed_registry}
+            ),
+        }
+    )
+
+    with pytest.raises(Conflict) as error:
+        _publish_direct_revision(
+            config=changed,
+            unit_of_work=unit_of_work,
+            entry_id="rekeyed",
+            actor="operator",
+        )
+
+    assert error.value.problems[0].code == (
+        "config_registry.instrument_exclusivity_key_changed"
+    )
+    assert current_config_registry_generation(unit_of_work=unit_of_work) == 1
+    assert [
+        entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
+    ] == ["seed"]
+
+
+def test_publish_allows_logical_instrument_rename_with_the_same_key(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    [instrument] = config.instrument_registry.instruments
+    renamed_id = "renamed-source"
+    renamed_registry = config.instrument_registry.model_copy(
+        update={"instruments": [instrument.model_copy(update={"id": renamed_id})]}
+    )
+    renamed_routing = config.routing.model_copy(
+        update={
+            "bindings": [
+                binding.model_copy(update={"instrument_id": renamed_id})
+                for binding in config.routing.bindings
+            ]
+        }
+    )
+    renamed = config.model_copy(
+        update={
+            "id": "renamed",
+            "system": config.system.model_copy(
+                update={
+                    "instrument_registry": renamed_registry,
+                    "routing": renamed_routing,
+                }
+            ),
+        }
+    )
+
+    result = _publish_direct_revision(
+        config=renamed,
+        unit_of_work=unit_of_work,
+        entry_id="renamed",
+        actor="operator",
+    )
+
+    assert result.activation is not None
+    assert result.activation.generation == 2
+
+
+def test_publish_rejects_logical_rename_that_also_rekeys(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    [instrument] = config.instrument_registry.instruments
+    renamed_id = "renamed-source"
+    renamed = config.model_copy(
+        update={
+            "id": "renamed-and-rekeyed",
+            "system": config.system.model_copy(
+                update={
+                    "instrument_registry": config.instrument_registry.model_copy(
+                        update={
+                            "instruments": [
+                                instrument.model_copy(
+                                    update={
+                                        "id": renamed_id,
+                                        "exclusivity_key": "replacement-key",
+                                    }
+                                )
+                            ]
+                        }
+                    ),
+                    "routing": config.routing.model_copy(
+                        update={
+                            "bindings": [
+                                binding.model_copy(update={"instrument_id": renamed_id})
+                                for binding in config.routing.bindings
+                            ]
+                        }
+                    ),
+                }
+            ),
+        }
+    )
+
+    with pytest.raises(Conflict) as error:
+        _publish_direct_revision(
+            config=renamed,
+            unit_of_work=unit_of_work,
+            entry_id="renamed-and-rekeyed",
+            actor="operator",
+        )
+
+    assert error.value.problems[0].code == (
+        "config_registry.instrument_exclusivity_key_removed"
+    )
+    assert current_config_registry_generation(unit_of_work=unit_of_work) == 1
+
+
 def test_concurrent_publishes_apply_one_generation(
     tmp_path: Path,
 ) -> None:

@@ -21,6 +21,7 @@
     "instruments": [
       {
         "id": "source-0",
+        "exclusivity_key": "source-0",
         "driver_id": "tests.signal_instrument",
         "connection": {
           "kind": "virtual"

@@ -23,7 +23,9 @@ from scopecat.control.models import (
     ResourceClaim,
     ResourceKey,
     RunAdmissionRecord,
+    RunDomainTargetRequirement,
     RunPlanSummary,
+    RunResourceRequirement,
 )
 
 NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -40,6 +42,20 @@ def _admission(
     *resources: ResourceKey,
     admitted_at: datetime = NOW,
 ) -> RunAdmissionRecord:
+    target_ids = tuple(
+        resource.id for resource in resources if resource.kind == "target"
+    )
+    domain_target_requirement = (
+        None
+        if not target_ids
+        else RunDomainTargetRequirement(
+            id=target_ids[0],
+            kind="tests.target",
+            instrument_ids=tuple(
+                resource.id for resource in resources if resource.kind == "instrument"
+            ),
+        )
+    )
     return RunAdmissionRecord(
         submission_id=f"submission:{run_id}",
         submission_content_hash=SUBMISSION_HASH,
@@ -48,8 +64,13 @@ def _admission(
             experiment_id=f"scratch:{run_id}",
             experiment_kind="scratch",
             point_count=3,
-            run_resource_claims=resources,
+            domain_target_requirement=domain_target_requirement,
+            run_resource_requirements=tuple(
+                RunResourceRequirement(kind=resource.kind, id=resource.id)
+                for resource in resources
+            ),
         ),
+        resource_claims=resources,
         admitted_at=admitted_at,
     )
 
@@ -57,9 +78,15 @@ def _admission(
 def _admit(
     store: SQLiteControlPlane,
     admission: RunAdmissionRecord,
+    *,
+    expected_config_generation: int = 0,
 ) -> ControlRun:
     with store.transaction() as connection:
-        return store.admit_run_in_transaction(connection, admission)
+        return store.admit_run_in_transaction(
+            connection,
+            admission,
+            expected_config_generation=expected_config_generation,
+        )
 
 
 def _start(
@@ -161,7 +188,11 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
             "admitted_at": NOW + timedelta(minutes=1),
         }
     )
-    assert _admit(store, retry) == store.get_run("run-0")
+    assert _admit(
+        store,
+        retry,
+        expected_config_generation=999,
+    ) == store.get_run("run-0")
     assert second.items[0].admission.submission_id == "submission:run-0"
     assert [event.kind for event in store.list_events(run_id="run-0").items] == [
         "run_admitted"
@@ -272,8 +303,12 @@ def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:
         executor_id="a",
     )
 
-    with pytest.raises(ControlPlaneConflict, match="resources are busy"):
+    with pytest.raises(
+        ControlPlaneConflict,
+        match="resources are busy",
+    ) as caught:
         _start(store, "run-b", executor_id="b")
+    assert "scope" not in str(caught.value)
     claims = _resource_claims(store)
     assert {claim.resource.id for claim in claims} == {"scope", "a"}
     assert {(claim.owner_kind, claim.owner_id) for claim in claims} == {
@@ -455,6 +490,8 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
         config_entry_id="baseline",
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("scope",),
+        exclusivity_keys=("visa:scope",),
+        expected_config_generation=0,
         at=NOW,
     )
     retry = store.open_instrument_session(
@@ -463,10 +500,27 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
         config_entry_id="replacement",
         config_content_hash=f"sha256:{'b' * 64}",
         instrument_ids=("scope",),
+        exclusivity_keys=("visa:replacement",),
+        expected_config_generation=None,
         at=NOW + timedelta(seconds=1),
     )
 
     assert retry == first
+    assert first.exclusivity_keys == ("visa:scope",)
+    [claim] = _resource_claims(store)
+    assert claim.resource == ResourceKey(kind="instrument", id="visa:scope")
+    opened = next(
+        event
+        for event in store.list_events().items
+        if event.kind == "instrument_session_opened"
+    )
+    assert opened.payload == {
+        "session_id": first.session_id,
+        "operation_id": "open-1",
+        "actor": "alice",
+        "instrument_ids": ["scope"],
+        "config_entry_id": "baseline",
+    }
     assert store.get_instrument_session_by_open_operation_id("open-1") == first
     with pytest.raises(ControlPlaneNotFound):
         store.get_instrument_session_by_open_operation_id("missing")
@@ -477,6 +531,8 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
             config_entry_id="baseline",
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=("scope",),
+            exclusivity_keys=("visa:scope",),
+            expected_config_generation=None,
             at=NOW + timedelta(seconds=1),
         )
 
@@ -504,6 +560,7 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
     )
     assert closed.state == "closed"
     assert closed.end_status == "closed"
+    assert closed.exclusivity_keys == ("visa:scope",)
     assert _resource_claims(store) == ()
     with pytest.raises(InstrumentSessionNotActive):
         store.validate_instrument_session(first.session_id)
@@ -519,6 +576,8 @@ def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
         config_entry_id="baseline",
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("idle-scope",),
+        exclusivity_keys=("visa:idle-scope",),
+        expected_config_generation=0,
         at=NOW,
     )
     active = store.open_instrument_session(
@@ -527,6 +586,8 @@ def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
         config_entry_id="baseline",
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("active-scope",),
+        exclusivity_keys=("visa:active-scope",),
+        expected_config_generation=0,
         at=NOW,
     )
     store.start_instrument_operation(
@@ -561,16 +622,55 @@ def test_instrument_session_cannot_claim_a_run_owned_resource(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path / "control.sqlite3")
-    resource = ResourceKey(kind="instrument", id="scope")
+    resource = ResourceKey(kind="instrument", id="visa:scope")
     _admit(store, _admission("run-1", resource))
     _start(store, "run-1", executor_id="kernel")
 
-    with pytest.raises(ControlPlaneConflict, match="resources are busy"):
+    with pytest.raises(
+        ControlPlaneConflict,
+        match="resources are busy",
+    ) as caught:
         store.open_instrument_session(
             operation_id="open-1",
             actor="alice",
             config_entry_id="baseline",
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=("scope",),
+            exclusivity_keys=("visa:scope",),
+            expected_config_generation=0,
+            at=NOW,
+        )
+    assert "visa:scope" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("instrument_ids", "exclusivity_keys", "message"),
+    [
+        (("scope",), (), "equal length"),
+        (("scope",), ("",), "must be non-empty"),
+        (
+            ("scope-a", "scope-b"),
+            ("visa:scope", "visa:scope"),
+            "must be unique",
+        ),
+    ],
+)
+def test_instrument_session_rejects_invalid_exclusivity_keys(
+    tmp_path: Path,
+    instrument_ids: tuple[str, ...],
+    exclusivity_keys: tuple[str, ...],
+    message: str,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+
+    with pytest.raises(ValueError, match=message):
+        store.open_instrument_session(
+            operation_id="open-1",
+            actor="alice",
+            config_entry_id="baseline",
+            config_content_hash=f"sha256:{'a' * 64}",
+            instrument_ids=instrument_ids,
+            exclusivity_keys=exclusivity_keys,
+            expected_config_generation=0,
             at=NOW,
         )

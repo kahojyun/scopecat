@@ -7,8 +7,16 @@ from threading import Barrier
 from typing import Literal, override
 
 import pytest
-from scopecat.control.models import ResourceKey, RunPlanSummary
+from scopecat.config.candidates import (
+    CandidateConfig,
+    resolve_candidate_config_from_snapshot,
+)
+from scopecat.config.changes import parameter_change_proposal_from_updates
+from scopecat.config.parameters import replace_scalar_parameter
+from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.wire import (
+    AnalysisParameterProposalOutputPayload,
+    AnalysisSaveCommand,
     ExecutorStartRequest,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
@@ -612,7 +620,7 @@ def test_partial_default_state_reconciliation_is_unknown(tmp_path: Path) -> None
             value=StateValue(Quantity(value=5.0, unit="GHz")),
         )
     )
-    with _runtime(tmp_path, provider) as runtime:
+    with _runtime(tmp_path, provider, config=config) as runtime:
         run_id, lease_id = _start_run(
             runtime,
             config,
@@ -1118,17 +1126,70 @@ def test_analysis_candidate_run_keeps_connection_until_shutdown(
 ) -> None:
     provider = _Provider(fail_action="disconnect")
     config = load_config()
-    source = AnalysisCandidateRunConfigSource(
-        source_run_id="source-run",
-        analysis_record_id="analysis-candidate",
-        proposal_id="proposal-candidate",
-        base_config_content_hash=config_content_hash(config),
-        content_hash=config_content_hash(config),
-    )
     with _runtime(tmp_path, provider) as runtime:
+        active = runtime.application.config.get_active_config()
+        source_admission = runtime.application.submit_run(
+            RunSubmission(
+                submission_id="candidate-source",
+                config=config,
+                config_source=ConfigRegistryRunConfigSource(
+                    selector="active",
+                    entry_id=active.entry.id,
+                    config_ref=active.entry.config_ref,
+                    content_hash=active.entry.content_hash,
+                    registry_generation=active.activation.generation,
+                ),
+                request=RunRequest(experiment_id="candidate-source"),
+                plan=RunPlanSummary(
+                    experiment_id="candidate-source",
+                    experiment_kind="scratch",
+                    point_count=1,
+                ),
+            )
+        )
+        proposal = parameter_change_proposal_from_updates(
+            source_run_id=source_admission.run_id,
+            source_config=config,
+            analysis_title="candidate",
+            analysis_record_id="analysis-candidate",
+            proposal_id="proposal-candidate",
+            updates=(
+                replace_scalar_parameter(
+                    "drive_frequency",
+                    Quantity(value=5.1, unit="GHz"),
+                ),
+            ),
+            reason="candidate",
+            confidence=None,
+        )
+        runtime.application.runs.save_run_analysis(
+            source_admission.run_id,
+            AnalysisSaveCommand(
+                title="candidate",
+                analysis_key="candidate",
+                outputs=(
+                    AnalysisParameterProposalOutputPayload(
+                        kind="parameter_change_proposal",
+                        title="candidate",
+                        content=proposal,
+                    ),
+                ),
+            ),
+        )
+        candidate = resolve_candidate_config_from_snapshot(
+            CandidateConfig(parameter_proposal=proposal),
+            source_config=config,
+        )
+        source = AnalysisCandidateRunConfigSource(
+            source_run_id=source_admission.run_id,
+            analysis_record_id=proposal.analysis_record_id,
+            proposal_id=proposal.id,
+            base_config_content_hash=proposal.base_config_content_hash,
+            content_hash=config_content_hash(candidate),
+        )
         run_id, lease_id = _start_run(
             runtime,
-            config,
+            candidate,
             config_source=source,
             submission_id="analysis-candidate",
         )
@@ -1184,7 +1245,7 @@ def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
 def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None:
     provider = _Provider(apply_barrier=Barrier(2))
     config = _two_instrument_config()
-    with _runtime(tmp_path, provider) as runtime:
+    with _runtime(tmp_path, provider, config=config) as runtime:
         first = _start_run(
             runtime,
             config,
@@ -1318,11 +1379,12 @@ def _runtime(
     root: Path,
     provider: _Provider,
     *,
+    config: ConfigProfileSnapshot | None = None,
     lease_ttl: timedelta | None = None,
 ) -> LocalDaemonRuntime:
     return LocalDaemonRuntime(
         root,
-        bootstrap_config=load_config(),
+        bootstrap_config=config or load_config(),
         instrument_endpoint=LocalInstrumentBackendEndpoint(
             InstrumentBackend(
                 provider=provider,
@@ -1388,8 +1450,8 @@ def _start_run(
                 host_contract_fingerprint=(
                     contract_fingerprint or admitted_fingerprint
                 ),
-                run_resource_claims=tuple(
-                    ResourceKey(kind="instrument", id=instrument_id)
+                run_resource_requirements=tuple(
+                    RunResourceRequirement(kind="instrument", id=instrument_id)
                     for instrument_id in host_instrument_order
                 ),
             ),
@@ -1579,7 +1641,12 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
         update={
             "instruments": [
                 source,
-                source.model_copy(update={"id": "source-1"}),
+                source.model_copy(
+                    update={
+                        "id": "source-1",
+                        "exclusivity_key": "source-1",
+                    }
+                ),
             ]
         }
     )

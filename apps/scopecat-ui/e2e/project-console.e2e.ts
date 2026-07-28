@@ -62,7 +62,8 @@ import time
 from pathlib import Path
 
 import scopecat as sc
-from quantum_lab_demo import quantum_lab_bootstrap_config, quantum_lab_system
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
+from quantum_lab_demo.lab import quantum_lab_system
 from quantum_lab_demo.workflows.drag_beta_experiment import (
     drag_beta_template,
 )
@@ -88,12 +89,16 @@ def wait_for_release(path: Path) -> None:
 config = quantum_lab_bootstrap_config()
 
 
-def build_system(selected):
-    return quantum_lab_system(config=selected)
+def build_system(selected, instrument_catalog):
+    return quantum_lab_system(
+        config=selected,
+        instrument_catalog=instrument_catalog,
+    )
 
 
 project = sc.open_project(PROJECT_ROOT)
-with project.connect(build_system=build_system) as lab:
+with project.connect(build_experiment_system=build_system) as lab:
+    lab.config.set_default(config, entry_id="e2e-live-inventory")
     client = lab._client
     original_submit = client.submit_run
     original_start = client.start_executor

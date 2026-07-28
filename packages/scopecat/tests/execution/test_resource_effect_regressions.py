@@ -250,7 +250,7 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
     }
 
 
-def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
+def test_logical_state_bindings_reach_required_instrument() -> None:
     config = _split_instrument_config()
     source = _port("source")
     first_state = set_state_property(
@@ -262,7 +262,7 @@ def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
 
     single_plan = _bind(
         _unit_program(
-            experiment_id="logical-state-claims",
+            experiment_id="logical-state-requirements",
             resource_requirements=(
                 LogicalResourceRequirement(
                     port_id=source,
@@ -281,9 +281,10 @@ def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
     assert tuple(binding.channel_id for binding in target.channel_bindings) == (
         "drive-q0",
     )
-    assert [(claim.kind, claim.id) for claim in single_plan.resource_claims] == [
-        ("instrument", "source-0"),
-    ]
+    assert [
+        (requirement.kind, requirement.id)
+        for requirement in single_plan.resource_requirements
+    ] == [("instrument", "source-0")]
 
 
 def test_logical_state_does_not_broadcast_across_instruments() -> None:
@@ -488,7 +489,12 @@ def _split_instrument_config() -> ConfigProfileSnapshot:
                 update={
                     "instruments": [
                         source,
-                        source.model_copy(update={"id": "source-1"}),
+                        source.model_copy(
+                            update={
+                                "id": "source-1",
+                                "exclusivity_key": "source-1",
+                            }
+                        ),
                     ]
                 }
             ),

@@ -6,7 +6,7 @@ export type PresentationRunStatus =
   | "failed"
   | "cancelled";
 
-export interface ResourceClaim {
+export interface RunResource {
   id: string;
   kind: string;
   status?: string;
@@ -42,7 +42,7 @@ export interface ProjectRun {
   certainty?: string;
   progressCompleted?: number;
   plan: RunPlanSummary;
-  resources: ResourceClaim[];
+  resources: RunResource[];
   contents: ContentEntry[];
 }
 

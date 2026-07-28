@@ -22,7 +22,7 @@ from scopecat.config.registry.records import (
     ManualConfigDraftRegistrySource,
 )
 from scopecat.config.resolution import config_revision_entry_id
-from scopecat.control.models import ResourceKey
+from scopecat.control.models import RunResourceRequirement
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.execution import ExecutorLeaseLostError
 from scopecat.daemon.views import (
@@ -153,9 +153,10 @@ def test_execute_submits_complete_plan_and_heartbeats(
     assert submission.plan.coordinate_ids == preview.coordinate_ids
     assert submission.plan.record_ids == tuple(record.id for record in preview.records)
     assert submission.plan.host_instrument_order == planned.program.resource_order
-    assert submission.plan.run_resource_claims == tuple(
-        ResourceKey(id=claim.id, kind=claim.kind)
-        for claim in planned.program.resource_claims
+    assert planned.program.host is not None
+    assert submission.plan.run_resource_requirements == tuple(
+        RunResourceRequirement(id=requirement.id, kind=requirement.kind)
+        for requirement in planned.program.resource_requirements
     )
     assert forwarded["program"] == planned.program
     assert result.status == "completed"

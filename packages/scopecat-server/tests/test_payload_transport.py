@@ -9,7 +9,7 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.adapters.sqlite.object_store import ImmutableObjectStore
-from scopecat.control.models import ResourceKey, RunPlanSummary
+from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.wire import (
     ExecutorStartRequest,
@@ -758,7 +758,12 @@ def _start_run(daemon: DaemonClient) -> tuple[str, str]:
                 host_instrument_order=instrument_ids,
                 host_provider_id=_PayloadProvider.provider_id,
                 host_contract_fingerprint=fingerprint,
-                run_resource_claims=(ResourceKey(kind="instrument", id="source-0"),),
+                run_resource_requirements=(
+                    RunResourceRequirement(
+                        kind="instrument",
+                        id="source-0",
+                    ),
+                ),
             ),
         )
     )

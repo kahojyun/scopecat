@@ -533,7 +533,12 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                 update={
                     "instruments": [
                         source_0,
-                        source_0.model_copy(update={"id": "source-1"}),
+                        source_0.model_copy(
+                            update={
+                                "id": "source-1",
+                                "exclusivity_key": "source-1",
+                            }
+                        ),
                     ]
                 }
             ),
@@ -1385,7 +1390,12 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
                 update={
                     "instruments": [
                         source_0,
-                        source_0.model_copy(update={"id": "source-1"}),
+                        source_0.model_copy(
+                            update={
+                                "id": "source-1",
+                                "exclusivity_key": "source-1",
+                            }
+                        ),
                     ]
                 }
             ),

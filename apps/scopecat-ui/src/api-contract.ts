@@ -79,7 +79,7 @@ export interface DaemonUiApi {
   >;
 }
 
-export type ControlRun = components["schemas"]["ControlRun"];
+export type RunControlView = components["schemas"]["RunControlView"];
 export type ConfigActivationRecord = components["schemas"]["ConfigRegistryActivationRecord"];
 export type ConfigDraftCommand = DaemonUiApi["configDraftCommand"];
 export type ConfigPublishCommand = DaemonUiApi["configPublishCommand"];

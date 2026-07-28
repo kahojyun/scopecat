@@ -4,6 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.records.config import (
+    InstrumentRegistry,
+    InstrumentSpec,
     instrument_bindings,
 )
 from scopecat.sdk.instruments import InstrumentBindingSpec
@@ -30,3 +32,21 @@ def test_instrument_binding_is_frozen() -> None:
 
     with pytest.raises(ValidationError, match="frozen"):
         binding.id = "replacement"
+
+
+def test_instrument_exclusivity_key_is_required_and_non_empty() -> None:
+    instrument = load_config().instrument_registry.instruments[0]
+    data = instrument.model_dump(exclude={"exclusivity_key"})
+
+    with pytest.raises(ValidationError, match="exclusivity_key"):
+        InstrumentSpec.model_validate(data)
+    with pytest.raises(ValidationError, match="at least 1 character"):
+        InstrumentSpec.model_validate({**data, "exclusivity_key": ""})
+
+
+def test_instrument_registry_rejects_shared_exclusivity_key() -> None:
+    instrument = load_config().instrument_registry.instruments[0]
+    alias = instrument.model_copy(update={"id": "source-alias"})
+
+    with pytest.raises(ValidationError, match="exclusivity keys must be unique"):
+        InstrumentRegistry(instruments=[instrument, alias])

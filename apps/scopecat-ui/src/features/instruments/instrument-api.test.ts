@@ -67,6 +67,7 @@ describe("instrument configuration publishing", () => {
     expect(command.source.config.system.instrument_registry.instruments).toEqual([
       {
         id: "vna-1",
+        exclusivity_key: "vna-1",
         driver_id: "keysight.pna",
         connection,
         default_state: [
@@ -81,6 +82,7 @@ describe("instrument configuration publishing", () => {
       },
       {
         id: "fridge",
+        exclusivity_key: "fridge",
         driver_id: "virtual.temperature",
         connection: { kind: "virtual" },
         default_state: [],
@@ -439,6 +441,7 @@ function activeConfig(): ActiveConfig {
         instruments: [
           {
             id: "vna-1",
+            exclusivity_key: "vna-1",
             driver_id: "keysight.pna",
             connection: {
               kind: "tcpip_socket",
@@ -458,6 +461,7 @@ function activeConfig(): ActiveConfig {
           },
           {
             id: "fridge",
+            exclusivity_key: "fridge",
             driver_id: "virtual.temperature",
             connection: { kind: "virtual" },
             default_state: [],

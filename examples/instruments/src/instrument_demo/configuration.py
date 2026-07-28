@@ -173,6 +173,7 @@ def _virtual_instrument(
         default_state = []
     return InstrumentSpec(
         id=instrument_id,
+        exclusivity_key=instrument_id,
         driver_id=driver_id,
         connection=VirtualInstrumentConnection(),
         default_state=default_state,

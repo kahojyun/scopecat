@@ -102,11 +102,12 @@ type InstrumentRunStartPolicy = Literal["preserve", "apply_default_state"]
 
 
 class InstrumentSpec(BaseModel):
-    """Keep reusable default state independent from the run-start policy."""
+    """Configured instrument with a stable scheduler-only physical access domain."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: Annotated[str, Field(min_length=1)]
+    exclusivity_key: Annotated[str, Field(min_length=1)]
     driver_id: Annotated[str, Field(min_length=1)]
     connection: InstrumentConnection
     default_state: list[InstrumentPropertyState] = Field(default_factory=list)
@@ -138,6 +139,8 @@ class InstrumentSpec(BaseModel):
 
 
 class InstrumentRegistry(BaseModel):
+    """Logical instruments with one owner for each physical access domain."""
+
     model_config = ConfigDict(extra="forbid")
 
     instruments: list[InstrumentSpec]
@@ -145,7 +148,11 @@ class InstrumentRegistry(BaseModel):
     @field_validator("instruments")
     @classmethod
     def validate_instruments(cls, value: list[InstrumentSpec]) -> list[InstrumentSpec]:
-        return _ensure_unique(value, "instrument")
+        instruments = _ensure_unique(value, "instrument")
+        exclusivity_keys = [instrument.exclusivity_key for instrument in instruments]
+        if len(exclusivity_keys) != len(set(exclusivity_keys)):
+            raise ValueError("instrument exclusivity keys must be unique")
+        return instruments
 
 
 class RoutingEndpointBinding(BaseModel):

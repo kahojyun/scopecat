@@ -58,8 +58,9 @@ from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
+    DomainTargetRequirement,
     LogicalResourcePortId,
-    ResourceClaim,
+    ResourceRequirement,
     logical_resource_port_id,
 )
 from scopecat.kernel.symbols import SymbolId
@@ -534,13 +535,29 @@ def _config_with_domain_resources(
     *instrument_ids: str,
 ) -> ConfigProfileSnapshot:
     config = load_config()
+    selected = set(instrument_ids)
+    registry = config.instrument_registry.model_copy(
+        update={
+            "instruments": [
+                instrument.model_copy(
+                    update={
+                        "exclusivity_key": f"physical:{instrument.id}",
+                    }
+                )
+                if instrument.id in selected
+                else instrument
+                for instrument in config.instrument_registry.instruments
+            ]
+        }
+    )
     system = config.system.model_copy(
         update={
+            "instrument_registry": registry,
             "domain_target": DomainTargetBinding(
                 id="tests.domain.target",
                 kind="tests.domain",
                 instrument_ids=list(instrument_ids),
-            )
+            ),
         }
     )
     return config.model_copy(update={"system": system})
@@ -776,9 +793,11 @@ def test_local_resource_manifest_is_selected_once_for_complete_point_space(
     assert calls == [logical_resource_port_id("source")]
 
 
-def test_run_claims_and_host_order_include_only_used_local_instruments() -> None:
+def test_run_requirements_and_host_order_include_only_used_local_instruments() -> None:
     config = load_config()
-    seed_instrument = config.instrument_registry.instruments[0]
+    seed_instrument = config.instrument_registry.instruments[0].model_copy(
+        update={"exclusivity_key": "physical:source-0"}
+    )
     config = config.model_copy(
         update={
             "system": config.system.model_copy(
@@ -787,7 +806,12 @@ def test_run_claims_and_host_order_include_only_used_local_instruments() -> None
                         update={
                             "instruments": [
                                 seed_instrument,
-                                seed_instrument.model_copy(update={"id": "unused-0"}),
+                                seed_instrument.model_copy(
+                                    update={
+                                        "id": "unused-0",
+                                        "exclusivity_key": "unused-0",
+                                    }
+                                ),
                             ]
                         }
                     )
@@ -802,7 +826,7 @@ def test_run_claims_and_host_order_include_only_used_local_instruments() -> None
         linked
     )
 
-    assert plan.resource_claims == (ResourceClaim("source-0"),)
+    assert plan.resource_requirements == (ResourceRequirement("source-0"),)
     assert plan.host is not None
     assert plan.host.resource_order == ("source-0",)
     assert set(plan.host.advertised_descriptions) == {"source-0", "unused-0"}
@@ -823,9 +847,14 @@ def test_domain_target_instrument_does_not_require_a_local_manifest(
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert calls == []
     assert compiler.compile_calls == 1
-    assert set(plan.resource_claims) == {
-        ResourceClaim("source-0"),
-        ResourceClaim("tests.domain.target", "target"),
+    assert plan.domain_target_requirement == DomainTargetRequirement(
+        id="tests.domain.target",
+        kind="tests.domain",
+        instrument_ids=("source-0",),
+    )
+    assert set(plan.resource_requirements) == {
+        ResourceRequirement("source-0"),
+        ResourceRequirement("tests.domain.target", "target"),
     }
 
 
@@ -1048,7 +1077,9 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
     )
     assert len({job.id for job in jobs}) == 2
-    assert plan.resource_claims == (ResourceClaim("tests.domain.target", "target"),)
+    assert plan.resource_requirements == (
+        ResourceRequirement("tests.domain.target", "target"),
+    )
     assert compiler.compile_calls == 2
     _assert_no_domain_effects(compiler)
 

@@ -6,17 +6,19 @@ import httpx2
 import pytest
 from pydantic import BaseModel
 
-from scopecat.control.models import (
-    ControlRun,
-    RunAdmissionRecord,
-    RunPlanSummary,
-)
+from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import (
     DaemonClient,
     DaemonConflictError,
     DaemonNotFoundError,
 )
-from scopecat.daemon.views import RunSummary, RunSummaryPage
+from scopecat.daemon.views import (
+    RunAdmissionView,
+    RunControlView,
+    RunPlanView,
+    RunSummary,
+    RunSummaryPage,
+)
 from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
@@ -330,14 +332,12 @@ def _json(content: object, *, status_code: int = 200) -> httpx2.Response:
     return httpx2.Response(status_code, json=content)
 
 
-def _control_run() -> ControlRun:
-    return ControlRun(
+def _control_run() -> RunControlView:
+    return RunControlView(
         sequence=1,
-        admission=RunAdmissionRecord(
-            submission_id="submission-1",
-            submission_content_hash="1" * 64,
+        admission=RunAdmissionView(
             run_id="run-1",
-            plan=RunPlanSummary(
+            plan=RunPlanView(
                 experiment_id="scratch",
                 experiment_kind="scratch",
                 point_count=1,

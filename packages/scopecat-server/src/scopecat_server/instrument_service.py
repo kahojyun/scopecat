@@ -240,11 +240,11 @@ class InstrumentService:
             self._instrument_view(
                 spec,
                 description=descriptions.get(spec.id),
-                claim=claims.get(spec.id),
+                claim=claims.get(spec.exclusivity_key),
                 owner_actor=(
                     session_actors.get(claim.owner_id)
                     if (
-                        (claim := claims.get(spec.id)) is not None
+                        (claim := claims.get(spec.exclusivity_key)) is not None
                         and claim.owner_kind == "instrument_session"
                     )
                     else None
@@ -390,6 +390,23 @@ class InstrumentService:
             catalog.problems,
         )
         setup_problems = list(global_problems)
+        specs = {spec.id: spec for spec in config.instrument_registry.instruments}
+        current_exclusivity_keys = tuple(
+            spec.exclusivity_key
+            for instrument_id in instrument_ids
+            if (spec := specs.get(instrument_id)) is not None
+        )
+        if len(current_exclusivity_keys) != len(instrument_ids) or not set(
+            current_exclusivity_keys
+        ).issubset(instrument_claims):
+            setup_problems.append(
+                _provision_problem(
+                    "instrument_exclusivity_changed_after_admission",
+                    "instrument exclusivity differs from the admitted resource claims",
+                    run_id=run_id,
+                    operation_id=command.operation_id,
+                )
+            )
         setup_problems.extend(
             item
             for instrument_id in instrument_ids
@@ -398,7 +415,7 @@ class InstrumentService:
         advertised = {
             description.instrument_id: description
             for description in catalog.instruments
-            if description.instrument_id in instrument_claims
+            if description.instrument_id in instrument_ids
         }
         missing = tuple(
             instrument_id
@@ -579,10 +596,15 @@ class InstrumentService:
         payload_catalog: PayloadCodecCatalog,
     ) -> tuple[_OwnershipRuntime, tuple[InstrumentStateSnapshot, ...]]:
         bindings = {binding.id: binding for binding in instrument_bindings(config)}
+        exclusivity_keys = {
+            spec.id: spec.exclusivity_key
+            for spec in config.instrument_registry.instruments
+        }
         for attempt in range(2):
             runtime = self._acquire_ownership(
                 endpoint=endpoint,
                 bindings=bindings,
+                exclusivity_keys=exclusivity_keys,
                 owner=owner,
                 instrument_ids=instrument_ids,
                 expected=expected,
@@ -612,6 +634,7 @@ class InstrumentService:
         *,
         endpoint: InstrumentBackendEndpoint,
         bindings: Mapping[str, InstrumentBindingSpec],
+        exclusivity_keys: Mapping[str, str],
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
@@ -621,6 +644,7 @@ class InstrumentService:
         try:
             for instrument_id in instrument_ids:
                 instruments[instrument_id] = self._actors.acquire(
+                    exclusivity_keys[instrument_id],
                     instrument_id,
                     binding=InstrumentBindingKey(
                         provider_id=endpoint.provider_id,
@@ -1551,6 +1575,11 @@ class InstrumentService:
                 config_entry_id=active.entry.id,
                 config_content_hash=active.entry.content_hash,
                 instrument_ids=command.instrument_ids,
+                exclusivity_keys=tuple(
+                    configured[instrument_id].exclusivity_key
+                    for instrument_id in command.instrument_ids
+                ),
+                expected_config_generation=active.activation.generation,
             )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
@@ -1606,6 +1635,8 @@ class InstrumentService:
                 config_entry_id=existing.config_entry_id,
                 config_content_hash=existing.config_content_hash,
                 instrument_ids=command.instrument_ids,
+                exclusivity_keys=existing.exclusivity_keys,
+                expected_config_generation=None,
             )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error

@@ -11,7 +11,7 @@ from scopecat.execution.local.validation import validate_local_effect_block_inst
 from scopecat.execution.persistence import validate_run_measurements
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.product_identity import product_id, product_use
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.results import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
@@ -174,7 +174,7 @@ def _collect_program(
             ),
         ),
         resource_order=("source-0",),
-        resource_claims=(ResourceClaim(id="source-0"),),
+        resource_requirements=(ResourceRequirement(id="source-0"),),
     )
 
 

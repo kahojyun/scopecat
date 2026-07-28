@@ -1,4 +1,4 @@
-"""Shared logical-port and runtime resource-claim identities."""
+"""Shared logical-port and run resource-requirement identities."""
 
 from __future__ import annotations
 
@@ -35,15 +35,32 @@ class LogicalResourcePortId:
 
 
 @dataclass(frozen=True, slots=True)
-class ResourceClaim:
-    """Exclusive coarse physical identity leased for one complete run."""
+class ResourceRequirement:
+    """Logical resource identity required by one complete run."""
 
     id: str
     kind: Literal["target", "instrument"] = "instrument"
 
     def __post_init__(self) -> None:
         if not self.id:
-            msg = "resource claim id must be non-empty"
+            msg = "resource requirement id must be non-empty"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainTargetRequirement:
+    """One domain target and the complete instrument footprint it owns."""
+
+    id: str
+    kind: str
+    instrument_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.id or not self.kind:
+            msg = "domain target requirement identity must be non-empty"
+            raise ValueError(msg)
+        if len(self.instrument_ids) != len(set(self.instrument_ids)):
+            msg = "domain target requirement instrument ids must be unique"
             raise ValueError(msg)
 
 

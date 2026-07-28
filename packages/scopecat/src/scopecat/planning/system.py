@@ -45,12 +45,15 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.kernel.resource_identity import (
+    DomainTargetRequirement,
+    ResourceRequirement,
+)
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.local_effects import (
     MaterializedLocalEffects,
-    local_operation_resource_claims,
+    local_operation_resource_requirements,
 )
 from scopecat.planning.local_materialization import (
     materialize_local_execution,
@@ -163,11 +166,12 @@ def _compile_system_program(
         )
         for execution_id, result_closure in domain_result_closures.items()
     }
-    domain_footprint = _domain_target_footprint(
+    domain_target_requirement = _domain_target_requirement(
         system,
         config=config,
         has_domain_calls=bool(domain_calls),
     )
+    domain_footprint = _domain_target_footprint(domain_target_requirement)
     domain_owned_product_use_ids = frozenset(
         use_id
         for result_closure in domain_result_closures.values()
@@ -232,9 +236,9 @@ def _compile_system_program(
         if local_target is not None
         else None
     )
-    local_claims = _local_resource_claims(local_effects)
+    local_requirements = _local_resource_requirements(local_effects)
     _reject_local_domain_overlap(
-        local_claims=local_claims,
+        local_requirements=local_requirements,
         domain_footprint=domain_footprint,
     )
     coverage = _compile_coverage(
@@ -245,8 +249,12 @@ def _compile_system_program(
         domain_calls=domain_calls,
         local_effects=local_effects,
     )
-    resource_claims = _sorted_claims((*local_claims, *domain_footprint))
-    local_instrument_ids = frozenset(claim.id for claim in local_claims)
+    resource_requirements = _sorted_requirements(
+        (*local_requirements, *domain_footprint)
+    )
+    local_instrument_ids = frozenset(
+        requirement.id for requirement in local_requirements
+    )
     host = _host_binding(
         catalog,
         instrument_ids=local_instrument_ids,
@@ -278,7 +286,8 @@ def _compile_system_program(
         points=point_catalog,
         measurements=measurements,
         measurement_postprocessors=linked.program.measurement_postprocessors,
-        resource_claims=resource_claims,
+        resource_requirements=resource_requirements,
+        domain_target_requirement=domain_target_requirement,
     )
 
 
@@ -307,14 +316,14 @@ def _host_binding(
     )
 
 
-def _domain_target_footprint(
+def _domain_target_requirement(
     system: ExperimentSystem,
     *,
     config: ConfigProfileSnapshot,
     has_domain_calls: bool,
-) -> tuple[ResourceClaim, ...]:
+) -> DomainTargetRequirement | None:
     if not has_domain_calls or system.domain_compiler is None:
-        return ()
+        return None
     compiler = system.domain_compiler
     target = config.domain_target
     if target is None:
@@ -354,50 +363,73 @@ def _domain_target_footprint(
                 )
             ]
         )
-    return _sorted_claims(
+    return DomainTargetRequirement(
+        id=target.id,
+        kind=target.kind,
+        instrument_ids=tuple(sorted(target.instrument_ids)),
+    )
+
+
+def _domain_target_footprint(
+    target: DomainTargetRequirement | None,
+) -> tuple[ResourceRequirement, ...]:
+    if target is None:
+        return ()
+    return _sorted_requirements(
         (
-            ResourceClaim(target.id, "target"),
+            ResourceRequirement(target.id, "target"),
             *(
-                ResourceClaim(instrument_id, "instrument")
+                ResourceRequirement(instrument_id, "instrument")
                 for instrument_id in target.instrument_ids
             ),
         )
     )
 
 
-def _sorted_claims(claims: tuple[ResourceClaim, ...]) -> tuple[ResourceClaim, ...]:
-    return tuple(sorted(set(claims), key=lambda claim: (claim.kind, claim.id)))
+def _sorted_requirements(
+    requirements: tuple[ResourceRequirement, ...],
+) -> tuple[ResourceRequirement, ...]:
+    return tuple(
+        sorted(
+            set(requirements),
+            key=lambda requirement: (requirement.kind, requirement.id),
+        )
+    )
 
 
-def _local_resource_claims(
+def _local_resource_requirements(
     local_effects: MaterializedLocalEffects | None,
-) -> tuple[ResourceClaim, ...]:
+) -> tuple[ResourceRequirement, ...]:
     if local_effects is None:
         return ()
-    return _sorted_claims(
+    return _sorted_requirements(
         tuple(
-            claim
+            requirement
             for effect in (
                 *local_effects.compute_operations,
                 *(item for group in local_effects.effect_operations for item in group),
             )
-            for claim in local_operation_resource_claims(effect.operation)
+            for requirement in local_operation_resource_requirements(effect.operation)
         )
     )
 
 
 def _reject_local_domain_overlap(
     *,
-    local_claims: tuple[ResourceClaim, ...],
-    domain_footprint: tuple[ResourceClaim, ...],
+    local_requirements: tuple[ResourceRequirement, ...],
+    domain_footprint: tuple[ResourceRequirement, ...],
 ) -> None:
     """Keep one owner for every physical instrument during a Run."""
 
     local_instruments = {
-        claim.id for claim in local_claims if claim.kind == "instrument"
+        requirement.id
+        for requirement in local_requirements
+        if requirement.kind == "instrument"
     }
     domain_instruments = {
-        claim.id for claim in domain_footprint if claim.kind == "instrument"
+        requirement.id
+        for requirement in domain_footprint
+        if requirement.kind == "instrument"
     }
     overlap = sorted(local_instruments & domain_instruments)
     if overlap:

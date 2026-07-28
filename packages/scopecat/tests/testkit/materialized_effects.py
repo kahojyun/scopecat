@@ -56,7 +56,9 @@ def config_with_physical_resources(
 
     instruments = list(config.instrument_registry.instruments)
     instruments.extend(
-        seed_instrument.model_copy(update={"id": resource_id})
+        seed_instrument.model_copy(
+            update={"id": resource_id, "exclusivity_key": resource_id}
+        )
         for resource_id in resources
         if resource_id not in existing_instrument_ids
     )

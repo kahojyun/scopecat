@@ -545,7 +545,12 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
         update={
             "instruments": [
                 source,
-                source.model_copy(update={"id": "source-1"}),
+                source.model_copy(
+                    update={
+                        "id": "source-1",
+                        "exclusivity_key": "source-1",
+                    }
+                ),
             ]
         }
     )

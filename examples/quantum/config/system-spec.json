@@ -57,6 +57,7 @@
     "instruments": [
       {
         "id": "drive-stack",
+        "exclusivity_key": "drive-stack",
         "driver_id": "quantum_lab_demo.virtual_lab.drive_stack",
         "connection": {
           "kind": "virtual"
@@ -65,6 +66,7 @@
       },
       {
         "id": "readout-stack",
+        "exclusivity_key": "readout-stack",
         "driver_id": "quantum_lab_demo.virtual_lab.readout_stack",
         "connection": {
           "kind": "virtual"

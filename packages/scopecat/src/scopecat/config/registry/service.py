@@ -587,6 +587,20 @@ def _activate_config_registry_entry_locked(
             entry=entry,
             activation=current_activation,
         )
+    if current_activation is not None:
+        current = _load_config_registry_entry_locked(
+            entry_id=current_activation.entry_id,
+            work=work,
+        )
+        _validate_active_entry_identity(
+            work.registry,
+            current_activation,
+            current.entry,
+        )
+        _require_stable_instrument_exclusivity_keys(
+            current=current.config,
+            candidate=loaded.config,
+        )
     previous_entry_id = (
         current_activation.entry_id if current_activation is not None else None
     )
@@ -670,6 +684,10 @@ def undo_config_registry(
                 related_locations=(_registry_storage_location(entry.config_ref),),
                 details={"entry_id": entry.id},
             )
+        _require_stable_instrument_exclusivity_keys(
+            current=current.config,
+            candidate=loaded.config,
+        )
         generation = expected_generation + 1
         record = ConfigRegistryActivationRecord(
             generation=generation,
@@ -1017,6 +1035,65 @@ def _require_valid_config(config: ConfigProfileSnapshot) -> None:
     problems = validate_config_profile(config)
     if bool(problems):
         raise CheckFailed(problems)
+
+
+def _require_stable_instrument_exclusivity_keys(
+    *,
+    current: ConfigProfileSnapshot,
+    candidate: ConfigProfileSnapshot,
+) -> None:
+    """Reserve removal and rekeying for an explicit inventory migration."""
+
+    current_by_id = {
+        instrument.id: instrument.exclusivity_key
+        for instrument in current.instrument_registry.instruments
+    }
+    for instrument in candidate.instrument_registry.instruments:
+        previous_key = current_by_id.get(instrument.id)
+        if previous_key is None or previous_key == instrument.exclusivity_key:
+            continue
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.instrument_exclusivity_key_changed",
+            message=(
+                "an existing logical instrument cannot change its exclusivity key"
+            ),
+            location=_registry_model_location(
+                "config",
+                "system",
+                "instrument_registry",
+                "instruments",
+                instrument.id,
+                "exclusivity_key",
+            ),
+            details={"instrument_id": instrument.id},
+        )
+    candidate_keys = {
+        instrument.exclusivity_key
+        for instrument in candidate.instrument_registry.instruments
+    }
+    removed_keys = sorted(set(current_by_id.values()) - candidate_keys)
+    if removed_keys:
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.instrument_exclusivity_key_removed",
+            message=(
+                "ordinary configuration activation cannot remove or replace "
+                "an instrument exclusivity key"
+            ),
+            location=_registry_model_location(
+                "config",
+                "system",
+                "instrument_registry",
+            ),
+            details={
+                "instrument_ids": sorted(
+                    instrument_id
+                    for instrument_id, key in current_by_id.items()
+                    if key in removed_keys
+                )
+            },
+        )
 
 
 def _previous_distinct_activation(

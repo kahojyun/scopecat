@@ -222,6 +222,10 @@ def _owner(
     return InstrumentOwnerKey(kind="instrument_session", owner_id=owner_id)
 
 
+def _exclusivity_key(instrument_id: str) -> str:
+    return f"tests.actor:{instrument_id}"
+
+
 def _endpoint(
     drivers: list[_TrackingDriver],
     instrument_id: str = "source-0",
@@ -241,6 +245,7 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     endpoint = _endpoint(drivers)
 
     first = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
@@ -258,6 +263,7 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     drivers[0].change_from_front_panel(7.0)
 
     second = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-2"),
@@ -279,6 +285,37 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     assert drivers[0].disconnect_count == 1
 
 
+def test_logical_rename_reuses_the_actor_for_the_same_exclusive_resource() -> None:
+    registry = InstrumentActorRegistry()
+    drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers)
+    exclusivity_key = _exclusivity_key("physical-source")
+    first = registry.acquire(
+        exclusivity_key,
+        "source-before-rename",
+        binding=_binding(),
+        owner=_owner("session-1"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+    first.release()
+
+    second = registry.acquire(
+        exclusivity_key,
+        "source-after-rename",
+        binding=_binding(),
+        owner=_owner("session-2"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+
+    assert second.instrument_id == "source-after-rename"
+    assert second.reused_connection
+    assert len(drivers) == 1
+    second.release()
+    registry.shutdown()
+
+
 @pytest.mark.parametrize(
     "changed",
     [
@@ -294,6 +331,7 @@ def test_key_change_is_rejected_while_owned(
     drivers: list[_TrackingDriver] = []
     endpoint = _endpoint(drivers)
     first = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
@@ -306,7 +344,8 @@ def test_key_change_is_rejected_while_owned(
         match="cannot change backend binding",
     ):
         registry.acquire(
-            "source-0",
+            _exclusivity_key("source-0"),
+            "source-after-rename",
             binding=changed,
             owner=_owner("session-2"),
             endpoint=endpoint,
@@ -334,6 +373,7 @@ def test_key_change_rebinds_idle_connection(
     drivers: list[_TrackingDriver] = []
     endpoint = _endpoint(drivers)
     first = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
@@ -343,13 +383,15 @@ def test_key_change_rebinds_idle_connection(
     first.release()
 
     second = registry.acquire(
-        "source-0",
+        _exclusivity_key("source-0"),
+        "source-after-rename",
         binding=changed,
         owner=_owner("session-2"),
         endpoint=endpoint,
         connect=endpoint,
     )
     assert not second.reused_connection
+    assert second.instrument_id == "source-after-rename"
     assert len(drivers) == 2
     assert drivers[0].disconnect_count == 1
     second.release()
@@ -363,6 +405,7 @@ def test_endpoint_change_rebinds_idle_connection() -> None:
     old_endpoint = _endpoint(old_drivers)
     new_endpoint = _endpoint(new_drivers)
     first = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
@@ -372,6 +415,7 @@ def test_endpoint_change_rebinds_idle_connection() -> None:
     first.release()
 
     second = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-2"),
@@ -391,6 +435,7 @@ def test_owner_epoch_rejects_stale_handles_and_fault_discards_connection() -> No
     drivers: list[_TrackingDriver] = []
     endpoint = _endpoint(drivers)
     first = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("run-1", kind="run"),
@@ -406,6 +451,7 @@ def test_owner_epoch_rejects_stale_handles_and_fault_discards_connection() -> No
         first.read_state()
 
     second = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("run-2", kind="run"),
@@ -429,6 +475,7 @@ def test_handle_serializes_driver_calls_and_never_exposes_the_driver() -> None:
         driver_type=_BlockingReadDriver,
     )
     owned = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
@@ -502,6 +549,7 @@ def test_unrelated_instruments_can_connect_concurrently() -> None:
         try:
             handles.append(
                 registry.acquire(
+                    _exclusivity_key(instrument_id),
                     instrument_id,
                     binding=_binding(),
                     owner=_owner(f"session-{instrument_id}"),
@@ -539,6 +587,7 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     drivers: list[_TrackingDriver] = []
     endpoint = _endpoint(drivers)
     owned = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
@@ -591,6 +640,7 @@ def test_stop_accepting_fences_new_owners_without_interrupting_the_drain() -> No
     drivers: list[_TrackingDriver] = []
     endpoint = _endpoint(drivers)
     owned = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
@@ -604,6 +654,7 @@ def test_stop_accepting_fences_new_owners_without_interrupting_the_drain() -> No
     assert drivers[0].disconnect_count == 0
     with pytest.raises(InstrumentActorShutdown, match="registry"):
         registry.acquire(
+            _exclusivity_key("source-0"),
             "source-0",
             binding=_binding(),
             owner=_owner("session-2"),
@@ -624,6 +675,7 @@ def test_shutdown_invalidates_owned_handles_closes_every_actor_and_gates_acquire
     first_endpoint = _endpoint(first_drivers)
     second_endpoint = _endpoint(second_drivers, "source-1")
     first = registry.acquire(
+        _exclusivity_key("source-0"),
         "source-0",
         binding=_binding(),
         owner=_owner("session-1"),
@@ -632,6 +684,7 @@ def test_shutdown_invalidates_owned_handles_closes_every_actor_and_gates_acquire
     )
     first.adopt_state(first.read_state())
     second = registry.acquire(
+        _exclusivity_key("source-1"),
         "source-1",
         binding=_binding(),
         owner=_owner("session-2"),
@@ -651,6 +704,7 @@ def test_shutdown_invalidates_owned_handles_closes_every_actor_and_gates_acquire
     with pytest.raises(InstrumentActorShutdown, match="registry"):
         third_endpoint = _endpoint([])
         registry.acquire(
+            _exclusivity_key("source-2"),
             "source-2",
             binding=_binding(),
             owner=_owner("session-3"),

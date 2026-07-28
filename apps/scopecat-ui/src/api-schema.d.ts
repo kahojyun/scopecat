@@ -1159,23 +1159,6 @@ export interface components {
              */
             note: string;
         };
-        /**
-         * ControlRun
-         * @description Current scheduler state plus the immutable admission record.
-         */
-        ControlRun: {
-            admission: components["schemas"]["RunAdmissionRecord"];
-            /** Attention Reason */
-            attention_reason?: string | null;
-            /** Sequence */
-            sequence: number;
-            state: components["schemas"]["ControlRunState"];
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
         /** @enum {string} */
         ControlRunState: "queued" | "leased" | "attention_required" | "closed";
         /**
@@ -1446,12 +1429,18 @@ export interface components {
                 [key: string]: components["schemas"]["MeasurementValue-Output"];
             };
         };
-        /** InstrumentRegistry */
+        /**
+         * InstrumentRegistry
+         * @description Logical instruments with one owner for each physical access domain.
+         */
         "InstrumentRegistry-Input": {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Input"][];
         };
-        /** InstrumentRegistry */
+        /**
+         * InstrumentRegistry
+         * @description Logical instruments with one owner for each physical access domain.
+         */
         "InstrumentRegistry-Output": {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Output"][];
@@ -1504,7 +1493,7 @@ export interface components {
         };
         /**
          * InstrumentSpec
-         * @description Keep reusable default state independent from the run-start policy.
+         * @description Configured instrument with a stable scheduler-only physical access domain.
          */
         "InstrumentSpec-Input": {
             connection: components["schemas"]["InstrumentConnection-Input"];
@@ -1512,13 +1501,15 @@ export interface components {
             default_state?: components["schemas"]["InstrumentPropertyState"][];
             /** Driver Id */
             driver_id: string;
+            /** Exclusivity Key */
+            exclusivity_key: string;
             /** Id */
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
         };
         /**
          * InstrumentSpec
-         * @description Keep reusable default state independent from the run-start policy.
+         * @description Configured instrument with a stable scheduler-only physical access domain.
          */
         "InstrumentSpec-Output": {
             connection: components["schemas"]["InstrumentConnection-Output"];
@@ -1526,6 +1517,8 @@ export interface components {
             default_state?: components["schemas"]["InstrumentPropertyState"][];
             /** Driver Id */
             driver_id: string;
+            /** Exclusivity Key */
+            exclusivity_key: string;
             /** Id */
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
@@ -2020,16 +2013,6 @@ export interface components {
             kind: "replace_parameter";
             value: components["schemas"]["StoredParameterValue-Input"];
         };
-        /**
-         * ResourceKey
-         * @description Canonical exclusive resource identity used by the scheduler.
-         */
-        ResourceKey: {
-            /** Id */
-            id: string;
-            /** @default instrument */
-            kind: components["schemas"]["ResourceKind"];
-        };
         /** @enum {string} */
         ResourceKind: "target" | "instrument";
         /** @enum {string} */
@@ -2064,23 +2047,16 @@ export interface components {
             /** Bindings */
             bindings?: components["schemas"]["RoutingEndpointBinding"][];
         };
-        /**
-         * RunAdmissionRecord
-         * @description Scheduler facts committed with an accepted run skeleton.
-         */
-        RunAdmissionRecord: {
+        /** RunAdmissionView */
+        RunAdmissionView: {
             /**
              * Admitted At
              * Format: date-time
              */
-            admitted_at?: string;
-            plan: components["schemas"]["RunPlanSummary"];
+            admitted_at: string;
+            plan: components["schemas"]["RunPlanView"];
             /** Run Id */
             run_id: string;
-            /** Submission Content Hash */
-            submission_content_hash: string;
-            /** Submission Id */
-            submission_id: string;
         };
         /** RunAnalysisListView */
         RunAnalysisListView: {
@@ -2148,11 +2124,28 @@ export interface components {
             title?: string | null;
         };
         /**
+         * RunControlView
+         * @description Run state without durable scheduler internals.
+         */
+        RunControlView: {
+            admission: components["schemas"]["RunAdmissionView"];
+            /** Attention Reason */
+            attention_reason?: string | null;
+            /** Sequence */
+            sequence: number;
+            state: components["schemas"]["ControlRunState"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
          * RunDetail
          * @description Run summary with scheduler resource state.
          */
         RunDetail: {
-            control: components["schemas"]["ControlRun"];
+            control: components["schemas"]["RunControlView"];
             manifest: components["schemas"]["RunManifest"];
             /**
              * Resources
@@ -2215,10 +2208,10 @@ export interface components {
             run_id: string;
         };
         /**
-         * RunPlanSummary
-         * @description Bounded scheduling and presentation facts for an in-process plan.
+         * RunPlanView
+         * @description Experiment facts without scheduler or backend identities.
          */
-        RunPlanSummary: {
+        RunPlanView: {
             /**
              * Coordinate Ids
              * @default []
@@ -2228,15 +2221,6 @@ export interface components {
             experiment_id: string;
             /** Experiment Kind */
             experiment_kind: string;
-            /** Host Contract Fingerprint */
-            host_contract_fingerprint?: string | null;
-            /**
-             * Host Instrument Order
-             * @default []
-             */
-            host_instrument_order: string[];
-            /** Host Provider Id */
-            host_provider_id?: string | null;
             /** Point Count */
             point_count: number;
             /**
@@ -2245,10 +2229,10 @@ export interface components {
              */
             record_ids: string[];
             /**
-             * Run Resource Claims
+             * Run Resource Requirements
              * @default []
              */
-            run_resource_claims: components["schemas"]["ResourceKey"][];
+            run_resource_requirements: components["schemas"]["RunResourceRequirement"][];
         };
         /** RunRecordJsonResult */
         RunRecordJsonResult: {
@@ -2259,13 +2243,23 @@ export interface components {
             record: components["schemas"]["RunContentEntry-Output"];
         };
         /**
+         * RunResourceRequirement
+         * @description Logical resource identity requested by a run plan.
+         */
+        RunResourceRequirement: {
+            /** Id */
+            id: string;
+            /** @default instrument */
+            kind: components["schemas"]["ResourceKind"];
+        };
+        /**
          * RunResourceView
-         * @description Resource state without exposing an executor's authority token.
+         * @description Logical resource state without scheduler identity or authority.
          */
         RunResourceView: {
             /** Expires At */
             expires_at?: string | null;
-            resource: components["schemas"]["ResourceKey"];
+            resource: components["schemas"]["RunResourceRequirement"];
             /**
              * Status
              * @enum {string}
@@ -2277,7 +2271,7 @@ export interface components {
          * @description Scheduler projection paired with the accepted run snapshot.
          */
         RunSummary: {
-            control: components["schemas"]["ControlRun"];
+            control: components["schemas"]["RunControlView"];
             manifest: components["schemas"]["RunManifest"];
         };
         /**

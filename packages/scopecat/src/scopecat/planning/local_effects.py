@@ -14,7 +14,7 @@ from scopecat.execution.local.program import (
 )
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.product_identity import ProductUse
-from scopecat.kernel.resource_identity import LogicalResourcePortId, ResourceClaim
+from scopecat.kernel.resource_identity import LogicalResourcePortId, ResourceRequirement
 from scopecat.planning.routing import ResourcePortManifest
 
 
@@ -43,19 +43,19 @@ class MaterializedLocalEffects:
     effect_operations: tuple[tuple[RunCoverageEffect, ...], ...]
 
 
-def local_operation_resource_claims(
+def local_operation_resource_requirements(
     operation: LocalOperation,
-) -> tuple[ResourceClaim, ...]:
-    """Return the coarse instrument identity used by run scheduling.
+) -> tuple[ResourceRequirement, ...]:
+    """Return the logical instrument requirement of one local operation.
 
-    Channel and topology bindings remain part of each concrete command, but the
-    scheduler has no hierarchical conflict semantics. Leasing the owning
-    instrument once therefore expresses the complete enforceable exclusion.
+    Planning maps it through the accepted configuration only after local and
+    domain ownership are closed, so driver-facing IDs never become scheduler
+    identities implicitly.
     """
 
     if isinstance(
         operation,
         ApplyStateOperation | InvokeOperation | CollectOperation,
     ):
-        return (ResourceClaim(operation.instrument_id),)
+        return (ResourceRequirement(operation.instrument_id),)
     return ()

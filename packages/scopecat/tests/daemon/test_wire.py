@@ -12,7 +12,12 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
 )
-from scopecat.control.models import ResourceKey, RunPlanSummary
+from scopecat.control.models import (
+    ResourceKey,
+    RunDomainTargetRequirement,
+    RunPlanSummary,
+    RunResourceRequirement,
+)
 from scopecat.daemon.wire import (
     AnalysisJsonOutputPayload,
     AnalysisParameterProposalOutputPayload,
@@ -220,9 +225,14 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             host_instrument_order=("scope-1",),
             host_provider_id="tests.provider",
             host_contract_fingerprint="0" * 64,
-            run_resource_claims=(
-                ResourceKey(id="scope-1"),
-                ResourceKey(id="controller-1", kind="target"),
+            domain_target_requirement=RunDomainTargetRequirement(
+                id="controller-1",
+                kind="tests.controller",
+                instrument_ids=(),
+            ),
+            run_resource_requirements=(
+                RunResourceRequirement(id="scope-1"),
+                RunResourceRequirement(id="controller-1", kind="target"),
             ),
         ),
     )
@@ -236,24 +246,77 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
-            run_resource_claims=(
-                ResourceKey(id="scope-1"),
-                ResourceKey(id="scope-1"),
+            run_resource_requirements=(
+                RunResourceRequirement(id="scope-1"),
+                RunResourceRequirement(id="scope-1"),
             ),
         )
     RunPlanSummary(
         experiment_id="scratch",
         experiment_kind="scratch",
         point_count=1,
-        run_resource_claims=(ResourceKey(id="scope-1"),),
+        run_resource_requirements=(RunResourceRequirement(id="scope-1"),),
     )
-    with pytest.raises(ValidationError, match="host_instrument_order"):
+    with pytest.raises(ValidationError, match="host instrument order"):
         RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
             host_instrument_order=("scope-2",),
-            run_resource_claims=(ResourceKey(id="scope-1"),),
+            run_resource_requirements=(RunResourceRequirement(id="scope-1"),),
+        )
+
+
+@pytest.mark.parametrize(
+    "requirements",
+    [
+        (),
+        (RunResourceRequirement(id="source-0"),),
+    ],
+)
+def test_domain_target_summary_requires_its_target_claim(
+    requirements: tuple[RunResourceRequirement, ...],
+) -> None:
+    with pytest.raises(ValidationError, match="exactly one target"):
+        RunPlanSummary(
+            experiment_id="domain",
+            experiment_kind="domain",
+            point_count=1,
+            domain_target_requirement=RunDomainTargetRequirement(
+                id="tests.domain.target",
+                kind="tests.domain",
+                instrument_ids=("source-0",),
+            ),
+            run_resource_requirements=requirements,
+        )
+
+
+def test_target_claim_requires_structured_domain_requirement() -> None:
+    with pytest.raises(ValidationError, match="require a domain target"):
+        RunPlanSummary(
+            experiment_id="domain",
+            experiment_kind="domain",
+            point_count=1,
+            run_resource_requirements=(
+                RunResourceRequirement(id="tests.domain.target", kind="target"),
+            ),
+        )
+
+
+def test_domain_target_summary_requires_its_complete_instrument_footprint() -> None:
+    with pytest.raises(ValidationError, match="omits domain target instruments"):
+        RunPlanSummary(
+            experiment_id="domain",
+            experiment_kind="domain",
+            point_count=1,
+            domain_target_requirement=RunDomainTargetRequirement(
+                id="tests.domain.target",
+                kind="tests.domain",
+                instrument_ids=("source-0",),
+            ),
+            run_resource_requirements=(
+                RunResourceRequirement(id="tests.domain.target", kind="target"),
+            ),
         )
 
 

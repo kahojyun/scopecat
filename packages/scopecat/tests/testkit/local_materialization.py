@@ -9,9 +9,9 @@ from scopecat.compiler.measurement_projection import project_run_point_catalog
 from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.product_identity import ProductUseId
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.measurements.points import RunPoint
-from scopecat.planning.local_effects import local_operation_resource_claims
+from scopecat.planning.local_effects import local_operation_resource_requirements
 from scopecat.planning.local_materialization import (
     materialize_local_execution as lower_local_execution,
 )
@@ -27,7 +27,7 @@ class LocalEffectInspection:
     points: tuple[RunPoint, ...]
     effects: tuple[RunCoverageEffect, ...]
     resource_order: tuple[str, ...]
-    resource_claims: tuple[ResourceClaim, ...]
+    resource_requirements: tuple[ResourceRequirement, ...]
 
     @classmethod
     def at_point(
@@ -36,7 +36,7 @@ class LocalEffectInspection:
         operations: Sequence[LocalOperation],
         *,
         resource_order: Sequence[str] = (),
-        resource_claims: Sequence[ResourceClaim] = (),
+        resource_requirements: Sequence[ResourceRequirement] = (),
     ) -> LocalEffectInspection:
         """Build exact singleton coverage for a focused interpreter test."""
 
@@ -44,7 +44,7 @@ class LocalEffectInspection:
             points=(point,),
             effects=effects_at_point(point.ordinal, operations),
             resource_order=tuple(resource_order),
-            resource_claims=tuple(resource_claims),
+            resource_requirements=tuple(resource_requirements),
         )
 
 
@@ -79,7 +79,7 @@ def materialize_local_execution(
         dict.fromkeys(
             claim
             for effect in ordered_effects
-            for claim in local_operation_resource_claims(effect.operation)
+            for claim in local_operation_resource_requirements(effect.operation)
         )
     )
     instrument_ids = {claim.id for claim in claims if claim.kind == "instrument"}
@@ -91,7 +91,7 @@ def materialize_local_execution(
         points=project_run_point_catalog(linked_points).points,
         effects=ordered_effects,
         resource_order=resource_order,
-        resource_claims=claims,
+        resource_requirements=claims,
     )
 
 

@@ -125,6 +125,7 @@ class LocalDaemonRuntime:
             admission = AdmissionService(
                 control=control,
                 runs=runs,
+                services=services,
             )
             instruments = InstrumentService(
                 control=control,

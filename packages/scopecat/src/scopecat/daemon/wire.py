@@ -247,7 +247,11 @@ class PayloadObjectReceipt(_WireModel):
 
 
 class RunSubmission(_WireModel):
-    """Admit a plan while retaining its executable Python in the client."""
+    """Admit a client-planned run while retaining executable Python in the client.
+
+    Admission authorizes declared resources; it cannot infer work omitted by the
+    client planner.
+    """
 
     submission_id: NonEmptyText
     config: ConfigProfileSnapshot

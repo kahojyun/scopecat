@@ -9,19 +9,25 @@ from typing import Literal, Never
 
 import pytest
 from fastapi.testclient import TestClient
-from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteRunRepository
+from scopecat.adapters.sqlite import (
+    SQLiteConfigRegistryStore,
+    SQLiteControlPlane,
+    SQLiteRunRepository,
+)
 from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
+from scopecat.config.registry import ActiveConfigRegistrySnapshot
 from scopecat.control.models import (
-    ControlRun,
     DurableEvent,
     DurableEventInput,
     EventPage,
     ResourceClaim,
     ResourceKey,
+    RunDomainTargetRequirement,
     RunPlanSummary,
+    RunResourceRequirement,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -30,6 +36,7 @@ from scopecat.daemon.views import (
     ConfigRegistryView,
     ParameterProposalListView,
     RunConfigView,
+    RunControlView,
     RunDetail,
 )
 from scopecat.daemon.wire import (
@@ -58,7 +65,12 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.project_state import ProjectStateServices
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    TcpipSocketInstrumentConnection,
+    config_content_hash,
+)
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
@@ -66,7 +78,7 @@ from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import ConfigRegistryRunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.runtime import list_test_runs
@@ -109,7 +121,7 @@ def _run_detail(runtime: LocalDaemonRuntime, run_id: str) -> RunDetail:
     return runtime.application.runs.get_run(run_id)
 
 
-def _control_run(runtime: LocalDaemonRuntime, run_id: str) -> ControlRun:
+def _control_run(runtime: LocalDaemonRuntime, run_id: str) -> RunControlView:
     return _run_detail(runtime, run_id).control
 
 
@@ -151,7 +163,58 @@ def _submission(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
-            run_resource_claims=(ResourceKey(id="scope-1", kind="instrument"),),
+            run_resource_requirements=(
+                RunResourceRequirement(id="source-0", kind="instrument"),
+            ),
+        ),
+    )
+
+
+def _domain_only_config() -> ConfigProfileSnapshot:
+    config = _config()
+    [instrument] = config.instrument_registry.instruments
+    configured = instrument.model_copy(update={"exclusivity_key": "rack-a/source"})
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured]}
+    )
+    target = config.domain_target
+    assert target is not None
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={
+                    "instrument_registry": registry,
+                    "domain_target": target.model_copy(
+                        update={"instrument_ids": ["source-0"]}
+                    ),
+                }
+            )
+        }
+    )
+
+
+def _domain_only_submission(
+    config: ConfigProfileSnapshot,
+    *,
+    submission_id: str,
+    requirements: tuple[RunResourceRequirement, ...],
+) -> RunSubmission:
+    target = config.domain_target
+    assert target is not None
+    return RunSubmission(
+        submission_id=submission_id,
+        config=config,
+        request=RunRequest(experiment_id="domain-only"),
+        plan=RunPlanSummary(
+            experiment_id="domain-only",
+            experiment_kind="domain-only",
+            point_count=1,
+            domain_target_requirement=RunDomainTargetRequirement(
+                id=target.id,
+                kind=target.kind,
+                instrument_ids=tuple(target.instrument_ids),
+            ),
+            run_resource_requirements=requirements,
         ),
     )
 
@@ -679,15 +742,23 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
     submission = _submission()
     state = tmp_path / ".scopecat"
     database = state / "control.sqlite3"
-    with LocalDaemonRuntime(tmp_path) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         client = TestClient(runtime.app())
-        services = tuple(
-            daemon_services.AdmissionService(
-                control=SQLiteControlPlane(database),
-                runs=SQLiteRunRepository(database, state / "objects"),
+        admission_services: list[daemon_services.AdmissionService] = []
+        for _ in range(2):
+            runs = SQLiteRunRepository(database, state / "objects")
+            registry = SQLiteConfigRegistryStore(database, runs=runs)
+            admission_services.append(
+                daemon_services.AdmissionService(
+                    control=SQLiteControlPlane(database),
+                    runs=runs,
+                    services=ProjectStateServices(
+                        runs=runs,
+                        config_registry=registry.unit_of_work,
+                    ),
+                )
             )
-            for _ in range(2)
-        )
+        services = tuple(admission_services)
         barrier = Barrier(len(services))
 
         def submit(service: daemon_services.AdmissionService) -> RunAdmission:
@@ -730,6 +801,402 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
     with LocalDaemonRuntime(tmp_path) as reopened:
         persisted = reopened.application.submit_run(submission)
         assert persisted.run_id == run_id
+
+
+@pytest.mark.parametrize(
+    "instrument_update",
+    [
+        {"exclusivity_key": "alternate-source"},
+        {"driver_id": "alternate.driver"},
+        {
+            "connection": TcpipSocketInstrumentConnection(
+                host="127.0.0.1",
+                port=5025,
+            )
+        },
+    ],
+)
+def test_scratch_admission_rejects_instrument_inventory_changes(
+    tmp_path: Path,
+    instrument_update: dict[str, object],
+) -> None:
+    authoritative = _config()
+    [instrument] = authoritative.instrument_registry.instruments
+    registry = authoritative.instrument_registry.model_copy(
+        update={"instruments": [instrument.model_copy(update=instrument_update)]}
+    )
+    submitted = authoritative.model_copy(
+        update={
+            "system": authoritative.system.model_copy(
+                update={"instrument_registry": registry}
+            )
+        }
+    )
+    submission = _submission("changed-inventory").model_copy(
+        update={"config": submitted}
+    )
+
+    with LocalDaemonRuntime(
+        tmp_path,
+        bootstrap_config=authoritative,
+    ) as runtime:
+        with pytest.raises(BackendConflict, match="instrument inventory differs"):
+            runtime.application.submit_run(submission)
+
+        assert (
+            runtime.application.runs.list_runs(
+                limit=10,
+                before=None,
+                state=None,
+            ).items
+            == ()
+        )
+
+
+def test_config_publish_rejects_rekey_with_a_queued_run(tmp_path: Path) -> None:
+    config = _config()
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime:
+        queued = runtime.application.submit_run(_submission("queued-before-rekey"))
+        active = runtime.application.config.get_active_config()
+        [instrument] = config.instrument_registry.instruments
+        rekeyed_registry = config.instrument_registry.model_copy(
+            update={
+                "instruments": [
+                    instrument.model_copy(
+                        update={"exclusivity_key": "alternate-source"}
+                    )
+                ]
+            }
+        )
+        rekeyed = config.model_copy(
+            update={
+                "id": "rekeyed",
+                "system": config.system.model_copy(
+                    update={"instrument_registry": rekeyed_registry}
+                ),
+            }
+        )
+
+        with pytest.raises(
+            BackendConflict,
+            match="cannot change its exclusivity key",
+        ):
+            runtime.application.config.publish_config(
+                ConfigPublishCommand(
+                    source=DirectConfigRevisionSource(config=rekeyed),
+                    entry_id="rekeyed",
+                    actor="operator",
+                    expected_generation=active.activation.generation,
+                )
+            )
+
+        current = runtime.application.config.get_active_config()
+        assert current.activation == active.activation
+        assert (
+            runtime.application.executor._control.get_run(queued.run_id).state
+            == "queued"
+        )
+
+
+def test_admission_fences_an_activation_after_active_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config()
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime:
+        admission = runtime.application._admission
+        resolve_active = admission._resolve_active_config
+
+        def resolve_then_activate() -> ActiveConfigRegistrySnapshot:
+            resolved = resolve_active()
+            runtime.application.config.publish_config(
+                ConfigPublishCommand(
+                    source=DirectConfigRevisionSource(
+                        config=config.model_copy(
+                            update={"id": "activated-during-submit"}
+                        )
+                    ),
+                    entry_id="activated-during-submit",
+                    actor="operator",
+                    expected_generation=resolved.activation.generation,
+                )
+            )
+            return resolved
+
+        monkeypatch.setattr(
+            admission,
+            "_resolve_active_config",
+            resolve_then_activate,
+        )
+
+        with pytest.raises(BackendConflict, match="active configuration changed"):
+            runtime.application.submit_run(_submission("activation-race"))
+
+        assert (
+            runtime.application.runs.list_runs(
+                limit=10,
+                before=None,
+                state=None,
+            ).items
+            == ()
+        )
+        assert list_test_runs(_run_repository(tmp_path)) == []
+
+
+def test_registry_admission_replays_but_uses_current_inventory_for_new_runs(
+    tmp_path: Path,
+) -> None:
+    config = _config()
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime:
+        active = runtime.application.config.get_active_config()
+        source = ConfigRegistryRunConfigSource(
+            selector="active",
+            entry_id=active.entry.id,
+            config_ref=active.entry.config_ref,
+            content_hash=active.entry.content_hash,
+            registry_generation=active.activation.generation,
+        )
+        submission = _submission("registry-source").model_copy(
+            update={"config_source": source}
+        )
+        admitted = runtime.application.submit_run(submission)
+
+        [instrument] = config.instrument_registry.instruments
+        changed_registry = config.instrument_registry.model_copy(
+            update={
+                "instruments": [
+                    instrument.model_copy(update={"driver_id": "alternate.driver"})
+                ]
+            }
+        )
+        changed = config.model_copy(
+            update={
+                "id": "changed-inventory",
+                "system": config.system.model_copy(
+                    update={"instrument_registry": changed_registry}
+                ),
+            }
+        )
+        runtime.application.config.publish_config(
+            ConfigPublishCommand(
+                source=DirectConfigRevisionSource(config=changed),
+                entry_id="changed-inventory",
+                actor="operator",
+                expected_generation=active.activation.generation,
+            )
+        )
+
+        assert runtime.application.submit_run(submission) == admitted
+        with pytest.raises(BackendConflict, match="instrument inventory differs"):
+            runtime.application.submit_run(
+                submission.model_copy(
+                    update={"submission_id": "historical-registry-source"}
+                )
+            )
+        current = runtime.application.submit_run(
+            _submission("current-active-inventory").model_copy(
+                update={"config": changed}
+            )
+        )
+        control = runtime.application.executor._control.get_run(current.run_id)
+        assert control.admission.resource_claims == (
+            ResourceKey(kind="instrument", id="source-0"),
+        )
+
+        with pytest.raises(BackendConflict, match="does not match its registry entry"):
+            runtime.application.submit_run(
+                submission.model_copy(
+                    update={
+                        "submission_id": "forged-registry-source",
+                        "config_source": source.model_copy(
+                            update={"config_ref": "forged-config-ref"}
+                        ),
+                    }
+                )
+            )
+
+
+def test_authority_failure_replays_a_concurrently_admitted_submission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config()
+    submission = _submission("concurrent-authority-change")
+    state = tmp_path / ".scopecat"
+    database = state / "control.sqlite3"
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime:
+        runs = SQLiteRunRepository(database, state / "objects")
+        registry = SQLiteConfigRegistryStore(database, runs=runs)
+        racing = daemon_services.AdmissionService(
+            control=SQLiteControlPlane(database),
+            runs=runs,
+            services=ProjectStateServices(
+                runs=runs,
+                config_registry=registry.unit_of_work,
+            ),
+        )
+        resolve_active = racing._resolve_active_config
+        admitted: RunAdmission | None = None
+
+        def resolve_after_competing_admission() -> ActiveConfigRegistrySnapshot:
+            nonlocal admitted
+            admitted = runtime.application.submit_run(submission)
+            active = runtime.application.config.get_active_config()
+            [instrument] = config.instrument_registry.instruments
+            changed_registry = config.instrument_registry.model_copy(
+                update={
+                    "instruments": [
+                        instrument.model_copy(update={"driver_id": "alternate.driver"})
+                    ]
+                }
+            )
+            runtime.application.config.publish_config(
+                ConfigPublishCommand(
+                    source=DirectConfigRevisionSource(
+                        config=config.model_copy(
+                            update={
+                                "id": "concurrent-inventory-change",
+                                "system": config.system.model_copy(
+                                    update={"instrument_registry": changed_registry}
+                                ),
+                            }
+                        )
+                    ),
+                    entry_id="concurrent-inventory-change",
+                    actor="operator",
+                    expected_generation=active.activation.generation,
+                )
+            )
+            return resolve_active()
+
+        monkeypatch.setattr(
+            racing,
+            "_resolve_active_config",
+            resolve_after_competing_admission,
+        )
+
+        replayed = racing.submit_run(submission)
+
+        assert admitted is not None
+        assert replayed == admitted
+
+
+def test_admission_canonicalizes_domain_only_instrument_claims(
+    tmp_path: Path,
+) -> None:
+    config = _domain_only_config()
+    target = config.domain_target
+    assert target is not None
+    logical_requirements = (
+        RunResourceRequirement(id="source-0", kind="instrument"),
+        RunResourceRequirement(id=target.id, kind="target"),
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime:
+        admitted = runtime.application.submit_run(
+            _domain_only_submission(
+                config,
+                submission_id="domain-canonical",
+                requirements=logical_requirements,
+            )
+        )
+        control = runtime.application.executor._control.get_run(admitted.run_id)
+        public = runtime.application.runs.get_run(admitted.run_id)
+
+    assert control.admission.plan.run_resource_requirements == logical_requirements
+    assert control.admission.resource_claims == (
+        ResourceKey(id="rack-a/source", kind="instrument"),
+        ResourceKey(id=target.id, kind="target"),
+    )
+    assert tuple(item.resource.id for item in public.resources) == (
+        "source-0",
+        target.id,
+    )
+    public_control = public.control.model_dump(mode="json")
+    assert set(public_control["admission"]) == {"run_id", "plan", "admitted_at"}
+    assert set(public_control["admission"]["plan"]) == {
+        "experiment_id",
+        "experiment_kind",
+        "point_count",
+        "coordinate_ids",
+        "record_ids",
+        "run_resource_requirements",
+    }
+    assert "rack-a/source" not in str(public_control)
+
+
+def test_admission_rejects_invalid_domain_only_requirements(
+    tmp_path: Path,
+) -> None:
+    config = _domain_only_config()
+    target = config.domain_target
+    assert target is not None
+    requirements = (
+        RunResourceRequirement(id="source-0", kind="instrument"),
+        RunResourceRequirement(id="rack-a/source", kind="instrument"),
+        RunResourceRequirement(id=target.id, kind="target"),
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime:
+        with pytest.raises(BackendConflict, match="unknown instruments"):
+            runtime.application.submit_run(
+                _domain_only_submission(
+                    config,
+                    submission_id="domain-invalid-instrument",
+                    requirements=requirements,
+                )
+            )
+
+        assert (
+            runtime.application.runs.list_runs(
+                limit=10,
+                before=None,
+                state=None,
+            ).items
+            == ()
+        )
+
+
+@pytest.mark.parametrize(
+    "target_update",
+    [
+        {"id": "tests.forged-target"},
+        {"kind": "tests.forged-domain"},
+        {"instrument_ids": []},
+    ],
+)
+def test_admission_rejects_domain_requirement_outside_active_authority(
+    tmp_path: Path,
+    target_update: dict[str, object],
+) -> None:
+    config = _domain_only_config()
+    target = config.domain_target
+    assert target is not None
+    submitted = config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={"domain_target": target.model_copy(update=target_update)}
+            )
+        }
+    )
+    submitted_target = submitted.domain_target
+    assert submitted_target is not None
+    requirements = (
+        RunResourceRequirement(id="source-0", kind="instrument"),
+        RunResourceRequirement(id=submitted_target.id, kind="target"),
+    )
+    with (
+        LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime,
+        pytest.raises(
+            BackendConflict,
+            match="differs from the active configuration",
+        ),
+    ):
+        runtime.application.submit_run(
+            _domain_only_submission(
+                submitted,
+                submission_id="domain-invalid-authority",
+                requirements=requirements,
+            )
+        )
 
 
 def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loop(
@@ -836,7 +1303,7 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with LocalDaemonRuntime(tmp_path) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         admission = runtime.application.submit_run(_submission("analysis-atomic"))
         proposal = _analysis_proposal(admission.run_id)
         command = _analysis_command(proposal)
@@ -973,7 +1440,7 @@ def test_candidate_publish_rolls_back_approval_with_event(
 def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
     tmp_path: Path,
 ) -> None:
-    with LocalDaemonRuntime(tmp_path) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         first = runtime.application.submit_run(_submission("executor-first"))
         request = ExecutorStartRequest(
             executor_id="notebook-1",
@@ -1022,7 +1489,7 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
 def test_effect_is_fenced_and_terminal_updates_control(
     tmp_path: Path,
 ) -> None:
-    with LocalDaemonRuntime(tmp_path) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         client = TestClient(runtime.app())
         admission_response = client.post(
             "/api/v1/runs",
@@ -1201,7 +1668,7 @@ def test_effect_and_terminal_publication_roll_back_with_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with LocalDaemonRuntime(tmp_path) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         submission = _submission()
         admission = runtime.application.submit_run(submission)
         lease = runtime.application.executor.start_executor(
@@ -1283,7 +1750,7 @@ def test_effect_and_terminal_publication_roll_back_with_control(
 def test_restart_quarantines_executor_until_operator_reconciles(
     tmp_path: Path,
 ) -> None:
-    with LocalDaemonRuntime(tmp_path) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         submission = _submission("operator-recovery")
         admission = runtime.application.submit_run(submission)
         runtime.application.executor.start_executor(

@@ -223,6 +223,7 @@ def _config_with_default_state(
     configured = config.instrument_registry.instruments[0]
     instrument = InstrumentSpec(
         id=configured.id,
+        exclusivity_key=configured.exclusivity_key,
         driver_id=configured.driver_id,
         connection=configured.connection.model_copy(deep=True),
         default_state=[item.model_copy(deep=True) for item in properties],
@@ -243,6 +244,7 @@ def _config_with_default_state(
 def _instrument_spec_data() -> dict[str, object]:
     return {
         "id": "source",
+        "exclusivity_key": "source",
         "driver_id": "tests.source",
         "connection": {"kind": "virtual"},
     }

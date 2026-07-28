@@ -56,7 +56,11 @@ def _resource_binding_config(
                 update={
                     "instruments": [
                         seed_instrument.model_copy(
-                            update={"id": instrument_id, "kind": kind}
+                            update={
+                                "id": instrument_id,
+                                "exclusivity_key": instrument_id,
+                                "kind": kind,
+                            }
                         )
                         for instrument_id, kind in instruments.items()
                     ]

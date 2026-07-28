@@ -15,7 +15,7 @@ experiment-facing contract.
 
 ```mermaid
 flowchart LR
-    C["InstrumentSpec<br/>immutable connection config"]
+    C["InstrumentSpec<br/>logical id + exclusivity key + connection"]
     D["InstrumentDescription<br/>interfaces and components"]
     B["InstrumentBackendEndpoint<br/>opaque connection handles"]
     A["InstrumentActor<br/>ownership serialization"]
@@ -30,11 +30,18 @@ flowchart LR
     R -->|"planning and routing"| C
 ```
 
-`InstrumentSpec` answers what physical device is configured and how a provider
-can reach it. It contains a stable instance id, `driver_id`, and a typed
-connection. It is versioned with the complete `ConfigProfileSnapshot`; editing
-a connection publishes a new immutable config entry instead of mutating a live
-run's inputs.
+`InstrumentSpec` answers what device is configured and how a provider can reach
+it. Its `id` is the logical name used by commands, UI, and evidence;
+`exclusivity_key` is the stable lab-defined physical access domain used only for
+scheduling and daemon actors. It also contains `driver_id` and a typed
+connection. The exclusivity key is neither inferred from an address nor exposed
+to drivers. A config cannot assign one key to multiple instruments; a device
+with several capabilities exposes multiple interfaces or components instead.
+Ordinary activations may add physical domains but cannot remove or rekey one;
+renaming a logical instrument keeps the same key. Retirement and rekeying
+require a future explicit inventory migration that can drain existing owners.
+The complete spec is versioned with `ConfigProfileSnapshot`; editing it
+publishes a new immutable entry instead of mutating a live run's inputs.
 
 `InstrumentDescription` is the pure driver contract used without opening
 hardware. It declares the versioned interfaces the device implements. An
@@ -48,8 +55,9 @@ the accepted config to provider bindings containing only device identity,
 driver id, and connection settings. Topology, parameters, routing, and run-start
 policy never enter the worker. Production uses one spawned, project-long worker;
 the in-process implementation is a test seam behind the same API.
-`InstrumentActor` remains in the daemon, serializes one physical instrument,
-and may retain a matching worker handle while the instrument is idle. It accepts
+`InstrumentActor` remains in the daemon, is indexed by `exclusivity_key`, and
+may retain a matching worker handle while the physical access domain is idle.
+The owned view separately retains the logical instrument id. The actor accepts
 only the driver backend ABI and never treats idle state as observed.
 A handle is reusable only when its provider endpoint, canonical per-device
 binding, and complete advertised description still match. Changing defaults,
@@ -60,8 +68,9 @@ owner replaces it or the daemon shuts down.
 
 The normal instrument list is a separate safe projection: identity, driver id,
 connection kind, and TCP/IP host/port. It excludes driver options, timeouts,
-default state, run-start policy, and config hashes. The GUI loads the complete
-active config only after a user explicitly opens configuration editing.
+default state, run-start policy, exclusivity keys, and config hashes. The GUI
+loads the complete active config only after a user explicitly opens
+configuration editing.
 
 `InstrumentSession` and an admitted run are ownership epochs, not connections.
 The daemon pins the config revision, claims all requested instruments, and
@@ -69,7 +78,24 @@ acquires their actors until release or abort. Owner-scoped state and replay
 evidence are cleared at the end of every epoch. There is no client lease, TTL,
 or heartbeat: losing a GUI tab does not imply that hardware state changed. The
 session remains visible and another GUI or notebook client can explicitly close
-or abort it.
+or abort it. New run and session claims compare the activation generation in
+the same SQLite writer transaction, so a concurrent config activation cannot
+commit ownership derived from a stale physical inventory.
+
+A submitted run carries logical resource requirements only. Admission verifies
+its complete instrument inventory against daemon-owned configuration, then
+resolves separate canonical claims keyed by `exclusivity_key`; clients cannot
+author physical claim ids. Registry and analysis-candidate sources are resolved
+from their durable records, while a scratch submission must match the active
+inventory. Domain plans retain the target kind and its complete instrument
+footprint as one structured requirement. Ordinary run and instrument views
+project claims back to logical ids. Scheduler keys remain confined to admission
+storage, resource claims, and actor lookup.
+
+Executable Python remains in the client, so admission validates and authorizes
+the declared plan rather than reconstructing it. Treating a hostile client as a
+planner requires a future daemon-signed or daemon-built plan, not broader
+implicit claims that serialize unrelated experiments.
 
 Every new owner reads the device before its first write, including when it
 reuses an idle connection. This accepts legitimate front-panel changes without
@@ -158,6 +184,7 @@ Example:
 ```json
 {
   "id": "readout-vna",
+  "exclusivity_key": "rack-a/readout-vna",
   "driver_id": "scopecat.keysight.e5080b",
   "connection": {
     "kind": "tcpip_socket",
@@ -171,8 +198,9 @@ Example:
 }
 ```
 
-`default_state` is a reusable partial public physical-state profile. It may be saved
-independently of how runs start, so interactive tools can apply it explicitly.
+`default_state` is a reusable partial public physical-state profile. It may be
+saved independently of how runs start, so interactive tools can apply it
+explicitly.
 `run_start` is required for every instrument:
 
 - `preserve` reads the device after the run acquires exclusive ownership and
@@ -185,6 +213,12 @@ interface remain driver-owned connection or profile configuration; experiments
 neither guess nor overwrite them. For a discriminated interface, defaults that
 set a case-specific property must also set the discriminator, so startup does
 not depend on whichever mode the device happened to be using while idle.
+
+A hardware reset or preset is an explicit `OperationSpec`, not a connection
+hook or session-open flag. It therefore participates in normal argument
+validation, operation replay, auditing, state readback, and unknown-outcome
+handling. Neither connection reuse nor opening an interactive session may reset
+hardware implicitly.
 
 Run evidence records both the fresh `observed_state` and the resulting
 `prepared_state`. Direct GUI and Notebook sessions always use fresh observation

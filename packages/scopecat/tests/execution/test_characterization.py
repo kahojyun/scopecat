@@ -27,7 +27,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductUse, ProductUseId, product_id
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
@@ -69,8 +69,10 @@ def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
     return LogicalPointId(PointDomainId(name, "root"), ordinal)
 
 
-def _claims(*instrument_ids: str) -> tuple[ResourceClaim, ...]:
-    return tuple(ResourceClaim(id=instrument_id) for instrument_id in instrument_ids)
+def _requirements(*instrument_ids: str) -> tuple[ResourceRequirement, ...]:
+    return tuple(
+        ResourceRequirement(id=instrument_id) for instrument_id in instrument_ids
+    )
 
 
 def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
@@ -252,7 +254,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
             ),
         ),
         resource_order=(),
-        resource_claims=(),
+        resource_requirements=(),
     )
 
     result = RunEffectInterpreter(
@@ -306,7 +308,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
             ),
         ),
         resource_order=(),
-        resource_claims=(),
+        resource_requirements=(),
     )
 
     result = RunEffectInterpreter(
@@ -420,7 +422,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         point,
         (operation,),
         resource_order=(driver.instrument_id,),
-        resource_claims=_claims(driver.instrument_id),
+        resource_requirements=_requirements(driver.instrument_id),
     )
     observed_candidates: list[tuple[MeasurementValueCandidate, ...]] = []
     result = RunEffectInterpreter(
@@ -456,7 +458,7 @@ def test_driver_disconnect_failure_is_reported_after_terminal_read() -> None:
         RunPoint(_logical_point_id("disconnect-failure-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
-        resource_claims=_claims("source-0"),
+        resource_requirements=_requirements("source-0"),
     )
 
     result = RunEffectInterpreter(
@@ -481,7 +483,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
             _gain_operation("source-b", 2.0),
         ),
         resource_order=("source-a", "source-b"),
-        resource_claims=_claims("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
     )
     engine = RunEffectInterpreter(
         run_id="blocking-state-run",
@@ -525,7 +527,7 @@ def test_unexpected_result_stops_later_collection() -> None:
         RunPoint(_logical_point_id(point_uid), {}),
         (first_operation, second_operation),
         resource_order=("source-a", "source-b"),
-        resource_claims=_claims("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
     )
     result = RunEffectInterpreter(
         run_id="blocking-collect-run",
@@ -572,7 +574,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
             ),
         ),
         resource_order=("source-a", "source-b"),
-        resource_claims=_claims("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
     )
     engine = RunEffectInterpreter(
         run_id="conflicting-applied-state-run",

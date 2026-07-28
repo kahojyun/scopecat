@@ -14,9 +14,9 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import (
-    ControlRun,
-    ResourceKey,
+    ControlRunState,
     ResourceOwnerKind,
+    RunResourceRequirement,
 )
 from scopecat.kernel.problems import Problem
 from scopecat.records.analysis import AnalysisRecord
@@ -146,10 +146,41 @@ class InstrumentListView(_ViewModel):
     problems: tuple[Problem, ...] = ()
 
 
-class RunResourceView(_ViewModel):
-    """Resource state without exposing an executor's authority token."""
+class RunPlanView(_ViewModel):
+    """Experiment facts without scheduler or backend identities."""
 
-    resource: ResourceKey
+    experiment_id: str = Field(min_length=1)
+    experiment_kind: str = Field(min_length=1)
+    point_count: int = Field(ge=0)
+    coordinate_ids: tuple[str, ...] = ()
+    record_ids: tuple[str, ...] = ()
+    run_resource_requirements: tuple[RunResourceRequirement, ...] = ()
+
+
+class RunAdmissionView(_ViewModel):
+    run_id: str = Field(min_length=1)
+    plan: RunPlanView
+    admitted_at: datetime
+
+
+class RunControlView(_ViewModel):
+    """Run state without durable scheduler internals."""
+
+    sequence: int = Field(ge=1)
+    admission: RunAdmissionView
+    state: ControlRunState
+    updated_at: datetime
+    attention_reason: str | None = None
+
+    @property
+    def run_id(self) -> str:
+        return self.admission.run_id
+
+
+class RunResourceView(_ViewModel):
+    """Logical resource state without scheduler identity or authority."""
+
+    resource: RunResourceRequirement
     status: Literal["required", "active", "quarantined", "released"]
     expires_at: datetime | None = None
 
@@ -157,7 +188,7 @@ class RunResourceView(_ViewModel):
 class RunSummary(_ViewModel):
     """Scheduler projection paired with the accepted run snapshot."""
 
-    control: ControlRun
+    control: RunControlView
     manifest: RunManifest
 
     @property
@@ -305,11 +336,14 @@ __all__ = [
     "MeasurementPage",
     "ParameterProposalListView",
     "ParameterProposalView",
+    "RunAdmissionView",
     "RunAnalysisListView",
     "RunAnalysisView",
     "RunArtifactBytesView",
     "RunConfigView",
+    "RunControlView",
     "RunDetail",
+    "RunPlanView",
     "RunRequestView",
     "RunResourceView",
     "RunSummary",

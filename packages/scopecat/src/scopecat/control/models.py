@@ -46,6 +46,30 @@ class ResourceKey(_ControlModel):
     id: str = Field(min_length=1)
 
 
+class RunResourceRequirement(_ControlModel):
+    """Logical resource identity requested by a run plan."""
+
+    kind: ResourceKind = "instrument"
+    id: str = Field(min_length=1)
+
+
+class RunDomainTargetRequirement(_ControlModel):
+    """Domain target identity and its complete logical instrument footprint."""
+
+    id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    instrument_ids: tuple[str, ...] = ()
+
+    @field_validator("instrument_ids")
+    @classmethod
+    def validate_instrument_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not instrument_id for instrument_id in value):
+            raise ValueError("domain target instrument ids must be non-empty")
+        if len(value) != len(set(value)):
+            raise ValueError("domain target instrument ids must be unique")
+        return tuple(sorted(value))
+
+
 class RunPlanSummary(_ControlModel):
     """Bounded scheduling and presentation facts for an in-process plan."""
 
@@ -54,7 +78,8 @@ class RunPlanSummary(_ControlModel):
     point_count: int = Field(ge=0)
     coordinate_ids: tuple[str, ...] = ()
     record_ids: tuple[str, ...] = ()
-    run_resource_claims: tuple[ResourceKey, ...] = ()
+    run_resource_requirements: tuple[RunResourceRequirement, ...] = ()
+    domain_target_requirement: RunDomainTargetRequirement | None = None
     host_instrument_order: tuple[str, ...] = ()
     host_provider_id: str | None = Field(default=None, min_length=1)
     host_contract_fingerprint: str | None = Field(
@@ -62,7 +87,11 @@ class RunPlanSummary(_ControlModel):
         pattern=r"^[0-9a-f]{64}$",
     )
 
-    @field_validator("coordinate_ids", "record_ids", "host_instrument_order")
+    @field_validator(
+        "coordinate_ids",
+        "record_ids",
+        "host_instrument_order",
+    )
     @classmethod
     def validate_unique_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(not item for item in value):
@@ -71,26 +100,55 @@ class RunPlanSummary(_ControlModel):
             raise ValueError("run plan summary ids must be unique")
         return value
 
-    @field_validator("run_resource_claims")
+    @field_validator("run_resource_requirements")
     @classmethod
-    def validate_unique_claims(
+    def validate_unique_requirements(
         cls,
-        value: tuple[ResourceKey, ...],
-    ) -> tuple[ResourceKey, ...]:
-        identities = tuple((claim.kind, claim.id) for claim in value)
+        value: tuple[RunResourceRequirement, ...],
+    ) -> tuple[RunResourceRequirement, ...]:
+        identities = tuple((requirement.kind, requirement.id) for requirement in value)
         if len(identities) != len(set(identities)):
-            raise ValueError("run plan resource claims must be unique")
+            raise ValueError("run plan resource requirements must be unique")
         return value
 
     @model_validator(mode="after")
-    def validate_host_instrument_order(self) -> RunPlanSummary:
-        claimed = {
-            claim.id for claim in self.run_resource_claims if claim.kind == "instrument"
-        }
-        # Domain-owned instruments are claimed without a daemon-hosted driver.
-        if not set(self.host_instrument_order).issubset(claimed):
+    def validate_resource_alignment(self) -> RunPlanSummary:
+        target_ids = tuple(
+            requirement.id
+            for requirement in self.run_resource_requirements
+            if requirement.kind == "target"
+        )
+        domain = self.domain_target_requirement
+        if domain is None:
+            if target_ids:
+                raise ValueError(
+                    "target requirements require a domain target requirement"
+                )
+        elif target_ids != (domain.id,):
             raise ValueError(
-                "run plan host_instrument_order must reference instrument claims"
+                "domain target requirement must match exactly one target requirement"
+            )
+        if domain is not None:
+            instrument_ids = {
+                requirement.id
+                for requirement in self.run_resource_requirements
+                if requirement.kind == "instrument"
+            }
+            missing = sorted(set(domain.instrument_ids) - instrument_ids)
+            if missing:
+                raise ValueError(
+                    "run plan omits domain target instruments: " + ", ".join(missing)
+                )
+
+        required = {
+            requirement.id
+            for requirement in self.run_resource_requirements
+            if requirement.kind == "instrument"
+        }
+        # Domain-owned instruments are required without a daemon-hosted driver.
+        if not set(self.host_instrument_order).issubset(required):
+            raise ValueError(
+                "run plan host instrument order must reference instrument requirements"
             )
         has_host = bool(self.host_instrument_order)
         if has_host != (self.host_provider_id is not None):
@@ -107,7 +165,40 @@ class RunAdmissionRecord(_ControlModel):
     submission_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     run_id: str = Field(min_length=1)
     plan: RunPlanSummary
+    resource_claims: tuple[ResourceKey, ...]
     admitted_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("resource_claims")
+    @classmethod
+    def validate_unique_claims(
+        cls,
+        value: tuple[ResourceKey, ...],
+    ) -> tuple[ResourceKey, ...]:
+        identities = tuple((claim.kind, claim.id) for claim in value)
+        if len(identities) != len(set(identities)):
+            raise ValueError("run admission resource claims must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def validate_resource_claim_alignment(self) -> RunAdmissionRecord:
+        logical = self.plan.run_resource_requirements
+        if len(logical) != len(self.resource_claims):
+            raise ValueError(
+                "run admission claims must align with logical plan requirements"
+            )
+        for logical_requirement, canonical_claim in zip(
+            logical,
+            self.resource_claims,
+            strict=True,
+        ):
+            if logical_requirement.kind != canonical_claim.kind or (
+                logical_requirement.kind != "instrument"
+                and logical_requirement.id != canonical_claim.id
+            ):
+                raise ValueError(
+                    "run admission claims must align with logical plan requirements"
+                )
+        return self
 
     def is_retry_of(self, other: RunAdmissionRecord) -> bool:
         return (
@@ -118,10 +209,6 @@ class RunAdmissionRecord(_ControlModel):
     @property
     def experiment_id(self) -> str:
         return self.plan.experiment_id
-
-    @property
-    def resource_claims(self) -> tuple[ResourceKey, ...]:
-        return self.plan.run_resource_claims
 
 
 class ControlRun(_ControlModel):
@@ -207,6 +294,7 @@ class InstrumentSession(_ControlModel):
     config_entry_id: str = Field(min_length=1)
     config_content_hash: str = Field(min_length=1)
     instrument_ids: tuple[str, ...] = Field(min_length=1)
+    exclusivity_keys: tuple[str, ...] = Field(min_length=1)
     state: InstrumentSessionState
     acquired_at: datetime
     attention_reason: str | None = None
@@ -223,8 +311,21 @@ class InstrumentSession(_ControlModel):
             raise ValueError("instrument session ids must be unique")
         return value
 
+    @field_validator("exclusivity_keys")
+    @classmethod
+    def validate_exclusivity_keys(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not exclusivity_key for exclusivity_key in value):
+            raise ValueError("instrument session exclusivity keys must be non-empty")
+        if len(value) != len(set(value)):
+            raise ValueError("instrument session exclusivity keys must be unique")
+        return value
+
     @model_validator(mode="after")
     def validate_state(self) -> InstrumentSession:
+        if len(self.instrument_ids) != len(self.exclusivity_keys):
+            raise ValueError(
+                "instrument session ids and exclusivity keys must have equal length"
+            )
         if self.state == "active":
             if self.attention_reason is not None:
                 raise ValueError("active instrument session cannot require attention")
