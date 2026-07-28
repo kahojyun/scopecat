@@ -168,8 +168,8 @@ Consequential effects distinguish:
 - **unknown**: it may have occurred.
 
 Unknown outcomes stop dependent execution because automatic retry could repeat
-an external effect. Abort and disconnect remain explicit evidence-bearing
-steps.
+an external effect. Abort and actor connection retirement remain explicit
+lifecycle steps.
 
 Host collection and domain execution produce one logical measurement stream.
 Physical chunks and target locations do not alter result identity. One physical

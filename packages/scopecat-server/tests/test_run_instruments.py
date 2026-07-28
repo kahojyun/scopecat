@@ -310,9 +310,9 @@ class _SecondRejectingProvider(_Provider):
         drivers = tuple(
             _Driver(
                 instrument_id,
-                fail_action="reject_apply" if index == 1 else None,
+                fail_action=("reject_apply" if instrument_id == "source-1" else None),
             )
-            for index, instrument_id in enumerate(context.instrument_ids)
+            for instrument_id in context.instrument_ids
         )
         self.drivers.extend(drivers)
         return InstrumentProviderResult(drivers=drivers)
@@ -492,7 +492,7 @@ def test_rejected_run_preparation_closes_without_quarantine(tmp_path: Path) -> N
         assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
         [driver] = provider.drivers
         assert driver.abort_count == 0
-        assert driver.disconnect_count == 1
+        assert driver.disconnect_count == 0
         assert runtime.application.executor._control.get_run(run_id).state != (
             "attention_required"
         )
@@ -838,7 +838,7 @@ def test_unknown_invoke_quarantines_and_discards_run_state(
         _assert_run_state_discarded(instruments, run_id)
 
 
-def test_finish_owns_terminal_read_disconnect_and_replay(tmp_path: Path) -> None:
+def test_finish_reads_terminal_state_releases_and_replays(tmp_path: Path) -> None:
     provider = _Provider()
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, load_config())
@@ -855,19 +855,19 @@ def test_finish_owns_terminal_read_disconnect_and_replay(tmp_path: Path) -> None
         assert instruments.finish_run_hardware(run_id, command) == receipt
         assert receipt.final_state[0].instrument_id == "source-0"
         assert driver.abort_count == 0
-        assert driver.disconnect_count == 1
+        assert driver.disconnect_count == 0
         assert driver.read_count == 2
         _assert_run_state_discarded(instruments, run_id)
 
 
-def test_failed_finish_aborts_and_close_failure_is_unknown(tmp_path: Path) -> None:
-    provider = _Provider(fail_action="disconnect")
+def test_failed_finish_abort_failure_is_unknown(tmp_path: Path) -> None:
+    provider = _Provider(fail_action="abort")
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, load_config())
         instruments = runtime.application.instruments
         instruments.provision_run(run_id, _provision(lease_id))
 
-        with pytest.raises(BackendConflict, match="disconnect failed"):
+        with pytest.raises(BackendConflict, match="abort failed with unknown state"):
             instruments.finish_run_hardware(
                 run_id,
                 RunHardwareFinishCommand(
@@ -907,7 +907,7 @@ def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
         assert manifest.outcome is not None
         assert driver.abort_count == 1
         assert driver.read_count == 2
-        assert driver.disconnect_count == 1
+        assert driver.disconnect_count == 0
 
 
 def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None:

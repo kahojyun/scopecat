@@ -11,18 +11,20 @@ a flat, vendor-shaped quantity tree as Scopecat's experiment model. Logical
 resource ports and versioned interface requirements remain the
 experiment-facing contract.
 
-## Four distinct layers
+## Contract and lifecycle layers
 
 ```mermaid
 flowchart LR
     C["InstrumentSpec<br/>immutable connection config"]
     D["InstrumentDescription<br/>interfaces and components"]
-    S["InstrumentSession<br/>live daemon drivers + claim"]
+    A["InstrumentActor<br/>process-long driver connection"]
+    S["InstrumentSession / run<br/>ownership epoch + claim"]
     R["ResourcePort<br/>logical experiment requirement"]
 
     C --> D
-    C --> S
-    D --> S
+    C --> A
+    D --> A
+    A --> S
     R -->|"planning and routing"| C
 ```
 
@@ -38,14 +40,26 @@ interface or nested component may contain persistent properties, atomic
 operations, and acquisitions with typed results. GUI controls and experiment
 validation are derived from this description.
 
-`InstrumentSession` is an explicit daemon-owned connection. The daemon pins
-the active config revision, claims all requested instruments, provisions the
-drivers, and keeps them behind a session id until close or abort. There is no
-client lease, TTL, or heartbeat: losing a GUI tab does not imply that hardware
-state is uncertain. The session remains visible and can be disconnected by
-another GUI or notebook client. Daemon shutdown aborts and disconnects live
-drivers; on restart, idle sessions are released while a session interrupted
-during a consequential operation remains in `attention_required`.
+`InstrumentActor` is the process-local driver boundary. One actor serializes
+calls to one physical instrument and may retain a matching connection while the
+instrument is idle. It never treats idle state as observed.
+
+`InstrumentSession` and an admitted run are ownership epochs, not connections.
+The daemon pins the config revision, claims all requested instruments, and
+acquires their actors until release or abort. Owner-scoped state and replay
+evidence are cleared at the end of every epoch. There is no client lease, TTL,
+or heartbeat: losing a GUI tab does not imply that hardware state changed. The
+session remains visible and another GUI or notebook client can explicitly close
+or abort it.
+
+Every new owner reads the device before its first write, including when it
+reuses an idle connection. This accepts legitimate front-panel changes without
+background polling or pretending the daemon observed idle hardware. If that
+refresh fails on a reused connection, the actor retires it and retries once
+with a new driver. Normal release leaves a healthy connection available; an
+unknown hardware outcome faults and disconnects it. Daemon shutdown first
+fences new owners, then drains durable ownership, and finally disconnects all
+remaining actors.
 
 `ResourcePort` remains a logical experiment requirement such as RF output or
 network sweep. It requests one or more namespaced interface ids such as
@@ -140,8 +154,8 @@ shows:
 - current owner kind and actor or run id;
 - provider or configuration problems.
 
-Opening an instrument does not connect automatically. The operator explicitly
-selects **Connect**, after which the detail view:
+Opening the workspace does not acquire an instrument automatically. The
+operator explicitly selects **Connect**, after which the detail view:
 
 1. reads a fresh state snapshot;
 2. renders interface components and property controls from
@@ -153,12 +167,12 @@ selects **Connect**, after which the detail view:
    encode;
 7. offers **Collect** per declared acquisition and requests its declared
    results;
-8. closes the session on explicit disconnect or workspace teardown.
+8. releases session ownership on explicit disconnect or workspace teardown.
 
 If a browser teardown request does not reach the daemon, the next client can
 disconnect the still-visible interactive session. This is ordinary ownership
-recovery, not quarantine: only an unfinished consequential operation or failed
-driver disconnection creates hardware uncertainty.
+recovery, not quarantine: only an unfinished consequential operation or
+unconfirmed abort creates hardware uncertainty.
 
 This is intentionally not a raw SCPI terminal. Driver interfaces preserve
 units and validation, make changes auditable, and keep the same semantics in
@@ -263,20 +277,20 @@ claim the physical state changed. Apply, invoke, and collect are consequential:
 - `not_applied`, `not_invoked`, or `not_collected` proves it did not happen;
 - `unknown` means the command may have reached the instrument.
 
-The last case aborts and closes the live drivers, retains quarantined resource
-claims, and requires operator resolution. Automatic retry would be unsafe.
-Command ids provide session-local de-duplication, and durable started/finished
-events provide an audit trail around consequential calls. A daemon restart
-releases an idle session, but the durable active-operation marker lets it
-quarantine a session interrupted between those two events.
+The last case aborts the owner, faults its actor connection, retains quarantined
+resource claims, and requires operator resolution. Automatic retry would be
+unsafe. Command ids provide owner-local de-duplication, and durable
+started/finished events provide an audit trail around consequential calls. A
+daemon restart releases an idle session, but the durable active-operation
+marker lets it quarantine a session interrupted between those two events.
 
 The daemon is the sole live driver host for both interactive sessions and
 experiment runs. A notebook plans and interprets the experiment program, but
-after the daemon grants its fenced executor lease, the daemon provisions
-drivers from the run's accepted configuration snapshot. The notebook submits
-ordered hardware batches; the daemon owns current-state reconciliation,
-driver calls, batch replay, abort-on-failure, terminal readback, and
-disconnection. Experiments therefore do not expose per-device lifecycle RPCs.
+after the daemon grants its fenced executor lease, the daemon acquires actors
+bound to the run's accepted configuration snapshot. The notebook submits
+ordered hardware batches; the daemon owns current-state reconciliation, driver
+calls, batch replay, abort-on-failure, terminal readback, and connection
+retirement. Experiments therefore do not expose per-device lifecycle RPCs.
 Planning may call the provider's pure description contract; it never provisions
 a live driver. Fine-grained read, apply, and collect remain available only
 through an explicit interactive session.

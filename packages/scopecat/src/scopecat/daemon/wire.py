@@ -330,7 +330,6 @@ class RunInstrumentProvisionReceipt(_WireModel):
     status: Literal["ready", "rejected"]
     instrument_ids: tuple[NonEmptyText, ...] = ()
     problems: tuple[Problem, ...] = ()
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
     observed_state: tuple[InstrumentStateSnapshot, ...] = ()
     prepared_state: tuple[InstrumentStateSnapshot, ...] = ()
 

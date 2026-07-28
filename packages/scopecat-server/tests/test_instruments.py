@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from threading import Event, Thread
 from typing import Never, override
 
 import httpx2
@@ -33,6 +34,7 @@ from scopecat.sdk.instruments import (
     CollectResultRequest,
     InstrumentDescription,
     InstrumentPropertyState,
+    InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
@@ -53,6 +55,7 @@ from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server import LocalDaemonRuntime
+from scopecat_server.errors import BackendConflict
 
 
 class _TrackingDriver(SignalInstrumentDriver):
@@ -131,6 +134,34 @@ class _ReadFailDriver(_TrackingDriver):
     @override
     def read_state(self) -> Never:
         raise RuntimeError("read transport failed")
+
+
+class _AbortFailDriver(_TrackingDriver):
+    @override
+    def abort(self) -> Never:
+        self.aborted = True
+        self.abort_count += 1
+        raise RuntimeError("abort transport failed")
+
+
+class _ResyncDriver(_TrackingDriver):
+    def __init__(self, instrument_id: str) -> None:
+        super().__init__(instrument_id)
+        self.read_count = 0
+        self.fail_next_read = False
+
+    def change_from_front_panel(self, value: float) -> None:
+        self._state[("test.set_frequency/v1", "frequency")] = StateValue(
+            Quantity(value=value, unit="GHz")
+        )
+
+    @override
+    def read_state(self) -> InstrumentStateSnapshot:
+        self.read_count += 1
+        if self.fail_next_read:
+            self.fail_next_read = False
+            raise RuntimeError("stale connection")
+        return super().read_state()
 
 
 class _InvalidCollectDriver(_TrackingDriver):
@@ -264,6 +295,78 @@ class _StatefulProvider:
         )
 
 
+class _ShutdownRaceDriver(_TrackingDriver):
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        read_entered: Event,
+        release_read: Event,
+        abort_entered: Event,
+        release_abort: Event,
+    ) -> None:
+        super().__init__(instrument_id)
+        self._read_entered = read_entered
+        self._release_read = release_read
+        self._abort_entered = abort_entered
+        self._release_abort = release_abort
+
+    @override
+    def read_state(self) -> InstrumentStateSnapshot:
+        if self.instrument_id == "source-1":
+            self._read_entered.set()
+            assert self._release_read.wait(timeout=3)
+        return super().read_state()
+
+    @override
+    def abort(self) -> None:
+        self.aborted = True
+        self.abort_count += 1
+        if self.instrument_id == "source-0":
+            self._abort_entered.set()
+            assert self._release_abort.wait(timeout=3)
+
+
+class _ShutdownRaceProvider:
+    provider_id = "tests.shutdown_race_provider"
+
+    def __init__(self) -> None:
+        self.read_entered = Event()
+        self.release_read = Event()
+        self.abort_entered = Event()
+        self.release_abort = Event()
+        self.drivers: list[_ShutdownRaceDriver] = []
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        return InstrumentProviderDescription(
+            provider_id=self.provider_id,
+            instruments=tuple(
+                _TrackingDriver(instrument_id).describe()
+                for instrument_id in _selected_ids(context)
+            ),
+        )
+
+    def provide(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderResult:
+        drivers = tuple(
+            _ShutdownRaceDriver(
+                instrument_id,
+                read_entered=self.read_entered,
+                release_read=self.release_read,
+                abort_entered=self.abort_entered,
+                release_abort=self.release_abort,
+            )
+            for instrument_id in _selected_ids(context)
+        )
+        self.drivers.extend(drivers)
+        return InstrumentProviderResult(drivers=drivers)
+
+
 class _ProblemProvider(_TrackingProvider):
     @override
     def describe(
@@ -358,7 +461,7 @@ def test_notebook_direct_interaction_owns_and_releases_driver(
             [released] = lab.instruments.list().items
             [driver] = provider.drivers
             assert released.availability == "available"
-            assert driver.disconnected
+            assert not driver.disconnected
             assert driver.applied[0].command_id == "notebook-apply-1"
             assert driver.invoked[0].command_id == "notebook-invoke-1"
             assert driver.invoked[0].payloads[payload.id].inline_bytes() == (
@@ -520,6 +623,163 @@ def test_open_retry_reuses_session_without_reprovisioning(tmp_path: Path) -> Non
             daemon.close_instrument_session(first.session_id)
 
 
+def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            first = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-owner-1",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            daemon.apply_instrument_state(
+                first.session_id,
+                "source-0",
+                _apply_command(value=5.0),
+            )
+            daemon.close_instrument_session(first.session_id)
+
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            assert driver.read_count == 1
+            driver.change_from_front_panel(5.1)
+
+            second = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-owner-2",
+                    actor="bob",
+                    instrument_ids=("source-0",),
+                )
+            )
+            assert provider.drivers == [driver]
+            assert driver.read_count == 2
+            second_apply = daemon.apply_instrument_state(
+                second.session_id,
+                "source-0",
+                _apply_command(value=5.2),
+            )
+            daemon.close_instrument_session(second.session_id)
+
+            assert second_apply.status == "applied"
+            assert len(driver.applied) == 2
+            assert driver.applied[0].command_id == driver.applied[1].command_id
+            assert driver.disconnect_count == 0
+
+
+def test_stale_idle_connection_is_replaced_after_resynchronization_failure(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            first = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-before-stale",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            daemon.close_instrument_session(first.session_id)
+
+            [stale] = provider.drivers
+            assert isinstance(stale, _ResyncDriver)
+            stale.fail_next_read = True
+
+            second = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-after-stale",
+                    actor="bob",
+                    instrument_ids=("source-0",),
+                )
+            )
+            assert len(provider.drivers) == 2
+            replacement = provider.drivers[1]
+            assert isinstance(replacement, _ResyncDriver)
+            assert stale.disconnect_count == 1
+            assert replacement.read_count == 1
+            assert daemon.list_instruments().items[0].availability == "active"
+            daemon.close_instrument_session(second.session_id)
+
+
+def test_shutdown_fences_an_owner_that_finishes_opening_after_the_drain_starts(
+    tmp_path: Path,
+) -> None:
+    provider = _ShutdownRaceProvider()
+    with _runtime(tmp_path, provider, config=_two_instrument_config()) as runtime:
+        instruments = runtime.application.instruments
+        first = instruments.open_session(
+            InstrumentSessionOpenCommand(
+                operation_id="open-before-shutdown",
+                actor="alice",
+                instrument_ids=("source-0",),
+            )
+        )
+        control = runtime.application.executor._control
+        control.start_instrument_operation(
+            first.session_id,
+            instrument_id="source-0",
+            operation_id="pending-apply",
+            kind="apply",
+        )
+
+        open_errors: list[BaseException] = []
+        shutdown_errors: list[BaseException] = []
+
+        def open_during_shutdown() -> None:
+            try:
+                instruments.open_session(
+                    InstrumentSessionOpenCommand(
+                        operation_id="open-racing-shutdown",
+                        actor="bob",
+                        instrument_ids=("source-1",),
+                    )
+                )
+            except BaseException as error:
+                open_errors.append(error)
+
+        def shut_down() -> None:
+            try:
+                instruments.shutdown()
+            except BaseException as error:
+                shutdown_errors.append(error)
+
+        opening = Thread(target=open_during_shutdown)
+        opening.start()
+        assert provider.read_entered.wait(timeout=3)
+
+        shutting_down = Thread(target=shut_down)
+        shutting_down.start()
+        assert provider.abort_entered.wait(timeout=3)
+
+        provider.release_read.set()
+        opening.join(timeout=3)
+        provider.release_abort.set()
+        shutting_down.join(timeout=3)
+
+        assert not opening.is_alive()
+        assert not shutting_down.is_alive()
+        assert not shutdown_errors
+        assert len(open_errors) == 1
+        assert isinstance(open_errors[0], BackendConflict)
+        assert str(open_errors[0]) == "instrument service is shutting down"
+        assert len(provider.drivers) == 2
+        by_id = {driver.instrument_id: driver for driver in provider.drivers}
+        assert by_id["source-0"].disconnect_count == 1
+        assert by_id["source-1"].disconnect_count == 1
+        sessions = control.list_instrument_sessions()
+        assert not [session for session in sessions if session.state == "active"]
+        assert {session.state for session in sessions} == {
+            "attention_required",
+            "closed",
+        }
+
+
 def test_provider_rejection_closes_the_daemon_session(tmp_path: Path) -> None:
     provider = _RejectedProvider()
     with (
@@ -606,8 +866,45 @@ def test_abort_retry_replays_receipt_without_repeating_driver_calls(
             assert second == first
             [driver] = provider.drivers
             assert driver.abort_count == 1
-            assert driver.disconnect_count == 1
+            assert driver.disconnect_count == 0
             assert daemon.close_instrument_session(session.session_id) == first
+
+
+def test_abort_failure_faults_connection_without_repeating_abort(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_AbortFailDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            first = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-abort-failure",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+
+            with pytest.raises(
+                DaemonConflictError,
+                match="abort was not confirmed",
+            ):
+                daemon.abort_instrument_session(first.session_id)
+
+            [faulted] = provider.drivers
+            assert faulted.abort_count == 1
+            assert faulted.disconnect_count == 1
+            daemon.resolve_instrument_session_attention(first.session_id)
+
+            second = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-after-abort-failure",
+                    actor="bob",
+                    instrument_ids=("source-0",),
+                )
+            )
+            assert len(provider.drivers) == 2
+            daemon.close_instrument_session(second.session_id)
 
 
 def test_notebook_close_remains_retryable_after_both_transport_attempts_fail(
@@ -634,7 +931,7 @@ def test_notebook_close_remains_retryable_after_both_transport_attempts_fail(
             assert receipt is not None
             assert receipt.status == "closed"
             [driver] = provider.drivers
-            assert driver.disconnect_count == 1
+            assert driver.disconnect_count == 0
 
 
 def test_notebook_default_apply_retries_with_same_operation_after_response_loss(
@@ -715,6 +1012,37 @@ def test_observation_failure_aborts_session_without_quarantining(
             [driver] = provider.drivers
             assert instrument.availability == "available"
             assert driver.disconnected
+
+
+def test_acquisition_cleanup_failure_quarantines_the_durable_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _TrackingProvider(_ReadFailDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        control = runtime.application.executor._control
+
+        def fail_close(*_args: object, **_kwargs: object) -> Never:
+            raise RuntimeError("control close failed")
+
+        monkeypatch.setattr(control, "close_instrument_session", fail_close)
+        with pytest.raises(
+            BackendConflict,
+            match="acquisition could not be released",
+        ):
+            runtime.application.instruments.open_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-cleanup-failure",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+
+        [session] = control.list_instrument_sessions()
+        assert session.state == "attention_required"
+        assert session.attention_reason == "instrument_session_open_cleanup_failed"
+        [instrument] = runtime.application.instruments.list_instruments().items
+        assert instrument.availability == "quarantined"
 
 
 def test_direct_session_observes_without_applying_run_defaults(tmp_path: Path) -> None:
@@ -899,7 +1227,7 @@ def test_run_and_interactive_session_compete_for_the_same_resource(
 
 def _runtime(
     root: Path,
-    provider: _TrackingProvider,
+    provider: InstrumentProvider,
     *,
     config: ConfigProfileSnapshot | None = None,
 ) -> LocalDaemonRuntime:
