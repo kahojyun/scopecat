@@ -99,6 +99,7 @@ export type DurableEvent = components["schemas"]["DurableEvent"];
 export type EntityRef = components["schemas"]["EntityRef-Input"];
 export type ExternalLocation = components["schemas"]["ExternalLocation"];
 export type InstrumentAcquisition = components["schemas"]["AcquisitionSpec"];
+export type InstrumentAcquisitionResult = components["schemas"]["AcquisitionResultSpec"];
 export type InstrumentApplyReceipt = DaemonUiApi["instrumentApplyReceipt"];
 export type InstrumentComponent = components["schemas"]["ComponentSpec"];
 export type InstrumentCollectReceipt = DaemonUiApi["instrumentCollectReceipt"];

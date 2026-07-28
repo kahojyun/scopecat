@@ -187,6 +187,7 @@ describe("interactive collection request shaping", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
       id: "sweep",
       results: [
         {
@@ -230,10 +231,76 @@ describe("interactive collection request shaping", () => {
     ]);
   });
 
+  it("selects only results for the synchronized instrument mode", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "collected",
+            problems: [],
+            readback: { values: {} },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const acquisition: InstrumentAcquisition = {
+      kind: "state_discriminated",
+      id: "monitor",
+      discriminator: {
+        interface_id: "scopecat.dc_source/v2",
+        component_path: [],
+        property_id: "source_mode",
+      },
+      cases: [
+        {
+          value: "voltage",
+          results: [{ id: "monitored_current", dtype: "float64", unit: "A" }],
+        },
+        {
+          value: "current",
+          results: [{ id: "monitored_voltage", dtype: "float64", unit: "V" }],
+        },
+      ],
+    };
+    const target = {
+      interfaceId: "scopecat.dc_monitor/v2",
+      componentPath: [],
+      acquisition,
+    };
+    const state = {
+      instrument_id: "dc-1",
+      properties: [
+        {
+          interface_id: "scopecat.dc_source/v2",
+          component_path: [],
+          property_id: "source_mode",
+          value: "voltage",
+        },
+      ],
+    };
+
+    await collectInstrumentAcquisition(session(), "dc-1", target, state);
+    await collectInstrumentAcquisition(session(), "dc-1", target, {
+      ...state,
+      properties: [{ ...state.properties[0]!, value: "current" }],
+    });
+
+    expect(
+      fetchMock.mock.calls.map(([, init]) => requestBody(init).requests?.[0]?.result_id),
+    ).toEqual(["monitored_current", "monitored_voltage"]);
+    await expect(collectInstrumentAcquisition(session(), "dc-1", target)).rejects.toThrow(
+      "instrument mode is synchronized",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects mixed static and unresolved dynamic axes before HTTP", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
       id: "sweep",
       results: [
         {
@@ -299,6 +366,7 @@ describe("interactive collection request shaping", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
       id: "sweep",
       results: [{ id: "trace", dtype: "float64", axes: [] }],
     };
@@ -451,13 +519,13 @@ function requestBody(init: RequestInit | undefined): {
   command_id?: string;
   operation_id?: string;
   [key: string]: unknown;
-  requests?: Array<{ dimensions: unknown[] }>;
+  requests?: Array<{ dimensions: unknown[]; result_id?: string }>;
 } {
   if (typeof init?.body !== "string") throw new Error("Expected a JSON request body.");
   return JSON.parse(init.body) as {
     command_id?: string;
     operation_id?: string;
     [key: string]: unknown;
-    requests?: Array<{ dimensions: unknown[] }>;
+    requests?: Array<{ dimensions: unknown[]; result_id?: string }>;
   };
 }

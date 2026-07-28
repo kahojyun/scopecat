@@ -600,6 +600,7 @@ describe("instrument workspace", () => {
           components: [],
           acquisitions: [
             {
+              kind: "fixed",
               id: "sweep",
               results: [
                 {
@@ -888,6 +889,7 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
           components: [],
           acquisitions: [
             {
+              kind: "fixed",
               id: "sample",
               label: "Sample",
               results: [

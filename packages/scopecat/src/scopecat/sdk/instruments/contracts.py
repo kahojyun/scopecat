@@ -68,6 +68,9 @@ from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
 )
 from scopecat.records.measurement import MeasurementArray
+from scopecat.sdk.instruments._projection import (
+    ProjectedInstrumentState as _ProjectedInstrumentState,
+)
 from scopecat.sdk.instruments.driver import (
     DriverApplyRequest,
     DriverCollectRequest,
@@ -178,6 +181,31 @@ class AcquisitionResultSpec(BaseModel):
         return value
 
 
+class StateDiscriminatorRef(BaseModel):
+    """Physical discriminator selecting one acquisition result case."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    interface_id: InterfaceId
+    component_path: list[_NonEmptyId] = Field(default_factory=list)
+    property_id: _NonEmptyId
+
+
+class AcquisitionCaseSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: _NonEmptyId
+    results: list[AcquisitionResultSpec] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_results(self) -> AcquisitionCaseSpec:
+        _require_unique(
+            (result.id for result in self.results),
+            "acquisition case result ids",
+        )
+        return self
+
+
 class OperationArgumentSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -209,21 +237,49 @@ class OperationSpec(BaseModel):
         return self
 
 
-class AcquisitionSpec(BaseModel):
+class _AcquisitionSpecBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: _NonEmptyId
     label: str | None = None
     description: str | None = None
+
+
+class FixedAcquisitionSpec(_AcquisitionSpecBase):
+    kind: Literal["fixed"] = "fixed"
     results: list[AcquisitionResultSpec] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_unique_results(self) -> AcquisitionSpec:
+    def validate_unique_results(self) -> FixedAcquisitionSpec:
         _require_unique(
             (result.id for result in self.results),
             "acquisition result ids",
         )
         return self
+
+
+class StateDiscriminatedAcquisitionSpec(_AcquisitionSpecBase):
+    kind: Literal["state_discriminated"] = "state_discriminated"
+    discriminator: StateDiscriminatorRef
+    cases: list[AcquisitionCaseSpec] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def validate_cases(self) -> StateDiscriminatedAcquisitionSpec:
+        _require_unique(
+            (case.value for case in self.cases),
+            "acquisition case values",
+        )
+        _require_unique(
+            (result.id for case in self.cases for result in case.results),
+            "state-discriminated acquisition result ids",
+        )
+        return self
+
+
+type AcquisitionSpec = Annotated[
+    FixedAcquisitionSpec | StateDiscriminatedAcquisitionSpec,
+    Field(discriminator="kind"),
+]
 
 
 class ComponentSpec(BaseModel):
@@ -282,6 +338,7 @@ class InstrumentDescription(BaseModel):
             (interface.id for interface in self.interfaces),
             "instrument interface ids",
         )
+        _validate_acquisition_state_references(self)
         return self
 
 
@@ -731,13 +788,59 @@ def acquisition(
     label: str | None = None,
     description: str | None = None,
     results: (list[AcquisitionResultSpec] | tuple[AcquisitionResultSpec, ...]) = (),
-) -> AcquisitionSpec:
-    return AcquisitionSpec(
+) -> FixedAcquisitionSpec:
+    return FixedAcquisitionSpec(
         id=id,
         label=label,
         description=description,
         results=list(results),
     )
+
+
+def state_discriminator_ref(
+    interface_id: str,
+    property_id: str,
+    *,
+    component_path: list[str] | tuple[str, ...] = (),
+) -> StateDiscriminatorRef:
+    return StateDiscriminatorRef(
+        interface_id=interface_id,
+        component_path=list(component_path),
+        property_id=property_id,
+    )
+
+
+def acquisition_case(
+    value: str,
+    *,
+    results: list[AcquisitionResultSpec] | tuple[AcquisitionResultSpec, ...],
+) -> AcquisitionCaseSpec:
+    return AcquisitionCaseSpec(value=value, results=list(results))
+
+
+def state_discriminated_acquisition(
+    id: str,
+    *,
+    discriminator: StateDiscriminatorRef,
+    cases: list[AcquisitionCaseSpec] | tuple[AcquisitionCaseSpec, ...],
+    label: str | None = None,
+    description: str | None = None,
+) -> StateDiscriminatedAcquisitionSpec:
+    return StateDiscriminatedAcquisitionSpec(
+        id=id,
+        label=label,
+        description=description,
+        discriminator=discriminator,
+        cases=list(cases),
+    )
+
+
+def acquisition_results(
+    acquisition_spec: AcquisitionSpec,
+) -> tuple[AcquisitionResultSpec, ...]:
+    if isinstance(acquisition_spec, FixedAcquisitionSpec):
+        return tuple(acquisition_spec.results)
+    return tuple(result for case in acquisition_spec.cases for result in case.results)
 
 
 def operation_argument(
@@ -875,7 +978,7 @@ def validate_state_command(
     *,
     command: InstrumentStateCommand,
     description: InstrumentDescription,
-    baseline: _InstrumentStateSnapshot | None = None,
+    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None = None,
     require_explicit_state_case: bool = False,
 ) -> list[Problem]:
     """Validate one structurally complete command against a driver contract."""
@@ -894,7 +997,7 @@ def validate_state_assignments(
     instrument_id: str,
     assignments: Sequence[InstrumentStateAssignment],
     description: InstrumentDescription,
-    baseline: _InstrumentStateSnapshot | None = None,
+    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None = None,
     require_explicit_state_case: bool = False,
 ) -> list[Problem]:
     """Validate persistent property assignments against one driver contract."""
@@ -914,7 +1017,7 @@ def validate_reconciled_state_assignments(
     instrument_id: str,
     assignments: Sequence[InstrumentStateAssignment],
     description: InstrumentDescription,
-    baseline: _InstrumentStateSnapshot | None = None,
+    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None = None,
     require_explicit_state_case: bool = False,
 ) -> list[Problem]:
     """Validate desired state that must be observable after it is applied."""
@@ -934,7 +1037,7 @@ def _validate_state_assignments(
     instrument_id: str,
     assignments: Sequence[InstrumentStateAssignment],
     description: InstrumentDescription,
-    baseline: _InstrumentStateSnapshot | None,
+    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
     require_observable: bool,
     require_explicit_state_case: bool,
 ) -> list[Problem]:
@@ -959,7 +1062,7 @@ def _validate_state_assignments(
             )
         )
         return problems
-    if baseline is not None:
+    if isinstance(baseline, _InstrumentStateSnapshot):
         baseline_problems = validate_state_snapshot(
             snapshot=baseline,
             description=description,
@@ -1055,7 +1158,7 @@ def _validate_state_assignments(
             )
         )
     baseline_by_scope = (
-        _snapshot_properties_by_scope(baseline) if baseline is not None else {}
+        _state_properties_by_scope(baseline) if baseline is not None else {}
     )
     for scope, (component_spec, scoped_assignments) in grouped.items():
         problems.extend(
@@ -1295,10 +1398,81 @@ def validate_invoke_command(
     return problems
 
 
+def _active_acquisition_results(
+    *,
+    command: CollectCommand,
+    request: CollectResultRequest,
+    acquisition_spec: AcquisitionSpec,
+    description: InstrumentDescription,
+    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+) -> tuple[str | None, frozenset[str], Problem | None]:
+    if isinstance(acquisition_spec, FixedAcquisitionSpec):
+        return (
+            None,
+            frozenset(result.id for result in acquisition_results(acquisition_spec)),
+            None,
+        )
+    if baseline is not None and baseline.instrument_id == command.instrument_id:
+        baseline_is_usable = isinstance(
+            baseline, _ProjectedInstrumentState
+        ) or not validate_state_snapshot(
+            snapshot=baseline,
+            description=description,
+        )
+        if baseline_is_usable:
+            reference = acquisition_spec.discriminator
+            identity = _property_target_identity(
+                reference.interface_id,
+                reference.component_path,
+                reference.property_id,
+            )
+            discriminator = next(
+                (
+                    property_state.value.root
+                    for property_state in baseline.properties
+                    if _property_target_identity(
+                        property_state.interface_id,
+                        property_state.component_path,
+                        property_state.property_id,
+                    )
+                    == identity
+                ),
+                None,
+            )
+            if isinstance(discriminator, str):
+                selected_case = next(
+                    (
+                        case
+                        for case in acquisition_spec.cases
+                        if case.value == discriminator
+                    ),
+                    None,
+                )
+                if selected_case is not None:
+                    return (
+                        discriminator,
+                        frozenset(result.id for result in selected_case.results),
+                        None,
+                    )
+    return (
+        None,
+        frozenset(),
+        _problem(
+            "instrument_driver_acquisition_state_unknown",
+            f"{command.instrument_id} acquisition {request.acquisition_id} "
+            "requires a complete observed discriminator state",
+            "requests",
+            request.id,
+            "acquisition_id",
+        ),
+    )
+
+
 def validate_collect_command(
     *,
     command: CollectCommand,
     description: InstrumentDescription,
+    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None = None,
 ) -> list[Problem]:
     """Validate direct acquisition ownership before invoking a live driver."""
 
@@ -1311,68 +1485,98 @@ def validate_collect_command(
                 "instrument_id",
             )
         ]
-    interfaces = {interface.id: interface for interface in description.interfaces}
+    request_target = command.requests[0]
+    interface_spec = next(
+        (
+            interface
+            for interface in description.interfaces
+            if interface.id == request_target.interface_id
+        ),
+        None,
+    )
+    if interface_spec is None:
+        return [
+            _problem(
+                "instrument_driver_unsupported_interface",
+                f"{command.instrument_id} does not support "
+                f"{request_target.interface_id}",
+                "requests",
+                request_target.id,
+                "interface_id",
+            )
+        ]
+    component_spec = _resolve_component(
+        interface_spec,
+        request_target.component_path,
+    )
+    if component_spec is None:
+        return [
+            _problem(
+                "instrument_driver_unsupported_component",
+                f"{command.instrument_id} does not support component "
+                f"{'/'.join(request_target.component_path)!r}",
+                "requests",
+                request_target.id,
+                "component_path",
+            )
+        ]
+    acquisition_spec = next(
+        (
+            acquisition
+            for acquisition in component_spec.acquisitions
+            if acquisition.id == request_target.acquisition_id
+        ),
+        None,
+    )
+    if acquisition_spec is None:
+        return [
+            _problem(
+                "instrument_driver_unsupported_acquisition",
+                f"{command.instrument_id} does not support acquisition "
+                f"{request_target.acquisition_id} under "
+                f"{request_target.interface_id}",
+                "requests",
+                request_target.id,
+                "acquisition_id",
+            )
+        ]
+    declared_results = {
+        result.id: result for result in acquisition_results(acquisition_spec)
+    }
+    unsupported_results = [
+        _problem(
+            "instrument_driver_unsupported_acquisition_result",
+            f"{command.instrument_id} acquisition "
+            f"{request.acquisition_id} has no result {request.result_id}",
+            "requests",
+            request.id,
+            "result_id",
+        )
+        for request in command.requests
+        if request.result_id not in declared_results
+    ]
+    if unsupported_results:
+        return unsupported_results
+    active_case, active_result_ids, state_problem = _active_acquisition_results(
+        command=command,
+        request=request_target,
+        acquisition_spec=acquisition_spec,
+        description=description,
+        baseline=baseline,
+    )
+    if state_problem is not None:
+        return [state_problem]
+
     problems: list[Problem] = []
     for request in command.requests:
-        interface_spec = interfaces.get(request.interface_id)
-        if interface_spec is None:
+        result_spec = declared_results[request.result_id]
+        if request.result_id not in active_result_ids:
             problems.append(
                 _problem(
-                    "instrument_driver_unsupported_interface",
-                    f"{command.instrument_id} does not support {request.interface_id}",
-                    "requests",
-                    request.id,
-                    "interface_id",
-                )
-            )
-            continue
-        component_spec = _resolve_component(interface_spec, request.component_path)
-        if component_spec is None:
-            problems.append(
-                _problem(
-                    "instrument_driver_unsupported_component",
-                    f"{command.instrument_id} does not support component "
-                    f"{'/'.join(request.component_path)!r}",
-                    "requests",
-                    request.id,
-                    "component_path",
-                )
-            )
-            continue
-        acquisition_spec = next(
-            (
-                acquisition
-                for acquisition in component_spec.acquisitions
-                if acquisition.id == request.acquisition_id
-            ),
-            None,
-        )
-        if acquisition_spec is None:
-            problems.append(
-                _problem(
-                    "instrument_driver_unsupported_acquisition",
-                    f"{command.instrument_id} does not support acquisition "
-                    f"{request.acquisition_id} under {request.interface_id}",
-                    "requests",
-                    request.id,
-                    "acquisition_id",
-                )
-            )
-            continue
-        result_spec = next(
-            (
-                result
-                for result in acquisition_spec.results
-                if result.id == request.result_id
-            ),
-            None,
-        )
-        if result_spec is None:
-            problems.append(
-                _problem(
-                    "instrument_driver_unsupported_acquisition_result",
+                    "instrument_driver_inactive_acquisition_result",
                     f"{command.instrument_id} acquisition "
-                    f"{request.acquisition_id} has no result {request.result_id}",
+                    f"{request.acquisition_id} result {request.result_id} "
+                    f"is inactive in state case {active_case!r}",
                     "requests",
                     request.id,
                     "result_id",
@@ -1538,19 +1742,21 @@ def validate_collect_receipt(
     return problems
 
 
-def apply_state_command_to_snapshot(
-    snapshot: _InstrumentStateSnapshot,
+def project_instrument_state(
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState,
     command: InstrumentStateCommand,
     *,
     description: InstrumentDescription,
-) -> _InstrumentStateSnapshot:
+) -> _ProjectedInstrumentState:
+    """Project preflight knowledge without claiming a hardware observation."""
+
     properties = {
         _property_target_identity(
             item.interface_id,
             item.component_path,
             item.property_id,
         ): item.model_copy(deep=True)
-        for item in snapshot.properties
+        for item in state.properties
     }
     assignments_by_scope: dict[
         _StateTargetScopeIdentity,
@@ -1570,12 +1776,12 @@ def apply_state_command_to_snapshot(
         component_spec = _resolve_component(interface_spec, scope[1])
         if component_spec is None or component_spec.state is None:
             continue
-        state = component_spec.state
+        state_spec = component_spec.state
         discriminator = next(
             (
                 assignment
                 for assignment in assignments
-                if assignment.property_id == state.discriminator_property_id
+                if assignment.property_id == state_spec.discriminator_property_id
             ),
             None,
         )
@@ -1590,7 +1796,7 @@ def apply_state_command_to_snapshot(
                     item.component_path,
                 )
                 == scope
-                and item.property_id == state.discriminator_property_id
+                and item.property_id == state_spec.discriminator_property_id
             ),
             None,
         )
@@ -1598,7 +1804,7 @@ def apply_state_command_to_snapshot(
             continue
         case_property_ids = {
             property_id
-            for state_case_spec in state.cases
+            for state_case_spec in state_spec.cases
             for property_id in state_case_spec.property_ids
         }
         properties = {
@@ -1646,20 +1852,19 @@ def apply_state_command_to_snapshot(
             property_id=assignment.property_id,
             value=assignment.value,
         )
-    return _InstrumentStateSnapshot(
-        instrument_id=snapshot.instrument_id,
-        properties=[
+    return _ProjectedInstrumentState(
+        instrument_id=state.instrument_id,
+        properties=tuple(
             properties[key] for key in sorted(properties, key=_property_target_sort_key)
-        ],
-        metadata=dict(snapshot.metadata),
+        ),
     )
 
 
-def _snapshot_properties_by_scope(
-    snapshot: _InstrumentStateSnapshot,
+def _state_properties_by_scope(
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState,
 ) -> dict[_StateTargetScopeIdentity, list[_InstrumentPropertyState]]:
     grouped: dict[_StateTargetScopeIdentity, list[_InstrumentPropertyState]] = {}
-    for property_state in snapshot.properties:
+    for property_state in state.properties:
         scope = _state_target_scope_identity(
             property_state.interface_id,
             property_state.component_path,
@@ -2023,6 +2228,53 @@ def validate_instrument_description_collection(
                     f"interface {interface_spec.id!r} must have one stable "
                     "specification within an instrument catalog"
                 )
+
+
+def _validate_acquisition_state_references(
+    description: InstrumentDescription,
+) -> None:
+    interfaces = {interface.id: interface for interface in description.interfaces}
+    for interface_spec in description.interfaces:
+        for component_spec in _component_specs(interface_spec):
+            for acquisition_spec in component_spec.acquisitions:
+                if not isinstance(
+                    acquisition_spec,
+                    StateDiscriminatedAcquisitionSpec,
+                ):
+                    continue
+                reference = acquisition_spec.discriminator
+                target_interface = interfaces.get(reference.interface_id)
+                target_component = (
+                    _resolve_component(target_interface, reference.component_path)
+                    if target_interface is not None
+                    else None
+                )
+                target_state = (
+                    target_component.state if target_component is not None else None
+                )
+                if (
+                    target_state is None
+                    or target_state.discriminator_property_id != reference.property_id
+                ):
+                    raise ValueError(
+                        f"acquisition {acquisition_spec.id!r} discriminator must "
+                        "reference a declared discriminated state"
+                    )
+                acquisition_cases = tuple(case.value for case in acquisition_spec.cases)
+                state_cases = tuple(case.value for case in target_state.cases)
+                if acquisition_cases != state_cases:
+                    raise ValueError(
+                        f"acquisition {acquisition_spec.id!r} case values must "
+                        "exactly match its discriminator state cases"
+                    )
+
+
+def _component_specs(
+    spec: InterfaceSpec | ComponentSpec,
+) -> Iterable[InterfaceSpec | ComponentSpec]:
+    yield spec
+    for child in spec.components:
+        yield from _component_specs(child)
 
 
 def _validate_component_members(

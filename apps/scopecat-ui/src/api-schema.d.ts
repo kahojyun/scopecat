@@ -641,6 +641,15 @@ export interface components {
             /** Unit */
             unit?: string | null;
         };
+        /** AcquisitionCaseSpec */
+        AcquisitionCaseSpec: {
+            /** Results */
+            results: [
+                components["schemas"]["AcquisitionResultSpec"],
+                ...components["schemas"]["AcquisitionResultSpec"][]
+            ];
+            value: components["schemas"]["_NonEmptyId"];
+        };
         /** AcquisitionResultSpec */
         AcquisitionResultSpec: {
             /** Axes */
@@ -659,19 +668,7 @@ export interface components {
             /** Unit */
             unit?: string | null;
         };
-        /** AcquisitionSpec */
-        AcquisitionSpec: {
-            /** Description */
-            description?: string | null;
-            id: components["schemas"]["_NonEmptyId"];
-            /** Label */
-            label?: string | null;
-            /** Results */
-            results: [
-                components["schemas"]["AcquisitionResultSpec"],
-                ...components["schemas"]["AcquisitionResultSpec"][]
-            ];
-        };
+        AcquisitionSpec: components["schemas"]["FixedAcquisitionSpec"] | components["schemas"]["StateDiscriminatedAcquisitionSpec"];
         /**
          * ActiveConfigView
          * @description The active registry identity and its resolved immutable snapshot.
@@ -1332,6 +1329,24 @@ export interface components {
             sheet?: string | null;
             /** Uri */
             uri: string;
+        };
+        /** FixedAcquisitionSpec */
+        FixedAcquisitionSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fixed";
+            /** Label */
+            label?: string | null;
+            /** Results */
+            results: [
+                components["schemas"]["AcquisitionResultSpec"],
+                ...components["schemas"]["AcquisitionResultSpec"][]
+            ];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2345,6 +2360,36 @@ export interface components {
             /** Property Ids */
             property_ids?: components["schemas"]["_NonEmptyId"][];
             value: components["schemas"]["_NonEmptyId"];
+        };
+        /** StateDiscriminatedAcquisitionSpec */
+        StateDiscriminatedAcquisitionSpec: {
+            /** Cases */
+            cases: [
+                components["schemas"]["AcquisitionCaseSpec"],
+                components["schemas"]["AcquisitionCaseSpec"],
+                ...components["schemas"]["AcquisitionCaseSpec"][]
+            ];
+            /** Description */
+            description?: string | null;
+            discriminator: components["schemas"]["StateDiscriminatorRef"];
+            id: components["schemas"]["_NonEmptyId"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "state_discriminated";
+            /** Label */
+            label?: string | null;
+        };
+        /**
+         * StateDiscriminatorRef
+         * @description Physical discriminator selecting one acquisition result case.
+         */
+        StateDiscriminatorRef: {
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+            property_id: components["schemas"]["_NonEmptyId"];
         };
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**

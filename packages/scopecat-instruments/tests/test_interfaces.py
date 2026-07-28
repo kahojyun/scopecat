@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from scopecat.sdk.instruments import acquisition_results
 
 from scopecat_instruments.drivers import (
     KeysightE5080B,
@@ -14,6 +15,7 @@ from scopecat_instruments.interfaces import (
     NETWORK_SWEEP,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
+    dc_monitor_interface,
     dc_source_interface,
 )
 from scopecat_instruments.testing import ScriptedTransport
@@ -55,7 +57,7 @@ def test_interface_contract_has_complete_ui_metadata(
     for acquisition_spec in interface.acquisitions:
         assert acquisition_spec.label
         assert acquisition_spec.description
-        for result in acquisition_spec.results:
+        for result in acquisition_results(acquisition_spec):
             assert result.label
             assert result.description
             for axis in result.axes:
@@ -102,6 +104,21 @@ def test_dc_source_state_partitions_properties_by_source_mode() -> None:
     assert [(case.value, case.property_ids) for case in state.cases] == [
         ("voltage", ["voltage_range", "voltage_level"]),
         ("current", ["current_range", "current_level"]),
+    ]
+
+
+def test_dc_monitor_results_follow_the_source_mode() -> None:
+    [monitor] = dc_monitor_interface().acquisitions
+
+    assert monitor.kind == "state_discriminated"
+    assert monitor.discriminator.interface_id == DC_SOURCE
+    assert monitor.discriminator.component_path == []
+    assert monitor.discriminator.property_id == "source_mode"
+    assert [
+        (case.value, [result.id for result in case.results]) for case in monitor.cases
+    ] == [
+        ("voltage", ["monitored_current"]),
+        ("current", ["monitored_voltage"]),
     ]
 
 

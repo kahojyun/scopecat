@@ -105,6 +105,11 @@ roles:
 - `ComponentSpec` gives repeated or nested endpoints, such as channels and
   traces, a stable path beneath the interface.
 
+A fixed acquisition always exposes the same results. A state-discriminated
+acquisition references one physical state discriminator and declares a result
+set for every mode. The daemon selects the active case from the synchronized
+snapshot before calling the driver.
+
 A driver implementation may expose several interfaces. Multi-device
 calibration, feedback, and analysis remain experiment procedures rather than
 device operations.
@@ -374,7 +379,7 @@ The first package deliberately implements narrow, documented subsets:
 
 | Device | Interface | Initial boundary |
 |---|---|---|
-| Yokogawa GS200/GS210 | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v1` | discriminated voltage/current state, protection, output, and optional `/MON` acquisition |
+| Yokogawa GS200/GS210 | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v2` | discriminated voltage/current state, protection, output, and optional `/MON` acquisition |
 | R&S SGS100A | `scopecat.rf_output/v1` | CW frequency, power, RF output, internal/external reference |
 | Lake Shore 372 | `scopecat.temperature_readout/v1` | read-only scan channel, temperature, resistance, status, and sample-heater telemetry |
 | Keysight E5080B | `scopecat.network_sweep/v1` | one linear two-port S-parameter sweep and complex trace |

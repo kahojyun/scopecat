@@ -28,10 +28,12 @@ from scopecat.records.instrument import (
 )
 from scopecat.records.measurement import MeasurementArray, MeasurementDType
 from scopecat.sdk.instruments import (
+    AcquisitionCaseSpec,
     CollectAxisRequest,
     CollectCommand,
     CollectReceipt,
     CollectResultRequest,
+    FixedAcquisitionSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentOperationArgument,
@@ -43,10 +45,13 @@ from scopecat.sdk.instruments import (
     InvokeCommand,
     OperationArgumentSpec,
     PropertySpec,
+    StateDiscriminatedAcquisitionSpec,
+    StateDiscriminatorRef,
     acquisition,
     acquisition_axis,
+    acquisition_case,
     acquisition_result,
-    apply_state_command_to_snapshot,
+    acquisition_results,
     bool_property,
     component,
     discriminated_state,
@@ -59,12 +64,18 @@ from scopecat.sdk.instruments import (
     operation_argument,
     quantity_property,
     state_case,
+    state_discriminated_acquisition,
+    state_discriminator_ref,
     string_property,
     validate_collect_command,
     validate_collect_receipt,
     validate_invoke_command,
     validate_state_command,
     validate_state_snapshot,
+)
+from scopecat.sdk.instruments._projection import ProjectedInstrumentState
+from scopecat.sdk.instruments.contracts import (
+    project_instrument_state,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import (
@@ -79,14 +90,23 @@ from tests.testkit.workflow_fixtures import load_experiment
 
 def test_instrument_records_are_public_from_the_sdk_facade() -> None:
     owners = {
+        "AcquisitionCaseSpec": AcquisitionCaseSpec,
         "CommandChannelBinding": RecordCommandChannelBinding,
+        "FixedAcquisitionSpec": FixedAcquisitionSpec,
         "InstrumentReadback": RecordInstrumentReadback,
         "InstrumentPropertyState": RecordInstrumentPropertyState,
         "InstrumentStateSnapshot": RecordInstrumentStateSnapshot,
+        "StateDiscriminatedAcquisitionSpec": StateDiscriminatedAcquisitionSpec,
+        "StateDiscriminatorRef": StateDiscriminatorRef,
     }
 
     for name, owner in owners.items():
         assert getattr(instrument_sdk, name) is owner
+
+
+def test_projected_state_stays_internal_to_instrument_preflight() -> None:
+    assert not hasattr(instrument_sdk, "ProjectedInstrumentState")
+    assert not hasattr(instrument_sdk, "project_instrument_state")
 
 
 @pytest.mark.parametrize(
@@ -271,7 +291,7 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     current = instrument.read_state()
     request = lower_driver_apply_request(command)
     result = instrument.apply_state(request)
-    updated = apply_state_command_to_snapshot(
+    updated = project_instrument_state(
         current,
         command,
         description=description,
@@ -774,6 +794,97 @@ def test_instrument_description_rejects_duplicate_interface_members() -> None:
         )
 
 
+def test_acquisition_schema_uses_an_explicit_discriminated_union() -> None:
+    fixed = acquisition(
+        "sample",
+        results=[acquisition_result("signal")],
+    )
+    description = _state_discriminated_collect_description()
+    restored = InstrumentDescription.model_validate(description.model_dump(mode="json"))
+    state_discriminated = restored.interfaces[1].acquisitions[0]
+
+    assert isinstance(fixed, FixedAcquisitionSpec)
+    assert fixed.model_dump(mode="json")["kind"] == "fixed"
+    assert [result.id for result in acquisition_results(fixed)] == ["signal"]
+    assert isinstance(state_discriminated, StateDiscriminatedAcquisitionSpec)
+    assert state_discriminated.kind == "state_discriminated"
+    assert isinstance(state_discriminated.discriminator, StateDiscriminatorRef)
+    assert all(
+        isinstance(case, AcquisitionCaseSpec) for case in state_discriminated.cases
+    )
+    assert [result.id for result in acquisition_results(state_discriminated)] == [
+        "monitored_current",
+        "monitored_voltage",
+    ]
+
+
+def test_acquisition_schema_rejects_a_missing_discriminator_tag() -> None:
+    description = _collect_description()
+    serialized = description.model_dump(mode="json")
+    del serialized["interfaces"][0]["acquisitions"][0]["kind"]
+
+    with pytest.raises(ValidationError, match="Unable to extract tag"):
+        InstrumentDescription.model_validate(serialized)
+
+
+def test_state_discriminated_acquisition_requires_unique_result_ids() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="state-discriminated acquisition result ids must be unique",
+    ):
+        state_discriminated_acquisition(
+            "monitor",
+            discriminator=state_discriminator_ref(
+                "test.source/v1",
+                "mode",
+                component_path=("output",),
+            ),
+            cases=(
+                acquisition_case(
+                    "voltage",
+                    results=(acquisition_result("reading"),),
+                ),
+                acquisition_case(
+                    "current",
+                    results=(acquisition_result("reading"),),
+                ),
+            ),
+        )
+
+
+def test_acquisition_discriminator_must_reference_declared_physical_state() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="discriminator must reference a declared discriminated state",
+    ):
+        _state_discriminated_collect_description(
+            discriminator=state_discriminator_ref(
+                "test.source/v1",
+                "missing",
+                component_path=("output",),
+            )
+        )
+
+
+def test_acquisition_cases_must_match_discriminator_state_cases() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="case values must exactly match",
+    ):
+        _state_discriminated_collect_description(
+            cases=(
+                acquisition_case(
+                    "voltage",
+                    results=(acquisition_result("monitored_current", unit="A"),),
+                ),
+                acquisition_case(
+                    "power",
+                    results=(acquisition_result("monitored_power", unit="W"),),
+                ),
+            )
+        )
+
+
 def test_discriminated_state_requires_an_exhaustive_property_partition() -> None:
     with pytest.raises(ValidationError, match="unclassified properties"):
         interface(
@@ -1080,7 +1191,7 @@ def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
         )
     ] == ["instrument_driver_snapshot_inactive_state_property"]
 
-    switched = apply_state_command_to_snapshot(
+    switched = project_instrument_state(
         voltage,
         _variant_command(
             ("mode", "current"),
@@ -1094,13 +1205,11 @@ def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
         "mode": "current",
         "output_enabled": False,
     }
-    assert (
-        validate_state_snapshot(
-            snapshot=switched,
-            description=description,
-        )
-        == []
+    observed = InstrumentStateSnapshot(
+        instrument_id=switched.instrument_id,
+        properties=list(switched.properties),
     )
+    assert validate_state_snapshot(snapshot=observed, description=description) == []
 
 
 def test_acquisition_result_rejects_duplicate_axis_ids() -> None:
@@ -1188,6 +1297,138 @@ def test_collect_validator_checks_dtype_unit_and_axis_contracts() -> None:
         "instrument_driver_acquisition_axis_mismatch",
         "instrument_driver_acquisition_axis_unit_mismatch",
     }
+
+
+def test_state_discriminated_collect_requires_a_complete_observed_state() -> None:
+    description = _state_discriminated_collect_description()
+    command = _state_discriminated_collect_command(
+        "monitored_current",
+        unit="A",
+    )
+
+    missing = validate_collect_command(
+        command=command,
+        description=description,
+    )
+    incomplete = validate_collect_command(
+        command=command,
+        description=description,
+        baseline=InstrumentStateSnapshot(
+            instrument_id="source-0",
+            properties=[
+                RecordInstrumentPropertyState(
+                    interface_id="test.source/v1",
+                    component_path=["output"],
+                    property_id="mode",
+                    value=StateValue("voltage"),
+                )
+            ],
+        ),
+    )
+
+    assert [problem.code for problem in missing] == [
+        "instrument_driver_acquisition_state_unknown"
+    ]
+    assert [problem.code for problem in incomplete] == [
+        "instrument_driver_acquisition_state_unknown"
+    ]
+
+
+def test_state_discriminated_collect_allows_only_the_active_case_results() -> None:
+    description = _state_discriminated_collect_description()
+    baseline = _state_discriminated_collect_snapshot("voltage")
+
+    active = validate_collect_command(
+        command=_state_discriminated_collect_command(
+            "monitored_current",
+            unit="A",
+        ),
+        description=description,
+        baseline=baseline,
+    )
+    inactive = validate_collect_command(
+        command=_state_discriminated_collect_command(
+            "monitored_voltage",
+            unit="V",
+        ),
+        description=description,
+        baseline=baseline,
+    )
+
+    assert active == []
+    assert [problem.code for problem in inactive] == [
+        "instrument_driver_inactive_acquisition_result"
+    ]
+
+
+def test_partial_projection_drives_conditional_state_and_collect_preflight() -> None:
+    description = _state_discriminated_collect_description()
+    select_voltage = InstrumentStateCommand(
+        command_id="select-voltage",
+        instrument_id="source-0",
+        assignments=[
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.source/v1",
+                component_path=["output"],
+                property_id="mode",
+                value=StateValue("voltage"),
+            )
+        ],
+    )
+    projection = project_instrument_state(
+        ProjectedInstrumentState(instrument_id="source-0"),
+        select_voltage,
+        description=description,
+    )
+    observed = InstrumentStateSnapshot(
+        instrument_id=projection.instrument_id,
+        properties=list(projection.properties),
+    )
+    set_voltage = InstrumentStateCommand(
+        command_id="set-voltage",
+        instrument_id="source-0",
+        assignments=[
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.source/v1",
+                component_path=["output"],
+                property_id="voltage_level",
+                value=StateValue(0.2),
+            )
+        ],
+    )
+
+    assert isinstance(projection.properties, tuple)
+    assert not hasattr(projection, "model_dump")
+    assert [item.property_id for item in projection.properties] == ["mode"]
+    assert [
+        problem.code
+        for problem in validate_state_snapshot(
+            snapshot=observed,
+            description=description,
+        )
+    ] == ["instrument_driver_snapshot_missing_properties"]
+    assert (
+        validate_state_command(
+            command=set_voltage,
+            description=description,
+            baseline=projection,
+            require_explicit_state_case=True,
+        )
+        == []
+    )
+    assert (
+        validate_collect_command(
+            command=_state_discriminated_collect_command(
+                "monitored_current",
+                unit="A",
+            ),
+            description=description,
+            baseline=projection,
+        )
+        == []
+    )
 
 
 def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
@@ -1420,6 +1661,137 @@ def _collect_description() -> InstrumentDescription:
                         ],
                     )
                 ],
+            )
+        ],
+    )
+
+
+def _state_discriminated_collect_description(
+    *,
+    discriminator: StateDiscriminatorRef | None = None,
+    cases: tuple[AcquisitionCaseSpec, ...] | None = None,
+) -> InstrumentDescription:
+    return InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.state_discriminated_collect",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.source/v1",
+                components=[
+                    component(
+                        "output",
+                        properties=[
+                            enum_property(
+                                "mode",
+                                choices=("voltage", "current"),
+                            ),
+                            bool_property("output_enabled"),
+                            float_property("voltage_level"),
+                            float_property("current_level"),
+                        ],
+                        state=discriminated_state(
+                            "mode",
+                            common_property_ids=("output_enabled",),
+                            cases=(
+                                state_case(
+                                    "voltage",
+                                    property_ids=("voltage_level",),
+                                ),
+                                state_case(
+                                    "current",
+                                    property_ids=("current_level",),
+                                ),
+                            ),
+                        ),
+                    )
+                ],
+            ),
+            interface(
+                "test.monitor/v1",
+                acquisitions=[
+                    state_discriminated_acquisition(
+                        "monitor",
+                        discriminator=discriminator
+                        or state_discriminator_ref(
+                            "test.source/v1",
+                            "mode",
+                            component_path=("output",),
+                        ),
+                        cases=cases
+                        or (
+                            acquisition_case(
+                                "voltage",
+                                results=(
+                                    acquisition_result(
+                                        "monitored_current",
+                                        unit="A",
+                                    ),
+                                ),
+                            ),
+                            acquisition_case(
+                                "current",
+                                results=(
+                                    acquisition_result(
+                                        "monitored_voltage",
+                                        unit="V",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+def _state_discriminated_collect_snapshot(
+    mode: str,
+) -> InstrumentStateSnapshot:
+    level_property_id = "voltage_level" if mode == "voltage" else "current_level"
+    return InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.source/v1",
+                component_path=["output"],
+                property_id="mode",
+                value=StateValue(mode),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.source/v1",
+                component_path=["output"],
+                property_id="output_enabled",
+                value=StateValue(False),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.source/v1",
+                component_path=["output"],
+                property_id=level_property_id,
+                value=StateValue(0.1),
+            ),
+        ],
+    )
+
+
+def _state_discriminated_collect_command(
+    result_id: str,
+    *,
+    unit: str,
+) -> CollectCommand:
+    return CollectCommand(
+        command_id=f"collect-{result_id}",
+        instrument_id="source-0",
+        point_index=0,
+        point_count=1,
+        requests=[
+            CollectResultRequest(
+                id=result_id,
+                interface_id="test.monitor/v1",
+                acquisition_id="monitor",
+                result_id=result_id,
+                unit=unit,
             )
         ],
     )

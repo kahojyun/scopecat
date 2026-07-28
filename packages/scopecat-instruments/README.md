@@ -102,6 +102,9 @@ Unspecified and private driver settings remain untouched.
 Driver snapshots contain complete public physical state. Experiment entity and
 channel bindings are routing provenance, not fields a driver reads back.
 
+The DC monitor acquisition is selected by DC source mode: voltage-source mode
+returns monitored current, while current-source mode returns monitored voltage.
+
 Connection `options` are intentionally narrow:
 
 - Yokogawa GS200: `monitor_option` (`bool`, default `false`);
@@ -112,12 +115,12 @@ The package supports these driver IDs:
 
 | Driver ID | Interface |
 | --- | --- |
-| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v1` |
+| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v2` |
 | `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v1` |
 | `scopecat.lakeshore.372` | `scopecat.temperature_readout/v1` |
 | `scopecat.keysight.e5080b` | `scopecat.network_sweep/v1` |
 | `scopecat.virtual.rf_source` | `scopecat.rf_output/v1` |
-| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v1` |
+| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v2` |
 | `scopecat.virtual.temperature_monitor` | `scopecat.temperature_readout/v1` |
 | `scopecat.virtual.vna` | `scopecat.network_sweep/v1` |
 

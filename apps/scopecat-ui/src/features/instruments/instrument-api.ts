@@ -3,6 +3,7 @@ import type {
   ConfigProfileSnapshot,
   DaemonUiApi,
   InstrumentAcquisition,
+  InstrumentAcquisitionResult,
   InstrumentApplyReceipt,
   InstrumentCollectReceipt,
   InstrumentConnection,
@@ -285,6 +286,16 @@ function stateAxisSize(
 type InstrumentCollectRequests = DaemonUiApi["instrumentCollectCommand"]["requests"];
 type InstrumentCollectResultRequest = InstrumentCollectRequests[number];
 
+type InstrumentAcquisitionResultSelection =
+  | {
+      ready: true;
+      results: InstrumentAcquisitionResult[];
+    }
+  | {
+      ready: false;
+      reason: string;
+    };
+
 type InstrumentCollectPlan =
   | {
       ready: true;
@@ -299,7 +310,9 @@ function planInstrumentAcquisition(
   target: InstrumentAcquisitionTarget,
   state?: InstrumentState,
 ): InstrumentCollectPlan {
-  const [firstResult, ...remainingResults] = target.acquisition.results ?? [];
+  const selection = acquisitionResultsForState(target.acquisition, state);
+  if (!selection.ready) return selection;
+  const [firstResult, ...remainingResults] = selection.results;
   if (!firstResult) {
     return {
       ready: false,
@@ -348,6 +361,45 @@ function planInstrumentAcquisition(
     });
   }
   return { ready: true, requests: [requests[0]!, ...requests.slice(1)] };
+}
+
+export function acquisitionResultsForState(
+  acquisition: InstrumentAcquisition,
+  state?: InstrumentState,
+): InstrumentAcquisitionResultSelection {
+  if (acquisition.kind === "fixed") {
+    return { ready: true, results: acquisition.results };
+  }
+  const discriminator = (state?.properties ?? []).find(
+    (property) =>
+      property.interface_id === acquisition.discriminator.interface_id &&
+      samePath(property.component_path ?? [], acquisition.discriminator.component_path ?? []) &&
+      property.property_id === acquisition.discriminator.property_id,
+  );
+  if (typeof discriminator?.value !== "string") {
+    return {
+      ready: false,
+      reason: "Collect is unavailable until the instrument mode is synchronized.",
+    };
+  }
+  const selectedCase = acquisition.cases.find(
+    (candidate) => candidate.value === discriminator.value,
+  );
+  if (!selectedCase) {
+    return {
+      ready: false,
+      reason: `Collect is unavailable in instrument mode ${discriminator.value}.`,
+    };
+  }
+  return { ready: true, results: selectedCase.results };
+}
+
+export function declaredAcquisitionResults(
+  acquisition: InstrumentAcquisition,
+): InstrumentAcquisitionResult[] {
+  return acquisition.kind === "fixed"
+    ? acquisition.results
+    : acquisition.cases.flatMap((candidate) => candidate.results);
 }
 
 function samePath(left: string[], right: string[]): boolean {

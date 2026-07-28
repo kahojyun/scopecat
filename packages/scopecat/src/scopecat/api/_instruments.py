@@ -20,6 +20,7 @@ from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
+    AcquisitionSpec,
     ApplyReceipt,
     CollectAxisRequest,
     CollectCommand,
@@ -33,6 +34,7 @@ from scopecat.sdk.instruments.contracts import (
     InterfaceSpec,
     InvokeCommand,
     InvokeReceipt,
+    acquisition_results,
 )
 
 type OperationArgumentValue = (
@@ -295,8 +297,11 @@ class InstrumentSessionHandle:
             raise ValueError(
                 f"interface {interface_id!r} has no acquisition {acquisition_id!r}"
             )
-        results = {item.id: item for item in acquisition.results}
-        selected_result_ids = result_ids or tuple(results)
+        results = {item.id: item for item in acquisition_results(acquisition)}
+        selected_result_ids = result_ids or self._default_collect_result_ids(
+            selected,
+            acquisition,
+        )
         missing = tuple(
             result_id for result_id in selected_result_ids if result_id not in results
         )
@@ -342,6 +347,53 @@ class InstrumentSessionHandle:
             selected,
             command,
         )
+
+    def _default_collect_result_ids(
+        self,
+        instrument_id: str,
+        acquisition: AcquisitionSpec,
+    ) -> tuple[str, ...]:
+        if acquisition.kind == "fixed":
+            return tuple(result.id for result in acquisition.results)
+
+        discriminator = acquisition.discriminator
+        state = self.read_state(instrument_id)
+        property_state = next(
+            (
+                item
+                for item in state.properties
+                if item.interface_id == discriminator.interface_id
+                and item.component_path == discriminator.component_path
+                and item.property_id == discriminator.property_id
+            ),
+            None,
+        )
+        if property_state is None:
+            discriminator_path = "/".join(
+                (
+                    str(discriminator.interface_id),
+                    *discriminator.component_path,
+                    discriminator.property_id,
+                )
+            )
+            raise ValueError(
+                "instrument state has no acquisition discriminator "
+                + discriminator_path
+            )
+        case = next(
+            (
+                item
+                for item in acquisition.cases
+                if item.value == property_state.value.root
+            ),
+            None,
+        )
+        if case is None:
+            raise ValueError(
+                f"acquisition {acquisition.id!r} has no case for discriminator "
+                f"value {property_state.value.root!r}"
+            )
+        return tuple(result.id for result in case.results)
 
     def close(
         self,

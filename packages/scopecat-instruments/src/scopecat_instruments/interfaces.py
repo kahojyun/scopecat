@@ -6,6 +6,7 @@ from scopecat.sdk.instruments import (
     InterfaceSpec,
     acquisition,
     acquisition_axis,
+    acquisition_case,
     acquisition_result,
     bool_property,
     discriminated_state,
@@ -15,11 +16,13 @@ from scopecat.sdk.instruments import (
     interface,
     quantity_property,
     state_case,
+    state_discriminated_acquisition,
+    state_discriminator_ref,
 )
 
 RF_OUTPUT = "scopecat.rf_output/v1"
 DC_SOURCE = "scopecat.dc_source/v2"
-DC_MONITOR = "scopecat.dc_monitor/v1"
+DC_MONITOR = "scopecat.dc_monitor/v2"
 TEMPERATURE_READOUT = "scopecat.temperature_readout/v1"
 NETWORK_SWEEP = "scopecat.network_sweep/v1"
 
@@ -143,24 +146,38 @@ def dc_monitor_interface() -> InterfaceSpec:
         label="DC monitor",
         description="Single-value voltage or current monitoring for a DC source.",
         acquisitions=[
-            acquisition(
+            state_discriminated_acquisition(
                 "monitor",
                 label="Monitor output",
                 description="Read one monitor sample from the active source mode.",
-                results=[
-                    acquisition_result(
-                        "monitored_voltage",
-                        dtype="float64",
-                        unit="V",
-                        label="Monitored voltage",
-                        description="One measurement while sourcing current.",
+                discriminator=state_discriminator_ref(
+                    DC_SOURCE,
+                    "source_mode",
+                ),
+                cases=[
+                    acquisition_case(
+                        "voltage",
+                        results=[
+                            acquisition_result(
+                                "monitored_current",
+                                dtype="float64",
+                                unit="A",
+                                label="Monitored current",
+                                description="One measurement while sourcing voltage.",
+                            ),
+                        ],
                     ),
-                    acquisition_result(
-                        "monitored_current",
-                        dtype="float64",
-                        unit="A",
-                        label="Monitored current",
-                        description="One measurement while sourcing voltage.",
+                    acquisition_case(
+                        "current",
+                        results=[
+                            acquisition_result(
+                                "monitored_voltage",
+                                dtype="float64",
+                                unit="V",
+                                label="Monitored voltage",
+                                description="One measurement while sourcing current.",
+                            ),
+                        ],
                     ),
                 ],
             )

@@ -34,6 +34,7 @@ from scopecat.records.config import (
     InstrumentRunStartPolicy,
     config_content_hash,
 )
+from scopecat.records.measurement import MeasurementValue
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
     ConfigRegistryRunConfigSource,
@@ -42,8 +43,10 @@ from scopecat.records.run import (
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
+    CollectReceipt,
     CollectResultRequest,
     DriverApplyRequest,
+    DriverCollectRequest,
     DriverInvokeRequest,
     InstrumentBackend,
     InstrumentConnectionContext,
@@ -52,9 +55,12 @@ from scopecat.sdk.instruments import (
     InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
+    InstrumentReadback,
     InstrumentStateAssignment,
     InstrumentStateSnapshot,
     InvokeReceipt,
+    acquisition_case,
+    acquisition_result,
     bool_property,
     discriminated_state,
     enum_property,
@@ -62,6 +68,8 @@ from scopecat.sdk.instruments import (
     interface,
     operation,
     state_case,
+    state_discriminated_acquisition,
+    state_discriminator_ref,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -182,6 +190,35 @@ class _VariantDriver(_Driver):
                         ),
                     ),
                     operations=[operation("select_current")],
+                    acquisitions=[
+                        state_discriminated_acquisition(
+                            "measure",
+                            discriminator=state_discriminator_ref(
+                                "test.dc/v1",
+                                "mode",
+                            ),
+                            cases=(
+                                acquisition_case(
+                                    "voltage",
+                                    results=(
+                                        acquisition_result(
+                                            "monitored_voltage",
+                                            unit="V",
+                                        ),
+                                    ),
+                                ),
+                                acquisition_case(
+                                    "current",
+                                    results=(
+                                        acquisition_result(
+                                            "monitored_current",
+                                            unit="A",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ],
                 )
             ],
         )
@@ -232,6 +269,19 @@ class _VariantDriver(_Driver):
         self.invoked.append(request)
         self.mode = "current"
         return InvokeReceipt(status="invoked")
+
+    @override
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        self.collect_requests.append(request)
+        values: dict[str, MeasurementValue] = {
+            result.request_id: (
+                Quantity(value=self.voltage_level, unit="V")
+                if result.result_id == "monitored_voltage"
+                else Quantity(value=self.current_level, unit="A")
+            )
+            for result in request.results
+        }
+        return CollectReceipt(readback=InstrumentReadback(values=values))
 
 
 class _NonConvergingDriver(_Driver):
@@ -735,11 +785,137 @@ def test_invoke_makes_later_case_specific_preflight_require_discriminator(
                     mode="current",
                     current_level=0.02,
                 ),
+                _variant_collect_action(
+                    effect_id="collect-explicit-current",
+                    result_id="monitored_current",
+                ),
             ),
         )
         assert not accepted.problems
         assert len(driver.invoked) == 1
         assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
+
+
+def test_batch_collect_requires_the_active_acquisition_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        active = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "collect-active-voltage",
+                _variant_collect_action(
+                    effect_id="active-voltage",
+                    result_id="monitored_voltage",
+                ),
+            ),
+        )
+
+        assert active.problems == ()
+        assert len(driver.collect_requests) == 1
+        inactive = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "collect-inactive-current",
+                _variant_collect_action(
+                    effect_id="inactive-current",
+                    result_id="monitored_current",
+                ),
+            ),
+        )
+        assert [item.code for item in inactive.problems] == [
+            "instrument_driver_inactive_acquisition_result"
+        ]
+        assert len(driver.collect_requests) == 1
+
+        unknown = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "collect-after-invoke",
+                _variant_invoke_action(effect_id="select-current-first"),
+                _variant_collect_action(
+                    effect_id="unknown-voltage",
+                    result_id="monitored_voltage",
+                ),
+            ),
+        )
+        assert [item.code for item in unknown.problems] == [
+            "instrument_driver_acquisition_state_unknown"
+        ]
+        assert driver.invoked == []
+        assert len(driver.collect_requests) == 1
+
+
+def test_batch_projects_mode_only_apply_for_conditional_collect(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        inactive = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "project-current-reject-voltage",
+                _variant_apply_action(
+                    effect_id="select-current-for-voltage",
+                    mode="current",
+                ),
+                _variant_collect_action(
+                    effect_id="collect-projected-voltage",
+                    result_id="monitored_voltage",
+                ),
+            ),
+        )
+
+        assert [item.code for item in inactive.problems] == [
+            "instrument_driver_inactive_acquisition_result"
+        ]
+        assert driver.applied == []
+        assert driver.collect_requests == []
+
+        active = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "project-current-collect-current",
+                _variant_apply_action(
+                    effect_id="select-current-for-current",
+                    mode="current",
+                ),
+                _variant_collect_action(
+                    effect_id="collect-projected-current",
+                    result_id="monitored_current",
+                ),
+            ),
+        )
+
+        assert active.problems == ()
+        assert len(driver.applied) == 1
+        assert driver.read_count == 2
+        assert len(driver.collect_requests) == 1
 
 
 def test_run_invoke_reads_back_state_before_later_actions(
@@ -1350,6 +1526,35 @@ def _collect_action(
             RunHardwareCollectBinding(
                 request_id="signal",
                 product_use_ids=("signal-use",),
+            ),
+        ),
+    )
+
+
+def _variant_collect_action(
+    *,
+    effect_id: str,
+    result_id: str,
+) -> RunHardwareCollect:
+    unit = "V" if result_id == "monitored_voltage" else "A"
+    return RunHardwareCollect(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        point_count=1,
+        requests=(
+            CollectResultRequest(
+                id="reading",
+                interface_id="test.dc/v1",
+                acquisition_id="measure",
+                result_id=result_id,
+                unit=unit,
+            ),
+        ),
+        bindings=(
+            RunHardwareCollectBinding(
+                request_id="reading",
+                product_use_ids=("reading-use",),
             ),
         ),
     )

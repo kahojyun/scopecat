@@ -76,6 +76,7 @@ from scopecat.records.instrument import (
     property_target_identity,
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
+from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import (
     lower_driver_apply_request,
     lower_driver_collect_request,
@@ -90,7 +91,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentStateCommand,
     InvokeCommand,
     InvokeReceipt,
-    apply_state_command_to_snapshot,
+    project_instrument_state,
     validate_collect_command,
     validate_collect_receipt,
     validate_invoke_command,
@@ -986,7 +987,10 @@ class InstrumentService:
         """Validate the complete batch before the first hardware side effect."""
 
         problems: list[Problem] = []
-        assumed_states: dict[str, InstrumentStateSnapshot | None] = {
+        assumed_states: dict[
+            str,
+            InstrumentStateSnapshot | ProjectedInstrumentState | None,
+        ] = {
             instrument_id: instrument.assumed_state
             for instrument_id, instrument in runtime.instruments.items()
         }
@@ -1024,19 +1028,14 @@ class InstrumentService:
                     require_explicit_state_case=baseline is None,
                 )
                 problems.extend(action_problems)
-                if not action_problems and baseline is not None:
-                    projected = apply_state_command_to_snapshot(
-                        baseline,
+                if not action_problems:
+                    assumed_states[action.instrument_id] = project_instrument_state(
+                        baseline
+                        or ProjectedInstrumentState(
+                            instrument_id=action.instrument_id,
+                        ),
                         command,
                         description=description,
-                    )
-                    assumed_states[action.instrument_id] = (
-                        None
-                        if validate_state_snapshot(
-                            snapshot=projected,
-                            description=description,
-                        )
-                        else projected
                     )
             elif isinstance(action, RunHardwareInvoke):
                 command = InvokeCommand(
@@ -1083,6 +1082,7 @@ class InstrumentService:
                         description=runtime.instruments[
                             action.instrument_id
                         ].description,
+                        baseline=assumed_states[action.instrument_id],
                     )
                 )
         return tuple(problems)
@@ -1258,6 +1258,15 @@ class InstrumentService:
             requests=list(action.requests),
         )
         _runtime, instrument = self._run_instrument(run_id, action.instrument_id)
+        validation_problems = validate_collect_command(
+            command=command,
+            description=instrument.description,
+            baseline=instrument.assumed_state,
+        )
+        if validation_problems:
+            raise BackendConflict(
+                "; ".join(item.message for item in validation_problems)
+            )
         try:
             receipt = instrument.collect(driver_request)
         except Exception as error:
@@ -1928,6 +1937,7 @@ class InstrumentService:
         validation_problems = validate_collect_command(
             command=command,
             description=instrument.description,
+            baseline=instrument.assumed_state,
         )
         if validation_problems:
             raise BackendConflict(

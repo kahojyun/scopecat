@@ -29,6 +29,8 @@ import { errorMessage, formatRelative, titleCase } from "../../lib/presentation"
 import {
   applyInstrumentState,
   collectInstrumentAcquisition,
+  acquisitionResultsForState,
+  declaredAcquisitionResults,
   createInstrumentCommandId,
   instrumentAcquisitionReadiness,
   invokeInstrumentOperation,
@@ -1168,7 +1170,9 @@ function AcquisitionControl({
   onCollect: () => void;
 }) {
   const acquisition = target.acquisition;
-  const results = acquisition.results ?? [];
+  const selection = acquisitionResultsForState(acquisition, state);
+  const results = selection.ready ? selection.results : [];
+  const hasDeclaredResults = declaredAcquisitionResults(acquisition).length > 0;
   const readiness = instrumentAcquisitionReadiness(target, state);
   const blocked = !readiness.ready;
   const reasonId = domId("collect-reason", acquisitionKey(target));
@@ -1179,7 +1183,7 @@ function AcquisitionControl({
           <strong>{acquisition.label ?? titleCase(acquisition.id)}</strong>
           {acquisition.description && <p>{acquisition.description}</p>}
         </div>
-        {results.length > 0 && (
+        {hasDeclaredResults && (
           <div className="acquisition-collect-action">
             <button
               type="button"

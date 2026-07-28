@@ -29,6 +29,7 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
+from scopecat.records.measurement import MeasurementValue
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
@@ -52,12 +53,16 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommand,
     InstrumentStateSnapshot,
     InvokeReceipt,
+    acquisition_case,
+    acquisition_result,
     bool_property,
     discriminated_state,
     enum_property,
     float_property,
     interface,
     state_case,
+    state_discriminated_acquisition,
+    state_discriminator_ref,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -256,6 +261,35 @@ class _VariantDriver(_TrackingDriver):
                                 ),
                             ),
                         ),
+                        acquisitions=[
+                            state_discriminated_acquisition(
+                                "measure",
+                                discriminator=state_discriminator_ref(
+                                    "test.dc/v1",
+                                    "mode",
+                                ),
+                                cases=(
+                                    acquisition_case(
+                                        "voltage",
+                                        results=(
+                                            acquisition_result(
+                                                "monitored_voltage",
+                                                unit="V",
+                                            ),
+                                        ),
+                                    ),
+                                    acquisition_case(
+                                        "current",
+                                        results=(
+                                            acquisition_result(
+                                                "monitored_current",
+                                                unit="A",
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            )
+                        ],
                     ),
                 ]
             }
@@ -286,6 +320,19 @@ class _VariantDriver(_TrackingDriver):
                 ),
             ],
         )
+
+    @override
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        self.collect_requests.append(request)
+        values: dict[str, MeasurementValue] = {
+            result.request_id: (
+                Quantity(value=self.voltage_level, unit="V")
+                if result.result_id == "monitored_voltage"
+                else Quantity(value=self.current_level, unit="A")
+            )
+            for result in request.results
+        }
+        return CollectReceipt(readback=InstrumentReadback(values=values))
 
     @override
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
@@ -710,6 +757,66 @@ def test_interactive_apply_tracks_observed_discriminated_state(
             assert partial.status == "applied"
             [driver] = provider.drivers
             assert len(driver.applied) == 3
+
+
+def test_direct_collect_requires_the_active_acquisition_state(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-stateful-collect",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            [driver] = provider.drivers
+
+            receipt = daemon.collect_instrument(
+                session.session_id,
+                "source-0",
+                _variant_collect_command(
+                    command_id="collect-active-voltage",
+                    result_id="monitored_voltage",
+                ),
+            )
+
+            assert receipt.status == "collected"
+            assert len(driver.collect_requests) == 1
+            with pytest.raises(
+                DaemonConflictError,
+                match="is inactive in state case 'voltage'",
+            ):
+                daemon.collect_instrument(
+                    session.session_id,
+                    "source-0",
+                    _variant_collect_command(
+                        command_id="collect-inactive-current",
+                        result_id="monitored_current",
+                    ),
+                )
+            assert len(driver.collect_requests) == 1
+
+            runtime.application.instruments._sessions[session.session_id].instruments[
+                "source-0"
+            ].invalidate_state()
+            with pytest.raises(
+                DaemonConflictError,
+                match="requires a complete observed discriminator state",
+            ):
+                daemon.collect_instrument(
+                    session.session_id,
+                    "source-0",
+                    _variant_collect_command(
+                        command_id="collect-unknown-voltage",
+                        result_id="monitored_voltage",
+                    ),
+                )
+            assert len(driver.collect_requests) == 1
+            daemon.close_instrument_session(session.session_id)
 
 
 def test_operation_retry_is_deduplicated_and_conflicting_content_is_rejected(
@@ -1674,6 +1781,29 @@ def _apply_command(*, value: float) -> InstrumentStateCommand:
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
                 value=StateValue(Quantity(value=value, unit="GHz")),
+            )
+        ],
+    )
+
+
+def _variant_collect_command(
+    *,
+    command_id: str,
+    result_id: str,
+) -> CollectCommand:
+    unit = "V" if result_id == "monitored_voltage" else "A"
+    return CollectCommand(
+        command_id=command_id,
+        instrument_id="source-0",
+        point_index=0,
+        point_count=1,
+        requests=[
+            CollectResultRequest(
+                id="reading",
+                interface_id="test.dc/v1",
+                acquisition_id="measure",
+                result_id=result_id,
+                unit=unit,
             )
         ],
     )
