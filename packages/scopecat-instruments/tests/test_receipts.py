@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
@@ -161,13 +162,11 @@ def test_virtual_dc_requires_explicit_discriminator_to_switch_cases() -> None:
     assert source.current_level_a == 0.0
 
 
-def test_gs200_state_sync_loss_is_not_applied() -> None:
+def test_gs200_baseline_transport_loss_is_raised() -> None:
     driver = YokogawaGS200("bias", _FailingTransport())
 
-    receipt = driver.apply_state(InstrumentStateCommand(instrument_id="bias"))
-
-    assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "instrument_state_sync_failed"
+    with pytest.raises(TransportError, match="failed query"):
+        driver.apply_state(InstrumentStateCommand(instrument_id="bias"))
 
 
 def test_apply_transport_loss_reports_unknown_not_not_applied() -> None:

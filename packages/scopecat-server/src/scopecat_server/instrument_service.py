@@ -1555,11 +1555,15 @@ class InstrumentService:
     ) -> InstrumentStateSnapshot:
         runtime = self._live_runtime(session_id)
         with runtime.lock:
-            _session, _runtime, instrument = self._session_instrument(
+            session, _runtime, instrument = self._session_instrument(
                 session_id,
                 instrument_id,
             )
-            state = _observe_instrument(instrument)
+            try:
+                state = _observe_instrument(instrument)
+            except BackendConflict:
+                self._end_failed_observation(session, runtime)
+                raise
             instrument.adopt_state(state)
             return state
 
@@ -2228,6 +2232,29 @@ class InstrumentService:
         _fault_ownership(runtime, abort=abort)
         self._pop_runtime(session.session_id)
         self._mark_unknown(session, reason=reason)
+
+    def _end_failed_observation(
+        self,
+        session: InstrumentSession,
+        runtime: _OwnershipRuntime,
+    ) -> None:
+        """Release a read-only failure without claiming hardware was modified."""
+
+        _fault_ownership(runtime, abort=False)
+        self._pop_runtime(session.session_id)
+        try:
+            self._control.close_instrument_session(
+                session.session_id,
+                status="aborted",
+            )
+        except Exception as error:
+            self._mark_unknown(
+                session,
+                reason="instrument_session_observation_cleanup_failed",
+            )
+            raise BackendConflict(
+                "instrument session observation failure could not be released"
+            ) from error
 
     def _lose_run_runtime(
         self,

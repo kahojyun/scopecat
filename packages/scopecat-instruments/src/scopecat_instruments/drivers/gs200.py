@@ -40,7 +40,7 @@ from scopecat_instruments.interfaces import (
     dc_monitor_interface,
     dc_source_interface,
 )
-from scopecat_instruments.transport import ScpiTransport
+from scopecat_instruments.transport import ScpiTransport, TransportError
 
 
 class YokogawaGS200:
@@ -125,6 +125,9 @@ class YokogawaGS200:
             return not_applied(problems)
         try:
             baseline = self.read_state()
+        except TransportError:
+            # A not_applied receipt would keep a transport that cannot be reused.
+            raise
         except Exception as error:
             return state_sync_failed(self.instrument_id, error)
         problems = validate_writable_command(

@@ -3,7 +3,7 @@
 `scopecat-instruments` supplies Scopecat's config-driven provider for a focused
 set of real and virtual laboratory instruments. Device access is owned by the
 project daemon so notebooks, the GUI, and experiment runs share the same
-exclusive leases, interface validation, operation receipts, and audit trail.
+exclusive claims, interface validation, operation receipts, and audit trail.
 
 The configured connection kinds are:
 
@@ -39,8 +39,8 @@ with sc.open_project(".").connect(operator="alice") as lab:
         )
 ```
 
-The context manager opens a renewable daemon-owned session and closes it on
-exit. Runs and interactive sessions compete for the same instrument lease.
+The context manager opens a durable daemon-owned session and closes it on exit.
+Runs and interactive sessions compete for the same exclusive resource claim.
 Consequential calls accept an explicit `operation_id` when a caller needs to
 retry the same logical operation.
 

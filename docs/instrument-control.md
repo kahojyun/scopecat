@@ -61,6 +61,13 @@ unknown hardware outcome faults and disconnects it. Daemon shutdown first
 fences new owners, then drains durable ownership, and finally disconnects all
 remaining actors.
 
+An explicit state refresh is read-only. If it fails, or the driver returns an
+invalid snapshot, the daemon ends the whole multi-instrument ownership epoch
+and faults every connection without issuing hardware aborts. The durable
+session is quarantined only if closing that session fails. A readback failure
+after a consequential apply, operation, or acquisition remains an unknown
+outcome and uses the abort-and-quarantine path.
+
 `ResourcePort` remains a logical experiment requirement such as RF output or
 network sweep. It requests one or more namespaced interface ids such as
 `scopecat.rf_output/v1`; planning routes the complete requirement to a physical
@@ -83,12 +90,15 @@ A driver implementation may expose several interfaces. Multi-device
 calibration, feedback, and analysis remain experiment procedures rather than
 device operations.
 
-Operating-mode-dependent property sets belong in a later discriminated state
-model within an interface. A mode is mutable state, so routing never selects a
-different interface merely because the device changed mode. Named startup
-profiles likewise remain configuration that resolves to partial property
-assignments; omitted experiment properties preserve freshly observed device
-state unless an explicit profile policy says otherwise.
+Operating-mode-dependent property sets use the interface's discriminated state
+model. The discriminator and common properties are valid in every case, while
+each case declares its own additional property set. A mode is mutable state, so
+routing never selects a different interface merely because the device changed
+mode. The current `scopecat.dc_source/v2` contract uses this model for voltage
+and current source modes. Named startup profiles likewise remain configuration
+that resolves to partial property assignments; omitted experiment properties
+preserve freshly observed device state unless an explicit profile policy says
+otherwise.
 
 ## Connection configuration
 
@@ -99,6 +109,11 @@ The core configuration schema distinguishes:
 
 Connections may carry driver-specific `options`. The first-party provider
 supports virtual devices and configured TCP/IP endpoints.
+
+A raw TCP transport owns one socket generation and never reconnects itself.
+Connect, write, read, response-size, or text-decoding failure permanently
+breaks that transport and clears buffered bytes. Reconnection happens only by
+constructing and identifying a new driver through the provider.
 
 Example:
 

@@ -151,6 +151,7 @@ class _ResyncDriver(_TrackingDriver):
         super().__init__(instrument_id)
         self.read_count = 0
         self.fail_next_read = False
+        self.return_invalid_next_read = False
 
     def change_from_front_panel(self, value: float) -> None:
         self._state[("test.set_frequency/v1", "frequency")] = StateValue(
@@ -163,6 +164,9 @@ class _ResyncDriver(_TrackingDriver):
         if self.fail_next_read:
             self.fail_next_read = False
             raise RuntimeError("stale connection")
+        if self.return_invalid_next_read:
+            self.return_invalid_next_read = False
+            return InstrumentStateSnapshot(instrument_id=f"{self.instrument_id}-wrong")
         return super().read_state()
 
 
@@ -1062,6 +1066,101 @@ def test_observation_failure_aborts_session_without_quarantining(
             [driver] = provider.drivers
             assert instrument.availability == "available"
             assert driver.disconnected
+
+
+@pytest.mark.parametrize("invalid_snapshot", [False, True])
+def test_explicit_observation_failure_ends_the_entire_session(
+    tmp_path: Path,
+    *,
+    invalid_snapshot: bool,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    config = _two_instrument_config()
+    with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            first = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id=f"open-explicit-read-failure-{invalid_snapshot}",
+                    actor="alice",
+                    instrument_ids=("source-0", "source-1"),
+                )
+            )
+            drivers = {driver.instrument_id: driver for driver in provider.drivers}
+            failed_driver = drivers["source-0"]
+            assert isinstance(failed_driver, _ResyncDriver)
+            if invalid_snapshot:
+                failed_driver.return_invalid_next_read = True
+            else:
+                failed_driver.fail_next_read = True
+
+            with pytest.raises(DaemonConflictError):
+                daemon.read_instrument_state(first.session_id, "source-0")
+
+            durable = runtime.application.executor._control.get_instrument_session(
+                first.session_id
+            )
+            assert durable.state == "closed"
+            assert durable.end_status == "aborted"
+            assert {item.availability for item in daemon.list_instruments().items} == {
+                "available"
+            }
+            assert all(driver.abort_count == 0 for driver in drivers.values())
+            assert all(driver.disconnect_count == 1 for driver in drivers.values())
+            assert daemon.close_instrument_session(first.session_id).status == "aborted"
+
+            second = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id=f"reopen-after-read-failure-{invalid_snapshot}",
+                    actor="bob",
+                    instrument_ids=("source-0", "source-1"),
+                )
+            )
+            assert len(provider.drivers) == 4
+            daemon.close_instrument_session(second.session_id)
+
+
+def test_explicit_observation_cleanup_failure_requires_attention(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            opened = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-explicit-read-cleanup-failure",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            control = runtime.application.executor._control
+
+            def fail_close(*_args: object, **_kwargs: object) -> Never:
+                raise RuntimeError("control close failed")
+
+            monkeypatch.setattr(control, "close_instrument_session", fail_close)
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            driver.fail_next_read = True
+
+            with pytest.raises(
+                DaemonConflictError,
+                match="observation failure could not be released",
+            ):
+                daemon.read_instrument_state(opened.session_id, "source-0")
+
+            durable = control.get_instrument_session(opened.session_id)
+            assert durable.state == "attention_required"
+            assert (
+                durable.attention_reason
+                == "instrument_session_observation_cleanup_failed"
+            )
+            assert driver.abort_count == 0
+            assert driver.disconnect_count == 1
+            [instrument] = daemon.list_instruments().items
+            assert instrument.availability == "quarantined"
 
 
 def test_acquisition_cleanup_failure_quarantines_the_durable_owner(
