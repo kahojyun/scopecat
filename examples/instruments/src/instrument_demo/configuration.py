@@ -22,6 +22,13 @@ from scopecat.records.parameter import (
     ParameterSnapshot,
     ScalarParameterValue,
 )
+from scopecat_instruments.interfaces import (
+    DC_MONITOR,
+    DC_SOURCE,
+    NETWORK_SWEEP,
+    RF_OUTPUT,
+    TEMPERATURE_READOUT,
+)
 from scopecat_instruments.provider import (
     VIRTUAL_DC_SOURCE,
     VIRTUAL_RF_SOURCE,
@@ -68,19 +75,23 @@ def bootstrap_config() -> ConfigProfileSnapshot:
                 bindings=[
                     RoutingEndpointBinding(
                         instrument_id="pump-source",
-                        capability="rf_output",
+                        interface_id=RF_OUTPUT,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="flux-source",
-                        capability="dc_output",
+                        interface_id=DC_SOURCE,
+                    ),
+                    RoutingEndpointBinding(
+                        instrument_id="flux-source",
+                        interface_id=DC_MONITOR,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="mixing-chamber",
-                        capability="temperature_readout",
+                        interface_id=TEMPERATURE_READOUT,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="readout-vna",
-                        capability="network_sweep",
+                        interface_id=NETWORK_SWEEP,
                     ),
                 ]
             ),

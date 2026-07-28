@@ -78,10 +78,10 @@ from scopecat.sdk.payloads import PayloadCodecRegistry
 
 @dataclass(frozen=True, slots=True)
 class ExperimentSystem:
-    """The physical capabilities used to lower one experiment definition.
+    """The physical interfaces used to lower one experiment definition.
 
     Pairing the host provider with an optional domain compiler lets the same
-    experiment definition be lowered against one coherent capability and
+    experiment definition be lowered against one coherent interface and
     resource environment. ``compile`` remains free of provider effects and
     uses the same configuration snapshot accepted during linking. The singular
     domain compiler owns dispatch for every supported domain program in that
@@ -118,7 +118,7 @@ def build_experiment_system(
     builder: ExperimentSystemBuilder | None,
     config: ConfigProfileSnapshot,
 ) -> ExperimentSystem | None:
-    """Build config-bound capabilities at the planning boundary."""
+    """Build a config-bound experiment system at the planning boundary."""
 
     if builder is None:
         return None

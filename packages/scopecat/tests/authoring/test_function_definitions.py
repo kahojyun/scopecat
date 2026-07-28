@@ -31,11 +31,11 @@ def test_module_decorator_closes_a_symbolic_function_once() -> None:
         count_ref = assert_type(sc.input_ref(count), sc.ValueRef)
         return (
             sc.module_body()
-            .resource("counter")
-            .bind_field(
-                "counter",
-                capability="counter",
-                field="count",
+            .resource("test.counter/v1")
+            .bind_property(
+                "test.counter/v1",
+                interface="test.counter/v1",
+                property="count",
                 value=count_ref,
             )
         )
@@ -75,11 +75,11 @@ def test_template_infers_identity_description_and_defaults() -> None:
     def count_source(count: Annotated[sc.Input[int], _COUNT_TYPE]):
         return (
             sc.module_body()
-            .resource("counter")
-            .bind_field(
-                "counter",
-                capability="counter",
-                field="count",
+            .resource("test.counter/v1")
+            .bind_property(
+                "test.counter/v1",
+                interface="test.counter/v1",
+                property="count",
                 value=count,
             )
         )
@@ -157,11 +157,11 @@ def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
     def count_source(value: Annotated[sc.Input[int], _COUNT_TYPE]):
         return (
             sc.module_body()
-            .resource("counter")
-            .bind_field(
-                "counter",
-                capability="counter",
-                field="count",
+            .resource("test.counter/v1")
+            .bind_property(
+                "test.counter/v1",
+                interface="test.counter/v1",
+                property="count",
                 value=value,
             )
         )

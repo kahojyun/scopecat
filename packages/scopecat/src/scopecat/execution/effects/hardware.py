@@ -118,20 +118,20 @@ def _action(
 ) -> RunHardwareAction:
     operation = effect.operation
     if isinstance(operation, ApplyStateOperation):
-        fields = tuple(
-            target.command_field(resource_id=operation.instrument_id)
+        assignments = tuple(
+            target.command_assignment(resource_id=operation.instrument_id)
             for target in operation.targets
         )
         payload_ids = {
             value.payload_id
-            for field in fields
-            if isinstance((value := field.value.root), PayloadRef)
+            for assignment in assignments
+            if isinstance((value := assignment.value.root), PayloadRef)
         }
         return RunHardwareApply(
             effect_id=operation.operation_id,
             point_index=effect.point_index,
             instrument_id=operation.instrument_id,
-            fields=fields,
+            assignments=assignments,
             payloads={
                 payload_id: frame.payloads[payload_id]
                 for payload_id in payload_ids
@@ -148,7 +148,7 @@ def _action(
             requests=tuple(command.requests),
             bindings=tuple(
                 RunHardwareCollectBinding(
-                    provider_key=binding.provider_key,
+                    request_id=binding.request_id,
                     product_use_ids=tuple(
                         product_use_id.value
                         for product_use_id in binding.product_use_ids

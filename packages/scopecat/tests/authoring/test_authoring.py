@@ -12,14 +12,14 @@ from scopecat.authoring import ExperimentModule
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
-    bind_field,
+    bind_property,
     requires,
     resource_port,
 )
 from scopecat.authoring._intents import ModuleInputPort
 from scopecat.authoring._module_ir import (
     ModuleAcquireEffect,
-    ModuleAcquireProduct,
+    ModuleAcquireResult,
     ModuleBindingEffect,
 )
 from scopecat.authoring._products import (
@@ -97,7 +97,7 @@ from tests.testkit.authoring import (
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
-    materialized_state_fields,
+    materialized_state_properties,
     measurement_projection_contract,
 )
 from tests.testkit.relation_plans import evaluate_scalar
@@ -171,14 +171,16 @@ def _module_fixture(
                     ModuleAcquireEffect(
                         id="read-products",
                         resource_port_id=logical_resource_port_id("source"),
-                        capability_id="scalar_signal",
-                        products=tuple(
-                            ModuleAcquireProduct(
+                        interface_id="test.scalar_signal/v1",
+                        component_path=(),
+                        acquisition_id="sample",
+                        results=tuple(
+                            ModuleAcquireResult(
                                 product=ProductRef(
                                     product.product_id,
                                     product.origin,
                                 ),
-                                provider_key=product.id,
+                                result_id=product.id,
                             )
                             for product in products
                         ),
@@ -278,11 +280,11 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
         value=4.9, unit="GHz"
     )
     assert [record.id for record in experiment.record_uses] == ["signal"]
-    _, state, field = materialized_state_fields(preview)[0]
+    _, state, target = materialized_state_properties(preview)[0]
     assert state.instrument_id == "source-0"
-    assert field.capability_id == "set_frequency"
-    assert field.field_path == "frequency"
-    assert field.value.root == Quantity(value=4.9, unit="GHz")
+    assert target.interface_id == "test.set_frequency/v1"
+    assert target.property_id == "frequency"
+    assert target.value.root == Quantity(value=4.9, unit="GHz")
 
 
 def test_template_selects_module_products_as_records() -> None:
@@ -293,13 +295,14 @@ def test_template_selects_module_products_as_records() -> None:
     module = (
         authoring.module_body(id="test.product_module")
         .inputs(subject)
-        .resource("source", requires=("set_frequency", "scalar_signal"))
+        .resource("source", requires=("test.set_frequency/v1", "test.scalar_signal/v1"))
         .product("signal", unit="ratio")
         .acquire(
             "read-signal",
             "signal",
             resource="source",
-            capability="scalar_signal",
+            interface="test.scalar_signal/v1",
+            acquisition="sample",
         )
         .build()
     )
@@ -375,12 +378,12 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     module = (
         authoring.module_body(id="test.compute_provenance")
         .inputs(qubit, pulse_length)
-        .resource("drive", requires=("play_pulse_program",))
+        .resource("drive", requires=("test.play_pulse_program/v1",))
         .computes(build)
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="play_pulse_program",
-            field="program",
+            interface="test.play_pulse_program/v1",
+            property="program",
             value=build.output,
         )
         .build()
@@ -503,13 +506,13 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
                 bindings=[
                     RoutingEndpointBinding(
                         instrument_id="source-0",
-                        capability="set_frequency",
+                        interface_id="test.set_frequency/v1",
                         entity_id="q0",
                         channel_id="drive-q0",
                     ),
                     RoutingEndpointBinding(
                         instrument_id="source-1",
-                        capability="set_frequency",
+                        interface_id="test.set_frequency/v1",
                         entity_id="q1",
                         channel_id="drive-q1",
                     ),
@@ -528,13 +531,13 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         authoring.module_body(id="test.runtime_entity_scan")
         .resource(
             "drive",
-            requires=("set_frequency",),
+            requires=("test.set_frequency/v1",),
             for_entities=(qubit,),
         )
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="set_frequency",
-            field="frequency",
+            interface="test.set_frequency/v1",
+            property="frequency",
             value=authoring.parameter_lookup(
                 "sample_qubits",
                 key={"qubit": qubit},
@@ -547,7 +550,8 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
             "read-signal",
             "signal",
             resource="drive",
-            capability="set_frequency",
+            interface="test.set_frequency/v1",
+            acquisition="sample",
         )
         .build()
     )
@@ -578,8 +582,8 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         EntityRef(id="q1", kind="logical_device"),
     ]
     assert [
-        (point_index, state.instrument_id, field.value.root)
-        for point_index, state, field in materialized_state_fields(preview)
+        (point_index, state.instrument_id, target.value.root)
+        for point_index, state, target in materialized_state_properties(preview)
     ] == [
         (0, "source-0", Quantity(value=5.0, unit="GHz")),
         (1, "source-1", Quantity(value=5.1, unit="GHz")),
@@ -652,13 +656,14 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
     module = (
         authoring.module_body(id="test.runtime_entity_dependent_points")
         .inputs(qubit)
-        .resource("source", requires=("scalar_signal",))
+        .resource("source", requires=("test.scalar_signal/v1",))
         .product("signal", unit="ratio")
         .acquire(
             "read-signal",
             "signal",
             resource="source",
-            capability="scalar_signal",
+            interface="test.scalar_signal/v1",
+            acquisition="sample",
         )
         .build()
     )
@@ -699,7 +704,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
 def test_literal_string_values_define_categorical_product_axis() -> None:
     module = (
         authoring.module_body(id="test.categorical_axis")
-        .resource("source", requires=("scalar_signal",))
+        .resource("source", requires=("test.scalar_signal/v1",))
         .product(
             "iq",
             dtype="complex128",
@@ -720,7 +725,8 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
             "read-iq",
             "iq",
             resource="source",
-            capability="scalar_signal",
+            interface="test.scalar_signal/v1",
+            acquisition="sample",
         )
         .build()
     )
@@ -817,7 +823,7 @@ def test_link_resolves_config_dependent_assembly_fragments() -> None:
         resolved.program,
         resolved.environment.parameters,
     )
-    assert materialized_state_fields(preview)[0][1].instrument_id == "source-0"
+    assert materialized_state_properties(preview)[0][1].instrument_id == "source-0"
 
 
 def test_link_validates_scan_axis_parameter_contracts() -> None:
@@ -846,8 +852,8 @@ def test_module_construction_rejects_duplicate_resource_ids() -> None:
     with pytest.raises(ValueError, match="duplicate module resource ids"):
         (
             authoring.module_body(id="test.shared_resource.duplicate")
-            .resource("source", requires=("set_frequency",))
-            .resource("source", requires=("acquire_signal",))
+            .resource("source", requires=("test.set_frequency/v1",))
+            .resource("source", requires=("test.acquire_signal/v1",))
             .build()
         )
 
@@ -860,11 +866,11 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
     child = (
         authoring.module_body(id="test.invocation_defaults.child")
         .inputs(drive_frequency)
-        .resource("source", requires=("set_frequency",))
-        .bind_field(
+        .resource("source", requires=("test.set_frequency/v1",))
+        .bind_property(
             "source",
-            capability="set_frequency",
-            field="frequency",
+            interface="test.set_frequency/v1",
+            property="frequency",
             value=drive_frequency,
         )
         .build()
@@ -900,11 +906,11 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
     child = (
         authoring.module_body(id="test.invocation_override.child")
         .inputs(drive_frequency)
-        .resource("source", requires=("set_frequency",))
-        .bind_field(
+        .resource("source", requires=("test.set_frequency/v1",))
+        .bind_property(
             "source",
-            capability="set_frequency",
-            field="frequency",
+            interface="test.set_frequency/v1",
+            property="frequency",
             value=drive_frequency,
         )
         .build()
@@ -945,11 +951,11 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
     child = (
         authoring.module_body(id="test.invocation_deferred.child")
         .inputs(child_value, unused_parameter, unused_point)
-        .resource("source", requires=("set_offset",))
-        .bind_field(
+        .resource("source", requires=("test.set_offset/v1",))
+        .bind_property(
             "source",
-            capability="set_offset",
-            field="offset",
+            interface="test.set_offset/v1",
+            property="offset",
             value=child_value,
         )
         .build()
@@ -1005,17 +1011,20 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
             used_point_input,
             unused_point_input,
         )
-        .resource("source", requires=("set_offset", "set_gain"))
-        .bind_field(
+        .resource(
             "source",
-            capability="set_offset",
-            field="offset",
+            requires=("test.set_offset/v1", "test.set_gain/v1"),
+        )
+        .bind_property(
+            "source",
+            interface="test.set_offset/v1",
+            property="offset",
             value=used_parameter_input,
         )
-        .bind_field(
+        .bind_property(
             "source",
-            capability="set_gain",
-            field="gain",
+            interface="test.set_gain/v1",
+            property="gain",
             value=used_point_input,
         )
         .build()
@@ -1088,11 +1097,11 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
     child = (
         authoring.module_body(id="test.invocation_parent_input.child")
         .inputs(drive_frequency)
-        .resource("source", requires=("set_frequency",))
-        .bind_field(
+        .resource("source", requires=("test.set_frequency/v1",))
+        .bind_property(
             "source",
-            capability="set_frequency",
-            field="frequency",
+            interface="test.set_frequency/v1",
+            property="frequency",
             value=drive_frequency,
         )
         .build()
@@ -1128,11 +1137,11 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     first = (
         authoring.module_body(id="test.invocation_sibling.first")
         .inputs(first_frequency)
-        .resource("source", requires=("set_frequency",))
-        .bind_field(
+        .resource("source", requires=("test.set_frequency/v1",))
+        .bind_property(
             "source",
-            capability="set_frequency",
-            field="frequency",
+            interface="test.set_frequency/v1",
+            property="frequency",
             value=first_frequency,
         )
         .build()
@@ -1144,11 +1153,11 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     second = (
         authoring.module_body(id="test.invocation_sibling.second")
         .inputs(second_frequency)
-        .resource("detector", requires=("set_frequency",))
-        .bind_field(
+        .resource("detector", requires=("test.set_frequency/v1",))
+        .bind_property(
             "detector",
-            capability="set_frequency",
-            field="frequency",
+            interface="test.set_frequency/v1",
+            property="frequency",
             value=second_frequency,
         )
         .build()
@@ -1198,13 +1207,13 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         .inputs(qubit, drive_frequency)
         .resource(
             "drive",
-            requires=("set_frequency",),
+            requires=("test.set_frequency/v1",),
             for_entities=(qubit,),
         )
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="set_frequency",
-            field="frequency",
+            interface="test.set_frequency/v1",
+            property="frequency",
             value=drive_frequency,
         )
         .build()
@@ -1243,14 +1252,14 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         resources=[
             resource_port(
                 "source",
-                requires("set_frequency", "scalar_signal"),
+                requires("test.set_frequency/v1", "test.scalar_signal/v1"),
             ),
         ],
         bindings=[
-            bind_field(
+            bind_property(
                 "source",
-                capability="set_frequency",
-                field="frequency",
+                interface="test.set_frequency/v1",
+                property="frequency",
                 value=DRIVE_FREQUENCY_POINT,
             )
         ],
@@ -1293,14 +1302,14 @@ def test_product_declaration_uses_axes() -> None:
         resources=[
             resource_port(
                 "source",
-                requires("set_frequency", "scalar_signal"),
+                requires("test.set_frequency/v1", "test.scalar_signal/v1"),
             ),
         ],
         bindings=[
-            bind_field(
+            bind_property(
                 "source",
-                capability="set_frequency",
-                field="frequency",
+                interface="test.set_frequency/v1",
+                property="frequency",
                 value=DRIVE_FREQUENCY_POINT,
             ),
         ],
@@ -1365,13 +1374,13 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
                 bindings=[
                     RoutingEndpointBinding(
                         instrument_id="source-0",
-                        capability="set_frequency",
+                        interface_id="test.set_frequency/v1",
                         entity_id="q0",
                         channel_id="drive-q0",
                     ),
                     RoutingEndpointBinding(
                         instrument_id="source-1",
-                        capability="set_frequency",
+                        interface_id="test.set_frequency/v1",
                         entity_id="q1",
                         channel_id="drive-q1",
                     ),
@@ -1389,13 +1398,13 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         .inputs(qubit)
         .resource(
             "drive",
-            requires=("set_frequency",),
+            requires=("test.set_frequency/v1",),
             for_entities=(qubit,),
         )
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="set_frequency",
-            field="frequency",
+            interface="test.set_frequency/v1",
+            property="frequency",
             value=authoring.parameter(
                 "drive_frequency",
                 authoring.ScalarType(authoring.QuantityType(unit="GHz")),
@@ -1418,19 +1427,21 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         resolved.environment.parameters,
         config=config,
     )
-    assert materialized_state_fields(preview)[0][1].instrument_id == "source-1"
+    assert materialized_state_properties(preview)[0][1].instrument_id == "source-1"
 
 
 def test_explicit_config_links_experiment() -> None:
     selected_instrument = "spare-awg"
-    config = config_with_physical_resources({selected_instrument: ("drive.frequency",)})
+    config = config_with_physical_resources(
+        {selected_instrument: ("test.drive_frequency/v1",)}
+    )
     module = (
         authoring.module_body(id="test.explicit-config-source")
-        .resource("drive", requires=("drive.frequency",))
-        .bind_field(
+        .resource("drive", requires=("test.drive_frequency/v1",))
+        .bind_property(
             "drive",
-            capability="drive.frequency",
-            field="value",
+            interface="test.drive_frequency/v1",
+            property="value",
             value=Quantity(value=5.0, unit="GHz"),
         )
         .build()
@@ -1450,5 +1461,6 @@ def test_explicit_config_links_experiment() -> None:
         config=config,
     )
 
-    assert materialized_state_fields(preview)[0][1].instrument_id == selected_instrument
+    [(_point_index, operation, _target)] = materialized_state_properties(preview)
+    assert operation.instrument_id == selected_instrument
     assert resolved.environment.config is config

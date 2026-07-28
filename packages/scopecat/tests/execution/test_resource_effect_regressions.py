@@ -14,7 +14,7 @@ from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
     record_product,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.config.environment import build_config_environment
@@ -48,13 +48,13 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     CommandChannelBinding,
     InstrumentDescription,
+    InstrumentPropertyState,
     InstrumentReadback,
     InstrumentStateCommand,
-    InstrumentStateField,
     InstrumentStateSnapshot,
     apply_state_command_to_snapshot,
-    capability,
-    float_field,
+    float_property,
+    interface,
 )
 from tests.testkit.authoring import load_config, parameters
 from tests.testkit.instrument_host import TestRunInstrumentHost
@@ -133,15 +133,15 @@ def test_record_products_keep_their_exact_logical_resource_bindings() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=left,
-                capabilities=("measure.left",),
+                interfaces=("test.measure_left/v1",),
             ),
             LogicalResourceRequirement(
                 port_id=right,
-                capabilities=("measure.right",),
+                interfaces=("test.measure_right/v1",),
             ),
             LogicalResourceRequirement(
                 port_id=direct,
-                capabilities=("measure.direct",),
+                interfaces=("test.measure_direct/v1",),
             ),
         ),
         products=(left_product, right_product, direct_product),
@@ -149,20 +149,20 @@ def test_record_products_keep_their_exact_logical_resource_bindings() -> None:
             instrument_acquisition(
                 left_product,
                 resource_port_id=left,
-                capability="measure.left",
-                provider_key="left",
+                interface="test.measure_left/v1",
+                result_id="left",
             ),
             instrument_acquisition(
                 right_product,
                 resource_port_id=right,
-                capability="measure.right",
-                provider_key="right",
+                interface="test.measure_right/v1",
+                result_id="right",
             ),
             instrument_acquisition(
                 direct_product,
                 resource_port_id=direct,
-                capability="measure.direct",
-                provider_key="direct",
+                interface="test.measure_direct/v1",
+                result_id="direct",
             ),
         ),
     )
@@ -186,19 +186,19 @@ def test_record_products_keep_their_exact_logical_resource_bindings() -> None:
     }
 
 
-def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
+def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
     config = load_config()
     routing = RoutingGraph(
         bindings=[
             RoutingEndpointBinding(
                 instrument_id="source-0",
-                capability="A",
+                interface_id="test.a/v1",
                 entity_id="q0",
                 channel_id="drive-q0",
             ),
             RoutingEndpointBinding(
                 instrument_id="source-0",
-                capability="B",
+                interface_id="test.b/v1",
                 entity_id="q0",
                 channel_id="readout-q0",
             ),
@@ -211,19 +211,19 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
     a_product = observable_product("A-result")
     b_product = observable_product("B-result")
     program = _unit_program(
-        experiment_id="explicit-capability-endpoints",
+        experiment_id="explicit-interface-endpoints",
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=port,
-                capabilities=("A", "B"),
+                interfaces=("test.a/v1", "test.b/v1"),
                 entity_uses=(relation_use(_entity("q0")),),
             ),
         ),
         state=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=port,
-                capability_id="A",
-                field_path="level",
+                interface_id="test.a/v1",
+                property_id="level",
                 value=_number(1.0),
             ),
         ),
@@ -232,14 +232,14 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
             instrument_acquisition(
                 a_product,
                 resource_port_id=port,
-                capability="A",
-                provider_key="A-result",
+                interface="test.a/v1",
+                result_id="A-result",
             ),
             instrument_acquisition(
                 b_product,
                 resource_port_id=port,
-                capability="B",
-                provider_key="B-result",
+                interface="test.b/v1",
+                result_id="B-result",
             ),
         ),
     )
@@ -249,9 +249,9 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
     [state] = operations_of_type(plan, ApplyStateOperation, point_index=0)
     assert state.instrument_id == "source-0"
     assert [
-        (binding.capability, binding.channel_id)
+        (binding.interface_id, binding.channel_id)
         for binding in state.targets[0].channel_bindings
-    ] == [("A", "drive-q0")]
+    ] == [("test.a/v1", "drive-q0")]
 
     requests = {
         request.id: request
@@ -260,26 +260,26 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
     }
     assert {
         key: (
-            request.capability_id,
+            request.interface_id,
             tuple(
-                (binding.capability, binding.channel_id)
+                (binding.interface_id, binding.channel_id)
                 for binding in request.channel_bindings
             ),
         )
         for key, request in requests.items()
     } == {
-        "A-result": ("A", (("A", "drive-q0"),)),
-        "B-result": ("B", (("B", "readout-q0"),)),
+        "A-result": ("test.a/v1", (("test.a/v1", "drive-q0"),)),
+        "B-result": ("test.b/v1", (("test.b/v1", "readout-q0"),)),
     }
 
 
 def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
     config = _split_instrument_config()
     source = _port("source")
-    first_state = set_state_field(
+    first_state = set_state_property(
         resource_port_id=source,
-        capability_id="set.level",
-        field_path="level",
+        interface_id="test.set_level/v1",
+        property_id="level",
         value=_number(1.0),
     )
 
@@ -289,7 +289,7 @@ def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
             resource_requirements=(
                 LogicalResourceRequirement(
                     port_id=source,
-                    capabilities=("set.level",),
+                    interfaces=("test.set_level/v1",),
                     entity_uses=(relation_use(_entity("q0")),),
                 ),
             ),
@@ -297,11 +297,11 @@ def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
         ),
         config=config,
     )
-    field = operations_of_type(single_plan, ApplyStateOperation, point_index=0)[
+    target = operations_of_type(single_plan, ApplyStateOperation, point_index=0)[
         0
     ].targets[0]
-    assert field.entity_ids == ("q0",)
-    assert tuple(binding.channel_id for binding in field.channel_bindings) == (
+    assert target.entity_ids == ("q0",)
+    assert tuple(binding.channel_id for binding in target.channel_bindings) == (
         "drive-q0",
     )
     assert [(claim.kind, claim.id) for claim in single_plan.resource_claims] == [
@@ -317,7 +317,7 @@ def test_logical_state_does_not_broadcast_across_instruments() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=source,
-                capabilities=("set.level",),
+                interfaces=("test.set_level/v1",),
                 entity_uses=(
                     relation_use(_entity("q0")),
                     relation_use(_entity("q1")),
@@ -325,10 +325,10 @@ def test_logical_state_does_not_broadcast_across_instruments() -> None:
             ),
         ),
         state=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=source,
-                capability_id="set.level",
-                field_path="level",
+                interface_id="test.set_level/v1",
+                property_id="level",
                 value=_number(1.0),
             ),
         ),
@@ -351,15 +351,15 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=signal,
-                capabilities=("set.level", "measure.signal"),
+                interfaces=("test.set_level/v1", "test.measure_signal/v1"),
                 entity_uses=(relation_use(_entity("q0")),),
             ),
         ),
         state=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=signal,
-                capability_id="set.level",
-                field_path="level",
+                interface_id="test.set_level/v1",
+                property_id="level",
                 value=_number(1.0),
             ),
         ),
@@ -368,8 +368,8 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
             instrument_acquisition(
                 product,
                 resource_port_id=signal,
-                capability="measure.signal",
-                provider_key="signal",
+                interface="test.measure_signal/v1",
+                result_id="signal",
             ),
         ),
     )
@@ -377,13 +377,13 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     plan = _bind(program, config=config)
     execution = plan
 
-    state_field = operations_of_type(plan, ApplyStateOperation, point_index=0)[
+    state_property = operations_of_type(plan, ApplyStateOperation, point_index=0)[
         0
     ].targets[0]
     request = operations_of_type(plan, CollectOperation, point_index=0)[
         0
     ].command.requests[0]
-    assert (state_field.entity_ids, state_field.channel_bindings) == (("q0",), ())
+    assert (state_property.entity_ids, state_property.channel_bindings) == (("q0",), ())
     assert (request.entity_ids, request.channel_bindings) == (["q0"], [])
 
     target = operations_of_type(execution, ApplyStateOperation, point_index=0)[
@@ -405,26 +405,26 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=left,
-                capabilities=("set.level",),
+                interfaces=("test.set_level/v1",),
                 entity_uses=(relation_use(_entity("q0")),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
-                capabilities=("set.level",),
+                interfaces=("test.set_level/v1",),
                 entity_uses=(relation_use(_entity("q0")),),
             ),
         ),
         state=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=left,
-                capability_id="set.level",
-                field_path="level",
+                interface_id="test.set_level/v1",
+                property_id="level",
                 value=_number(1.0),
             ),
-            set_state_field(
+            set_state_property(
                 resource_port_id=right,
-                capability_id="set.level",
-                field_path="level",
+                interface_id="test.set_level/v1",
+                property_id="level",
                 value=_number(1.0),
             ),
         ),
@@ -438,23 +438,23 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
     }
 
 
-def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
+def test_scoped_same_property_targets_survive_snapshot_reconciliation() -> None:
     q0_binding = CommandChannelBinding(entity_id="q0", channel_id="drive-q0")
     q1_binding = CommandChannelBinding(entity_id="q1", channel_id="readout-q0")
     driver = _ScopedStateDriver(
         InstrumentStateSnapshot(
             instrument_id="source-0",
-            fields=[
-                InstrumentStateField(
-                    capability_id="set_gain",
-                    field_path="gain",
+            properties=[
+                InstrumentPropertyState(
+                    interface_id="test.set_gain/v1",
+                    property_id="gain",
                     value=StateValue(1.0),
                     entity_ids=["q0"],
                     channel_bindings=[q0_binding],
                 ),
-                InstrumentStateField(
-                    capability_id="set_gain",
-                    field_path="gain",
+                InstrumentPropertyState(
+                    interface_id="test.set_gain/v1",
+                    property_id="gain",
                     value=StateValue(0.0),
                     entity_ids=["q1"],
                     channel_bindings=[q1_binding],
@@ -464,24 +464,24 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
     )
     program = LocalEffectInspection.at_point(
         RunPoint(
-            LogicalPointId(PointDomainId("scoped-same-field", "root"), 0),
+            LogicalPointId(PointDomainId("scoped-same-property", "root"), 0),
             {},
         ),
         (
             ApplyStateOperation(
-                operation_id="scoped-same-field-point.state.source-0",
+                operation_id="scoped-same-property-point.state.source-0",
                 instrument_id="source-0",
                 targets=(
                     StateTarget(
-                        capability_id="set_gain",
-                        field_path="gain",
+                        interface_id="test.set_gain/v1",
+                        property_id="gain",
                         value=StateValue(1.0),
                         entity_ids=("q0",),
                         channel_bindings=(q0_binding,),
                     ),
                     StateTarget(
-                        capability_id="set_gain",
-                        field_path="gain",
+                        interface_id="test.set_gain/v1",
+                        property_id="gain",
                         value=StateValue(2.0),
                         entity_ids=("q1",),
                         channel_bindings=(q1_binding,),
@@ -494,7 +494,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
     )
 
     result = RunEffectInterpreter(
-        run_id="scoped-same-field-run",
+        run_id="scoped-same-property-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
@@ -502,15 +502,15 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
 
     assert not result.problems and not result.indeterminate
     assert len(driver.applied) == 1
-    assert [field.entity_ids for field in driver.applied[0].fields] == [["q1"]]
+    assert [item.entity_ids for item in driver.applied[0].assignments] == [["q1"]]
     assert {
-        (tuple(field.entity_ids), field.value) for field in driver.state.fields
+        (tuple(item.entity_ids), item.value) for item in driver.state.properties
     } == {
         (("q0",), StateValue(1.0)),
         (("q1",), StateValue(2.0)),
     }
     assert len(result.final_state) == 1
-    assert len(result.final_state[0].fields) == 2
+    assert len(result.final_state[0].properties) == 2
 
 
 def _same_instrument_record_config() -> ConfigProfileSnapshot:
@@ -527,19 +527,19 @@ def _same_instrument_record_config() -> ConfigProfileSnapshot:
         bindings=[
             RoutingEndpointBinding(
                 instrument_id="source-0",
-                capability="measure.left",
+                interface_id="test.measure_left/v1",
                 entity_id="q0",
                 channel_id="drive-q0",
             ),
             RoutingEndpointBinding(
                 instrument_id="source-0",
-                capability="measure.right",
+                interface_id="test.measure_right/v1",
                 entity_id="q1",
                 channel_id="readout-q0",
             ),
             RoutingEndpointBinding(
                 instrument_id="source-0",
-                capability="measure.direct",
+                interface_id="test.measure_direct/v1",
             ),
         ],
     )
@@ -567,13 +567,13 @@ def _split_instrument_config() -> ConfigProfileSnapshot:
         bindings=[
             RoutingEndpointBinding(
                 instrument_id="source-0",
-                capability="set.level",
+                interface_id="test.set_level/v1",
                 entity_id="q0",
                 channel_id="drive-q0",
             ),
             RoutingEndpointBinding(
                 instrument_id="source-1",
-                capability="set.level",
+                interface_id="test.set_level/v1",
                 entity_id="q1",
                 channel_id="readout-q0",
             ),
@@ -602,10 +602,13 @@ def _entity_only_config() -> ConfigProfileSnapshot:
         bindings=[
             RoutingEndpointBinding(
                 instrument_id="source-0",
-                capability=capability,
+                interface_id=interface_id,
                 entity_id="q0",
             )
-            for capability in ("set.level", "measure.signal")
+            for interface_id in (
+                "test.set_level/v1",
+                "test.measure_signal/v1",
+            )
         ],
     )
     return config.model_copy(
@@ -627,7 +630,12 @@ class _ScopedStateDriver:
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
             implementation_version=self.implementation_version,
-            capabilities=[capability("set_gain", fields=[float_field("gain")])],
+            interfaces=[
+                interface(
+                    "test.set_gain/v1",
+                    properties=[float_property("gain")],
+                )
+            ],
         )
 
     def read_state(self) -> InstrumentStateSnapshot:

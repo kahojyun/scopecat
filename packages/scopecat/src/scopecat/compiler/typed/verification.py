@@ -80,9 +80,9 @@ def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
     """Close ownership after record demand has introduced exact product uses."""
 
     owned_products = {
-        product.product_id
+        result.product_id
         for acquisition in core_acquisitions(program)
-        for product in acquisition.products
+        for result in acquisition.results
     }
     owned_products.update(
         result.product_id

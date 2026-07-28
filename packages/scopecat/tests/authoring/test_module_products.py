@@ -24,7 +24,7 @@ from tests.testkit.authoring import link_invocation, load_config
 def _product_module() -> sc.ExperimentModule[...]:
     return (
         sc.module_body(id="test.products.source")
-        .resource("source", requires=("scalar_signal",))
+        .resource("source", requires=("test.scalar_signal/v1",))
         .product(
             "signal",
             unit="ratio",
@@ -33,7 +33,8 @@ def _product_module() -> sc.ExperimentModule[...]:
             "read-signal",
             "signal",
             resource="source",
-            capability="scalar_signal",
+            interface="test.scalar_signal/v1",
+            acquisition="sample",
             metadata={"adapter_mode": "default"},
         )
         .build()
@@ -45,7 +46,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 ) -> None:
     module = (
         sc.module_body(id="test.products.metadata")
-        .resource("source", requires=("scalar_signal",))
+        .resource("source", requires=("test.scalar_signal/v1",))
         .product(
             "signal",
             metadata={"schema_owner": "analysis"},
@@ -54,7 +55,8 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
             "read-signal",
             "signal",
             resource="source",
-            capability="scalar_signal",
+            interface="test.scalar_signal/v1",
+            acquisition="sample",
             metadata={"adapter_mode": "fast"},
         )
         .build()
@@ -71,7 +73,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     )
 
     assert resolved.program.product_defs[0].metadata == {"schema_owner": "analysis"}
-    assert core_acquisitions(resolved.program)[0].products[0].metadata == {
+    assert core_acquisitions(resolved.program)[0].results[0].metadata == {
         "adapter_mode": "fast"
     }
     assert [record.id for record in resolved.program.record_uses] == ["signal"]
@@ -80,14 +82,15 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 def test_acquire_is_an_ordered_effect() -> None:
     builder = (
         sc.module_body(id="test.products.acquire")
-        .resource("source", requires=("scalar_signal",))
+        .resource("source", requires=("test.scalar_signal/v1",))
         .product("signal")
     )
     module = builder.acquire(
         "read-signal",
         builder.products.signal,
         resource="source",
-        capability="scalar_signal",
+        interface="test.scalar_signal/v1",
+        acquisition="sample",
     ).build()
     assembly = elaborate_module(module.ir)
 
@@ -96,12 +99,12 @@ def test_acquire_is_an_ordered_effect() -> None:
     assert acquire.product_ids == (module.products.signal.product_id,)
 
 
-def test_multi_product_provider_keys_lower_from_public_authoring_api(
+def test_multi_product_result_ids_lower_from_public_authoring_api(
     tmp_path: Path,
 ) -> None:
     builder = (
-        sc.module_body(id="test.products.provider-keys")
-        .resource("source", requires=("scalar_signal",))
+        sc.module_body(id="test.products.result-ids")
+        .resource("source", requires=("test.scalar_signal/v1",))
         .product("first", "second", "default")
     )
     module = builder.acquire(
@@ -110,15 +113,16 @@ def test_multi_product_provider_keys_lower_from_public_authoring_api(
         builder.products.second,
         "default",
         resource="source",
-        capability="scalar_signal",
-        product_keys={
+        interface="test.scalar_signal/v1",
+        acquisition="sample",
+        result_ids={
             "first": "raw-first",
             builder.products.second: "raw-second",
         },
     ).build()
     call = module()
 
-    @sc.template(id="test.products.provider-keys", kind="module_products")
+    @sc.template(id="test.products.result-ids", kind="module_products")
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call).record_product(
             call.products.first,
@@ -132,10 +136,9 @@ def test_multi_product_provider_keys_lower_from_public_authoring_api(
     )
 
     [acquisition] = core_acquisitions(resolved.program)
-    assert acquisition.capability_id == "scalar_signal"
+    assert acquisition.interface_id == "test.scalar_signal/v1"
     assert {
-        product.product_id.local_id: product.provider_key
-        for product in acquisition.products
+        result.product_id.local_id: result.result_id for result in acquisition.results
     } == {
         "first": "raw-first",
         "second": "raw-second",
@@ -143,37 +146,40 @@ def test_multi_product_provider_keys_lower_from_public_authoring_api(
     }
 
 
-def test_acquire_rejects_invalid_provider_key_overrides() -> None:
+def test_acquire_rejects_invalid_result_id_overrides() -> None:
     builder = (
-        sc.module_body(id="test.products.invalid-provider-keys")
-        .resource("source", requires=("scalar_signal",))
+        sc.module_body(id="test.products.invalid-result-ids")
+        .resource("source", requires=("test.scalar_signal/v1",))
         .product("first", "second")
     )
 
-    with pytest.raises(ValueError, match="either product_key or product_keys"):
+    with pytest.raises(ValueError, match="either result_id or result_ids"):
         builder.acquire(
             "read-both",
             "first",
             resource="source",
-            capability="scalar_signal",
-            product_key="raw-first",
-            product_keys={"first": "other-first"},
+            interface="test.scalar_signal/v1",
+            acquisition="sample",
+            result_id="raw-first",
+            result_ids={"first": "other-first"},
         )
     with pytest.raises(ValueError, match="unselected product"):
         builder.acquire(
             "read-both",
             "first",
             resource="source",
-            capability="scalar_signal",
-            product_keys={"second": "raw-second"},
+            interface="test.scalar_signal/v1",
+            acquisition="sample",
+            result_ids={"second": "raw-second"},
         )
     with pytest.raises(ValueError, match="values must be non-empty"):
         builder.acquire(
             "read-both",
             "first",
             resource="source",
-            capability="scalar_signal",
-            product_keys={"first": ""},
+            interface="test.scalar_signal/v1",
+            acquisition="sample",
+            result_ids={"first": ""},
         )
 
 
@@ -225,9 +231,9 @@ def test_explicit_instances_select_same_named_products_independently(
         for record in resolved.program.record_uses
     ]
     acquisitions_by_product = {
-        product.product_id: (acquisition, product)
+        result.product_id: (acquisition, result)
         for acquisition in core_acquisitions(resolved.program)
-        for product in acquisition.products
+        for result in acquisition.results
     }
     selected_acquisitions = [
         acquisitions_by_product[product.id] for product in selected_products
@@ -239,9 +245,7 @@ def test_explicit_instances_select_same_named_products_independently(
     assert [product.product_id for _acquisition, product in selected_acquisitions] == [
         product.id for product in selected_products
     ]
-    assert [
-        product.provider_key for _acquisition, product in selected_acquisitions
-    ] == [
+    assert [product.result_id for _acquisition, product in selected_acquisitions] == [
         "signal",
         "signal",
     ]
@@ -252,8 +256,8 @@ def test_explicit_instances_select_same_named_products_independently(
         logical_resource_port_id(SymbolId(scope=("root", "right"), local_id="source")),
     ]
     assert [
-        acquisition.capability_id for acquisition, _product in selected_acquisitions
-    ] == ["scalar_signal", "scalar_signal"]
+        acquisition.interface_id for acquisition, _product in selected_acquisitions
+    ] == ["test.scalar_signal/v1", "test.scalar_signal/v1"]
     assert [product.metadata for _acquisition, product in selected_acquisitions] == [
         {"adapter_mode": "default"},
         {"adapter_mode": "default"},
@@ -304,16 +308,16 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     )
     assert use.product_id == expected_product_id
     [acquisition] = core_acquisitions(resolved.program)
-    [acquired_product] = acquisition.products
-    assert acquired_product.product_id == expected_product_id
+    [acquired_result] = acquisition.results
+    assert acquired_result.product_id == expected_product_id
     assert acquisition.resource_port_id == logical_resource_port_id(
         SymbolId(
             scope=("nested-root", "outer", "inner"),
             local_id="source",
         )
     )
-    assert acquired_product.provider_key == "signal"
-    assert acquisition.capability_id == "scalar_signal"
+    assert acquired_result.result_id == "signal"
+    assert acquisition.interface_id == "test.scalar_signal/v1"
 
 
 def test_product_selection_rejects_unexposed_product() -> None:

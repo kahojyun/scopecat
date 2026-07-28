@@ -26,13 +26,13 @@ from scopecat_instruments._support import (
     parse_float,
     parse_identity,
     parse_int,
-    state_field,
+    state_property,
     validate_collect_command,
     validate_writable_command,
 )
-from scopecat_instruments.capabilities import (
+from scopecat_instruments.interfaces import (
     TEMPERATURE_READOUT,
-    temperature_readout_capability,
+    temperature_readout_interface,
 )
 from scopecat_instruments.transport import ScpiTransport
 
@@ -70,7 +70,7 @@ class LakeShore372:
                 "Safety-first read-only telemetry driver. Heater setpoint, range, "
                 "output mode, PID, and scanner writes are intentionally unsupported."
             ),
-            capabilities=[temperature_readout_capability()],
+            interfaces=[temperature_readout_interface()],
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
@@ -84,43 +84,43 @@ class LakeShore372:
             metadata["identity"] = self._identity.raw
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
-            fields=[
-                state_field(
+            properties=[
+                state_property(
                     TEMPERATURE_READOUT,
                     "scan_channel",
                     telemetry.scan_channel,
                 ),
-                state_field(
+                state_property(
                     TEMPERATURE_READOUT,
                     "autoscan_enabled",
                     telemetry.autoscan_enabled,
                 ),
-                state_field(
+                state_property(
                     TEMPERATURE_READOUT,
                     "temperature",
                     Quantity(telemetry.temperature_k, "K"),
                 ),
-                state_field(
+                state_property(
                     TEMPERATURE_READOUT,
                     "resistance",
                     Quantity(telemetry.resistance_ohm, "Ohm"),
                 ),
-                state_field(
+                state_property(
                     TEMPERATURE_READOUT,
                     "reading_status",
                     telemetry.reading_status,
                 ),
-                state_field(
+                state_property(
                     TEMPERATURE_READOUT,
                     "heater_output",
                     telemetry.heater_output,
                 ),
-                state_field(
+                state_property(
                     TEMPERATURE_READOUT,
                     "heater_range",
                     telemetry.heater_range,
                 ),
-                state_field(
+                state_property(
                     TEMPERATURE_READOUT,
                     "heater_status",
                     telemetry.heater_status,
@@ -149,7 +149,7 @@ class LakeShore372:
             values: dict[str, MeasurementValue] = {
                 request.id: (
                     Quantity(telemetry.temperature_k, "K")
-                    if request.id == "temperature"
+                    if request.result_id == "temperature"
                     else Quantity(telemetry.resistance_ohm, "Ohm")
                 )
                 for request in command.requests

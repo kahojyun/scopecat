@@ -24,7 +24,7 @@ from scopecat.compiler.typed.program import (
     ValueInput,
     core_acquisitions,
     record_product,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.evidence import (
@@ -64,16 +64,14 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import (
     CommandChannelBinding,
+    InstrumentPropertyState,
     InstrumentReadback,
-    InstrumentStateField,
     InstrumentStateSnapshot,
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.contracts import (
-    CapabilityDescription,
-    CapabilityField,
     CollectAxisRequest,
     CollectCommand,
     CollectReceipt,
@@ -82,9 +80,11 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
-    product_axis,
+    InterfaceSpec,
+    PropertySpec,
+    acquisition_axis,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
@@ -158,11 +158,11 @@ def test_instrument_models_round_trip() -> None:
         instrument_id="source-0",
         implementation_id="test.instrument",
         implementation_version="v1",
-        capabilities=[
-            CapabilityDescription(
-                id="set_frequency",
-                fields=[
-                    CapabilityField(
+        interfaces=[
+            InterfaceSpec(
+                id="test.set_frequency/v1",
+                properties=[
+                    PropertySpec(
                         id="frequency",
                         value_type=Scalar(QuantityType(unit="GHz")),
                     )
@@ -173,28 +173,28 @@ def test_instrument_models_round_trip() -> None:
     state_value = StateValue(Quantity(value=5.0, unit="GHz"))
     state = InstrumentStateSnapshot(
         instrument_id="source-0",
-        fields=[
-            InstrumentStateField(
-                capability_id="set_frequency",
-                field_path="frequency",
+        properties=[
+            InstrumentPropertyState(
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=state_value,
             )
         ],
     )
     command = InstrumentStateCommand(
         instrument_id="source-0",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="source-0",
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=state_value,
                 entity_ids=["q0"],
                 channel_bindings=[
                     CommandChannelBinding(
                         entity_id="q0",
                         channel_id="drive.awg0.ch1",
-                        capability="set_frequency",
+                        interface_id="test.set_frequency/v1",
                     )
                 ],
             )
@@ -250,10 +250,10 @@ def test_run_persists_measurements_and_run_files(
         snapshot.instrument_id
         for snapshot in [*state_evidence.initial_state, *state_evidence.final_state]
     } == {"source-0"}
-    final_state_value = state_evidence.final_state[0].fields[0].value.root
+    final_state_value = state_evidence.final_state[0].properties[0].value.root
     assert final_state_value == Quantity(value=5.1, unit="GHz")
     persisted_state_evidence = state_evidence.model_dump(mode="json")
-    assert persisted_state_evidence["final_state"][0]["fields"][0]["value"] == {
+    assert persisted_state_evidence["final_state"][0]["properties"][0]["value"] == {
         "value": 5.1,
         "unit": "GHz",
     }
@@ -389,10 +389,10 @@ class _OrderedAbiProblemProvider:
         source_description = TestSignalInstrument().describe()
         source_description = source_description.model_copy(
             update={
-                "capabilities": [
-                    capability
-                    for capability in source_description.capabilities
-                    if capability.id != "scalar_signal"
+                "interfaces": [
+                    interface
+                    for interface in source_description.interfaces
+                    if interface.id != "test.scalar_signal/v1"
                 ]
             }
         )
@@ -482,11 +482,11 @@ class _UnitAbiProvider:
     def __init__(
         self,
         *,
-        product_unit: str | None,
+        result_unit: str | None,
         axis_unit: str | None = None,
         include_axis: bool = False,
     ) -> None:
-        self.product_unit = product_unit
+        self.result_unit = result_unit
         self.axis_unit = axis_unit
         self.include_axis = include_axis
         self.provide_called = False
@@ -497,17 +497,18 @@ class _UnitAbiProvider:
     ) -> InstrumentProviderDescription:
         del context
         description = TestSignalInstrument().describe()
-        capabilities: list[CapabilityDescription] = []
-        for capability in description.capabilities:
-            if capability.id != "scalar_signal":
-                capabilities.append(capability)
+        interfaces: list[InterfaceSpec] = []
+        for interface in description.interfaces:
+            if interface.id != "test.scalar_signal/v1":
+                interfaces.append(interface)
                 continue
-            advertised_product = capability.products[0].model_copy(
+            acquisition = interface.acquisitions[0]
+            advertised_result = acquisition.results[0].model_copy(
                 update={
-                    "unit": self.product_unit,
+                    "unit": self.result_unit,
                     "axes": (
                         [
-                            product_axis(
+                            acquisition_axis(
                                 "sample",
                                 kind="sample",
                                 size=2,
@@ -519,14 +520,20 @@ class _UnitAbiProvider:
                     ),
                 }
             )
-            capabilities.append(
-                capability.model_copy(update={"products": [advertised_product]})
+            interfaces.append(
+                interface.model_copy(
+                    update={
+                        "acquisitions": [
+                            acquisition.model_copy(
+                                update={"results": [advertised_result]}
+                            )
+                        ]
+                    }
+                )
             )
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
-            instruments=(
-                description.model_copy(update={"capabilities": capabilities}),
-            ),
+            instruments=(description.model_copy(update={"interfaces": interfaces}),),
         )
 
     def provide(
@@ -592,7 +599,7 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
         "provider_abi_warning",
         "instrument_provider_id_mismatch",
         "instrument_not_in_config",
-        "instrument_product_unsupported",
+        "instrument_acquisition_result_unsupported",
     ]
     assert not provider.provide_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
@@ -639,11 +646,11 @@ def test_provider_description_exception_fails_at_preflight_boundary(
 
 
 @pytest.mark.parametrize("advertised_unit", [None, "GHz"])
-def test_provider_product_unit_mismatch_is_rejected_before_run(
+def test_provider_acquisition_result_unit_mismatch_is_rejected_before_run(
     tmp_path: Path,
     advertised_unit: str | None,
 ) -> None:
-    provider = _UnitAbiProvider(product_unit=advertised_unit)
+    provider = _UnitAbiProvider(result_unit=advertised_unit)
     config = load_config()
     plan = materialize_local_execution(
         link_program(load_experiment(), build_config_environment(config))
@@ -655,7 +662,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
 
     problem = captured.value.problems[0]
     assert len(captured.value.problems) == 1
-    assert problem.code == "instrument_product_unit_mismatch"
+    assert problem.code == "instrument_acquisition_result_unit_mismatch"
     assert problem.location == model_location(
         "execution_program",
         "operations",
@@ -669,12 +676,12 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
 
 
 @pytest.mark.parametrize("advertised_unit", [None, "GHz"])
-def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
+def test_provider_acquisition_axis_unit_mismatch_is_rejected_before_run(
     tmp_path: Path,
     advertised_unit: str | None,
 ) -> None:
     provider = _UnitAbiProvider(
-        product_unit="ratio",
+        result_unit="ratio",
         axis_unit=advertised_unit,
         include_axis=True,
     )
@@ -708,7 +715,7 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
 
     problem = captured.value.problems[0]
     assert len(captured.value.problems) == 1
-    assert problem.code == "instrument_product_axis_unit_mismatch"
+    assert problem.code == "instrument_acquisition_result_axis_unit_mismatch"
     assert problem.location == model_location(
         "execution_program",
         "operations",
@@ -772,7 +779,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     acquisition = instrument_acquisition(
         product,
         resource_port_id="source",
-        capability="scalar_signal",
+        interface="test.scalar_signal/v1",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -798,14 +805,14 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                capabilities=("play_program", "scalar_signal"),
+                interfaces=("test.play_program/v1", "test.scalar_signal/v1"),
             ),
         ),
         state=[
-            set_state_field(
+            set_state_property(
                 resource_port_id=logical_resource_port_id("source"),
-                capability_id="play_program",
-                field_path="program",
+                interface_id="test.play_program/v1",
+                property_id="program",
                 value=compute_result("build-program"),
             )
         ],
@@ -839,7 +846,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         ],
     )
     config = config_with_physical_resources(
-        {"source-0": ("play_program", "scalar_signal")}
+        {"source-0": ("test.play_program/v1", "test.scalar_signal/v1")}
     )
     instrument = SignalInstrumentDriver()
     payload_codecs = json_payload_codecs("pulse_program")
@@ -889,16 +896,16 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     ]
 
 
-def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
+def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
     instrument = TestSignalInstrument()
     base_experiment = load_experiment()
     experiment = replace(
         base_experiment,
         effects=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=logical_resource_port_id("source"),
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=scalar_value_expr(
                     lit(Quantity(value=5.9, unit="GHz")),
                     expected_type=Scalar(QuantityType(unit="GHz")),

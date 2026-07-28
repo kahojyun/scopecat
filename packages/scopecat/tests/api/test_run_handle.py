@@ -18,11 +18,11 @@ from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 SIMPLE_FREQUENCY_SCAN = (
     authoring.module_body(id="test.session.simple_frequency_scan")
-    .resource("source", requires=("set_frequency", "scalar_signal"))
-    .bind_field(
+    .resource("source", requires=("test.set_frequency/v1", "test.scalar_signal/v1"))
+    .bind_property(
         "source",
-        capability="set_frequency",
-        field="frequency",
+        interface="test.set_frequency/v1",
+        property="frequency",
         value=DRIVE_FREQUENCY_POINT,
     )
     .product("signal", unit="ratio")
@@ -30,7 +30,8 @@ SIMPLE_FREQUENCY_SCAN = (
         "read-signal",
         "signal",
         resource="source",
-        capability="scalar_signal",
+        interface="test.scalar_signal/v1",
+        acquisition="sample",
     )
     .build()
 )

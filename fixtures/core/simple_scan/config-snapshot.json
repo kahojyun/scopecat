@@ -1,5 +1,5 @@
 {
-  "format_version": "scopecat.config_snapshot.v1",
+  "format_version": "scopecat.config_snapshot.v2",
   "id": "simple-scan-profile",
   "system": {
     "id": "simple-scan-system",
@@ -58,13 +58,13 @@
       "bindings": [
         {
           "instrument_id": "source-0",
-          "capability": "set_frequency",
+          "interface_id": "test.set_frequency/v1",
           "entity_id": "q0",
           "channel_id": "drive-q0"
         },
         {
           "instrument_id": "source-0",
-          "capability": "scalar_signal",
+          "interface_id": "test.scalar_signal/v1",
           "entity_id": "q0",
           "channel_id": "readout-q0"
         }

@@ -2,8 +2,8 @@ import { ApiError, request } from "../../api";
 import type {
   ConfigProfileSnapshot,
   DaemonUiApi,
+  InstrumentAcquisition,
   InstrumentApplyReceipt,
-  InstrumentCapability,
   InstrumentCollectReceipt,
   InstrumentConnection,
   InstrumentSession,
@@ -20,13 +20,20 @@ const SESSION_API = "/api/v1/instrument-sessions";
 export type ActiveConfig = DaemonUiApi["activeConfig"];
 export type InstrumentList = DaemonUiApi["instrumentList"];
 
-export interface StagedInstrumentField {
-  capabilityId: string;
-  fieldPath: string;
+export interface StagedInstrumentProperty {
+  interfaceId: string;
+  componentPath: string[];
+  propertyId: string;
   value: InstrumentStateValue;
 }
 
-export interface InstrumentCollectionReadiness {
+export interface InstrumentAcquisitionTarget {
+  interfaceId: string;
+  componentPath: string[];
+  acquisition: InstrumentAcquisition;
+}
+
+export interface InstrumentAcquisitionReadiness {
   ready: boolean;
   reason?: string;
 }
@@ -72,7 +79,7 @@ export async function readInstrumentState(
 export async function applyInstrumentState(
   session: InstrumentSession,
   instrumentId: string,
-  fields: StagedInstrumentField[],
+  properties: StagedInstrumentProperty[],
   operationId = createInstrumentOperationId("apply"),
 ): Promise<InstrumentApplyReceipt> {
   return request<InstrumentApplyReceipt>(
@@ -81,24 +88,25 @@ export async function applyInstrumentState(
     jsonRequest({
       operation_id: operationId,
       instrument_id: instrumentId,
-      fields: fields.map((field) => ({
+      assignments: properties.map((property) => ({
         resource_id: instrumentId,
-        capability_id: field.capabilityId,
-        field_path: field.fieldPath,
-        value: field.value,
+        interface_id: property.interfaceId,
+        component_path: property.componentPath,
+        property_id: property.propertyId,
+        value: property.value,
       })),
     } satisfies DaemonUiApi["instrumentApplyCommand"]),
   );
 }
 
-export async function collectInstrumentCapability(
+export async function collectInstrumentAcquisition(
   session: InstrumentSession,
   instrumentId: string,
-  capability: InstrumentCapability,
+  target: InstrumentAcquisitionTarget,
   state?: InstrumentState,
   operationId = createInstrumentOperationId("collect"),
 ): Promise<InstrumentCollectReceipt> {
-  const plan = planInstrumentCollection(capability, state);
+  const plan = planInstrumentAcquisition(target, state);
   if (!plan.ready) throw new Error(plan.reason);
   return request<InstrumentCollectReceipt>(
     instrumentSessionPath(session.session_id, instrumentId, "collect"),
@@ -113,11 +121,11 @@ export async function collectInstrumentCapability(
   );
 }
 
-export function instrumentCollectionReadiness(
-  capability: InstrumentCapability,
+export function instrumentAcquisitionReadiness(
+  target: InstrumentAcquisitionTarget,
   state?: InstrumentState,
-): InstrumentCollectionReadiness {
-  const plan = planInstrumentCollection(capability, state);
+): InstrumentAcquisitionReadiness {
+  const plan = planInstrumentAcquisition(target, state);
   return plan.ready ? { ready: true } : { ready: false, reason: plan.reason };
 }
 
@@ -215,45 +223,51 @@ function instrumentSessionPath(
   );
 }
 
-function stateAxisSize(state: InstrumentState | undefined, axisId: string): number | undefined {
+function stateAxisSize(
+  state: InstrumentState | undefined,
+  target: InstrumentAcquisitionTarget,
+  axisId: string,
+): number | undefined {
   const candidates = [
     axisId,
     `${axisId}_points`,
     axisId === "frequency" ? "points" : undefined,
   ].filter((value): value is string => value !== undefined);
-  const field = (state?.fields ?? []).find(
+  const property = (state?.properties ?? []).find(
     (candidate) =>
-      candidates.includes(candidate.field_path) &&
+      candidate.interface_id === target.interfaceId &&
+      samePath(candidate.component_path ?? [], target.componentPath) &&
+      candidates.includes(candidate.property_id) &&
       typeof candidate.value === "number" &&
       Number.isInteger(candidate.value) &&
       candidate.value > 0,
   );
-  return typeof field?.value === "number" ? field.value : undefined;
+  return typeof property?.value === "number" ? property.value : undefined;
 }
 
-type InstrumentCollectProductRequest = NonNullable<
+type InstrumentCollectResultRequest = NonNullable<
   DaemonUiApi["instrumentCollectCommand"]["requests"]
 >[number];
 
 type InstrumentCollectPlan =
   | {
       ready: true;
-      requests: InstrumentCollectProductRequest[];
+      requests: InstrumentCollectResultRequest[];
     }
   | {
       ready: false;
       reason: string;
     };
 
-function planInstrumentCollection(
-  capability: InstrumentCapability,
+function planInstrumentAcquisition(
+  target: InstrumentAcquisitionTarget,
   state?: InstrumentState,
 ): InstrumentCollectPlan {
-  const requests: InstrumentCollectProductRequest[] = [];
-  for (const product of capability.products ?? []) {
-    const axes = product.axes ?? [];
+  const requests: InstrumentCollectResultRequest[] = [];
+  for (const result of target.acquisition.results ?? []) {
+    const axes = result.axes ?? [];
     const dimensions = axes.map((axis) => {
-      const size = axis.size ?? stateAxisSize(state, axis.id);
+      const size = axis.size ?? stateAxisSize(state, target, axis.id);
       return size === undefined
         ? undefined
         : {
@@ -271,23 +285,30 @@ function planInstrumentCollection(
       const missingAxes = axes
         .filter((_, index) => dimensions[index] === undefined)
         .map((axis) => axis.label ?? axis.id);
-      const productLabel = product.label ?? product.key;
+      const resultLabel = result.label ?? result.id;
       return {
         ready: false,
         reason:
-          `Collect is unavailable until ${productLabel} has a positive point count for ` +
+          `Collect is unavailable until ${resultLabel} has a positive point count for ` +
           `${formatList(missingAxes)}. Refresh state after configuring the sweep.`,
       };
     }
     requests.push({
-      id: product.key,
-      capability_id: capability.id,
-      unit: product.unit,
-      dtype: product.dtype,
+      id: result.id,
+      interface_id: target.interfaceId,
+      component_path: target.componentPath,
+      acquisition_id: target.acquisition.id,
+      result_id: result.id,
+      unit: result.unit,
+      dtype: result.dtype,
       dimensions: allDimensionsResolved ? dimensions : [],
     });
   }
   return { ready: true, requests };
+}
+
+function samePath(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function formatList(values: string[]): string {

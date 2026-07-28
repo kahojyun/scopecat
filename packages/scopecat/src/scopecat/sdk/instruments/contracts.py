@@ -16,9 +16,10 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.units import compatible_units
-from scopecat.kernel.value_type_wire import CapabilityScalarWire
+from scopecat.kernel.value_type_wire import InstrumentScalarWire
 from scopecat.kernel.value_types import Bool as BoolType
 from scopecat.kernel.value_types import Float as FloatType
 from scopecat.kernel.value_types import Int as IntType
@@ -42,19 +43,19 @@ from scopecat.records.instrument import (
     CommandChannelBinding as _CommandChannelBinding,
 )
 from scopecat.records.instrument import (
-    InstrumentReadback as _InstrumentReadback,
+    InstrumentPropertyState as _InstrumentPropertyState,
 )
 from scopecat.records.instrument import (
-    InstrumentStateField as _InstrumentStateField,
+    InstrumentReadback as _InstrumentReadback,
 )
 from scopecat.records.instrument import (
     InstrumentStateSnapshot as _InstrumentStateSnapshot,
 )
 from scopecat.records.instrument import (
-    state_target_identity as _state_target_identity,
+    property_target_identity as _property_target_identity,
 )
 from scopecat.records.instrument import (
-    state_target_sort_key as _state_target_sort_key,
+    property_target_sort_key as _property_target_sort_key,
 )
 from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
@@ -71,86 +72,138 @@ from scopecat.sdk.problems import (
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 
 
-class CapabilityField(BaseModel):
+class PropertySpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
+    id: _NonEmptyId
     label: str | None = None
     description: str | None = None
     access: Literal["read_only", "write_only", "read_write"] = "read_write"
-    value_type: CapabilityScalarWire
+    value_type: InstrumentScalarWire
 
     @field_validator("value_type")
     @classmethod
     def validate_value_type(cls, value: Scalar) -> Scalar:
-        if not isinstance(
-            value.atom,
-            BoolType | IntType | FloatType | StringType | QuantityType | PayloadType,
-        ):
-            msg = (
-                "instrument capability fields support bool, int, float, string, "
-                "quantity, and payload"
-            )
-            raise ValueError(msg)
-        if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
-            msg = "instrument capability numeric fields must require finite values"
-            raise ValueError(msg)
-        return value
+        return _validate_instrument_scalar(value)
 
 
-class ProductAxisDescription(BaseModel):
+class AcquisitionAxisSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
+    id: _NonEmptyId
     label: str | None = None
     description: str | None = None
-    kind: str
+    kind: _NonEmptyId
     size: int | None = None
     unit: str | None = None
 
 
-class ProductDescription(BaseModel):
+class AcquisitionResultSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    key: str
+    id: _NonEmptyId
     label: str | None = None
     description: str | None = None
     dtype: MeasurementDType = "float64"
     unit: str | None = None
-    axes: list[ProductAxisDescription] = Field(default_factory=list)
+    axes: list[AcquisitionAxisSpec] = Field(default_factory=list)
 
     @field_validator("axes")
     @classmethod
     def validate_unique_axes(
         cls,
-        value: list[ProductAxisDescription],
-    ) -> list[ProductAxisDescription]:
+        value: list[AcquisitionAxisSpec],
+    ) -> list[AcquisitionAxisSpec]:
         _require_unique(
             (axis.id for axis in value),
-            "product axis ids",
+            "acquisition result axis ids",
         )
         return value
 
 
-class CapabilityDescription(BaseModel):
+class OperationArgumentSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
+    id: _NonEmptyId
     label: str | None = None
     description: str | None = None
-    fields: list[CapabilityField] = Field(default_factory=list)
-    products: list[ProductDescription] = Field(default_factory=list)
+    value_type: InstrumentScalarWire
+
+    @field_validator("value_type")
+    @classmethod
+    def validate_value_type(cls, value: Scalar) -> Scalar:
+        return _validate_instrument_scalar(value)
+
+
+class OperationSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: _NonEmptyId
+    label: str | None = None
+    description: str | None = None
+    arguments: list[OperationArgumentSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_members(self) -> CapabilityDescription:
+    def validate_unique_arguments(self) -> OperationSpec:
         _require_unique(
-            (field.id for field in self.fields),
-            "capability field ids",
+            (argument.id for argument in self.arguments),
+            "operation argument ids",
         )
+        return self
+
+
+class AcquisitionSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: _NonEmptyId
+    label: str | None = None
+    description: str | None = None
+    results: list[AcquisitionResultSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_results(self) -> AcquisitionSpec:
         _require_unique(
-            (product.key for product in self.products),
-            "capability product keys",
+            (result.id for result in self.results),
+            "acquisition result ids",
         )
+        return self
+
+
+class ComponentSpec(BaseModel):
+    """One stable role nested below an interface endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: _NonEmptyId
+    label: str | None = None
+    description: str | None = None
+    properties: list[PropertySpec] = Field(default_factory=list)
+    operations: list[OperationSpec] = Field(default_factory=list)
+    acquisitions: list[AcquisitionSpec] = Field(default_factory=list)
+    components: list[ComponentSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_members(self) -> ComponentSpec:
+        _validate_component_members(self)
+        return self
+
+
+class InterfaceSpec(BaseModel):
+    """Versioned behavior contract implemented by an instrument endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: InterfaceId
+    label: str | None = None
+    description: str | None = None
+    properties: list[PropertySpec] = Field(default_factory=list)
+    operations: list[OperationSpec] = Field(default_factory=list)
+    acquisitions: list[AcquisitionSpec] = Field(default_factory=list)
+    components: list[ComponentSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_members(self) -> InterfaceSpec:
+        _validate_component_members(self)
         return self
 
 
@@ -162,40 +215,41 @@ class InstrumentDescription(BaseModel):
     implementation_version: str
     label: str | None = None
     description: str | None = None
-    capabilities: list[CapabilityDescription] = Field(default_factory=list)
+    interfaces: list[InterfaceSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_capabilities(self) -> InstrumentDescription:
+    def validate_unique_interfaces(self) -> InstrumentDescription:
         _require_unique(
-            (capability.id for capability in self.capabilities),
-            "instrument capability ids",
+            (interface.id for interface in self.interfaces),
+            "instrument interface ids",
         )
         return self
 
 
-class InstrumentStateCommandField(BaseModel):
+class InstrumentStateAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     resource_id: str
-    capability_id: str
-    field_path: str
+    interface_id: InterfaceId
+    component_path: list[_NonEmptyId] = Field(default_factory=list)
+    property_id: _NonEmptyId
     value: StateValue
     entity_ids: list[_NonEmptyId] = Field(default_factory=list)
     channel_bindings: list[_CommandChannelBinding] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_target(self) -> InstrumentStateCommandField:
+    def validate_target(self) -> InstrumentStateAssignment:
         _validate_entity_target(self.entity_ids, self.channel_bindings)
         return self
 
 
 def validate_payload_bindings(
     *,
-    fields: Iterable[InstrumentStateCommandField],
+    assignments: Iterable[InstrumentStateAssignment],
     payloads: Mapping[str, CommandPayload],
     label: str,
 ) -> None:
-    """Require one exact, self-consistent payload map for concrete fields."""
+    """Require one exact, self-consistent payload map for concrete assignments."""
 
     mismatched_keys = [
         (payload_id, payload.id)
@@ -210,8 +264,8 @@ def validate_payload_bindings(
         )
     referenced_ids = {
         value.payload_id
-        for field in fields
-        if isinstance((value := field.value.root), PayloadRef)
+        for assignment in assignments
+        if isinstance((value := assignment.value.root), PayloadRef)
     }
     payload_ids = set(payloads)
     missing = sorted(referenced_ids - payload_ids)
@@ -230,25 +284,26 @@ class InstrumentStateCommand(BaseModel):
 
     operation_id: str | None = None
     instrument_id: str
-    fields: list[InstrumentStateCommandField] = Field(default_factory=list)
+    assignments: list[InstrumentStateAssignment] = Field(default_factory=list)
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_structure(self) -> InstrumentStateCommand:
         identities = [
-            _state_target_identity(
-                field.capability_id,
-                field.field_path,
-                field.entity_ids,
-                field.channel_bindings,
+            _property_target_identity(
+                assignment.interface_id,
+                assignment.component_path,
+                assignment.property_id,
+                assignment.entity_ids,
+                assignment.channel_bindings,
             )
-            for field in self.fields
+            for assignment in self.assignments
         ]
         if len(identities) != len(set(identities)):
-            msg = "instrument state command field targets must be unique"
+            msg = "instrument state command property targets must be unique"
             raise ValueError(msg)
         validate_payload_bindings(
-            fields=self.fields,
+            assignments=self.assignments,
             payloads=self.payloads,
             label="instrument state command",
         )
@@ -284,25 +339,27 @@ class ApplyReceipt(BaseModel):
 class CollectAxisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    kind: str
+    id: _NonEmptyId
+    kind: _NonEmptyId
     size: int = Field(gt=0)
     unit: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
-class CollectProductRequest(BaseModel):
-    """One explicitly capability-scoped provider product request.
+class CollectResultRequest(BaseModel):
+    """One explicitly acquisition-scoped result request.
 
-    Capability identity is required because a provider must not infer ownership
-    from a product key or from accidental global uniqueness. Planning derives
-    it from the same logical resource contract used for physical binding.
+    Interface and acquisition identity prevent a driver from inferring
+    ownership from an accidentally unique result id.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    capability_id: _NonEmptyId
+    id: _NonEmptyId
+    interface_id: InterfaceId
+    component_path: list[_NonEmptyId] = Field(default_factory=list)
+    acquisition_id: _NonEmptyId
+    result_id: _NonEmptyId
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     dimensions: list[CollectAxisRequest] = Field(default_factory=list)
@@ -311,7 +368,7 @@ class CollectProductRequest(BaseModel):
     metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_target(self) -> CollectProductRequest:
+    def validate_target(self) -> CollectResultRequest:
         _validate_entity_target(self.entity_ids, self.channel_bindings)
         return self
 
@@ -323,7 +380,7 @@ class CollectCommand(BaseModel):
     instrument_id: str
     point_index: int
     point_count: int
-    requests: list[CollectProductRequest] = Field(default_factory=list)
+    requests: list[CollectResultRequest] = Field(default_factory=list)
     metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -440,6 +497,15 @@ class InstrumentProviderDescription:
                 f"{', '.join(duplicates)}"
             )
             raise ValueError(msg)
+        declared: dict[str, InterfaceSpec] = {}
+        for instrument in self.instruments:
+            for interface_spec in instrument.interfaces:
+                previous = declared.setdefault(interface_spec.id, interface_spec)
+                if previous != interface_spec:
+                    raise ValueError(
+                        f"interface {interface_spec.id!r} must have one stable "
+                        "specification within a provider description"
+                    )
 
 
 class InstrumentProvider(Protocol):
@@ -455,24 +521,49 @@ class InstrumentProvider(Protocol):
     ) -> InstrumentProviderResult: ...
 
 
-def capability(
+def interface(
     id: str,
     *,
     label: str | None = None,
     description: str | None = None,
-    fields: list[CapabilityField] | tuple[CapabilityField, ...] = (),
-    products: list[ProductDescription] | tuple[ProductDescription, ...] = (),
-) -> CapabilityDescription:
-    return CapabilityDescription(
+    properties: list[PropertySpec] | tuple[PropertySpec, ...] = (),
+    operations: list[OperationSpec] | tuple[OperationSpec, ...] = (),
+    acquisitions: list[AcquisitionSpec] | tuple[AcquisitionSpec, ...] = (),
+    components: list[ComponentSpec] | tuple[ComponentSpec, ...] = (),
+) -> InterfaceSpec:
+    return InterfaceSpec(
         id=id,
         label=label,
         description=description,
-        fields=list(fields),
-        products=list(products),
+        properties=list(properties),
+        operations=list(operations),
+        acquisitions=list(acquisitions),
+        components=list(components),
     )
 
 
-def product_axis(
+def component(
+    id: str,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    properties: list[PropertySpec] | tuple[PropertySpec, ...] = (),
+    operations: list[OperationSpec] | tuple[OperationSpec, ...] = (),
+    acquisitions: list[AcquisitionSpec] | tuple[AcquisitionSpec, ...] = (),
+    components: list[ComponentSpec] | tuple[ComponentSpec, ...] = (),
+) -> ComponentSpec:
+    return ComponentSpec(
+        id=id,
+        label=label,
+        description=description,
+        properties=list(properties),
+        operations=list(operations),
+        acquisitions=list(acquisitions),
+        components=list(components),
+    )
+
+
+def acquisition_axis(
     id: str,
     *,
     size: int | None = None,
@@ -480,8 +571,8 @@ def product_axis(
     unit: str | None = None,
     label: str | None = None,
     description: str | None = None,
-) -> ProductAxisDescription:
-    return ProductAxisDescription(
+) -> AcquisitionAxisSpec:
+    return AcquisitionAxisSpec(
         id=id,
         label=label,
         description=description,
@@ -491,17 +582,17 @@ def product_axis(
     )
 
 
-def product(
-    key: str,
+def acquisition_result(
+    id: str,
     *,
     dtype: MeasurementDType = "float64",
     unit: str | None = None,
     label: str | None = None,
     description: str | None = None,
-    axes: list[ProductAxisDescription] | tuple[ProductAxisDescription, ...] = (),
-) -> ProductDescription:
-    return ProductDescription(
-        key=key,
+    axes: list[AcquisitionAxisSpec] | tuple[AcquisitionAxisSpec, ...] = (),
+) -> AcquisitionResultSpec:
+    return AcquisitionResultSpec(
+        id=id,
         label=label,
         description=description,
         dtype=dtype,
@@ -510,15 +601,60 @@ def product(
     )
 
 
-def quantity_field(
+def acquisition(
+    id: str,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    results: (list[AcquisitionResultSpec] | tuple[AcquisitionResultSpec, ...]) = (),
+) -> AcquisitionSpec:
+    return AcquisitionSpec(
+        id=id,
+        label=label,
+        description=description,
+        results=list(results),
+    )
+
+
+def operation_argument(
+    id: str,
+    *,
+    value_type: InstrumentScalarWire,
+    label: str | None = None,
+    description: str | None = None,
+) -> OperationArgumentSpec:
+    return OperationArgumentSpec(
+        id=id,
+        label=label,
+        description=description,
+        value_type=value_type,
+    )
+
+
+def operation(
+    id: str,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    arguments: (list[OperationArgumentSpec] | tuple[OperationArgumentSpec, ...]) = (),
+) -> OperationSpec:
+    return OperationSpec(
+        id=id,
+        label=label,
+        description=description,
+        arguments=list(arguments),
+    )
+
+
+def quantity_property(
     id: str,
     *,
     unit: str,
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
-) -> CapabilityField:
-    return CapabilityField(
+) -> PropertySpec:
+    return PropertySpec(
         id=id,
         label=label,
         description=description,
@@ -527,14 +663,14 @@ def quantity_field(
     )
 
 
-def bool_field(
+def bool_property(
     id: str,
     *,
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
-) -> CapabilityField:
-    return CapabilityField(
+) -> PropertySpec:
+    return PropertySpec(
         id=id,
         label=label,
         description=description,
@@ -543,7 +679,7 @@ def bool_field(
     )
 
 
-def int_field(
+def int_property(
     id: str,
     *,
     minimum: int | None = None,
@@ -551,8 +687,8 @@ def int_field(
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
-) -> CapabilityField:
-    return CapabilityField(
+) -> PropertySpec:
+    return PropertySpec(
         id=id,
         label=label,
         description=description,
@@ -561,14 +697,14 @@ def int_field(
     )
 
 
-def float_field(
+def float_property(
     id: str,
     *,
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
-) -> CapabilityField:
-    return CapabilityField(
+) -> PropertySpec:
+    return PropertySpec(
         id=id,
         label=label,
         description=description,
@@ -577,15 +713,15 @@ def float_field(
     )
 
 
-def string_field(
+def string_property(
     id: str,
     *,
     choices: tuple[str, ...] | None = None,
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
-) -> CapabilityField:
-    return CapabilityField(
+) -> PropertySpec:
+    return PropertySpec(
         id=id,
         label=label,
         description=description,
@@ -594,15 +730,15 @@ def string_field(
     )
 
 
-def enum_field(
+def enum_property(
     id: str,
     *,
     choices: tuple[str, ...],
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
-) -> CapabilityField:
-    return string_field(
+) -> PropertySpec:
+    return string_property(
         id,
         choices=choices,
         label=label,
@@ -611,15 +747,15 @@ def enum_field(
     )
 
 
-def payload_field(
+def payload_property(
     id: str,
     *,
     schema_id: str,
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
-) -> CapabilityField:
-    return CapabilityField(
+) -> PropertySpec:
+    return PropertySpec(
         id=id,
         label=label,
         description=description,
@@ -635,9 +771,9 @@ def validate_state_command(
 ) -> list[Problem]:
     """Validate one structurally complete command against a driver contract."""
 
-    return validate_state_fields(
+    return validate_state_assignments(
         instrument_id=command.instrument_id,
-        fields=command.fields,
+        assignments=command.assignments,
         description=description,
         payload_schemas={
             payload_id: payload.schema_id
@@ -646,14 +782,14 @@ def validate_state_command(
     )
 
 
-def validate_state_fields(
+def validate_state_assignments(
     *,
     instrument_id: str,
-    fields: Sequence[InstrumentStateCommandField],
+    assignments: Sequence[InstrumentStateAssignment],
     description: InstrumentDescription,
     payload_schemas: Mapping[str, str],
 ) -> list[Problem]:
-    """Validate planned fields using schema declarations instead of payload bodies."""
+    """Validate property assignments using schemas instead of payload bodies."""
 
     problems: list[Problem] = []
     if instrument_id != description.instrument_id:
@@ -665,54 +801,73 @@ def validate_state_fields(
             )
         )
         return problems
-    capability_fields = {
-        capability.id: {field.id: field for field in capability.fields}
-        for capability in description.capabilities
-    }
-    for field in fields:
-        if field.resource_id != instrument_id:
+    interfaces = {interface.id: interface for interface in description.interfaces}
+    for assignment in assignments:
+        if assignment.resource_id != instrument_id:
             problems.append(
                 _problem(
                     "instrument_driver_resource_mismatch",
-                    f"{instrument_id} cannot control {field.resource_id}",
+                    f"{instrument_id} cannot control {assignment.resource_id}",
                     "resource_id",
                 )
             )
             continue
-        field_specs = capability_fields.get(field.capability_id)
-        if field_specs is None:
+        interface_spec = interfaces.get(assignment.interface_id)
+        if interface_spec is None:
             problems.append(
                 _problem(
-                    "instrument_driver_unsupported_capability",
-                    f"{instrument_id} does not support {field.capability_id}",
-                    "capability_id",
+                    "instrument_driver_unsupported_interface",
+                    f"{instrument_id} does not support {assignment.interface_id}",
+                    "interface_id",
                 )
             )
             continue
-        field_spec = field_specs.get(field.field_path)
-        if field_spec is None:
+        component_spec = _resolve_component(
+            interface_spec,
+            assignment.component_path,
+        )
+        if component_spec is None:
             problems.append(
                 _problem(
-                    "instrument_driver_unsupported_field",
-                    f"{instrument_id} does not support {field.field_path}",
-                    "field_path",
+                    "instrument_driver_unsupported_component",
+                    f"{instrument_id} does not support component "
+                    f"{'/'.join(assignment.component_path)!r} under "
+                    f"{assignment.interface_id}",
+                    "component_path",
                 )
             )
             continue
-        if field_spec.access == "read_only":
+        property_spec = next(
+            (
+                item
+                for item in component_spec.properties
+                if item.id == assignment.property_id
+            ),
+            None,
+        )
+        if property_spec is None:
             problems.append(
                 _problem(
-                    "instrument_driver_read_only_field",
-                    f"{instrument_id} field {field.field_path} is read-only",
-                    "field_path",
+                    "instrument_driver_unsupported_property",
+                    f"{instrument_id} does not support {assignment.property_id}",
+                    "property_id",
+                )
+            )
+            continue
+        if property_spec.access == "read_only":
+            problems.append(
+                _problem(
+                    "instrument_driver_read_only_property",
+                    f"{instrument_id} property {assignment.property_id} is read-only",
+                    "property_id",
                 )
             )
             continue
         problems.extend(
             _validate_state_value(
-                field_path=field.field_path,
-                value=field.value,
-                spec=field_spec,
+                property_id=assignment.property_id,
+                value=assignment.value,
+                spec=property_spec,
                 payload_schemas=payload_schemas,
             )
         )
@@ -735,48 +890,81 @@ def validate_collect_command(
                 "instrument_id",
             )
         ]
-    capabilities = {
-        capability.id: capability for capability in description.capabilities
-    }
+    interfaces = {interface.id: interface for interface in description.interfaces}
     problems: list[Problem] = []
     for request in command.requests:
-        capability_spec = capabilities.get(request.capability_id)
-        if capability_spec is None:
+        interface_spec = interfaces.get(request.interface_id)
+        if interface_spec is None:
             problems.append(
                 _problem(
-                    "instrument_driver_unsupported_capability",
-                    f"{command.instrument_id} does not support {request.capability_id}",
+                    "instrument_driver_unsupported_interface",
+                    f"{command.instrument_id} does not support {request.interface_id}",
                     "requests",
                     request.id,
-                    "capability_id",
+                    "interface_id",
                 )
             )
             continue
-        product_spec = next(
+        component_spec = _resolve_component(interface_spec, request.component_path)
+        if component_spec is None:
+            problems.append(
+                _problem(
+                    "instrument_driver_unsupported_component",
+                    f"{command.instrument_id} does not support component "
+                    f"{'/'.join(request.component_path)!r}",
+                    "requests",
+                    request.id,
+                    "component_path",
+                )
+            )
+            continue
+        acquisition_spec = next(
             (
-                product
-                for product in capability_spec.products
-                if product.key == request.id
+                acquisition
+                for acquisition in component_spec.acquisitions
+                if acquisition.id == request.acquisition_id
             ),
             None,
         )
-        if product_spec is None:
+        if acquisition_spec is None:
             problems.append(
                 _problem(
-                    "instrument_driver_unsupported_product",
-                    f"{command.instrument_id} does not support product "
-                    f"{request.id} under {request.capability_id}",
+                    "instrument_driver_unsupported_acquisition",
+                    f"{command.instrument_id} does not support acquisition "
+                    f"{request.acquisition_id} under {request.interface_id}",
                     "requests",
                     request.id,
+                    "acquisition_id",
                 )
             )
             continue
-        if request.dtype != product_spec.dtype:
+        result_spec = next(
+            (
+                result
+                for result in acquisition_spec.results
+                if result.id == request.result_id
+            ),
+            None,
+        )
+        if result_spec is None:
             problems.append(
                 _problem(
-                    "instrument_driver_product_dtype_mismatch",
-                    f"{command.instrument_id} product {request.id} requires "
-                    f"dtype {product_spec.dtype}, got {request.dtype}",
+                    "instrument_driver_unsupported_acquisition_result",
+                    f"{command.instrument_id} acquisition "
+                    f"{request.acquisition_id} has no result {request.result_id}",
+                    "requests",
+                    request.id,
+                    "result_id",
+                )
+            )
+            continue
+        if request.dtype != result_spec.dtype:
+            problems.append(
+                _problem(
+                    "instrument_driver_acquisition_dtype_mismatch",
+                    f"{command.instrument_id} acquisition result "
+                    f"{request.result_id} requires dtype {result_spec.dtype}, "
+                    f"got {request.dtype}",
                     "requests",
                     request.id,
                     "dtype",
@@ -784,14 +972,15 @@ def validate_collect_command(
             )
         requested_unit = request.unit
         if requested_unit is not None and (
-            product_spec.unit is None
-            or not compatible_units(requested_unit, product_spec.unit)
+            result_spec.unit is None
+            or not compatible_units(requested_unit, result_spec.unit)
         ):
             problems.append(
                 _problem(
-                    "instrument_driver_product_unit_mismatch",
-                    f"{command.instrument_id} product {request.id} requires "
-                    f"unit compatible with {product_spec.unit!r}, got "
+                    "instrument_driver_acquisition_unit_mismatch",
+                    f"{command.instrument_id} acquisition result "
+                    f"{request.result_id} requires unit compatible with "
+                    f"{result_spec.unit!r}, got "
                     f"{requested_unit!r}",
                     "requests",
                     request.id,
@@ -801,16 +990,17 @@ def validate_collect_command(
         dimensions = request.dimensions
         dynamic_unspecified = (
             not dimensions
-            and bool(product_spec.axes)
-            and all(axis.size is None for axis in product_spec.axes)
+            and bool(result_spec.axes)
+            and all(axis.size is None for axis in result_spec.axes)
         )
         if dynamic_unspecified:
             continue
-        if len(dimensions) != len(product_spec.axes):
+        if len(dimensions) != len(result_spec.axes):
             problems.append(
                 _problem(
-                    "instrument_driver_product_axes_mismatch",
-                    f"{command.instrument_id} product {request.id} axes do not "
+                    "instrument_driver_acquisition_axes_mismatch",
+                    f"{command.instrument_id} acquisition result "
+                    f"{request.result_id} axes do not "
                     "match its declared contract",
                     "requests",
                     request.id,
@@ -819,7 +1009,7 @@ def validate_collect_command(
             )
             continue
         for axis_index, (requested_axis, declared_axis) in enumerate(
-            zip(dimensions, product_spec.axes, strict=True)
+            zip(dimensions, result_spec.axes, strict=True)
         ):
             if (
                 requested_axis.id != declared_axis.id
@@ -831,8 +1021,9 @@ def validate_collect_command(
             ):
                 problems.append(
                     _problem(
-                        "instrument_driver_product_axis_mismatch",
-                        f"{command.instrument_id} product {request.id} axis "
+                        "instrument_driver_acquisition_axis_mismatch",
+                        f"{command.instrument_id} acquisition result "
+                        f"{request.result_id} axis "
                         f"{declared_axis.id} does not match its declared contract",
                         "requests",
                         request.id,
@@ -847,8 +1038,9 @@ def validate_collect_command(
             ):
                 problems.append(
                     _problem(
-                        "instrument_driver_product_axis_unit_mismatch",
-                        f"{command.instrument_id} product {request.id} axis "
+                        "instrument_driver_acquisition_axis_unit_mismatch",
+                        f"{command.instrument_id} acquisition result "
+                        f"{request.result_id} axis "
                         f"{declared_axis.id} requires a unit compatible with "
                         f"{declared_axis.unit!r}, got {requested_axis_unit!r}",
                         "requests",
@@ -874,30 +1066,31 @@ def validate_collect_receipt(
     requests = {request.id: request for request in command.requests}
     values = receipt.readback.values
     problems: list[Problem] = []
-    for product_id in sorted(set(requests) - set(values)):
+    for request_id in sorted(set(requests) - set(values)):
         problems.append(
             _problem(
-                "instrument_driver_missing_product",
-                f"{command.instrument_id} did not return requested product "
-                f"{product_id}",
+                "instrument_driver_missing_acquisition_result",
+                f"{command.instrument_id} did not return acquisition request "
+                f"{request_id}",
                 "readback",
                 "values",
-                product_id,
+                request_id,
             )
         )
-    for product_id in sorted(set(values) - set(requests)):
+    for request_id in sorted(set(values) - set(requests)):
         problems.append(
             _problem(
-                "instrument_driver_unexpected_product",
-                f"{command.instrument_id} returned unexpected product {product_id}",
+                "instrument_driver_unexpected_acquisition_result",
+                f"{command.instrument_id} returned unexpected acquisition request "
+                f"{request_id}",
                 "readback",
                 "values",
-                product_id,
+                request_id,
             )
         )
-    for product_id in sorted(set(requests) & set(values)):
-        request = requests[product_id]
-        value = values[product_id]
+    for request_id in sorted(set(requests) & set(values)):
+        request = requests[request_id]
+        value = values[request_id]
         expected_shape = (
             tuple(axis.size for axis in request.dimensions)
             if request.dimensions
@@ -912,11 +1105,12 @@ def validate_collect_receipt(
             problems.append(
                 _problem(
                     f"instrument_driver_readback_{issue.code.value}",
-                    f"{command.instrument_id} product {product_id} violates "
+                    f"{command.instrument_id} acquisition request "
+                    f"{request_id} violates "
                     f"its requested {issue.code.value} contract",
                     "readback",
                     "values",
-                    product_id,
+                    request_id,
                     *issue.path,
                 )
             )
@@ -927,52 +1121,57 @@ def apply_state_command_to_snapshot(
     snapshot: _InstrumentStateSnapshot,
     command: InstrumentStateCommand,
 ) -> _InstrumentStateSnapshot:
-    fields = {
-        _state_target_identity(
-            field.capability_id,
-            field.field_path,
-            field.entity_ids,
-            field.channel_bindings,
-        ): field.model_copy(deep=True)
-        for field in snapshot.fields
+    properties = {
+        _property_target_identity(
+            item.interface_id,
+            item.component_path,
+            item.property_id,
+            item.entity_ids,
+            item.channel_bindings,
+        ): item.model_copy(deep=True)
+        for item in snapshot.properties
     }
-    for field in command.fields:
-        fields[
-            _state_target_identity(
-                field.capability_id,
-                field.field_path,
-                field.entity_ids,
-                field.channel_bindings,
+    for assignment in command.assignments:
+        properties[
+            _property_target_identity(
+                assignment.interface_id,
+                assignment.component_path,
+                assignment.property_id,
+                assignment.entity_ids,
+                assignment.channel_bindings,
             )
-        ] = _InstrumentStateField(
-            capability_id=field.capability_id,
-            field_path=field.field_path,
-            value=field.value,
-            entity_ids=list(field.entity_ids),
+        ] = _InstrumentPropertyState(
+            interface_id=assignment.interface_id,
+            component_path=list(assignment.component_path),
+            property_id=assignment.property_id,
+            value=assignment.value,
+            entity_ids=list(assignment.entity_ids),
             channel_bindings=[
-                binding.model_copy(deep=True) for binding in field.channel_bindings
+                binding.model_copy(deep=True) for binding in assignment.channel_bindings
             ],
         )
     return _InstrumentStateSnapshot(
         instrument_id=snapshot.instrument_id,
-        fields=[fields[key] for key in sorted(fields, key=_state_target_sort_key)],
+        properties=[
+            properties[key] for key in sorted(properties, key=_property_target_sort_key)
+        ],
         metadata=dict(snapshot.metadata),
     )
 
 
 def _validate_state_value(
     *,
-    field_path: str,
+    property_id: str,
     value: StateValue,
-    spec: CapabilityField,
+    spec: PropertySpec,
     payload_schemas: Mapping[str, str],
 ) -> list[Problem]:
     atom = spec.value_type.atom
     state_literal = value.root
     if isinstance(atom, PayloadType):
         if not isinstance(state_literal, PayloadRef):
-            return _field_value_mismatch(
-                field_path,
+            return _property_value_mismatch(
+                property_id,
                 f"expected payload reference, got {state_literal!r}",
             )
         schema_id = payload_schemas.get(state_literal.payload_id)
@@ -980,15 +1179,15 @@ def _validate_state_value(
             return [
                 _problem(
                     "instrument_driver_unknown_payload",
-                    f"{field_path} references unknown payload "
+                    f"{property_id} references unknown payload "
                     f"{state_literal.payload_id}",
                     "value",
                     "payload_id",
                 )
             ]
         if schema_id != atom.schema_id:
-            return _field_value_mismatch(
-                field_path,
+            return _property_value_mismatch(
+                property_id,
                 f"expected payload {atom.schema_id!r}, got {schema_id!r}",
                 path=("value", "payload_id"),
             )
@@ -996,33 +1195,75 @@ def _validate_state_value(
     try:
         validate_literal(spec.value_type, state_literal, path=("value",))
     except ValueValidationError as error:
-        return _field_value_mismatch(
-            field_path,
+        return _property_value_mismatch(
+            property_id,
             error.reason,
             path=error.path,
         )
     return []
 
 
-def _field_value_mismatch(
-    field_path: str,
+def _property_value_mismatch(
+    property_id: str,
     reason: str,
     *,
     path: ValuePath = ("value",),
 ) -> list[Problem]:
     return [
         _problem(
-            "instrument_driver_field_value_mismatch",
-            f"{field_path}: {reason}",
+            "instrument_driver_property_value_mismatch",
+            f"{property_id}: {reason}",
             *path,
         )
     ]
+
+
+def _validate_instrument_scalar(value: Scalar) -> Scalar:
+    if not isinstance(
+        value.atom,
+        BoolType | IntType | FloatType | StringType | QuantityType | PayloadType,
+    ):
+        raise ValueError(
+            "instrument values support bool, int, float, string, quantity, and payload"
+        )
+    if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
+        raise ValueError("instrument numeric values must require finite values")
+    return value
 
 
 def _require_unique(values: Iterable[str], label: str) -> None:
     selected = tuple(values)
     if len(selected) != len(set(selected)):
         raise ValueError(f"{label} must be unique")
+
+
+def _validate_component_members(
+    spec: InterfaceSpec | ComponentSpec,
+) -> None:
+    _require_unique((item.id for item in spec.properties), "property ids")
+    _require_unique((item.id for item in spec.operations), "operation ids")
+    _require_unique((item.id for item in spec.acquisitions), "acquisition ids")
+    _require_unique((item.id for item in spec.components), "component ids")
+
+
+def _resolve_component(
+    interface_spec: InterfaceSpec,
+    component_path: Sequence[str],
+) -> InterfaceSpec | ComponentSpec | None:
+    selected: InterfaceSpec | ComponentSpec = interface_spec
+    for component_id in component_path:
+        match = next(
+            (
+                component
+                for component in selected.components
+                if component.id == component_id
+            ),
+            None,
+        )
+        if match is None:
+            return None
+        selected = match
+    return selected
 
 
 def _problem(code: str, message: str, *path: LocationPathItem) -> Problem:

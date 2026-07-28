@@ -86,11 +86,11 @@ def test_state_rejects_an_unregistered_compute_output() -> None:
     with pytest.raises(CheckFailed) as error:
         (
             sc.module_body(id="test.graph.state-missing")
-            .resource("drive", requires=("play_waveforms",))
-            .bind_field(
+            .resource("drive", requires=("test.play_waveforms/v1",))
+            .bind_property(
                 "drive",
-                capability="play_waveforms",
-                field="program",
+                interface="test.play_waveforms/v1",
+                property="program",
                 value=missing.output,
             )
             .build()
@@ -107,12 +107,12 @@ def test_state_rejects_a_non_payload_compute_output() -> None:
     )
     module = (
         sc.module_body(id="test.graph.state-type")
-        .resource("drive", requires=("set_gain",))
+        .resource("drive", requires=("test.set_gain/v1",))
         .computes(compute_value)
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="set_gain",
-            field="value",
+            interface="test.set_gain/v1",
+            property="value",
             value=compute_value.output,
         )
         .build()
@@ -136,11 +136,11 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
         (
             sc.module_body(id="test.graph.table-state-binding")
             .inputs(rows)
-            .resource("drive", requires=("set_gain",))
-            .bind_field(
+            .resource("drive", requires=("test.set_gain/v1",))
+            .bind_property(
                 "drive",
-                capability="set_gain",
-                field="value",
+                interface="test.set_gain/v1",
+                property="value",
                 value=rows,
             )
         )

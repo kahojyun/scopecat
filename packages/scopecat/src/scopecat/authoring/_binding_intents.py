@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
@@ -22,7 +23,7 @@ type BindingValue = (
 
 @dataclass(frozen=True)
 class ResourceSelector:
-    capabilities: tuple[str, ...] = ()
+    interfaces: tuple[InterfaceId, ...] = ()
     entity_inputs: tuple[EntitySource, ...] = ()
 
 
@@ -47,8 +48,9 @@ class ResourcePort:
 @dataclass(frozen=True)
 class BindingIntent:
     port_id: LogicalResourcePortId
-    capability_id: str
-    field_path: str
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    property_id: str
     value: BindingValue
 
 
@@ -56,11 +58,11 @@ ExperimentBindingIntent = BindingIntent
 
 
 def requires(
-    *capabilities: str,
+    *interfaces: InterfaceId,
     for_entities: Sequence[EntitySource] = (),
 ) -> ResourceSelector:
     return ResourceSelector(
-        capabilities=tuple(capabilities),
+        interfaces=tuple(require_interface_id(item) for item in interfaces),
         entity_inputs=tuple(for_entities),
     )
 
@@ -83,21 +85,28 @@ def prefix_resource_port(
     return replace(port, symbol_id=port.symbol_id.prefixed(*scope))
 
 
-def bind_field(
+def bind_property(
     port_id: str,
     *,
-    capability: str,
-    field: str,
+    interface: InterfaceId,
+    property: str,
+    component_path: Sequence[str] = (),
     value: BindingValue,
 ) -> BindingIntent:
-    """Build a binding without encoding its resource identity into a path."""
+    """Build a property binding with explicit interface and component identity."""
 
-    if not port_id or not capability or not field:
-        msg = "binding port, capability, and field ids must be non-empty"
+    selected_component_path = tuple(component_path)
+    if (
+        not port_id
+        or not property
+        or any(not component for component in selected_component_path)
+    ):
+        msg = "binding port, component, and property ids must be non-empty"
         raise ValueError(msg)
     return BindingIntent(
         port_id=logical_resource_port_id(port_id),
-        capability_id=capability,
-        field_path=field,
+        interface_id=require_interface_id(interface),
+        component_path=selected_component_path,
+        property_id=property,
         value=value,
     )

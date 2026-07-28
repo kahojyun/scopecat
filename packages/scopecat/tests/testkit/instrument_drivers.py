@@ -9,15 +9,16 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     InstrumentDescription,
+    InstrumentPropertyState,
     InstrumentReadback,
     InstrumentStateCommand,
-    InstrumentStateField,
     InstrumentStateSnapshot,
-    capability,
-    float_field,
-    payload_field,
-    product,
-    quantity_field,
+    acquisition,
+    acquisition_result,
+    float_property,
+    interface,
+    payload_property,
+    quantity_property,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
@@ -40,19 +41,27 @@ class SignalInstrumentDriver:
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
             implementation_version=self.implementation_version,
-            capabilities=[
-                capability(
-                    "set_frequency",
-                    fields=[quantity_field("frequency", unit="GHz")],
+            interfaces=[
+                interface(
+                    "test.set_frequency/v1",
+                    properties=[quantity_property("frequency", unit="GHz")],
                 ),
-                capability("set_gain", fields=[float_field("gain")]),
-                capability(
-                    "play_program",
-                    fields=[payload_field("program", schema_id="pulse_program")],
+                interface(
+                    "test.set_gain/v1",
+                    properties=[float_property("gain")],
                 ),
-                capability(
-                    "scalar_signal",
-                    products=[product("signal", unit="ratio")],
+                interface(
+                    "test.play_program/v1",
+                    properties=[payload_property("program", schema_id="pulse_program")],
+                ),
+                interface(
+                    "test.scalar_signal/v1",
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[acquisition_result("signal", unit="ratio")],
+                        )
+                    ],
                 ),
             ],
         )
@@ -60,21 +69,23 @@ class SignalInstrumentDriver:
     def read_state(self) -> InstrumentStateSnapshot:
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
-            fields=[
-                InstrumentStateField(
-                    capability_id=capability_id,
-                    field_path=field_path,
+            properties=[
+                InstrumentPropertyState(
+                    interface_id=interface_id,
+                    property_id=property_id,
                     value=value,
                 )
-                for (capability_id, field_path), value in sorted(self._state.items())
+                for (interface_id, property_id), value in sorted(self._state.items())
             ],
             metadata={"mode": "test_offline"},
         )
 
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied.append(command)
-        for field in command.fields:
-            self._state[(field.capability_id, field.field_path)] = field.value
+        for assignment in command.assignments:
+            self._state[(assignment.interface_id, assignment.property_id)] = (
+                assignment.value
+            )
         return ApplyReceipt(status="applied")
 
     def collect(self, command: CollectCommand) -> CollectReceipt:

@@ -33,12 +33,12 @@ from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
-    CollectProductRequest,
+    CollectResultRequest,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
@@ -63,8 +63,8 @@ class _PayloadConsumerDriver(SignalInstrumentDriver):
 
     @override
     def apply_state(self, command: InstrumentStateCommand):  # type: ignore[no-untyped-def]
-        for field in command.fields:
-            value = field.value.root
+        for assignment in command.assignments:
+            value = assignment.value.root
             if isinstance(value, PayloadRef):
                 self.consumed_payloads.append(
                     command.payloads[value.payload_id].inline_bytes()
@@ -153,11 +153,11 @@ def test_direct_apply_uses_the_same_payload_object_boundary(
         command = InstrumentStateCommand(
             operation_id="direct-payload-apply",
             instrument_id="source-0",
-            fields=[
-                InstrumentStateCommandField(
+            assignments=[
+                InstrumentStateAssignment(
                     resource_id="source-0",
-                    capability_id="play_program",
-                    field_path="program",
+                    interface_id="test.play_program/v1",
+                    property_id="program",
                     value=StateValue(PayloadRef(payload_id=payload.id)),
                 )
             ],
@@ -574,7 +574,7 @@ def test_batch_materializes_all_payloads_before_first_driver_call(
         )
 
 
-def test_payload_fields_are_not_suppressed_by_reused_payload_id(
+def test_payload_assignments_are_not_suppressed_by_reused_payload_id(
     tmp_path: Path,
 ) -> None:
     provider = _PayloadProvider()
@@ -813,11 +813,11 @@ def _direct_payload_command(
     return InstrumentStateCommand(
         operation_id=operation_id,
         instrument_id="source-0",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="source-0",
-                capability_id="play_program",
-                field_path="program",
+                interface_id="test.play_program/v1",
+                property_id="program",
                 value=StateValue(PayloadRef(payload_id=payload.id)),
             )
         ],
@@ -839,11 +839,11 @@ def _payload_batch(
                     effect_id=f"{operation_id}.apply",
                     point_index=0,
                     instrument_id="source-0",
-                    fields=(
-                        InstrumentStateCommandField(
+                    assignments=(
+                        InstrumentStateAssignment(
                             resource_id="source-0",
-                            capability_id="play_program",
-                            field_path="program",
+                            interface_id="test.play_program/v1",
+                            property_id="program",
                             value=StateValue(PayloadRef(payload_id=payload.id)),
                         ),
                     ),
@@ -866,14 +866,16 @@ def _invalid_contract_action(
             instrument_id="source-0",
             point_count=1,
             requests=(
-                CollectProductRequest(
+                CollectResultRequest(
                     id="signal",
-                    capability_id="missing-capability",
+                    interface_id="test.missing_interface/v1",
+                    acquisition_id="sample",
+                    result_id="signal",
                 ),
             ),
             bindings=(
                 RunHardwareCollectBinding(
-                    provider_key="signal",
+                    request_id="signal",
                     product_use_ids=("preflight-invalid-collect.signal",),
                 ),
             ),

@@ -16,7 +16,7 @@ from scopecat.compiler.typed.program import (
     record_product,
 )
 from scopecat.compiler.typed.program import (
-    set_state_field as set_typed_state_field,
+    set_state_property as set_typed_state_property,
 )
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -43,7 +43,7 @@ from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
-    materialized_state_fields,
+    materialized_state_properties,
     measurement_projection_contract,
 )
 from tests.testkit.parameter_fixtures import (
@@ -53,7 +53,7 @@ from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
 )
 from tests.testkit.relation_plans import (
-    state_field as set_state_field,
+    state_property as set_state_property,
 )
 from tests.testkit.typed_program import (
     compute_result,
@@ -93,7 +93,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
     acquisition = instrument_acquisition(
         product,
         resource_port_id="readout",
-        capability="pulse",
+        interface="test.pulse/v1",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -103,7 +103,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("readout"),
-                capabilities=("pulse",),
+                interfaces=("test.pulse/v1",),
             ),
         ),
         parameter_overlays=[
@@ -116,10 +116,10 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
             )
         ],
         state=[
-            set_state_field(
+            set_state_property(
                 "readout",
-                capability_id="pulse",
-                field_path="frequency",
+                interface_id="test.pulse/v1",
+                property_id="frequency",
                 value=parameter_lookup(
                     READOUT_FREQUENCY_LOOKUP,
                     key={"device_id": "r0"},
@@ -133,7 +133,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         record_uses=[record_use],
     )
 
-    test_config = config_with_physical_resources({"readout-a": ("pulse",)})
+    test_config = config_with_physical_resources({"readout-a": ("test.pulse/v1",)})
     preview = materialized_effects_contract(
         spec,
         _parameters(),
@@ -151,7 +151,9 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
-    assert [field.value.root for _, _, field in materialized_state_fields(preview)] == [
+    assert [
+        target.value.root for _, _, target in materialized_state_properties(preview)
+    ] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
@@ -163,17 +165,17 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
         point_row=RowType.from_table(points.value_type),
     )
     drive = logical_resource_port_id("drive")
-    enabled = set_state_field(
+    enabled = set_state_property(
         "drive",
-        capability_id="drive",
-        field_path="output_enabled",
+        interface_id="test.drive/v1",
+        property_id="output_enabled",
         value=True,
         bindings=bindings,
     )
-    disabled = set_state_field(
+    disabled = set_state_property(
         "drive",
-        capability_id="drive",
-        field_path="output_enabled",
+        interface_id="test.drive/v1",
+        property_id="output_enabled",
         value=False,
         bindings=bindings,
     )
@@ -181,7 +183,7 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
     acquisition = instrument_acquisition(
         product,
         resource_port_id=drive,
-        capability="drive",
+        interface="test.drive/v1",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -191,7 +193,7 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=drive,
-                capabilities=("drive",),
+                interfaces=("test.drive/v1",),
             ),
         ),
         product_defs=[product],
@@ -203,7 +205,7 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
     preview = materialized_effects_contract(
         spec,
         _parameters(),
-        config=config_with_physical_resources({"drive-a": ("drive",)}),
+        config=config_with_physical_resources({"drive-a": ("test.drive/v1",)}),
     )
 
     states = operations_of_type(preview, ApplyStateOperation, point_index=0)
@@ -223,17 +225,17 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
         kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         state=[
-            set_typed_state_field(
+            set_typed_state_property(
                 resource_port_id=drive,
-                capability_id="play_waveforms",
-                field_path="program",
+                interface_id="test.play_waveforms/v1",
+                property_id="program",
                 value=compute_result("build-waveform"),
             )
         ],
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=drive,
-                capabilities=("play_waveforms",),
+                interfaces=("test.play_waveforms/v1",),
             ),
         ),
         compute_nodes=[
@@ -255,7 +257,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     preview = materialized_effects_contract(
         spec,
         _parameters(),
-        config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
+        config=config_with_physical_resources({"drive-a": ("test.play_waveforms/v1",)}),
     )
 
     [step] = operations_of_type(preview, ComputeOperation, point_index=0)
@@ -269,13 +271,13 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     assert [
         (
             state.instrument_id,
-            field.capability_id,
-            field.field_path,
+            target.interface_id,
+            target.property_id,
         )
         for state in operations_of_type(preview, ApplyStateOperation, point_index=0)
-        for field in state.targets
-        if isinstance(field.value.root, PayloadRef)
-    ] == [("drive-a", "play_waveforms", "program")]
+        for target in state.targets
+        if isinstance(target.value.root, PayloadRef)
+    ] == [("drive-a", "test.play_waveforms/v1", "program")]
 
 
 def test_materialized_effects_groups_shared_typed_compute_result() -> None:
@@ -292,20 +294,20 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("drive-a"),
-                capabilities=("play_waveforms",),
+                interfaces=("test.play_waveforms/v1",),
             ),
         ),
         state=[
-            set_state_field(
+            set_state_property(
                 "drive-a",
-                capability_id="play_waveforms",
-                field_path="program",
+                interface_id="test.play_waveforms/v1",
+                property_id="program",
                 value=compute_result("build-waveform"),
             ),
-            set_state_field(
+            set_state_property(
                 "drive-a",
-                capability_id="play_waveforms",
-                field_path="preview",
+                interface_id="test.play_waveforms/v1",
+                property_id="preview",
                 value=compute_result("build-waveform"),
             ),
         ],
@@ -327,7 +329,7 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     preview = materialized_effects_contract(
         spec,
         _parameters(),
-        config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
+        config=config_with_physical_resources({"drive-a": ("test.play_waveforms/v1",)}),
     )
 
     [step] = operations_of_type(preview, ComputeOperation, point_index=0)
@@ -335,13 +337,13 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     assert step.payload_slot.id == f"{step.operation_id}.payload"
     assert step.payload_slot.schema_id == "waveform_bundle"
     assert [
-        (field.capability_id, field.field_path)
+        (target.interface_id, target.property_id)
         for state in operations_of_type(preview, ApplyStateOperation, point_index=0)
-        for field in state.targets
-        if isinstance(field.value.root, PayloadRef)
+        for target in state.targets
+        if isinstance(target.value.root, PayloadRef)
     ] == [
-        ("play_waveforms", "program"),
-        ("play_waveforms", "preview"),
+        ("test.play_waveforms/v1", "program"),
+        ("test.play_waveforms/v1", "preview"),
     ]
 
 
@@ -354,7 +356,7 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
     acquisition = instrument_acquisition(
         product,
         resource_port_id="readout",
-        capability="measure_iq",
+        interface="test.measure_iq/v1",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -364,7 +366,7 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("readout"),
-                capabilities=("measure_iq",),
+                interfaces=("test.measure_iq/v1",),
             ),
         ),
         product_defs=[product],
@@ -372,7 +374,7 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
         product_uses=[product_use],
         record_uses=[record_use],
     )
-    config = config_with_physical_resources({"readout-a": ("measure_iq",)})
+    config = config_with_physical_resources({"readout-a": ("test.measure_iq/v1",)})
     preview = materialized_effects_contract(spec, _parameters(), config=config)
     [operation] = operations_of_type(preview, CollectOperation, point_index=0)
     [binding] = operation.result_bindings

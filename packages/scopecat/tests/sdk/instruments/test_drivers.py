@@ -17,43 +17,44 @@ from scopecat.records.instrument import (
     CommandChannelBinding as RecordCommandChannelBinding,
 )
 from scopecat.records.instrument import (
-    InstrumentReadback as RecordInstrumentReadback,
+    InstrumentPropertyState as RecordInstrumentPropertyState,
 )
 from scopecat.records.instrument import (
-    InstrumentStateField as RecordInstrumentStateField,
+    InstrumentReadback as RecordInstrumentReadback,
 )
 from scopecat.records.instrument import (
     InstrumentStateSnapshot as RecordInstrumentStateSnapshot,
 )
 from scopecat.records.measurement import MeasurementArray, MeasurementDType
 from scopecat.sdk.instruments import (
-    CapabilityField,
     CollectAxisRequest,
     CollectCommand,
-    CollectProductRequest,
     CollectReceipt,
+    CollectResultRequest,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
     InstrumentStateSnapshot,
+    PropertySpec,
+    acquisition,
+    acquisition_axis,
+    acquisition_result,
     apply_state_command_to_snapshot,
-    bool_field,
-    capability,
-    enum_field,
-    float_field,
-    int_field,
-    payload_field,
-    product,
-    product_axis,
-    quantity_field,
-    string_field,
+    bool_property,
+    enum_property,
+    float_property,
+    int_property,
+    interface,
+    payload_property,
+    quantity_property,
+    string_property,
     validate_collect_command,
     validate_collect_receipt,
+    validate_state_assignments,
     validate_state_command,
-    validate_state_fields,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import (
@@ -71,7 +72,7 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
     owners = {
         "CommandChannelBinding": RecordCommandChannelBinding,
         "InstrumentReadback": RecordInstrumentReadback,
-        "InstrumentStateField": RecordInstrumentStateField,
+        "InstrumentPropertyState": RecordInstrumentPropertyState,
         "InstrumentStateSnapshot": RecordInstrumentStateSnapshot,
     }
 
@@ -80,26 +81,26 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
 
 
 @pytest.mark.parametrize(
-    ("field", "expected"),
+    ("property_spec", "expected"),
     [
-        (bool_field("enabled"), {"id": "enabled", "value_type": {"type": "bool"}}),
+        (bool_property("enabled"), {"id": "enabled", "value_type": {"type": "bool"}}),
         (
-            int_field("averages", minimum=1, maximum=16),
+            int_property("averages", minimum=1, maximum=16),
             {
                 "id": "averages",
                 "value_type": {"type": "int", "minimum": 1, "maximum": 16},
             },
         ),
-        (float_field("gain"), {"id": "gain", "value_type": {"type": "float"}}),
+        (float_property("gain"), {"id": "gain", "value_type": {"type": "float"}}),
         (
-            string_field("label"),
+            string_property("label"),
             {
                 "id": "label",
                 "value_type": {"type": "string"},
             },
         ),
         (
-            enum_field("mode", choices=("standby", "operate")),
+            enum_property("mode", choices=("standby", "operate")),
             {
                 "id": "mode",
                 "value_type": {
@@ -109,14 +110,14 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
             },
         ),
         (
-            quantity_field("frequency", unit="GHz"),
+            quantity_property("frequency", unit="GHz"),
             {
                 "id": "frequency",
                 "value_type": {"type": "quantity", "unit": "GHz"},
             },
         ),
         (
-            payload_field("program", schema_id="pulse_program"),
+            payload_property("program", schema_id="pulse_program"),
             {
                 "id": "program",
                 "value_type": {
@@ -127,21 +128,23 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
         ),
     ],
 )
-def test_capability_field_has_stable_scalar_wire_format(
-    field: CapabilityField,
+def test_property_spec_has_stable_scalar_wire_format(
+    property_spec: PropertySpec,
     expected: dict[str, object],
 ) -> None:
-    compact = field.model_dump(mode="json", exclude_defaults=True)
-    restored = CapabilityField.model_validate(compact)
-    restored_from_json = CapabilityField.model_validate_json(field.model_dump_json())
+    compact = property_spec.model_dump(mode="json", exclude_defaults=True)
+    restored = PropertySpec.model_validate(compact)
+    restored_from_json = PropertySpec.model_validate_json(
+        property_spec.model_dump_json()
+    )
 
     assert compact == expected
-    assert restored == field
-    assert restored_from_json == field
+    assert restored == property_spec
+    assert restored_from_json == property_spec
 
 
-def test_capability_field_wire_schema_matches_supported_state_values() -> None:
-    schema = CapabilityField.model_json_schema(mode="validation")
+def test_property_spec_wire_schema_matches_supported_state_values() -> None:
+    schema = PropertySpec.model_json_schema(mode="validation")
     value_schema = schema["properties"]["value_type"]
     definition_name = value_schema["$ref"].rsplit("/", maxsplit=1)[-1]
     alias = schema["$defs"][definition_name]
@@ -174,11 +177,11 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
         {"type": "quantity", "minimum": 1.0},
     ],
 )
-def test_capability_field_rejects_unsupported_or_transient_types(
+def test_property_spec_rejects_unsupported_or_transient_types(
     value_type: object,
 ) -> None:
     with pytest.raises(ValidationError):
-        CapabilityField.model_validate({"id": "value", "value_type": value_type})
+        PropertySpec.model_validate({"id": "value", "value_type": value_type})
 
 
 @pytest.mark.parametrize(
@@ -246,8 +249,8 @@ def test_concrete_state_values_reject_coercive_and_non_finite_numbers() -> None:
 def test_instrument_driver_generates_description_and_applies_state() -> None:
     instrument = SignalInstrumentDriver()
     command = _state_command(
-        capability_id="set_frequency",
-        field_path="frequency",
+        interface_id="test.set_frequency/v1",
+        property_id="frequency",
         value=quantity_state(5.0, "GHz"),
     )
 
@@ -258,65 +261,65 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     no_change = _changed_state_command(updated, command)
 
     assert description.instrument_id == "source-0"
-    assert description.capabilities[0].fields[0].id == "frequency"
-    assert description.capabilities[0].fields[0].value_type == Scalar(
+    assert description.interfaces[0].properties[0].id == "frequency"
+    assert description.interfaces[0].properties[0].value_type == Scalar(
         QuantityType(unit="GHz")
     )
     assert result.problems == ()
     assert instrument.applied[0] == command
-    assert updated.fields[0].value == quantity_state(5.0, "GHz")
+    assert updated.properties[0].value == quantity_state(5.0, "GHz")
     with pytest.raises(ValidationError):
-        updated.fields[0].value.root = 1.0
-    updated_quantity = updated.fields[0].value.root
+        updated.properties[0].value.root = 1.0
+    updated_quantity = updated.properties[0].value.root
     assert isinstance(updated_quantity, Quantity)
     with pytest.raises(ValidationError):
         updated_quantity.value = 6.0
-    assert no_change.fields == []
+    assert no_change.assignments == []
 
 
-def test_instrument_driver_validator_checks_declared_field_shapes() -> None:
+def test_instrument_driver_validator_checks_declared_property_shapes() -> None:
     description = SignalInstrumentDriver().describe()
 
     unsupported = validate_state_command(
         command=_state_command(
-            capability_id="set_frequency",
-            field_path="amplitude",
+            interface_id="test.set_frequency/v1",
+            property_id="amplitude",
             value=quantity_state(1.0, "GHz"),
         ),
         description=description,
     )
     unit_mismatch = validate_state_command(
         command=_state_command(
-            capability_id="set_frequency",
-            field_path="frequency",
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
             value=quantity_state(1.0, "ns"),
         ),
         description=description,
     )
     type_mismatch = validate_state_command(
         command=_state_command(
-            capability_id="set_gain",
-            field_path="gain",
+            interface_id="test.set_gain/v1",
+            property_id="gain",
             value=quantity_state(1.0, "GHz"),
         ),
         description=description,
     )
 
-    assert unsupported[0].code == "instrument_driver_unsupported_field"
-    assert unit_mismatch[0].code == "instrument_driver_field_value_mismatch"
-    assert type_mismatch[0].code == "instrument_driver_field_value_mismatch"
+    assert unsupported[0].code == "instrument_driver_unsupported_property"
+    assert unit_mismatch[0].code == "instrument_driver_property_value_mismatch"
+    assert type_mismatch[0].code == "instrument_driver_property_value_mismatch"
 
 
-def test_instrument_driver_validator_rejects_writes_to_read_only_fields() -> None:
+def test_instrument_driver_validator_rejects_writes_to_read_only_properties() -> None:
     description = InstrumentDescription(
         instrument_id="source-0",
         implementation_id="tests.read_only_driver",
         implementation_version="v0",
-        capabilities=[
-            capability(
-                "status",
-                fields=[
-                    quantity_field(
+        interfaces=[
+            interface(
+                "test.status/v1",
+                properties=[
+                    quantity_property(
                         "temperature",
                         unit="K",
                         access="read_only",
@@ -328,14 +331,14 @@ def test_instrument_driver_validator_rejects_writes_to_read_only_fields() -> Non
 
     problems = validate_state_command(
         command=_state_command(
-            capability_id="status",
-            field_path="temperature",
+            interface_id="test.status/v1",
+            property_id="temperature",
             value=quantity_state(0.02, "K"),
         ),
         description=description,
     )
 
-    assert [item.code for item in problems] == ["instrument_driver_read_only_field"]
+    assert [item.code for item in problems] == ["instrument_driver_read_only_property"]
 
 
 def test_instrument_driver_validator_applies_scalar_constraints() -> None:
@@ -343,20 +346,20 @@ def test_instrument_driver_validator_applies_scalar_constraints() -> None:
         instrument_id="source-0",
         implementation_id="tests.constraint_driver",
         implementation_version="v0",
-        capabilities=[
-            capability(
-                "set_gain",
-                fields=[
-                    CapabilityField(
+        interfaces=[
+            interface(
+                "test.set_gain/v1",
+                properties=[
+                    PropertySpec(
                         id="gain",
                         value_type=Scalar(Float(minimum=0.0, maximum=1.0)),
                     )
                 ],
             ),
-            capability(
-                "set_frequency",
-                fields=[
-                    CapabilityField(
+            interface(
+                "test.set_frequency/v1",
+                properties=[
+                    PropertySpec(
                         id="frequency",
                         value_type=Scalar(
                             QuantityType(unit="GHz", minimum=4.0, maximum=6.0)
@@ -369,40 +372,40 @@ def test_instrument_driver_validator_applies_scalar_constraints() -> None:
 
     valid_gain = validate_state_command(
         command=_state_command(
-            capability_id="set_gain",
-            field_path="gain",
+            interface_id="test.set_gain/v1",
+            property_id="gain",
             value=number_state(0.5),
         ),
         description=description,
     )
     out_of_range_gain = validate_state_command(
         command=_state_command(
-            capability_id="set_gain",
-            field_path="gain",
+            interface_id="test.set_gain/v1",
+            property_id="gain",
             value=number_state(2.0),
         ),
         description=description,
     )
     compatible_frequency = validate_state_command(
         command=_state_command(
-            capability_id="set_frequency",
-            field_path="frequency",
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
             value=quantity_state(5_000.0, "MHz"),
         ),
         description=description,
     )
     out_of_range_frequency = validate_state_command(
         command=_state_command(
-            capability_id="set_frequency",
-            field_path="frequency",
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
             value=quantity_state(7.0, "GHz"),
         ),
         description=description,
     )
     implicit_unit_frequency = validate_state_command(
         command=_state_command(
-            capability_id="set_frequency",
-            field_path="frequency",
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
             value=number_state(5.0),
         ),
         description=description,
@@ -410,8 +413,8 @@ def test_instrument_driver_validator_applies_scalar_constraints() -> None:
 
     assert valid_gain == []
     assert compatible_frequency == []
-    assert out_of_range_gain[0].code == "instrument_driver_field_value_mismatch"
-    assert out_of_range_frequency[0].code == "instrument_driver_field_value_mismatch"
+    assert out_of_range_gain[0].code == "instrument_driver_property_value_mismatch"
+    assert out_of_range_frequency[0].code == "instrument_driver_property_value_mismatch"
     assert implicit_unit_frequency == []
 
 
@@ -428,26 +431,28 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
         instrument_id="source-0",
         implementation_id="tests.payload_driver",
         implementation_version="v0",
-        capabilities=[
-            capability(
-                "play_program",
-                fields=[payload_field("program", schema_id="pulse_program")],
+        interfaces=[
+            interface(
+                "test.play_program/v1",
+                properties=[payload_property("program", schema_id="pulse_program")],
             )
         ],
     )
     wrong_schema_description = description.model_copy(
         update={
-            "capabilities": [
-                capability(
-                    "play_program",
-                    fields=[payload_field("program", schema_id="readout_program")],
+            "interfaces": [
+                interface(
+                    "test.play_program/v1",
+                    properties=[
+                        payload_property("program", schema_id="readout_program")
+                    ],
                 )
             ]
         }
     )
     command_with_payload = _state_command(
-        capability_id="play_program",
-        field_path="program",
+        interface_id="test.play_program/v1",
+        property_id="program",
         value=payload_state(payload.id),
         payloads={payload.id: payload},
     )
@@ -463,9 +468,9 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
         == command_with_payload
     )
 
-    valid = validate_state_fields(
+    valid = validate_state_assignments(
         instrument_id="source-0",
-        fields=command_with_payload.fields,
+        assignments=command_with_payload.assignments,
         description=description,
         payload_schemas={payload.id: payload.schema_id},
     )
@@ -473,13 +478,13 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
         command=command_with_payload,
         description=description,
     )
-    missing = validate_state_fields(
+    missing = validate_state_assignments(
         instrument_id="source-0",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="source-0",
-                capability_id="play_program",
-                field_path="program",
+                interface_id="test.play_program/v1",
+                property_id="program",
                 value=payload_state("missing-program"),
             )
         ],
@@ -488,15 +493,15 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
     )
     not_a_reference = validate_state_command(
         command=_state_command(
-            capability_id="play_program",
-            field_path="program",
+            interface_id="test.play_program/v1",
+            property_id="program",
             value=StateValue("program-a"),
         ),
         description=description,
     )
-    wrong_schema = validate_state_fields(
+    wrong_schema = validate_state_assignments(
         instrument_id="source-0",
-        fields=command_with_payload.fields,
+        assignments=command_with_payload.assignments,
         description=wrong_schema_description,
         payload_schemas={payload.id: payload.schema_id},
     )
@@ -504,8 +509,8 @@ def test_instrument_driver_validator_checks_payload_references_and_schemas() -> 
     assert valid == []
     assert command_payload == []
     assert missing[0].code == "instrument_driver_unknown_payload"
-    assert not_a_reference[0].code == "instrument_driver_field_value_mismatch"
-    assert wrong_schema[0].code == "instrument_driver_field_value_mismatch"
+    assert not_a_reference[0].code == "instrument_driver_property_value_mismatch"
+    assert wrong_schema[0].code == "instrument_driver_property_value_mismatch"
 
 
 def test_provider_builds_fresh_drivers() -> None:
@@ -550,9 +555,10 @@ def test_provider_description_resolves_instruments_from_config() -> None:
     assert [instrument.instrument_id for instrument in description.instruments] == [
         "source-0"
     ]
-    assert [
-        capability.id for capability in description.instruments[0].capabilities
-    ] == ["set_frequency", "scalar_signal"]
+    assert [interface.id for interface in description.instruments[0].interfaces] == [
+        "test.set_frequency/v1",
+        "test.scalar_signal/v1",
+    ]
 
 
 def test_provider_description_reports_dynamic_selection_errors() -> None:
@@ -578,10 +584,36 @@ def test_provider_description_rejects_duplicate_instrument_ids() -> None:
         )
 
 
+def test_provider_description_rejects_conflicting_interface_specs() -> None:
+    def described(instrument_id: str, property_id: str) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id=instrument_id,
+            implementation_id=f"tests.{instrument_id}",
+            implementation_version="v1",
+            interfaces=[
+                interface(
+                    "test.shared_source/v1",
+                    properties=[float_property(property_id)],
+                )
+            ],
+        )
+
+    with pytest.raises(ValueError, match="one stable specification"):
+        InstrumentProviderDescription(
+            provider_id="tests.conflicting-interfaces",
+            instruments=(
+                described("source-a", "level"),
+                described("source-b", "amplitude"),
+            ),
+        )
+
+
 def test_collect_command_rejects_duplicate_request_ids() -> None:
-    request = CollectProductRequest(
+    request = CollectResultRequest(
         id="signal",
-        capability_id="scalar_signal",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="signal",
     )
 
     with pytest.raises(ValidationError, match="request ids must be unique"):
@@ -593,58 +625,71 @@ def test_collect_command_rejects_duplicate_request_ids() -> None:
         )
 
 
-def test_instrument_description_rejects_duplicate_capability_members() -> None:
-    with pytest.raises(ValidationError, match="capability field ids must be unique"):
-        capability(
-            "source",
-            fields=[float_field("level"), float_field("level")],
+def test_instrument_description_rejects_duplicate_interface_members() -> None:
+    with pytest.raises(ValidationError, match="property ids must be unique"):
+        interface(
+            "test.source/v1",
+            properties=[float_property("level"), float_property("level")],
         )
-    with pytest.raises(ValidationError, match="capability product keys must be unique"):
-        capability(
-            "measure",
-            products=[product("signal"), product("signal")],
-        )
-    duplicate_capability = capability("source")
     with pytest.raises(
         ValidationError,
-        match="instrument capability ids must be unique",
+        match="acquisition result ids must be unique",
+    ):
+        acquisition(
+            "sample",
+            results=[
+                acquisition_result("signal"),
+                acquisition_result("signal"),
+            ],
+        )
+    duplicate_interface = interface("test.source/v1")
+    with pytest.raises(
+        ValidationError,
+        match="instrument interface ids must be unique",
     ):
         InstrumentDescription(
             instrument_id="source-0",
-            implementation_id="tests.duplicate_capabilities",
+            implementation_id="tests.duplicate_interfaces",
             implementation_version="v0",
-            capabilities=[duplicate_capability, duplicate_capability],
+            interfaces=[duplicate_interface, duplicate_interface],
         )
 
 
-def test_product_description_rejects_duplicate_axis_ids() -> None:
-    with pytest.raises(ValidationError, match="product axis ids must be unique"):
-        product(
-            "trace",
+def test_acquisition_result_rejects_duplicate_axis_ids() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="acquisition result axis ids must be unique",
+    ):
+        acquisition_result(
+            "signal",
             axes=[
-                product_axis("frequency", kind="frequency"),
-                product_axis("frequency", kind="frequency"),
+                acquisition_axis("frequency", kind="frequency"),
+                acquisition_axis("frequency", kind="frequency"),
             ],
         )
 
 
-def test_collect_validator_reports_unsupported_product_without_crashing() -> None:
+def test_collect_validator_reports_unsupported_result_without_crashing() -> None:
     problems = validate_collect_command(
         command=CollectCommand(
             instrument_id="source-0",
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="missing",
-                    capability_id="trace",
+                    interface_id="test.trace/v1",
+                    acquisition_id="sample",
+                    result_id="missing",
                 )
             ],
         ),
         description=_collect_description(),
     )
 
-    assert [item.code for item in problems] == ["instrument_driver_unsupported_product"]
+    assert [item.code for item in problems] == [
+        "instrument_driver_unsupported_acquisition_result"
+    ]
 
 
 def test_collect_validator_accepts_compatible_units_and_dynamic_shapes() -> None:
@@ -689,14 +734,14 @@ def test_collect_validator_checks_dtype_unit_and_axis_contracts() -> None:
     )
 
     assert {item.code for item in problems} == {
-        "instrument_driver_product_dtype_mismatch",
-        "instrument_driver_product_unit_mismatch",
-        "instrument_driver_product_axis_mismatch",
-        "instrument_driver_product_axis_unit_mismatch",
+        "instrument_driver_acquisition_dtype_mismatch",
+        "instrument_driver_acquisition_unit_mismatch",
+        "instrument_driver_acquisition_axis_mismatch",
+        "instrument_driver_acquisition_axis_unit_mismatch",
     }
 
 
-def test_collect_receipt_validator_checks_products_and_value_contract() -> None:
+def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
     command = _collect_command(
         dimensions=[
             CollectAxisRequest(
@@ -753,8 +798,8 @@ def test_collect_receipt_validator_checks_products_and_value_contract() -> None:
 
     assert valid == []
     assert {item.code for item in invalid} == {
-        "instrument_driver_missing_product",
-        "instrument_driver_unexpected_product",
+        "instrument_driver_missing_acquisition_result",
+        "instrument_driver_unexpected_acquisition_result",
     }
     assert {item.code for item in mismatched_value} == {
         "instrument_driver_readback_dtype_mismatch",
@@ -800,23 +845,23 @@ def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     assert [request.id for request in instrument.collect_commands[0].requests] == [
         "signal"
     ]
-    assert instrument.applied[0].fields[0].capability_id == "set_frequency"
+    assert instrument.applied[0].assignments[0].interface_id == "test.set_frequency/v1"
 
 
 def _state_command(
     *,
-    capability_id: str,
-    field_path: str,
+    interface_id: str,
+    property_id: str,
     value: StateValue,
     payloads: dict[str, CommandPayload] | None = None,
 ) -> InstrumentStateCommand:
     return InstrumentStateCommand(
         instrument_id="source-0",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="source-0",
-                capability_id=capability_id,
-                field_path=field_path,
+                interface_id=interface_id,
+                property_id=property_id,
                 value=value,
             )
         ],
@@ -829,19 +874,24 @@ def _collect_description() -> InstrumentDescription:
         instrument_id="source-0",
         implementation_id="tests.collect_driver",
         implementation_version="v0",
-        capabilities=[
-            capability(
-                "trace",
-                products=[
-                    product(
-                        "signal",
-                        dtype="float64",
-                        unit="Hz",
-                        axes=[
-                            product_axis(
-                                "frequency",
-                                kind="frequency",
+        interfaces=[
+            interface(
+                "test.trace/v1",
+                acquisitions=[
+                    acquisition(
+                        "sample",
+                        results=[
+                            acquisition_result(
+                                "signal",
+                                dtype="float64",
                                 unit="Hz",
+                                axes=[
+                                    acquisition_axis(
+                                        "frequency",
+                                        kind="frequency",
+                                        unit="Hz",
+                                    )
+                                ],
                             )
                         ],
                     )
@@ -862,9 +912,11 @@ def _collect_command(
         point_index=0,
         point_count=1,
         requests=[
-            CollectProductRequest(
+            CollectResultRequest(
                 id="signal",
-                capability_id="trace",
+                interface_id="test.trace/v1",
+                acquisition_id="sample",
+                result_id="signal",
                 dtype=dtype,
                 unit=unit,
                 dimensions=dimensions,
@@ -878,14 +930,25 @@ def _changed_state_command(
     command: InstrumentStateCommand,
 ) -> InstrumentStateCommand:
     current = {
-        (field.capability_id, field.field_path): field.value
-        for field in snapshot.fields
+        (
+            property.interface_id,
+            tuple(property.component_path),
+            property.property_id,
+        ): property.value
+        for property in snapshot.properties
     }
     return InstrumentStateCommand(
         instrument_id=command.instrument_id,
-        fields=[
-            field
-            for field in command.fields
-            if current.get((field.capability_id, field.field_path)) != field.value
+        assignments=[
+            assignment
+            for assignment in command.assignments
+            if current.get(
+                (
+                    assignment.interface_id,
+                    tuple(assignment.component_path),
+                    assignment.property_id,
+                )
+            )
+            != assignment.value
         ],
     )

@@ -31,12 +31,12 @@ from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
-    CollectProductRequest,
+    CollectResultRequest,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
@@ -535,11 +535,11 @@ def _apply_action(
         effect_id=effect_id,
         point_index=0,
         instrument_id=instrument_id,
-        fields=(
-            InstrumentStateCommandField(
+        assignments=(
+            InstrumentStateAssignment(
                 resource_id=instrument_id,
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=StateValue(Quantity(value=5.0, unit="GHz")),
             ),
         ),
@@ -557,14 +557,16 @@ def _collect_action(
         instrument_id=instrument_id,
         point_count=1,
         requests=(
-            CollectProductRequest(
+            CollectResultRequest(
                 id="signal",
-                capability_id="scalar_signal",
+                interface_id="test.scalar_signal/v1",
+                acquisition_id="sample",
+                result_id="signal",
             ),
         ),
         bindings=(
             RunHardwareCollectBinding(
-                provider_key="signal",
+                request_id="signal",
                 product_use_ids=("signal-use",),
             ),
         ),

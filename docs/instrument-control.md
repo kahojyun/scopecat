@@ -8,14 +8,15 @@ compete for the same exclusive resource claims.
 The design borrows Labber's useful separation between a background Instrument
 Server, manual instrument controls, and measurement tooling. It does not adopt
 a flat, vendor-shaped quantity tree as Scopecat's experiment model. Logical
-resource ports and capabilities remain the experiment-facing contract.
+resource ports and versioned interface requirements remain the
+experiment-facing contract.
 
 ## Four distinct layers
 
 ```mermaid
 flowchart LR
     C["InstrumentSpec<br/>immutable connection config"]
-    D["InstrumentDescription<br/>capabilities, fields, products"]
+    D["InstrumentDescription<br/>interfaces and components"]
     S["InstrumentSession<br/>live daemon drivers + claim"]
     R["ResourcePort<br/>logical experiment requirement"]
 
@@ -32,9 +33,10 @@ a connection publishes a new immutable config entry instead of mutating a live
 run's inputs.
 
 `InstrumentDescription` is the pure driver contract used without opening
-hardware. It declares vendor-neutral capabilities, state fields, field access,
-types, units, labels, descriptions, and collectable products. Both GUI controls
-and experiment validation are derived from it.
+hardware. It declares the versioned interfaces the device implements. An
+interface or nested component may contain persistent properties, atomic
+operations, and acquisitions with typed results. Property and acquisition GUI
+controls plus experiment validation are derived from this description.
 
 `InstrumentSession` is an explicit daemon-owned connection. The daemon pins
 the active config revision, claims all requested instruments, provisions the
@@ -46,8 +48,33 @@ on restart, idle sessions are released while a session interrupted during a
 consequential operation remains in `attention_required`.
 
 `ResourcePort` remains a logical experiment requirement such as RF output or
-network sweep. Planning routes it to a physical instrument. Experiment
-definitions therefore do not depend on addresses, vendors, or GUI concepts.
+network sweep. It requests one or more namespaced interface ids such as
+`scopecat.rf_output/v1`; planning routes the complete requirement to a physical
+instrument. Experiment definitions therefore do not depend on addresses,
+vendors, or GUI concepts.
+
+## Interface boundaries
+
+An interface id names stable behavior, not a driver implementation or current
+device mode. Its major version is part of the id. The members have distinct
+roles:
+
+- `PropertySpec` describes readable or writable persistent state;
+- `OperationSpec` describes one atomic action that is not state;
+- `AcquisitionSpec` describes one trigger and its typed result set;
+- `ComponentSpec` gives repeated or nested endpoints, such as channels and
+  traces, a stable path beneath the interface.
+
+A driver implementation may expose several interfaces. Multi-device
+calibration, feedback, and analysis remain experiment procedures rather than
+device operations.
+
+Operating-mode-dependent property sets belong in a later discriminated state
+model within an interface. A mode is mutable state, so routing never selects a
+different interface merely because the device changed mode. Named startup
+profiles likewise remain configuration that resolves to partial property
+assignments; omitted experiment properties preserve freshly observed device
+state unless an explicit profile policy says otherwise.
 
 ## Connection configuration
 
@@ -96,13 +123,13 @@ Opening an instrument does not connect automatically. The operator explicitly
 selects **Connect**, after which the detail view:
 
 1. reads a fresh state snapshot;
-2. renders capability groups and field controls from
+2. renders interface components and property controls from
    `InstrumentDescription`;
-3. disables `read_only` fields and never tries to read `write_only` values;
+3. disables `read_only` properties and never tries to read `write_only` values;
 4. stages edits locally, showing current and proposed values separately;
-5. submits all staged fields in one **Apply** operation;
-6. offers **Collect** only for declared products and previews returned values
-   or arrays;
+5. submits all staged properties in one **Apply** operation;
+6. offers **Collect** per declared acquisition and requests its declared
+   results;
 7. closes the session on explicit disconnect or workspace teardown.
 
 If a browser teardown request does not reach the daemon, the next client can
@@ -110,12 +137,12 @@ disconnect the still-visible interactive session. This is ordinary ownership
 recovery, not quarantine: only an unfinished consequential operation or failed
 driver cleanup creates hardware uncertainty.
 
-This is intentionally not a raw SCPI terminal. Driver capabilities preserve
+This is intentionally not a raw SCPI terminal. Driver interfaces preserve
 units and validation, make changes auditable, and keep the same semantics in
 GUI, notebooks, and experiments.
 
-Output enable, source level, heater control, and similar consequential fields
-must never be “apply on change”. Staging makes a multi-field transition
+Output enable, source level, heater control, and similar consequential
+properties must never be “apply on change”. Staging makes a multi-property transition
 intentional and lets a driver order dependent device commands safely. The
 initial Lake Shore driver is read-only because generic heater controls need
 additional lab-specific safety policy.
@@ -136,27 +163,28 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.read_state())
 
         receipt = vna.apply(
-            "network_sweep",
+            "scopecat.network_sweep/v1",
             start_frequency=sc.Quantity(4.8, "GHz"),
             stop_frequency=sc.Quantity(5.2, "GHz"),
             points=401,
         )
         trace = vna.collect(
-            "network_sweep",
+            "scopecat.network_sweep/v1",
+            "sweep",
             "frequency",
             "s_parameter",
         )
 ```
 
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
-numbers remain valid only where the declared field type accepts them. A
+numbers remain valid only where the declared property type accepts them. A
 multi-instrument session is available when an operation must reserve a coherent
 set:
 
 ```python
 with lab.instruments.open("flux-source", "readout-vna") as session:
     session.apply(
-        "dc_output",
+        "scopecat.dc_source/v1",
         {
             "voltage_level": sc.Quantity(0.05, "V"),
             "output_enabled": True,
@@ -164,7 +192,8 @@ with lab.instruments.open("flux-source", "readout-vna") as session:
         instrument_id="flux-source",
     )
     trace = session.collect(
-        "network_sweep",
+        "scopecat.network_sweep/v1",
+        "sweep",
         "s_parameter",
         instrument_id="readout-vna",
     )
@@ -219,7 +248,7 @@ explicit interactive session.
 
 Admission records the expected provider and an ordered instrument-contract
 fingerprint. The daemon verifies both before connecting drivers, so a provider
-or capability change cannot be accepted by client convention alone. Each
+or interface change cannot be accepted by client convention alone. Each
 hardware batch has one content-derived retry identity and durable
 started/finished evidence. Individual effects retain semantic ids for
 diagnostics, not independent retry identities.
@@ -227,19 +256,19 @@ diagnostics, not independent retry identities.
 The daemon's reconciliation cache is an assumed state: it starts from observed
 readback and advances only after confirmed writes, using driver-returned state
 when available. It is not presented as fresh physical observation. Drivers for
-devices whose fields drift independently can later require explicit readback
-without changing the batch boundary.
+devices whose properties drift independently can later require explicit
+readback without changing the batch boundary.
 
 ## Initial superconducting-lab driver set
 
 The first package deliberately implements narrow, documented subsets:
 
-| Device | Capability | Initial boundary |
+| Device | Interface | Initial boundary |
 |---|---|---|
-| Yokogawa GS200/GS210 | `dc_output` | source mode, range, level, protection, output, optional `/MON` reading |
-| R&S SGS100A | `rf_output` | CW frequency, power, RF output, internal/external reference |
-| Lake Shore 372 | `temperature_readout` | read-only scan channel, temperature, resistance, status, and sample-heater telemetry |
-| Keysight E5080B | `network_sweep` | one linear two-port S-parameter sweep and complex trace |
+| Yokogawa GS200/GS210 | `scopecat.dc_source/v1`; optional `scopecat.dc_monitor/v1` | source mode, range, level, protection, output, and optional `/MON` acquisition |
+| R&S SGS100A | `scopecat.rf_output/v1` | CW frequency, power, RF output, internal/external reference |
+| Lake Shore 372 | `scopecat.temperature_readout/v1` | read-only scan channel, temperature, resistance, status, and sample-heater telemetry |
+| Keysight E5080B | `scopecat.network_sweep/v1` | one linear two-port S-parameter sweep and complex trace |
 
 These subsets follow the vendors' public programming documentation:
 
@@ -250,7 +279,7 @@ These subsets follow the vendors' public programming documentation:
 
 ## Virtual lab
 
-Virtual instruments implement the same descriptions and receipts as real
+Virtual instruments implement the same interfaces and receipts as real
 drivers. They share one deterministic `VirtualLabWorld`: changing an enabled DC
 source shifts the virtual resonance and adds heating; enabled RF power also
 adds heating; the temperature monitor observes the resulting temperature; VNA

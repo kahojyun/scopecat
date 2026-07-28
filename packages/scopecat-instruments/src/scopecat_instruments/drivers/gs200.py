@@ -26,12 +26,16 @@ from scopecat_instruments._support import (
     parse_float,
     parse_identity,
     quantity_value,
-    state_field,
+    state_property,
     string_value,
     validate_collect_command,
     validate_writable_command,
 )
-from scopecat_instruments.capabilities import DC_OUTPUT, dc_output_capability
+from scopecat_instruments.interfaces import (
+    DC_SOURCE,
+    dc_monitor_interface,
+    dc_source_interface,
+)
 from scopecat_instruments.transport import ScpiTransport
 
 
@@ -63,14 +67,17 @@ class YokogawaGS200:
                 "Minimal voltage/current source driver. /MON collection is exposed "
                 "only when monitor_option=True."
             ),
-            capabilities=[dc_output_capability(monitor=self.monitor_option)],
+            interfaces=[
+                dc_source_interface(),
+                *([dc_monitor_interface()] if self.monitor_option else []),
+            ],
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
         mode = self.source_mode()
         active_unit = "V" if mode == "voltage" else "A"
-        range_field = "voltage_range" if mode == "voltage" else "current_range"
-        level_field = "voltage_level" if mode == "voltage" else "current_level"
+        range_property = "voltage_range" if mode == "voltage" else "current_range"
+        level_property = "voltage_level" if mode == "voltage" else "current_level"
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Yokogawa",
             "model": "GS200",
@@ -80,29 +87,29 @@ class YokogawaGS200:
             metadata["identity"] = self._identity.raw
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
-            fields=[
-                state_field(DC_OUTPUT, "source_mode", mode),
-                state_field(
-                    DC_OUTPUT,
-                    range_field,
+            properties=[
+                state_property(DC_SOURCE, "source_mode", mode),
+                state_property(
+                    DC_SOURCE,
+                    range_property,
                     Quantity(self.source_range(), active_unit),
                 ),
-                state_field(
-                    DC_OUTPUT,
-                    level_field,
+                state_property(
+                    DC_SOURCE,
+                    level_property,
                     Quantity(self.source_level(), active_unit),
                 ),
-                state_field(
-                    DC_OUTPUT,
+                state_property(
+                    DC_SOURCE,
                     "voltage_protection",
                     Quantity(self.voltage_protection(), "V"),
                 ),
-                state_field(
-                    DC_OUTPUT,
+                state_property(
+                    DC_SOURCE,
                     "current_protection",
                     Quantity(self.current_protection(), "A"),
                 ),
-                state_field(DC_OUTPUT, "output_enabled", self.output_enabled()),
+                state_property(DC_SOURCE, "output_enabled", self.output_enabled()),
             ],
             metadata=metadata,
         )
@@ -110,22 +117,24 @@ class YokogawaGS200:
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         description = self.describe()
         problems = validate_writable_command(command, description)
-        selected_fields = {field.field_path: field for field in command.fields}
+        selected_properties = {
+            assignment.property_id: assignment for assignment in command.assignments
+        }
         if problems:
             return not_applied(problems)
         implied_modes = {
             "voltage"
-            for path in selected_fields
+            for path in selected_properties
             if path in {"voltage_range", "voltage_level"}
         } | {
             "current"
-            for path in selected_fields
+            for path in selected_properties
             if path in {"current_range", "current_level"}
         }
-        explicit_mode_field = selected_fields.get("source_mode")
+        explicit_mode_property = selected_properties.get("source_mode")
         explicit_mode = (
-            string_value(explicit_mode_field.value)
-            if explicit_mode_field is not None
+            string_value(explicit_mode_property.value)
+            if explicit_mode_property is not None
             else None
         )
         if len(implied_modes) > 1 or (
@@ -136,17 +145,17 @@ class YokogawaGS200:
             problems.append(
                 execution_problem(
                     "gs200_conflicting_source_modes",
-                    "one command cannot mix voltage and current source fields",
+                    "one command cannot mix voltage and current source properties",
                     "instrument_state_command",
-                    "fields",
+                    "assignments",
                 )
             )
         if problems:
             return not_applied(problems)
         target_mode = explicit_mode or next(iter(implied_modes), None)
-        output_field = selected_fields.get("output_enabled")
+        output_property = selected_properties.get("output_enabled")
         target_output = (
-            bool_value(output_field.value) if output_field is not None else None
+            bool_value(output_property.value) if output_property is not None else None
         )
         try:
             if target_output is False:
@@ -160,27 +169,27 @@ class YokogawaGS200:
                 "voltage_level" if target_mode == "voltage" else "current_level"
             )
             unit = "V" if target_mode == "voltage" else "A"
-            if target_mode is not None and range_path in selected_fields:
+            if target_mode is not None and range_path in selected_properties:
                 self.set_source_range(
-                    quantity_value(selected_fields[range_path].value, unit)
+                    quantity_value(selected_properties[range_path].value, unit)
                 )
-            if "voltage_protection" in selected_fields:
+            if "voltage_protection" in selected_properties:
                 self.set_voltage_protection(
                     quantity_value(
-                        selected_fields["voltage_protection"].value,
+                        selected_properties["voltage_protection"].value,
                         "V",
                     )
                 )
-            if "current_protection" in selected_fields:
+            if "current_protection" in selected_properties:
                 self.set_current_protection(
                     quantity_value(
-                        selected_fields["current_protection"].value,
+                        selected_properties["current_protection"].value,
                         "A",
                     )
                 )
-            if target_mode is not None and level_path in selected_fields:
+            if target_mode is not None and level_path in selected_properties:
                 self.set_source_level(
-                    quantity_value(selected_fields[level_path].value, unit)
+                    quantity_value(selected_properties[level_path].value, unit)
                 )
             if target_output is True:
                 self.set_output(True)
@@ -207,16 +216,16 @@ class YokogawaGS200:
             )
         try:
             mode = self.source_mode()
-            product_id = (
+            result_id = (
                 "monitored_current" if mode == "voltage" else "monitored_voltage"
             )
-            requested_ids = {request.id for request in command.requests}
-            if requested_ids != {product_id}:
+            requested_result_ids = {request.result_id for request in command.requests}
+            if requested_result_ids != {result_id}:
                 return not_collected(
                     [
                         execution_problem(
-                            "gs200_monitor_product_inactive",
-                            f"{mode} source mode provides only {product_id}",
+                            "gs200_monitor_result_inactive",
+                            f"{mode} source mode provides only {result_id}",
                             "collect_command",
                             "requests",
                         )
@@ -226,7 +235,7 @@ class YokogawaGS200:
             measured = Quantity(self.measure(), unit)
             return CollectReceipt(
                 readback=InstrumentReadback(
-                    values={product_id: measured},
+                    values={request.id: measured for request in command.requests},
                     metadata={
                         "manufacturer": "Yokogawa",
                         "model": "GS200",

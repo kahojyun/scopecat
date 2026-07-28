@@ -124,13 +124,16 @@ def measurement_assembly_scenario(
             (
                 LogicalResourceRequirement(
                     port_id=logical_resource_port_id("source"),
-                    capabilities=("scalar_signal",),
+                    interfaces=("test.scalar_signal/v1",),
                 ),
             )
             if products
             else ()
         ),
-        effects=instrument_acquisitions(*products, capability="scalar_signal"),
+        effects=instrument_acquisitions(
+            *products,
+            interface="test.scalar_signal/v1",
+        ),
         product_defs=products,
         product_uses=uses,
         record_uses=tuple(records),

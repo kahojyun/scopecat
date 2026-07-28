@@ -29,12 +29,12 @@ from scopecat.kernel.value_types import Scalar
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
-    materialized_state_fields,
+    materialized_state_properties,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.relation_plans import (
     scalar_value_expr,
-    state_field,
+    state_property,
 )
 from tests.testkit.typed_program import (
     instrument_acquisition,
@@ -71,11 +71,11 @@ def test_materialized_effects_experiment_builds_expected_plan() -> None:
     preview = _materialized_effects_spec(spec, config)
 
     assert len(preview.points) == 3
-    _, state, field = materialized_state_fields(preview)[0]
+    _, state, target = materialized_state_properties(preview)[0]
     assert state.instrument_id == "source-0"
-    assert field.capability_id == "set_frequency"
-    assert field.field_path == "frequency"
-    assert field.value.root == Quantity(value=4.9, unit="GHz")
+    assert target.interface_id == "test.set_frequency/v1"
+    assert target.property_id == "frequency"
+    assert target.value.root == Quantity(value=4.9, unit="GHz")
 
 
 def test_materialized_effects_materializes_explicit_float_points() -> None:
@@ -94,7 +94,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
     acquisition = instrument_acquisition(
         product,
         resource_port_id="source",
-        capability="set_frequency",
+        interface="test.set_frequency/v1",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -104,14 +104,14 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                capabilities=("set_frequency",),
+                interfaces=("test.set_frequency/v1",),
             ),
         ),
         state=[
-            state_field(
+            state_property(
                 "source",
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=point_col("drive_frequency"),
                 bindings=bindings,
             )

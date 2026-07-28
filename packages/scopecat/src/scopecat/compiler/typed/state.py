@@ -14,6 +14,7 @@ from scopecat.graph.relations.model import (
     CellValue,
 )
 from scopecat.graph.values import ComputeResultRef
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
@@ -31,29 +32,35 @@ class LogicalStateResourceTarget:
 
 @dataclass(frozen=True, slots=True)
 class SetStateSpec:
-    """Assign one capability field after point-local parameter overlays."""
+    """Assign one interface property after point-local parameter overlays."""
 
     resource_target: LogicalStateResourceTarget
-    capability_id: str
-    field_path: str
+    interface_id: InterfaceId
+    property_id: str
     value_use: StateValueUse
+    component_path: tuple[str, ...] = ()
 
     @property
-    def field(self) -> str:
-        return f"{self.capability_id}.{self.field_path}"
+    def target(self) -> str:
+        component = "/".join(self.component_path)
+        prefix = f"{self.interface_id}/{component}" if component else self.interface_id
+        return f"{prefix}.{self.property_id}"
 
 
 @dataclass(frozen=True, slots=True)
 class StateRecord:
     point_index: int
     resource_target: LogicalResourcePortId
-    capability_id: str
-    field_path: str
+    interface_id: InterfaceId
+    property_id: str
     value: EvaluatedStateValue
+    component_path: tuple[str, ...] = ()
 
     @property
-    def field(self) -> str:
-        return f"{self.capability_id}.{self.field_path}"
+    def target(self) -> str:
+        component = "/".join(self.component_path)
+        prefix = f"{self.interface_id}/{component}" if component else self.interface_id
+        return f"{prefix}.{self.property_id}"
 
 
 def evaluate_state_spec(
@@ -69,8 +76,9 @@ def evaluate_state_spec(
         StateRecord(
             point_index=point_index,
             resource_target=spec.resource_target.port_id,
-            capability_id=spec.capability_id,
-            field_path=spec.field_path,
+            interface_id=spec.interface_id,
+            component_path=spec.component_path,
+            property_id=spec.property_id,
             value=(
                 value_use
                 if isinstance(value_use, ComputeResultRef)

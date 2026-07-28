@@ -15,7 +15,7 @@ from scopecat.authoring._binding_intents import (
     resource_port,
 )
 from scopecat.authoring._binding_intents import (
-    bind_field as binding_field,
+    bind_property as binding_property,
 )
 from scopecat.authoring._identities import InvocationKey
 from scopecat.authoring._intents import (
@@ -24,7 +24,7 @@ from scopecat.authoring._intents import (
 )
 from scopecat.authoring._module_ir import (
     ModuleAcquireEffect,
-    ModuleAcquireProduct,
+    ModuleAcquireResult,
     ModuleBindingEffect,
     ModuleBodyIR,
     ModuleDomainEffect,
@@ -70,6 +70,7 @@ from scopecat.authoring.values import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.quantity import Quantity
@@ -116,11 +117,10 @@ def _is_public_binding_input(value: object) -> bool:
     )
 
 
-def _resource_capabilities(requires: tuple[str, ...]) -> tuple[str, ...]:
-    if any(not capability for capability in requires):
-        msg = "resource capability ids must be non-empty"
-        raise ValueError(msg)
-    return requires
+def _resource_interfaces(
+    requires: tuple[InterfaceId, ...],
+) -> tuple[InterfaceId, ...]:
+    return tuple(require_interface_id(interface) for interface in requires)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -241,10 +241,10 @@ class ModuleBuilder:
         self,
         id: str,
         *,
-        requires: tuple[str, ...] = (),
+        requires: tuple[InterfaceId, ...] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> ModuleBuilder:
-        capabilities = _resource_capabilities(requires)
+        interfaces = _resource_interfaces(requires)
         for value in for_entities:
             if not _is_entity_input_type(value.value_type):
                 msg = "resource for_entities values must be entity-shaped"
@@ -253,7 +253,7 @@ class ModuleBuilder:
                 msg = "resource for_entities cannot use compute outputs"
                 raise TypeError(msg)
         selector = ResourceSelector(
-            capabilities=capabilities,
+            interfaces=interfaces,
             entity_inputs=tuple(for_entities),
         )
         return replace(
@@ -264,15 +264,16 @@ class ModuleBuilder:
             ),
         )
 
-    def bind_field(
+    def bind_property(
         self,
         resource: str,
         *,
-        capability: str,
-        field: str,
+        interface: InterfaceId,
+        property: str,
+        component_path: Sequence[str] = (),
         value: BindingInput,
     ) -> ModuleBuilder:
-        """Bind state through structured resource/capability/field identities."""
+        """Bind state through explicit interface, component, and property ids."""
 
         if not _is_public_binding_input(value):
             msg = "module bindings require a scalar typed value or scalar literal"
@@ -282,10 +283,11 @@ class ModuleBuilder:
             procedure=(
                 *self.procedure,
                 ModuleBindingEffect(
-                    binding_field(
+                    binding_property(
                         resource,
-                        capability=capability,
-                        field=field,
+                        interface=interface,
+                        component_path=component_path,
+                        property=property,
                         value=cast("BindingInput", _capture_state_literal(value)),
                     )
                 ),
@@ -305,50 +307,55 @@ class ModuleBuilder:
         id: str,
         *products: str | ProductRef,
         resource: str,
-        capability: str,
-        product_key: str | None = None,
-        product_keys: Mapping[str | ProductRef, str] | None = None,
+        interface: InterfaceId,
+        acquisition: str,
+        component_path: Sequence[str] = (),
+        result_id: str | None = None,
+        result_ids: Mapping[str | ProductRef, str] | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleBuilder:
-        """Acquire instrument products through one logical resource capability.
+        """Acquire instrument results through one logical resource interface.
 
-        ``product_key`` is the single-product shorthand. ``product_keys`` may
-        override provider keys for any subset of a multi-product acquisition;
+        ``result_id`` is the single-product shorthand. ``result_ids`` may
+        override result ids for any subset of a multi-product acquisition;
         products without an override keep their local logical id.
         """
 
         if not id or not products:
             raise ValueError("acquire requires a non-empty id and products")
-        if not capability:
-            raise ValueError("acquire requires a non-empty capability")
-        if product_key is not None and product_keys is not None:
-            raise ValueError("acquire accepts either product_key or product_keys")
-        if product_key is not None and len(products) != 1:
-            raise ValueError("acquire product_key is only valid for one product")
-        if product_key is not None and not product_key:
-            raise ValueError("acquire product_key must be non-empty")
+        selected_interface = require_interface_id(interface)
+        selected_component_path = tuple(component_path)
+        if not acquisition or any(
+            not component for component in selected_component_path
+        ):
+            raise ValueError("acquire requires non-empty acquisition and component ids")
+        if result_id is not None and result_ids is not None:
+            raise ValueError("acquire accepts either result_id or result_ids")
+        if result_id is not None and len(products) != 1:
+            raise ValueError("acquire result_id is only valid for one product")
+        if result_id is not None and not result_id:
+            raise ValueError("acquire result_id must be non-empty")
         selected = tuple(
             self.products[product] if isinstance(product, str) else product
             for product in products
         )
         selected_by_id = {product.id: product for product in selected}
-        provider_keys_by_product_id: dict[ProductId, str] = {}
-        for key, provider_key in (product_keys or {}).items():
-            if not provider_key:
-                raise ValueError("acquire product_keys values must be non-empty")
+        result_ids_by_product_id: dict[ProductId, str] = {}
+        for key, selected_result_id in (result_ids or {}).items():
+            if not selected_result_id:
+                raise ValueError("acquire result_ids values must be non-empty")
             selected_id = key.id if isinstance(key, ProductRef) else key
             selected_product = selected_by_id.get(selected_id)
             if selected_product is None:
                 raise ValueError(
-                    "acquire product_keys references unselected product "
-                    f"{selected_id!r}"
+                    f"acquire result_ids references unselected product {selected_id!r}"
                 )
-            if selected_product.product_id in provider_keys_by_product_id:
+            if selected_product.product_id in result_ids_by_product_id:
                 raise ValueError(
-                    "acquire product_keys maps one selected product more than once: "
+                    "acquire result_ids maps one selected product more than once: "
                     f"{selected_id!r}"
                 )
-            provider_keys_by_product_id[selected_product.product_id] = provider_key
+            result_ids_by_product_id[selected_product.product_id] = selected_result_id
         selected_metadata = freeze_json_mapping(metadata or {})
         return replace(
             self,
@@ -357,14 +364,16 @@ class ModuleBuilder:
                 ModuleAcquireEffect(
                     id=id,
                     resource_port_id=logical_resource_port_id(resource),
-                    capability_id=capability,
-                    products=tuple(
-                        ModuleAcquireProduct(
+                    interface_id=selected_interface,
+                    component_path=selected_component_path,
+                    acquisition_id=acquisition,
+                    results=tuple(
+                        ModuleAcquireResult(
                             product=product,
-                            provider_key=(
-                                product_key
-                                if product_key is not None
-                                else provider_keys_by_product_id.get(
+                            result_id=(
+                                result_id
+                                if result_id is not None
+                                else result_ids_by_product_id.get(
                                     product.product_id,
                                     product.local_id,
                                 )

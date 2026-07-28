@@ -37,8 +37,8 @@ from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,
-    CollectProductRequest,
     CollectReceipt,
+    CollectResultRequest,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
@@ -139,12 +139,12 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     child = (
         sc.module_body(id="tests.compute_schedule.child")
         .inputs(program)
-        .resource("source", requires=("play_program",))
+        .resource("source", requires=("test.play_program/v1",))
         .computes(consume_program)
-        .bind_field(
+        .bind_property(
             "source",
-            capability="play_program",
-            field="program",
+            interface="test.play_program/v1",
+            property="program",
             value=consume_program.output,
         )
         .build()
@@ -178,7 +178,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     payload_codecs = json_payload_codecs("pulse_program")
     lab = in_process_lab(
         tmp_path,
-        config=config_with_physical_resources({"source-0": ("play_program",)}),
+        config=config_with_physical_resources({"source-0": ("test.play_program/v1",)}),
         system=sc.ExperimentSystem(
             provider=_SingleDriverProvider(driver),
             payload_codecs=payload_codecs,
@@ -191,7 +191,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     assert calls == ["produce", "consume"]
     assert len(driver.applied) == 1
     applied = driver.applied[0]
-    payload_ref = applied.fields[0].value.root
+    payload_ref = applied.assignments[0].value.root
     assert isinstance(payload_ref, PayloadRef)
     command_payload = applied.payloads[payload_ref.payload_id]
     assert payload_codecs.decode(command_payload) == {"consumed": {"source": "parent"}}
@@ -387,15 +387,17 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="signal",
-                    capability_id="scalar_signal",
+                    interface_id="test.scalar_signal/v1",
+                    acquisition_id="sample",
+                    result_id="signal",
                 )
             ],
         ),
         result_bindings=(
             CollectionResultBinding(
-                provider_key="signal",
+                request_id="signal",
                 product_use_ids=tuple(use.id for use in uses),
             ),
         ),
@@ -483,7 +485,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     assert result.final_state == result.initial_state
 
 
-class _UnexpectedProductDriver(SignalInstrumentDriver):
+class _UnexpectedResultDriver(SignalInstrumentDriver):
     @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
@@ -497,8 +499,8 @@ class _UnexpectedProductDriver(SignalInstrumentDriver):
         )
 
 
-def test_unexpected_product_stops_later_collection() -> None:
-    first = _UnexpectedProductDriver(instrument_id="source-a")
+def test_unexpected_result_stops_later_collection() -> None:
+    first = _UnexpectedResultDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     point_uid = "blocking-collect-point"
     first_operation = _collect_operation(point_uid, "source-a", "first")
@@ -535,8 +537,8 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
                 instrument_id="source-a",
                 targets=(
                     StateTarget(
-                        capability_id="set_gain",
-                        field_path="gain",
+                        interface_id="test.set_gain/v1",
+                        property_id="gain",
                         value=StateValue(1.0),
                     ),
                 ),
@@ -546,8 +548,8 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
                 instrument_id="source-b",
                 targets=(
                     StateTarget(
-                        capability_id="set_gain",
-                        field_path="gain",
+                        interface_id="test.set_gain/v1",
+                        property_id="gain",
                         value=StateValue(2.0),
                     ),
                 ),
@@ -572,7 +574,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     assert len(first.applied) == 1
     assert second.applied == []
     assert result.final_state[0] != result.initial_state[0]
-    assert result.final_state[0].fields[0].value == StateValue(1.0)
+    assert result.final_state[0].properties[0].value == StateValue(1.0)
 
 
 def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:
@@ -581,8 +583,8 @@ def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:
         instrument_id=instrument_id,
         targets=(
             StateTarget(
-                capability_id="set_gain",
-                field_path="gain",
+                interface_id="test.set_gain/v1",
+                property_id="gain",
                 value=StateValue(value),
             ),
         ),
@@ -605,15 +607,17 @@ def _collect_operation(
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="signal",
-                    capability_id="scalar_signal",
+                    interface_id="test.scalar_signal/v1",
+                    acquisition_id="sample",
+                    result_id="signal",
                 )
             ],
         ),
         result_bindings=(
             CollectionResultBinding(
-                provider_key="signal",
+                request_id="signal",
                 product_use_ids=(use.id,),
             ),
         ),

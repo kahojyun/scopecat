@@ -34,15 +34,15 @@ from scopecat_instruments._support import (
     parse_identity,
     parse_int,
     quantity_value,
-    state_field,
+    state_property,
     string_value,
     strip_scpi_string,
     validate_collect_command,
     validate_writable_command,
 )
-from scopecat_instruments.capabilities import (
+from scopecat_instruments.interfaces import (
     NETWORK_SWEEP,
-    network_sweep_capability,
+    network_sweep_interface,
 )
 from scopecat_instruments.transport import ScpiTransport
 
@@ -80,7 +80,7 @@ class KeysightE5080B:
                 "existing standard measurement. Calibration management and "
                 "option-dependent applications are outside the v1 boundary."
             ),
-            capabilities=[network_sweep_capability()],
+            interfaces=[network_sweep_interface()],
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
@@ -96,29 +96,29 @@ class KeysightE5080B:
             metadata["identity"] = self._identity.raw
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
-            fields=[
-                state_field(
+            properties=[
+                state_property(
                     NETWORK_SWEEP,
                     "start_frequency",
                     Quantity(settings.start_frequency_hz, "Hz"),
                 ),
-                state_field(
+                state_property(
                     NETWORK_SWEEP,
                     "stop_frequency",
                     Quantity(settings.stop_frequency_hz, "Hz"),
                 ),
-                state_field(NETWORK_SWEEP, "points", settings.points),
-                state_field(
+                state_property(NETWORK_SWEEP, "points", settings.points),
+                state_property(
                     NETWORK_SWEEP,
                     "if_bandwidth",
                     Quantity(settings.if_bandwidth_hz, "Hz"),
                 ),
-                state_field(
+                state_property(
                     NETWORK_SWEEP,
                     "source_power",
                     Quantity(settings.source_power_dbm, "dBm"),
                 ),
-                state_field(
+                state_property(
                     NETWORK_SWEEP,
                     "s_parameter",
                     settings.s_parameter,
@@ -131,29 +131,31 @@ class KeysightE5080B:
         problems = validate_writable_command(command, self.describe())
         if problems:
             return not_applied(problems)
-        fields = {field.field_path: field for field in command.fields}
+        properties = {
+            assignment.property_id: assignment for assignment in command.assignments
+        }
         try:
             self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
-            if "start_frequency" in fields:
+            if "start_frequency" in properties:
                 self.set_start_frequency(
-                    quantity_value(fields["start_frequency"].value, "Hz")
+                    quantity_value(properties["start_frequency"].value, "Hz")
                 )
-            if "stop_frequency" in fields:
+            if "stop_frequency" in properties:
                 self.set_stop_frequency(
-                    quantity_value(fields["stop_frequency"].value, "Hz")
+                    quantity_value(properties["stop_frequency"].value, "Hz")
                 )
-            if "points" in fields:
-                self.set_points(int_value(fields["points"].value))
-            if "if_bandwidth" in fields:
+            if "points" in properties:
+                self.set_points(int_value(properties["points"].value))
+            if "if_bandwidth" in properties:
                 self.set_if_bandwidth(
-                    quantity_value(fields["if_bandwidth"].value, "Hz")
+                    quantity_value(properties["if_bandwidth"].value, "Hz")
                 )
-            if "source_power" in fields:
+            if "source_power" in properties:
                 self.set_source_power(
-                    quantity_value(fields["source_power"].value, "dBm")
+                    quantity_value(properties["source_power"].value, "dBm")
                 )
-            if "s_parameter" in fields:
-                self.set_s_parameter(string_value(fields["s_parameter"].value))
+            if "s_parameter" in properties:
+                self.set_s_parameter(string_value(properties["s_parameter"].value))
             return ApplyReceipt(status="applied", state=self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
@@ -168,7 +170,7 @@ class KeysightE5080B:
             trace = self.acquire_trace()
             values: dict[str, MeasurementValue] = {}
             for request in command.requests:
-                if request.id == "frequency":
+                if request.result_id == "frequency":
                     values[request.id] = MeasurementArray(
                         dtype="float64",
                         unit="Hz",

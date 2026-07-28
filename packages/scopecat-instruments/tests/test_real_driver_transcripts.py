@@ -5,9 +5,9 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
     CollectCommand,
-    CollectProductRequest,
+    CollectResultRequest,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
 )
 
 from scopecat_instruments._support import LinearSweepSettings
@@ -17,24 +17,30 @@ from scopecat_instruments.drivers import (
     RohdeSchwarzSGS100A,
     YokogawaGS200,
 )
+from scopecat_instruments.interfaces import (
+    DC_MONITOR,
+    DC_SOURCE,
+    NETWORK_SWEEP,
+    RF_OUTPUT,
+)
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 
 
 def _state_command(
     instrument_id: str,
-    capability_id: str,
-    fields: list[tuple[str, bool | str | Quantity]],
+    interface_id: str,
+    properties: list[tuple[str, bool | str | Quantity]],
 ) -> InstrumentStateCommand:
     return InstrumentStateCommand(
         instrument_id=instrument_id,
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id=instrument_id,
-                capability_id=capability_id,
-                field_path=field_path,
+                interface_id=interface_id,
+                property_id=property_id,
                 value=StateValue(value),
             )
-            for field_path, value in fields
+            for property_id, value in properties
         ],
     )
 
@@ -78,9 +84,11 @@ def test_gs200_source_and_monitor_transcript() -> None:
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="monitored_current",
-                    capability_id="dc_output",
+                    interface_id=DC_MONITOR,
+                    acquisition_id="monitor",
+                    result_id="monitored_current",
                     unit="A",
                 )
             ],
@@ -124,7 +132,7 @@ def test_gs200_apply_orders_output_around_level_changes(enabled: bool) -> None:
     receipt = driver.apply_state(
         _state_command(
             "bias",
-            "dc_output",
+            DC_SOURCE,
             [
                 ("source_mode", "voltage"),
                 ("voltage_level", Quantity(0.125, "V")),
@@ -163,9 +171,12 @@ def test_sgs100a_cw_source_transcript() -> None:
     driver.set_output(True)
     state = driver.read_state()
 
-    fields = {field.field_path: field.value.root for field in state.fields}
-    assert fields["reference_source"] == "external"
-    assert fields["output_enabled"] is True
+    properties = {
+        property_state.property_id: property_state.value.root
+        for property_state in state.properties
+    }
+    assert properties["reference_source"] == "external"
+    assert properties["output_enabled"] is True
     transport.assert_complete()
 
 
@@ -196,7 +207,7 @@ def test_sgs100a_apply_orders_output_around_frequency_and_power(
     receipt = driver.apply_state(
         _state_command(
             "readout-lo",
-            "rf_output",
+            RF_OUTPUT,
             [
                 ("frequency", Quantity(5.0e9, "Hz")),
                 ("power", Quantity(-27.5, "dBm")),
@@ -308,9 +319,11 @@ def test_e5080b_collect_keeps_disabled_continuous_trigger_unchanged() -> None:
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="s_parameter",
-                    capability_id="network_sweep",
+                    interface_id=NETWORK_SWEEP,
+                    acquisition_id="sweep",
+                    result_id="s_parameter",
                     unit="ratio",
                     dtype="complex128",
                 )
@@ -345,9 +358,11 @@ def test_e5080b_collect_restores_continuous_trigger_after_parse_failure() -> Non
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="s_parameter",
-                    capability_id="network_sweep",
+                    interface_id=NETWORK_SWEEP,
+                    acquisition_id="sweep",
+                    result_id="s_parameter",
                     unit="ratio",
                     dtype="complex128",
                 )

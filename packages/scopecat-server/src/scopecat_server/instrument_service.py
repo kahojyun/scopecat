@@ -60,7 +60,10 @@ from scopecat.records.config import (
     InstrumentSpec,
     config_content_hash,
 )
-from scopecat.records.instrument import InstrumentStateSnapshot, state_target_identity
+from scopecat.records.instrument import (
+    InstrumentStateSnapshot,
+    property_target_identity,
+)
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectCommand,
@@ -69,8 +72,8 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
     apply_state_command_to_snapshot,
     validate_collect_command,
     validate_collect_receipt,
@@ -704,7 +707,7 @@ class InstrumentService:
                 command = InstrumentStateCommand(
                     operation_id=action.effect_id,
                     instrument_id=action.instrument_id,
-                    fields=list(action.fields),
+                    assignments=list(action.assignments),
                     payloads=action.payloads,
                 )
                 validation_problems = validate_state_command(
@@ -746,29 +749,29 @@ class InstrumentService:
         action: RunHardwareApply,
     ) -> dict[str, JsonValue]:
         current = runtime.assumed_states[action.instrument_id]
-        fields = tuple(
-            field
-            for field in action.fields
+        assignments = tuple(
+            assignment
+            for assignment in action.assignments
             # A snapshot retains only the command-local slot id, not payload
             # content identity, so payload-valued writes cannot be deduplicated.
-            if isinstance(field.value.root, PayloadRef)
-            or _state_value(current, field) != field.value
+            if isinstance(assignment.value.root, PayloadRef)
+            or _state_value(current, assignment) != assignment.value
         )
-        if not fields:
+        if not assignments:
             return {
                 "effect_id": action.effect_id,
                 "status": "unchanged",
                 "metadata": {},
             }
         payload_ids = {
-            field.value.root.payload_id
-            for field in fields
-            if isinstance(field.value.root, PayloadRef)
+            assignment.value.root.payload_id
+            for assignment in assignments
+            if isinstance(assignment.value.root, PayloadRef)
         }
         command = InstrumentStateCommand(
             operation_id=action.effect_id,
             instrument_id=action.instrument_id,
-            fields=list(fields),
+            assignments=list(assignments),
             payloads={
                 payload_id: payload
                 for payload_id, payload in action.payloads.items()
@@ -862,11 +865,11 @@ class InstrumentService:
                 or f"instrument collect returned {receipt.status}"
             )
         bindings = {
-            binding.provider_key: binding.product_use_ids for binding in action.bindings
+            binding.request_id: binding.product_use_ids for binding in action.bindings
         }
         if set(receipt.readback.values) != set(bindings):
             raise BackendConflict(
-                "instrument readback products do not match hardware batch bindings"
+                "instrument acquisition results do not match hardware batch bindings"
             )
         values = tuple(
             RunHardwareValue(
@@ -874,8 +877,8 @@ class InstrumentService:
                 product_use_id=product_use_id,
                 value=value,
             )
-            for provider_key, value in receipt.readback.values.items()
-            for product_use_id in bindings[provider_key]
+            for request_id, value in receipt.readback.values.items()
+            for product_use_id in bindings[request_id]
         )
         return values, {
             "effect_id": action.effect_id,
@@ -2123,23 +2126,25 @@ def _payload_codec_problems(
 
 def _state_value(
     current: InstrumentStateSnapshot,
-    target: InstrumentStateCommandField,
+    target: InstrumentStateAssignment,
 ) -> object:
-    identity = state_target_identity(
-        target.capability_id,
-        target.field_path,
+    identity = property_target_identity(
+        target.interface_id,
+        target.component_path,
+        target.property_id,
         target.entity_ids,
         target.channel_bindings,
     )
     return next(
         (
-            field.value
-            for field in current.fields
-            if state_target_identity(
-                field.capability_id,
-                field.field_path,
-                field.entity_ids,
-                field.channel_bindings,
+            item.value
+            for item in current.properties
+            if property_target_identity(
+                item.interface_id,
+                item.component_path,
+                item.property_id,
+                item.entity_ids,
+                item.channel_bindings,
             )
             == identity
         ),

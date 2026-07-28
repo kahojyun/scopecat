@@ -32,7 +32,7 @@ from scopecat.compiler.semantic.value_expressions import (
 )
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.graph.relations.model import (
@@ -62,10 +62,11 @@ def lower_state_binding(
     else:
         value_type = None
         lowered = as_scalar_expr(value)
-    return set_state_field(
+    return set_state_property(
         resource_port_id=intent.port_id,
-        capability_id=intent.capability_id,
-        field_path=intent.field_path,
+        interface_id=intent.interface_id,
+        component_path=intent.component_path,
+        property_id=intent.property_id,
         value=(
             lowered
             if isinstance(lowered, ComputeResultRef)
@@ -90,7 +91,7 @@ def build_resource_requirements(
         resource_requirements.append(
             LogicalResourceRequirement(
                 port_id=port.symbol_id,
-                capabilities=tuple(port.selector.capabilities),
+                interfaces=tuple(port.selector.interfaces),
                 entity_uses=tuple(
                     relation_use(
                         _resource_entity_expr(

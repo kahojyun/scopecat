@@ -24,6 +24,7 @@ from scopecat.graph.relations.model import (
 from scopecat.graph.table_values import TableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
@@ -195,11 +196,11 @@ class SemanticMeasurementPostprocessor:
 
 
 @dataclass(frozen=True, slots=True)
-class AcquireProduct:
-    """Provider-facing mapping for one product in an acquisition effect."""
+class AcquireResult:
+    """Map one hardware acquisition result to a logical product."""
 
     product_id: ProductId
-    provider_key: str
+    result_id: str
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
@@ -215,16 +216,18 @@ class AcquireProduct:
 
 @dataclass(frozen=True, slots=True)
 class AcquireEffect:
-    """Ordered acquisition through one logical resource capability."""
+    """Ordered acquisition through one logical resource interface."""
 
     id: AcquireId
     resource_port_id: LogicalResourcePortId
-    capability_id: str
-    products: tuple[AcquireProduct, ...]
+    interface_id: InterfaceId
+    acquisition_id: str
+    results: tuple[AcquireResult, ...]
+    component_path: tuple[str, ...] = ()
 
     @property
     def product_ids(self) -> tuple[ProductId, ...]:
-        return tuple(product.product_id for product in self.products)
+        return tuple(result.product_id for result in self.results)
 
 
 @dataclass(frozen=True, slots=True)

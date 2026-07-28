@@ -9,21 +9,19 @@ from typing import ClassVar
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CapabilityDescription,
     CollectCommand,
     CollectReceipt,
     DriverFault,
     InstrumentDescription,
     InstrumentDriver,
+    InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentReadback,
     InstrumentStateCommand,
-    InstrumentStateField,
     InstrumentStateSnapshot,
-    capability,
-    payload_field,
+    InterfaceSpec,
 )
 from scopecat.sdk.problems import (
     Problem,
@@ -32,6 +30,11 @@ from scopecat.sdk.problems import (
     problem,
 )
 
+from quantum_lab_demo.interfaces import (
+    acquire_iq_interface,
+    play_pulse_program_interface,
+    readout_pulse_interface,
+)
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile
 from quantum_lab_demo.virtual_lab.profiles import load_virtual_lab_profile
 
@@ -43,18 +46,18 @@ class _VirtualInstrumentDriver:
         self,
         *,
         profile: VirtualDeviceProfile,
-        capabilities: Sequence[CapabilityDescription],
+        interfaces: Sequence[InterfaceSpec],
     ) -> None:
         self.instrument_id = profile.id
         self.implementation_id = self._implementation_id
         self.implementation_version = "v0"
-        self._capabilities = list(capabilities)
+        self._interfaces = list(interfaces)
         self._metadata: dict[str, JsonValue] = {
             "mode": "virtual_lab",
             "source": "quantum-lab-demo",
         }
         self._state = {
-            _decode_state_key(key): value
+            _decode_property_key(key): value
             for key, value in profile.initial_state.items()
         }
 
@@ -63,19 +66,19 @@ class _VirtualInstrumentDriver:
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
             implementation_version=self.implementation_version,
-            capabilities=list(self._capabilities),
+            interfaces=list(self._interfaces),
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
-            fields=[
-                InstrumentStateField(
-                    capability_id=capability_id,
-                    field_path=field_path,
+            properties=[
+                InstrumentPropertyState(
+                    interface_id=interface_id,
+                    property_id=property_id,
                     value=value,
                 )
-                for (capability_id, field_path), value in sorted(self._state.items())
+                for (interface_id, property_id), value in sorted(self._state.items())
             ],
             metadata=self._metadata,
         )
@@ -94,8 +97,10 @@ class _VirtualInstrumentDriver:
                     ),
                 )
             )
-        for field in command.fields:
-            self._state[(field.capability_id, field.field_path)] = field.value
+        for assignment in command.assignments:
+            self._state[(assignment.interface_id, assignment.property_id)] = (
+                assignment.value
+            )
         return ApplyReceipt(status="applied")
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
@@ -118,12 +123,7 @@ class QuantumDriveStack(_VirtualInstrumentDriver):
     def __init__(self, *, profile: VirtualDeviceProfile) -> None:
         super().__init__(
             profile=profile,
-            capabilities=[
-                capability(
-                    "play_pulse_program",
-                    fields=[payload_field("program", schema_id="pulse_program")],
-                ),
-            ],
+            interfaces=[play_pulse_program_interface()],
         )
 
 
@@ -133,9 +133,9 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
     def __init__(self, *, profile: VirtualDeviceProfile) -> None:
         super().__init__(
             profile=profile,
-            capabilities=[
-                capability("readout_pulse"),
-                capability("acquire_iq"),
+            interfaces=[
+                readout_pulse_interface(),
+                acquire_iq_interface(),
             ],
         )
 
@@ -223,13 +223,13 @@ def _required_profile(
         ) from error
 
 
-def _decode_state_key(key: str) -> tuple[str, str]:
-    capability_id, separator, field_path = key.partition(".")
-    if not separator or not capability_id or not field_path:
+def _decode_property_key(key: str) -> tuple[str, str]:
+    interface_id, separator, property_id = key.partition("::")
+    if not separator or not interface_id or not property_id:
         raise ValueError(
-            "virtual device initial_state keys must use '<capability_id>.<field_path>'"
+            "virtual device initial_state keys must use '<interface_id>::<property_id>'"
         )
-    return capability_id, field_path
+    return interface_id, property_id
 
 
 __all__ = [

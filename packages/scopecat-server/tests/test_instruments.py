@@ -24,14 +24,14 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     CollectCommand,
-    CollectProductRequest,
     CollectReceipt,
+    CollectResultRequest,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentReadback,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
@@ -223,12 +223,13 @@ def test_notebook_direct_interaction_owns_and_releases_driver(
             with lab.instruments.open("source-0", actor="alice") as instrument:
                 description = instrument.describe()
                 state_receipt = instrument.apply(
-                    "set_frequency",
+                    "test.set_frequency/v1",
                     operation_id="notebook-apply-1",
                     frequency=Quantity(value=5.1, unit="GHz"),
                 )
                 collect_receipt = instrument.collect(
-                    "scalar_signal",
+                    "test.scalar_signal/v1",
+                    "sample",
                     "signal",
                     operation_id="notebook-collect-1",
                 )
@@ -442,7 +443,7 @@ def test_notebook_default_apply_retries_with_same_operation_after_response_loss(
             )
 
             receipt = handle.apply(
-                "set_frequency",
+                "test.set_frequency/v1",
                 frequency=Quantity(value=5.1, unit="GHz"),
             )
             handle.close()
@@ -468,7 +469,11 @@ def test_notebook_default_collect_retries_with_same_operation_after_response_los
                 actor="alice",
             )
 
-            receipt = handle.collect("scalar_signal", "signal")
+            receipt = handle.collect(
+                "test.scalar_signal/v1",
+                "sample",
+                "signal",
+            )
             handle.close()
 
             assert receipt.status == "collected"
@@ -523,9 +528,11 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
                 point_index=0,
                 point_count=1,
                 requests=[
-                    CollectProductRequest(
+                    CollectResultRequest(
                         id="signal",
-                        capability_id="scalar_signal",
+                        interface_id="test.scalar_signal/v1",
+                        acquisition_id="sample",
+                        result_id="signal",
                         dtype="float64",
                         unit="ratio",
                     )
@@ -599,8 +606,8 @@ def test_provider_instance_and_virtual_state_survive_across_sessions(
         )
         daemon.close_instrument_session(second.session_id)
 
-    [field] = state.fields
-    assert field.value == StateValue(Quantity(value=5.1, unit="GHz"))
+    [property_state] = state.properties
+    assert property_state.value == StateValue(Quantity(value=5.1, unit="GHz"))
     assert build_count == 1
 
 
@@ -726,11 +733,11 @@ def _apply_command(*, value: float) -> InstrumentStateCommand:
     return InstrumentStateCommand(
         operation_id="apply-1",
         instrument_id="source-0",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="source-0",
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=StateValue(Quantity(value=value, unit="GHz")),
             )
         ],

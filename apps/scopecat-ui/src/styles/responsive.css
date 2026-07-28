@@ -45,12 +45,12 @@
     grid-template-columns: minmax(280px, 315px) minmax(0, 1fr);
   }
 
-  .capability-fields {
+  .interface-properties {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .capability-field,
-  .capability-field:nth-child(2n) {
+  .interface-property,
+  .interface-property:nth-child(2n) {
     border-right: 0;
   }
 }
@@ -320,7 +320,7 @@
     width: 100%;
   }
 
-  .capability-field {
+  .interface-property {
     grid-template-columns: minmax(120px, 1fr) minmax(125px, 0.9fr);
   }
 
@@ -576,17 +576,18 @@
     gap: 5px;
   }
 
-  .capability-card > header,
-  .capability-heading {
+  .interface-card > header,
+  .interface-heading {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .capability-card > header {
+  .interface-card > header,
+  .acquisition-control > header {
     display: flex;
   }
 
-  .capability-field {
+  .interface-property {
     grid-template-columns: minmax(0, 1fr);
   }
 

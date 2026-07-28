@@ -165,7 +165,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                 effect_id="point-0.apply.source-0",
                 point_index=0,
                 instrument_id="source-0",
-                fields=(),
+                assignments=(),
             ),
         ),
     )

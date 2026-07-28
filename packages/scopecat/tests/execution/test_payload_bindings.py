@@ -9,37 +9,37 @@ from scopecat.execution.ports.instruments import RunHardwareApply
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.sdk.instruments.contracts import (
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
 )
 
 type _ConcretePayloadFactory = Callable[
-    [tuple[InstrumentStateCommandField, ...], dict[str, CommandPayload]],
+    [tuple[InstrumentStateAssignment, ...], dict[str, CommandPayload]],
     BaseModel,
 ]
 
 
 def _command(
-    fields: tuple[InstrumentStateCommandField, ...],
+    assignments: tuple[InstrumentStateAssignment, ...],
     payloads: dict[str, CommandPayload],
 ) -> BaseModel:
     return InstrumentStateCommand(
         operation_id="apply-program",
         instrument_id="source-0",
-        fields=list(fields),
+        assignments=list(assignments),
         payloads=payloads,
     )
 
 
 def _hardware_apply(
-    fields: tuple[InstrumentStateCommandField, ...],
+    assignments: tuple[InstrumentStateAssignment, ...],
     payloads: dict[str, CommandPayload],
 ) -> BaseModel:
     return RunHardwareApply(
         effect_id="apply-program",
         point_index=0,
         instrument_id="source-0",
-        fields=fields,
+        assignments=assignments,
         payloads=payloads,
     )
 
@@ -58,11 +58,11 @@ def _payload() -> CommandPayload:
     )
 
 
-def _field(value: StateValue) -> InstrumentStateCommandField:
-    return InstrumentStateCommandField(
+def _assignment(value: StateValue) -> InstrumentStateAssignment:
+    return InstrumentStateAssignment(
         resource_id="source-0",
-        capability_id="play_program",
-        field_path="program",
+        interface_id="test.play_program/v1",
+        property_id="program",
         value=value,
     )
 
@@ -74,7 +74,7 @@ def test_concrete_payload_map_accepts_exact_references(
     payload = _payload()
 
     model = factory(
-        (_field(StateValue(PayloadRef(payload_id=payload.id))),),
+        (_assignment(StateValue(PayloadRef(payload_id=payload.id))),),
         {payload.id: payload},
     )
 
@@ -89,7 +89,7 @@ def test_concrete_payload_map_rejects_key_id_mismatch(
 
     with pytest.raises(ValidationError, match=r"does not match payload\.id"):
         factory(
-            (_field(StateValue(PayloadRef(payload_id="alias"))),),
+            (_assignment(StateValue(PayloadRef(payload_id="alias"))),),
             {"alias": payload},
         )
 
@@ -102,7 +102,7 @@ def test_concrete_payload_map_rejects_missing_referenced_payload(
 
     with pytest.raises(ValidationError, match="missing referenced payload ids"):
         factory(
-            (_field(StateValue(PayloadRef(payload_id=payload.id))),),
+            (_assignment(StateValue(PayloadRef(payload_id=payload.id))),),
             {},
         )
 
@@ -115,6 +115,6 @@ def test_concrete_payload_map_rejects_unreferenced_payload(
 
     with pytest.raises(ValidationError, match="unreferenced payload ids"):
         factory(
-            (_field(StateValue(1.0)),),
+            (_assignment(StateValue(1.0)),),
             {payload.id: payload},
         )

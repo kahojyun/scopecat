@@ -24,12 +24,12 @@ from scopecat_instruments._support import (
     parse_float,
     parse_identity,
     quantity_value,
-    state_field,
+    state_property,
     string_value,
     validate_collect_command,
     validate_writable_command,
 )
-from scopecat_instruments.capabilities import RF_OUTPUT, rf_output_capability
+from scopecat_instruments.interfaces import RF_OUTPUT, rf_output_interface
 from scopecat_instruments.transport import ScpiTransport
 
 
@@ -54,7 +54,7 @@ class RohdeSchwarzSGS100A:
                 "Minimal continuous-wave RF source driver. Modulation and "
                 "option-dependent features are outside the v1 boundary."
             ),
-            capabilities=[rf_output_capability()],
+            interfaces=[rf_output_interface()],
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
@@ -66,19 +66,19 @@ class RohdeSchwarzSGS100A:
             metadata["identity"] = self._identity.raw
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
-            fields=[
-                state_field(
+            properties=[
+                state_property(
                     RF_OUTPUT,
                     "frequency",
                     Quantity(self.frequency(), "Hz"),
                 ),
-                state_field(
+                state_property(
                     RF_OUTPUT,
                     "power",
                     Quantity(self.power(), "dBm"),
                 ),
-                state_field(RF_OUTPUT, "output_enabled", self.output_enabled()),
-                state_field(
+                state_property(RF_OUTPUT, "output_enabled", self.output_enabled()),
+                state_property(
                     RF_OUTPUT,
                     "reference_source",
                     self.reference_source(),
@@ -91,22 +91,24 @@ class RohdeSchwarzSGS100A:
         problems = validate_writable_command(command, self.describe())
         if problems:
             return not_applied(problems)
-        fields = {field.field_path: field for field in command.fields}
-        output_field = fields.get("output_enabled")
+        properties = {
+            assignment.property_id: assignment for assignment in command.assignments
+        }
+        output_property = properties.get("output_enabled")
         target_output = (
-            bool_value(output_field.value) if output_field is not None else None
+            bool_value(output_property.value) if output_property is not None else None
         )
         try:
             if target_output is False:
                 self.set_output(False)
-            if "reference_source" in fields:
+            if "reference_source" in properties:
                 self.set_reference_source(
-                    string_value(fields["reference_source"].value)
+                    string_value(properties["reference_source"].value)
                 )
-            if "frequency" in fields:
-                self.set_frequency(quantity_value(fields["frequency"].value, "Hz"))
-            if "power" in fields:
-                self.set_power(quantity_value(fields["power"].value, "dBm"))
+            if "frequency" in properties:
+                self.set_frequency(quantity_value(properties["frequency"].value, "Hz"))
+            if "power" in properties:
+                self.set_power(quantity_value(properties["power"].value, "dBm"))
             if target_output is True:
                 self.set_output(True)
             return ApplyReceipt(status="applied", state=self.read_state())

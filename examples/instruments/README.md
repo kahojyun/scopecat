@@ -2,7 +2,7 @@
 
 This project is a hardware-free tour of both direct instrument control and a
 complete measurement workflow. Its RF source, DC source, temperature monitor,
-and VNA use the same capability contracts as the first-party real drivers. They
+and VNA use the same interface contracts as the first-party real drivers. They
 share one deterministic virtual world, so enabled bias and RF power affect
 temperature and the VNA response.
 
@@ -54,7 +54,7 @@ creates a reviewable configuration proposal for
 does not accept that proposal automatically.
 
 The experiment declares only the logical resources `flux-source`,
-`mixing-chamber`, and `readout-vna` plus their capabilities. It has no driver or
+`mixing-chamber`, and `readout-vna` plus their interfaces. It has no driver or
 vendor imports, so the same experiment can be routed to compatible real
 instruments. The intended path explicitly disables the flux output after each
 acquisition. The demo provider also enforces bias-off during cleanup or abort,

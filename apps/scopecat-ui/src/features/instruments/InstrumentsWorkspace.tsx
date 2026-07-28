@@ -208,7 +208,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
           <span className="eyebrow">Direct hardware interaction</span>
           <h2 id="instruments-heading">Instruments</h2>
           <p>
-            Inspect driver capabilities, then explicitly connect one device for direct interaction.
+            Inspect driver interfaces, then explicitly connect one device for direct interaction.
           </p>
         </div>
         <div className="instrument-config-identity">

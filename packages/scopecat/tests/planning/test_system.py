@@ -33,7 +33,7 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementPostprocessorOutput,
     ValueInput,
     record_product,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import (
@@ -195,7 +195,7 @@ class _DomainCompiler:
             ),
             target_id=self.target_id,
             compiler_id=self.compiler_id,
-            capability_fingerprint=f"{self.compiler_id}.capabilities",
+            capability_fingerprint=f"{self.compiler_id}.interfaces",
             artifact_id=(f"{self.compiler_id}.artifact.batch-{request.batch_ordinal}"),
             artifact_fingerprint=f"{self.compiler_id}.artifact-fingerprint",
             target_intent={
@@ -394,8 +394,8 @@ def _linked_program(
     instrument_acquisitions = tuple(
         instrument_acquisition(
             product,
-            capability="scalar_signal",
-            provider_key="signal",
+            interface="test.scalar_signal/v1",
+            result_id="signal",
         )
         for product in products[selected_domain_product_count:]
     )
@@ -414,10 +414,10 @@ def _linked_program(
     }[state_mode]
     state = (
         (
-            set_state_field(
+            set_state_property(
                 resource_port_id=logical_resource_port_id("source"),
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=state_value,
             ),
         )
@@ -448,10 +448,10 @@ def _linked_program(
                 (
                     LogicalResourceRequirement(
                         port_id=logical_resource_port_id("source"),
-                        capabilities=(
-                            ("set_frequency", "scalar_signal")
+                        interfaces=(
+                            ("test.set_frequency/v1", "test.scalar_signal/v1")
                             if state
-                            else ("scalar_signal",)
+                            else ("test.scalar_signal/v1",)
                         ),
                     ),
                 )
@@ -517,14 +517,14 @@ def _linked_instrument_fed_postprocessor_program() -> LinkedPlan:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                capabilities=("scalar_signal",),
+                interfaces=("test.scalar_signal/v1",),
             ),
         ),
         effects=(
             instrument_acquisition(
                 source,
-                capability="scalar_signal",
-                provider_key="signal",
+                interface="test.scalar_signal/v1",
+                result_id="signal",
             ),
         ),
         measurement_postprocessors=(postprocessor,),
@@ -568,13 +568,13 @@ def _track_bound_resource_ports(
         routing: RoutingView,
         *,
         port_id: LogicalResourcePortId,
-        capabilities: Sequence[str],
+        interfaces: Sequence[str],
     ) -> ResourcePortManifest:
         calls.append(port_id)
         return original(
             routing,
             port_id=port_id,
-            capabilities=capabilities,
+            interfaces=interfaces,
         )
 
     monkeypatch.setattr(RoutingView, "bind_port", track_binding)

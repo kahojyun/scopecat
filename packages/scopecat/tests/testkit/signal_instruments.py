@@ -17,16 +17,17 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     InstrumentDescription,
+    InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentReadback,
     InstrumentStateCommand,
-    InstrumentStateField,
     InstrumentStateSnapshot,
-    capability,
-    product,
-    quantity_field,
+    acquisition,
+    acquisition_result,
+    interface,
+    quantity_property,
 )
 
 
@@ -35,7 +36,7 @@ class TestSignalInstrumentProvider:
     __test__ = False
 
     instrument_id: str | None = None
-    additional_product_keys: tuple[str, ...] = ()
+    additional_result_ids: tuple[str, ...] = ()
     provider_id: str = "tests.signal_instrument_provider"
 
     def describe(
@@ -48,7 +49,7 @@ class TestSignalInstrumentProvider:
                 (
                     TestSignalInstrument(
                         instrument_id=instrument_id,
-                        additional_product_keys=self.additional_product_keys,
+                        additional_result_ids=self.additional_result_ids,
                     ).describe(),
                 )
                 if not problems
@@ -69,7 +70,7 @@ class TestSignalInstrumentProvider:
             drivers=(
                 TestSignalInstrument(
                     instrument_id=instrument_id,
-                    additional_product_keys=self.additional_product_keys,
+                    additional_result_ids=self.additional_result_ids,
                 ),
             ),
             metadata={
@@ -85,7 +86,7 @@ class TestSignalInstrumentProvider:
         routable_instrument_ids = {
             binding.instrument_id
             for binding in context.config.routing.bindings
-            if binding.capability == "set_frequency"
+            if binding.interface_id == "test.set_frequency/v1"
         }
         if self.instrument_id is not None:
             instrument = next(
@@ -106,7 +107,7 @@ class TestSignalInstrumentProvider:
                     _problem(
                         "test_signal_provider_unsupported_instrument",
                         "test signal provider instrument must be routable for "
-                        "set_frequency: "
+                        "test.set_frequency/v1: "
                         f"{self.instrument_id}",
                         "instrument_id",
                     )
@@ -120,7 +121,7 @@ class TestSignalInstrumentProvider:
                 _problem(
                     "test_signal_provider_missing_instrument",
                     "test signal provider requires one routable instrument exposing "
-                    "set_frequency",
+                    "test.set_frequency/v1",
                     "config.system.routing.bindings",
                 )
             ]
@@ -128,7 +129,8 @@ class TestSignalInstrumentProvider:
             return "", [
                 _problem(
                     "test_signal_provider_ambiguous_instrument",
-                    "test signal provider found multiple set_frequency instruments: "
+                    "test signal provider found multiple test.set_frequency/v1 "
+                    "instruments: "
                     f"{', '.join(matches)}",
                     "config.system.routing.bindings",
                 )
@@ -146,10 +148,10 @@ class TestSignalInstrument:
         self,
         *,
         instrument_id: str = "source-0",
-        additional_product_keys: tuple[str, ...] = (),
+        additional_result_ids: tuple[str, ...] = (),
     ) -> None:
         self.instrument_id = instrument_id
-        self.product_keys = ("signal", *additional_product_keys)
+        self.result_ids = ("signal", *additional_result_ids)
         self._state: dict[tuple[str, str], StateValue] = {}
         self.applied_commands: list[InstrumentStateCommand] = []
         self.collect_commands: list[CollectCommand] = []
@@ -159,16 +161,21 @@ class TestSignalInstrument:
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
             implementation_version=self.implementation_version,
-            capabilities=[
-                capability(
-                    "set_frequency",
-                    fields=[quantity_field("frequency", unit="GHz")],
+            interfaces=[
+                interface(
+                    "test.set_frequency/v1",
+                    properties=[quantity_property("frequency", unit="GHz")],
                 ),
-                capability(
-                    "scalar_signal",
-                    products=[
-                        product(product_key, unit="ratio")
-                        for product_key in self.product_keys
+                interface(
+                    "test.scalar_signal/v1",
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[
+                                acquisition_result(result_id, unit="ratio")
+                                for result_id in self.result_ids
+                            ],
+                        )
                     ],
                 ),
             ],
@@ -177,31 +184,31 @@ class TestSignalInstrument:
     def read_state(self) -> InstrumentStateSnapshot:
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
-            fields=[
-                InstrumentStateField(
-                    capability_id=capability_id,
-                    field_path=field_path,
+            properties=[
+                InstrumentPropertyState(
+                    interface_id=interface_id,
+                    property_id=property_id,
                     value=value,
                 )
-                for (capability_id, field_path), value in sorted(self._state.items())
+                for (interface_id, property_id), value in sorted(self._state.items())
             ],
             metadata={"mode": "test_offline"},
         )
 
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied_commands.append(command)
-        for field in command.fields:
-            self._state[(field.capability_id, field.field_path)] = field.value
+        for assignment in command.assignments:
+            self._state[(assignment.interface_id, assignment.property_id)] = (
+                assignment.value
+            )
         return ApplyReceipt(status="applied")
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
-        requested_product_keys = tuple(
-            request.id
-            for request in command.requests
-            if request.id in self.product_keys
+        requested_result_ids = tuple(
+            request.id for request in command.requests if request.id in self.result_ids
         )
-        if not requested_product_keys:
+        if not requested_result_ids:
             return CollectReceipt(readback=InstrumentReadback())
         value = Quantity(
             value=_test_signal(
@@ -212,7 +219,7 @@ class TestSignalInstrument:
         )
         return CollectReceipt(
             readback=InstrumentReadback(
-                values=dict.fromkeys(requested_product_keys, value),
+                values=dict.fromkeys(requested_result_ids, value),
                 metadata={
                     "instrument": self.instrument_id,
                     "implementation": self.implementation_id,

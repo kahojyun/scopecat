@@ -188,26 +188,26 @@ def _verify_product_owners(
 ) -> None:
     owners: dict[object, tuple[str, str]] = {}
     for acquire in acquisitions:
-        for product in acquire.products:
-            existing = owners.get(product.product_id)
+        for result in acquire.results:
+            existing = owners.get(result.product_id)
             if existing is not None:
                 owner, owner_port = existing
                 problems.append(
                     _problem(
                         "semantic_product_producer_duplicate",
-                        f"logical product {product.product_id.qualified_name!r} is "
+                        f"logical product {result.product_id.qualified_name!r} is "
                         f"produced by both {owner}/{owner_port!r} and acquisition "
-                        f"{acquire.id.qualified_name!r}/{product.provider_key!r}",
+                        f"{acquire.id.qualified_name!r}/{result.result_id!r}",
                         "acquisitions",
                         acquire.id.qualified_name,
-                        "products",
-                        product.provider_key,
+                        "results",
+                        result.result_id,
                     )
                 )
                 continue
-            owners[product.product_id] = (
+            owners[result.product_id] = (
                 f"acquisition {acquire.id.qualified_name!r}",
-                product.provider_key,
+                result.result_id,
             )
     for execution in executions:
         for result_id, product_id in execution.results:

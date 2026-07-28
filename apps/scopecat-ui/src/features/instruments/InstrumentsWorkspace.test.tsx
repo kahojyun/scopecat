@@ -11,7 +11,7 @@ import {
   abortInstrumentSession,
   applyInstrumentState,
   closeInstrumentSession,
-  collectInstrumentCapability,
+  collectInstrumentAcquisition,
   getActiveConfig,
   getInstruments,
   openInstrumentSession,
@@ -25,7 +25,7 @@ vi.mock("./instrument-api", async (importOriginal) => ({
   abortInstrumentSession: vi.fn(),
   applyInstrumentState: vi.fn(),
   closeInstrumentSession: vi.fn(),
-  collectInstrumentCapability: vi.fn(),
+  collectInstrumentAcquisition: vi.fn(),
   getActiveConfig: vi.fn(),
   getInstruments: vi.fn(),
   openInstrumentSession: vi.fn(),
@@ -51,7 +51,7 @@ beforeEach(() => {
   });
   vi.mocked(closeInstrumentSession).mockResolvedValue();
   vi.mocked(abortInstrumentSession).mockResolvedValue();
-  vi.mocked(collectInstrumentCapability).mockResolvedValue({
+  vi.mocked(collectInstrumentAcquisition).mockResolvedValue({
     status: "collected",
     problems: [],
     readback: { values: {} },
@@ -111,7 +111,7 @@ describe("instrument workspace", () => {
             implementation_id: "keysight.pna",
             implementation_version: "0.1",
             label: "Readout VNA",
-            capabilities: [],
+            interfaces: [],
           },
           availability: "active",
           owner_kind: "run",
@@ -136,7 +136,7 @@ describe("instrument workspace", () => {
     expect(screen.queryByRole("button", { name: "Connect" })).not.toBeInTheDocument();
   });
 
-  it("does not duplicate a driver version prefix", async () => {
+  it("keeps driver ABI details out of the ordinary interface view", async () => {
     const prefixed = instrument();
     prefixed.description = {
       ...prefixed.description!,
@@ -151,8 +151,10 @@ describe("instrument workspace", () => {
 
     renderWorkspace();
 
-    expect(await screen.findByText("v1")).toBeVisible();
-    expect(screen.queryByText("vv1")).not.toBeInTheDocument();
+    const heading = (await screen.findByText("Interfaces")).closest(".interface-heading");
+    expect(heading).not.toBeNull();
+    expect(within(heading as HTMLElement).queryByText("virtual.rf_source")).not.toBeInTheDocument();
+    expect(within(heading as HTMLElement).queryByText("v1")).not.toBeInTheDocument();
   });
 
   it("connects explicitly, reads initial state, and closes on unmount", async () => {
@@ -179,6 +181,7 @@ describe("instrument workspace", () => {
       ),
     );
     expect(await screen.findByDisplayValue("5000000000")).toBeVisible();
+    expect(screen.queryByText("session-1")).not.toBeInTheDocument();
 
     rendered.unmount();
 
@@ -207,7 +210,7 @@ describe("instrument workspace", () => {
     await waitFor(() => expect(abortInstrumentSession).toHaveBeenCalledWith("session-stale"));
   });
 
-  it("stages typed fields locally and sends one apply command", async () => {
+  it("stages typed properties locally and sends one apply command", async () => {
     renderWorkspace();
     await screen.findByText("Drive source");
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
@@ -222,7 +225,7 @@ describe("instrument workspace", () => {
     fireEvent.change(frequency, { target: { value: "6000000000" } });
 
     expect(applyInstrumentState).not.toHaveBeenCalled();
-    expect(screen.getByText("1 staged field")).toBeVisible();
+    expect(screen.getByText("1 staged property")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Apply staged" }));
 
     await waitFor(() =>
@@ -231,8 +234,9 @@ describe("instrument workspace", () => {
         "drive-source",
         [
           {
-            capabilityId: "rf_output",
-            fieldPath: "frequency",
+            interfaceId: "scopecat.rf_output/v1",
+            componentPath: [],
+            propertyId: "frequency",
             value: { value: 6_000_000_000, unit: "Hz" },
           },
         ],
@@ -244,7 +248,7 @@ describe("instrument workspace", () => {
 
   it("reuses operation ids while retrying mutations", async () => {
     vi.mocked(applyInstrumentState).mockRejectedValueOnce(new Error("Apply network failed."));
-    vi.mocked(collectInstrumentCapability).mockRejectedValueOnce(
+    vi.mocked(collectInstrumentAcquisition).mockRejectedValueOnce(
       new Error("Collect network failed."),
     );
     vi.mocked(closeInstrumentSession).mockRejectedValueOnce(
@@ -267,9 +271,9 @@ describe("instrument workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
     expect(await screen.findByText("Collect network failed.")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
-    await waitFor(() => expect(collectInstrumentCapability).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(collectInstrumentCapability).mock.calls[0]?.[4]).toBe(
-      vi.mocked(collectInstrumentCapability).mock.calls[1]?.[4],
+    await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[4]).toBe(
+      vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[4],
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
@@ -280,7 +284,7 @@ describe("instrument workspace", () => {
   });
 
   it("starts a new collect operation after an applied state change", async () => {
-    vi.mocked(collectInstrumentCapability).mockRejectedValueOnce(
+    vi.mocked(collectInstrumentAcquisition).mockRejectedValueOnce(
       new Error("Collect request lost."),
     );
     renderWorkspace();
@@ -290,34 +294,41 @@ describe("instrument workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
     expect(await screen.findByText("Collect request lost.")).toBeVisible();
-    const staleCollectId = vi.mocked(collectInstrumentCapability).mock.calls[0]?.[4];
+    const staleCollectId = vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[4];
 
     fireEvent.change(frequency, { target: { value: "6000000000" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply staged" }));
     expect(await screen.findByText("Apply receipt: Applied")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
 
-    await waitFor(() => expect(collectInstrumentCapability).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(collectInstrumentCapability).mock.calls[1]?.[4]).not.toBe(staleCollectId);
+    await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[4]).not.toBe(staleCollectId);
   });
 
-  it("disables collection when a mixed product still has an unresolved dynamic axis", async () => {
+  it("disables collection when an acquisition result has an unresolved dynamic axis", async () => {
     const mixedAxisInstrument = instrument();
     mixedAxisInstrument.description = {
       ...mixedAxisInstrument.description!,
-      capabilities: [
+      interfaces: [
         {
-          id: "network_sweep",
+          id: "scopecat.network_sweep/v1",
           label: "Network sweep",
-          fields: [],
-          products: [
+          properties: [],
+          operations: [],
+          components: [],
+          acquisitions: [
             {
-              key: "trace",
-              label: "S-parameter trace",
-              dtype: "complex128",
-              axes: [
-                { id: "frequency", label: "Frequency", kind: "frequency", unit: "Hz" },
-                { id: "receiver", kind: "receiver", size: 2 },
+              id: "sweep",
+              results: [
+                {
+                  id: "trace",
+                  label: "S-parameter trace",
+                  dtype: "complex128",
+                  axes: [
+                    { id: "frequency", label: "Frequency", kind: "frequency", unit: "Hz" },
+                    { id: "receiver", kind: "receiver", size: 2 },
+                  ],
+                },
               ],
             },
           ],
@@ -346,7 +357,7 @@ describe("instrument workspace", () => {
     const collect = screen.getByRole("button", { name: "Collect" });
     expect(collect).toBeDisabled();
     fireEvent.click(collect);
-    expect(collectInstrumentCapability).not.toHaveBeenCalled();
+    expect(collectInstrumentAcquisition).not.toHaveBeenCalled();
   });
 
   it("keeps the session available after close retries fail", async () => {
@@ -386,7 +397,7 @@ describe("instrument workspace", () => {
         implementation_id: "virtual.temperature",
         implementation_version: "v1",
         label: "Fridge monitor",
-        capabilities: [],
+        interfaces: [],
       },
     });
     vi.mocked(getInstruments).mockResolvedValue({
@@ -526,11 +537,11 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
       implementation_version: "0.1",
       label: "Drive source",
       description: "Virtual microwave source",
-      capabilities: [
+      interfaces: [
         {
-          id: "rf_output",
+          id: "scopecat.rf_output/v1",
           label: "RF output",
-          fields: [
+          properties: [
             {
               id: "frequency",
               label: "CW frequency",
@@ -550,13 +561,21 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
               value_type: { type: "quantity", finite: true, unit: "K" },
             },
           ],
-          products: [
+          operations: [],
+          components: [],
+          acquisitions: [
             {
-              key: "trace",
-              label: "Trace",
-              dtype: "float64",
-              unit: "ratio",
-              axes: [{ id: "sample", kind: "sample", size: 3 }],
+              id: "sample",
+              label: "Sample",
+              results: [
+                {
+                  id: "trace",
+                  label: "Trace",
+                  dtype: "float64",
+                  unit: "ratio",
+                  axes: [{ id: "sample", kind: "sample", size: 3 }],
+                },
+              ],
             },
           ],
         },
@@ -587,20 +606,23 @@ function session(overrides: Partial<InstrumentSession> = {}): InstrumentSession 
 function instrumentState(frequency = 5_000_000_000): InstrumentState {
   return {
     instrument_id: "drive-source",
-    fields: [
+    properties: [
       {
-        capability_id: "rf_output",
-        field_path: "frequency",
+        interface_id: "scopecat.rf_output/v1",
+        component_path: [],
+        property_id: "frequency",
         value: { value: frequency, unit: "Hz" },
       },
       {
-        capability_id: "rf_output",
-        field_path: "output_enabled",
+        interface_id: "scopecat.rf_output/v1",
+        component_path: [],
+        property_id: "output_enabled",
         value: false,
       },
       {
-        capability_id: "rf_output",
-        field_path: "temperature",
+        interface_id: "scopecat.rf_output/v1",
+        component_path: [],
+        property_id: "temperature",
         value: { value: 0.02, unit: "K" },
       },
     ],

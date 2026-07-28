@@ -31,7 +31,7 @@ from tests.testkit.relation_plans import (
     scalar_value_expr,
 )
 from tests.testkit.relation_plans import (
-    state_field as set_state_field,
+    state_property as set_state_property,
 )
 from tests.testkit.typed_program import (
     instrument_acquisition,
@@ -43,7 +43,7 @@ from tests.testkit.typed_program import (
 _SOURCE_REQUIREMENTS = (
     LogicalResourceRequirement(
         port_id=logical_resource_port_id("source"),
-        capabilities=("scalar_signal",),
+        interfaces=("test.scalar_signal/v1",),
     ),
 )
 
@@ -58,7 +58,7 @@ def _point_domain(
     )
 
 
-def test_materialized_effects_allows_provider_key_reuse_across_acquisitions() -> None:
+def test_materialized_effects_allows_result_id_reuse_across_acquisitions() -> None:
     products = (
         observable_product("raw_i", unit="ratio"),
         observable_product("demod_i", unit="ratio"),
@@ -66,8 +66,8 @@ def test_materialized_effects_allows_provider_key_reuse_across_acquisitions() ->
     acquisitions = tuple(
         instrument_acquisition(
             product,
-            capability="scalar_signal",
-            provider_key="i",
+            interface="test.scalar_signal/v1",
+            result_id="i",
         )
         for product in products
     )
@@ -160,7 +160,7 @@ def test_materialized_effects_rejects_conflicting_shared_record_axes(
         observable_product("i", axes=[first_axis]),
         observable_product("q", axes=[second_axis]),
     )
-    acquisitions = instrument_acquisitions(*products, capability="scalar_signal")
+    acquisitions = instrument_acquisitions(*products, interface="test.scalar_signal/v1")
     uses_and_records = tuple(record_product(product) for product in products)
     spec = typed_program(
         id="conflicting-record-axis",
@@ -226,20 +226,20 @@ def test_materialized_effects_reports_state_evaluation_and_conflict_problems() -
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                capabilities=("set_frequency",),
+                interfaces=("test.set_frequency/v1",),
             ),
         ),
         state=[
-            set_state_field(
+            set_state_property(
                 "source",
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=Quantity(value=5.9, unit="GHz"),
             ),
-            set_state_field(
+            set_state_property(
                 "source",
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=Quantity(value=6.0, unit="GHz"),
             ),
         ],

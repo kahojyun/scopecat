@@ -18,7 +18,7 @@ from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedDomainExecution,
     ValueInput,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.compiler.typed.specialization import (
     specialize_core_program,
@@ -82,10 +82,10 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
         ),
         inputs={"gain": ValueInput(config_value)},
     )
-    state = set_state_field(
+    state = set_state_property(
         resource_port_id=logical_resource_port_id("drive"),
-        capability_id="drive",
-        field_path="gain",
+        interface_id="drive",
+        property_id="gain",
         value=config_value,
     )
     specialized = specialize_core_program(
@@ -175,10 +175,10 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
     upstream = compute("upstream")
     live = compute("live", upstream)
     dead = compute("dead")
-    state = set_state_field(
+    state = set_state_property(
         resource_port_id=logical_resource_port_id("drive"),
-        capability_id="drive",
-        field_path="payload",
+        interface_id="drive",
+        property_id="payload",
         value=ComputeResultRef(live.result.id),
     )
 

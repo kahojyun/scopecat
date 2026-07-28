@@ -4,15 +4,20 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
     CollectCommand,
-    CollectProductRequest,
+    CollectResultRequest,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
 )
 
 from scopecat_instruments.drivers import (
     KeysightE5080B,
     LakeShore372,
     YokogawaGS200,
+)
+from scopecat_instruments.interfaces import (
+    DC_SOURCE,
+    NETWORK_SWEEP,
+    TEMPERATURE_READOUT,
 )
 from scopecat_instruments.testing import ScriptedTransport
 from scopecat_instruments.transport import TransportError
@@ -35,11 +40,11 @@ def test_read_only_lakeshore_command_is_not_applied_without_io() -> None:
     receipt = driver.apply_state(
         InstrumentStateCommand(
             instrument_id="fridge",
-            fields=[
-                InstrumentStateCommandField(
+            assignments=[
+                InstrumentStateAssignment(
                     resource_id="fridge",
-                    capability_id="temperature_readout",
-                    field_path="heater_range",
+                    interface_id=TEMPERATURE_READOUT,
+                    property_id="heater_range",
                     value=StateValue(1),
                 )
             ],
@@ -47,7 +52,7 @@ def test_read_only_lakeshore_command_is_not_applied_without_io() -> None:
     )
 
     assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "instrument_driver_read_only_field"
+    assert receipt.problems[0].code == "instrument_driver_read_only_property"
 
 
 def test_invalid_gs200_mode_is_not_applied_without_io() -> None:
@@ -55,11 +60,11 @@ def test_invalid_gs200_mode_is_not_applied_without_io() -> None:
     receipt = driver.apply_state(
         InstrumentStateCommand(
             instrument_id="bias",
-            fields=[
-                InstrumentStateCommandField(
+            assignments=[
+                InstrumentStateAssignment(
                     resource_id="bias",
-                    capability_id="dc_output",
-                    field_path="source_mode",
+                    interface_id=DC_SOURCE,
+                    property_id="source_mode",
                     value=StateValue(17),
                 )
             ],
@@ -67,7 +72,7 @@ def test_invalid_gs200_mode_is_not_applied_without_io() -> None:
     )
 
     assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "instrument_driver_field_value_mismatch"
+    assert receipt.problems[0].code == "instrument_driver_property_value_mismatch"
 
 
 def test_real_gs200_rejects_mixed_modes_without_io() -> None:
@@ -111,7 +116,7 @@ def test_apply_transport_loss_reports_unknown_not_not_applied() -> None:
     assert receipt.problems[0].code == "instrument_apply_outcome_unknown"
 
 
-def test_unsupported_collect_product_is_not_collected_without_trigger() -> None:
+def test_unsupported_collect_result_is_not_collected_without_trigger() -> None:
     driver = KeysightE5080B("vna", ScriptedTransport([]))
     receipt = driver.collect(
         CollectCommand(
@@ -119,16 +124,20 @@ def test_unsupported_collect_product_is_not_collected_without_trigger() -> None:
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="not_a_trace",
-                    capability_id="network_sweep",
+                    interface_id=NETWORK_SWEEP,
+                    acquisition_id="sweep",
+                    result_id="not_a_trace",
                 )
             ],
         )
     )
 
     assert receipt.status == "not_collected"
-    assert receipt.problems[0].code == "instrument_driver_unsupported_product"
+    assert (
+        receipt.problems[0].code == "instrument_driver_unsupported_acquisition_result"
+    )
 
 
 def test_acquisition_transport_loss_reports_unknown() -> None:
@@ -139,9 +148,11 @@ def test_acquisition_transport_loss_reports_unknown() -> None:
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="s_parameter",
-                    capability_id="network_sweep",
+                    interface_id=NETWORK_SWEEP,
+                    acquisition_id="sweep",
+                    result_id="s_parameter",
                     unit="ratio",
                     dtype="complex128",
                 )
@@ -161,9 +172,11 @@ def test_collect_contract_mismatch_is_rejected_without_trigger() -> None:
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="s_parameter",
-                    capability_id="network_sweep",
+                    interface_id=NETWORK_SWEEP,
+                    acquisition_id="sweep",
+                    result_id="s_parameter",
                     unit="ratio",
                     dtype="float64",
                 )
@@ -172,23 +185,23 @@ def test_collect_contract_mismatch_is_rejected_without_trigger() -> None:
     )
 
     assert receipt.status == "not_collected"
-    assert receipt.problems[0].code == "instrument_driver_product_dtype_mismatch"
+    assert receipt.problems[0].code == "instrument_driver_acquisition_dtype_mismatch"
 
 
 def _mixed_dc_mode_command() -> InstrumentStateCommand:
     return InstrumentStateCommand(
         instrument_id="bias",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="bias",
-                capability_id="dc_output",
-                field_path="voltage_level",
+                interface_id=DC_SOURCE,
+                property_id="voltage_level",
                 value=StateValue(Quantity(0.1, "V")),
             ),
-            InstrumentStateCommandField(
+            InstrumentStateAssignment(
                 resource_id="bias",
-                capability_id="dc_output",
-                field_path="current_level",
+                interface_id=DC_SOURCE,
+                property_id="current_level",
                 value=StateValue(Quantity(1.0e-3, "A")),
             ),
         ],

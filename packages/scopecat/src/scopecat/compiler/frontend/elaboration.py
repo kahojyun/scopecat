@@ -67,7 +67,7 @@ from scopecat.compiler.frontend.semantic_elaboration import (
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireId,
-    AcquireProduct,
+    AcquireResult,
     LocalPythonImplementation,
     SemanticDomainExecution,
     SemanticGraphIR,
@@ -399,14 +399,16 @@ def _lower_module_effect(
     return AcquireEffect(
         id=AcquireId(SymbolId(local_id=effect.id)),
         resource_port_id=effect.resource_port_id,
-        capability_id=effect.capability_id,
-        products=tuple(
-            AcquireProduct(
-                product_id=product.product.product_id,
-                provider_key=product.provider_key,
-                metadata=product.metadata,
+        interface_id=effect.interface_id,
+        component_path=effect.component_path,
+        acquisition_id=effect.acquisition_id,
+        results=tuple(
+            AcquireResult(
+                product_id=result.product.product_id,
+                result_id=result.result_id,
+                metadata=result.metadata,
             )
-            for product in effect.products
+            for result in effect.results
         ),
     )
 
@@ -606,7 +608,7 @@ def _resolve_resource_port(
     return replace(
         port,
         selector=ResourceSelector(
-            capabilities=port.selector.capabilities,
+            interfaces=port.selector.interfaces,
             entity_inputs=tuple(
                 resolver.resolve(value) for value in port.selector.entity_inputs
             ),
@@ -859,12 +861,12 @@ def _scope_fragment_effect(
             effect.resource_port_id,
             effect.resource_port_id,
         ),
-        products=tuple(
+        results=tuple(
             replace(
-                product,
-                product_id=product.product_id.prefixed(*scope),
+                result,
+                product_id=result.product_id.prefixed(*scope),
             )
-            for product in effect.products
+            for result in effect.results
         ),
     )
 
@@ -967,7 +969,7 @@ def _scope_resource_ports(
         localized = replace(
             port,
             selector=ResourceSelector(
-                capabilities=port.selector.capabilities,
+                interfaces=port.selector.interfaces,
                 entity_inputs=tuple(entity_inputs),
             ),
         )

@@ -3,7 +3,7 @@
 `scopecat-instruments` supplies Scopecat's config-driven provider for a focused
 set of real and virtual laboratory instruments. Device access is owned by the
 project daemon so notebooks, the GUI, and experiment runs share the same
-exclusive leases, capability validation, operation receipts, and audit trail.
+exclusive leases, interface validation, operation receipts, and audit trail.
 
 The configured connection kinds are:
 
@@ -26,12 +26,17 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.describe())
         print(vna.read_state())
         vna.apply(
-            "network_sweep",
+            "scopecat.network_sweep/v1",
             start_frequency=sc.Quantity(5.9, "GHz"),
             stop_frequency=sc.Quantity(6.1, "GHz"),
             points=401,
         )
-        trace = vna.collect("network_sweep", "frequency", "s_parameter")
+        trace = vna.collect(
+            "scopecat.network_sweep/v1",
+            "sweep",
+            "frequency",
+            "s_parameter",
+        )
 ```
 
 The context manager opens a renewable daemon-owned session and closes it on
@@ -76,16 +81,16 @@ Connection `options` are intentionally narrow:
 
 The package supports these driver IDs:
 
-| Driver ID | Capability |
+| Driver ID | Interface |
 | --- | --- |
-| `scopecat.yokogawa.gs200` | DC source state and optional monitor readback |
-| `scopecat.rohde_schwarz.sgs100a` | CW RF source state |
-| `scopecat.lakeshore.372` | Read-only temperature and heater telemetry |
-| `scopecat.keysight.e5080b` | Linear S-parameter sweep and complex trace |
-| `scopecat.virtual.rf_source` | Virtual CW RF source |
-| `scopecat.virtual.dc_source` | Virtual DC source |
-| `scopecat.virtual.temperature_monitor` | Virtual temperature monitor |
-| `scopecat.virtual.vna` | Virtual network analyzer |
+| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v1`; optional `scopecat.dc_monitor/v1` |
+| `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v1` |
+| `scopecat.lakeshore.372` | `scopecat.temperature_readout/v1` |
+| `scopecat.keysight.e5080b` | `scopecat.network_sweep/v1` |
+| `scopecat.virtual.rf_source` | `scopecat.rf_output/v1` |
+| `scopecat.virtual.dc_source` | `scopecat.dc_source/v1`, `scopecat.dc_monitor/v1` |
+| `scopecat.virtual.temperature_monitor` | `scopecat.temperature_readout/v1` |
+| `scopecat.virtual.vna` | `scopecat.network_sweep/v1` |
 
 The real-device implementations are deliberately minimal. Verify firmware,
 installed options, limits, cabling, and interlocks for the specific laboratory

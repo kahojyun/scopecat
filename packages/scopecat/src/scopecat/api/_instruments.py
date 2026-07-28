@@ -14,17 +14,20 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectAxisRequest,
     CollectCommand,
-    CollectProductRequest,
     CollectReceipt,
+    CollectResultRequest,
+    ComponentSpec,
     InstrumentDescription,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
+    InterfaceSpec,
 )
 
 
@@ -143,19 +146,20 @@ class InstrumentSessionHandle:
 
     def apply(
         self,
-        capability_id: str,
+        interface_id: InterfaceId,
         values: Mapping[str, StateLiteral | StateValue] | None = None,
         /,
         *,
+        component_path: tuple[str, ...] = (),
         instrument_id: str | None = None,
         operation_id: str | None = None,
-        **fields: StateLiteral | StateValue,
+        **properties: StateLiteral | StateValue,
     ) -> ApplyReceipt:
-        if values is not None and fields:
-            raise ValueError("pass state fields as a mapping or keyword values")
-        selected_values = dict(values or fields)
+        if values is not None and properties:
+            raise ValueError("pass properties as a mapping or keyword values")
+        selected_values = dict(values or properties)
         if not selected_values:
-            raise ValueError("interactive apply requires at least one field")
+            raise ValueError("interactive apply requires at least one property")
         selected = self._selected_instrument_id(instrument_id)
         session = self._require_session()
         selected_operation_id = _select_operation_id(
@@ -166,16 +170,17 @@ class InstrumentSessionHandle:
         command = InstrumentStateCommand(
             operation_id=selected_operation_id,
             instrument_id=selected,
-            fields=[
-                InstrumentStateCommandField(
+            assignments=[
+                InstrumentStateAssignment(
                     resource_id=selected,
-                    capability_id=capability_id,
-                    field_path=field_path,
+                    interface_id=interface_id,
+                    component_path=list(component_path),
+                    property_id=property_id,
                     value=(
                         value if isinstance(value, StateValue) else StateValue(value)
                     ),
                 )
-                for field_path, value in selected_values.items()
+                for property_id, value in selected_values.items()
             ],
         )
         return self._client.apply_instrument_state(
@@ -186,31 +191,49 @@ class InstrumentSessionHandle:
 
     def collect(
         self,
-        capability_id: str,
-        *product_ids: str,
+        interface_id: InterfaceId,
+        acquisition_id: str,
+        *result_ids: str,
+        component_path: tuple[str, ...] = (),
         instrument_id: str | None = None,
         operation_id: str | None = None,
     ) -> CollectReceipt:
         selected = self._selected_instrument_id(instrument_id)
         description = self.describe(selected)
-        capability = next(
-            (item for item in description.capabilities if item.id == capability_id),
+        interface = next(
+            (item for item in description.interfaces if item.id == interface_id),
             None,
         )
-        if capability is None:
-            raise ValueError(
-                f"instrument {selected} has no capability {capability_id!r}"
+        if interface is None:
+            raise ValueError(f"instrument {selected} has no interface {interface_id!r}")
+        component: InterfaceSpec | ComponentSpec = interface
+        for component_id in component_path:
+            nested = next(
+                (item for item in component.components if item.id == component_id),
+                None,
             )
-        products = {item.key: item for item in capability.products}
-        selected_product_ids = product_ids or tuple(products)
+            if nested is None:
+                raise ValueError(
+                    f"interface {interface_id!r} has no component path "
+                    f"{'/'.join(component_path)!r}"
+                )
+            component = nested
+        acquisition = next(
+            (item for item in component.acquisitions if item.id == acquisition_id),
+            None,
+        )
+        if acquisition is None:
+            raise ValueError(
+                f"interface {interface_id!r} has no acquisition {acquisition_id!r}"
+            )
+        results = {item.id: item for item in acquisition.results}
+        selected_result_ids = result_ids or tuple(results)
         missing = tuple(
-            product_id
-            for product_id in selected_product_ids
-            if product_id not in products
+            result_id for result_id in selected_result_ids if result_id not in results
         )
         if missing:
             raise ValueError(
-                f"capability {capability_id!r} has no products: {', '.join(missing)}"
+                f"acquisition {acquisition_id!r} has no results: {', '.join(missing)}"
             )
         session = self._require_session()
         command = CollectCommand(
@@ -223,11 +246,14 @@ class InstrumentSessionHandle:
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
-                    id=product_id,
-                    capability_id=capability_id,
-                    unit=products[product_id].unit,
-                    dtype=products[product_id].dtype,
+                CollectResultRequest(
+                    id=result_id,
+                    interface_id=interface_id,
+                    component_path=list(component_path),
+                    acquisition_id=acquisition_id,
+                    result_id=result_id,
+                    unit=results[result_id].unit,
+                    dtype=results[result_id].dtype,
                     dimensions=[
                         CollectAxisRequest(
                             id=axis.id,
@@ -235,11 +261,11 @@ class InstrumentSessionHandle:
                             size=axis.size,
                             unit=axis.unit,
                         )
-                        for axis in products[product_id].axes
+                        for axis in results[result_id].axes
                         if axis.size is not None
                     ],
                 )
-                for product_id in selected_product_ids
+                for result_id in selected_result_ids
             ],
         )
         return self._client.collect_instrument(

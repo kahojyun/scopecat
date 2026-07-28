@@ -74,17 +74,23 @@ def _composable_module() -> sc.ExperimentModule[...]:
     )
     return (
         sc.module_body(id="test.composition-invariant.source")
-        .resource("source", requires=("measure",))
-        .bind_field(
+        .resource("source", requires=("test.measure/v1",))
+        .bind_property(
             "source",
-            capability="measure",
-            field="mode",
+            interface="test.measure/v1",
+            property="mode",
             value="fast",
         )
         .computes(consume, produce)
         .export(payload=consume.output)
         .product("signal", unit="ratio")
-        .acquire("read-signal", "signal", resource="source", capability="measure")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            interface="test.measure/v1",
+            acquisition="sample",
+        )
         .build()
     )
 
@@ -150,9 +156,7 @@ def _normalized_signature(
         return (type(definition.source).__name__, definition.value_type)
 
     return (
-        tuple(
-            (port.id, port.selector.capabilities) for port in assembly.resource_ports
-        ),
+        tuple((port.id, port.selector.interfaces) for port in assembly.resource_ports),
         tuple(
             (
                 operation.id.local_id,
@@ -167,8 +171,8 @@ def _normalized_signature(
         tuple(
             (
                 resources[binding.port_id],
-                binding.capability_id,
-                binding.field_path,
+                binding.interface_id,
+                binding.property_id,
                 binding.value,
             )
             for binding in assembly.bindings

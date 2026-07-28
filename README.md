@@ -101,7 +101,7 @@ uv run python examples/instruments/notebooks/01_direct_control.py
 ```
 
 Its coupled virtual DC source, temperature monitor, RF source, and VNA use the
-same capability and session APIs as real devices.
+same interface and session APIs as real devices.
 
 Explicitly local scratch code still executes in the notebook process when it
 cannot be sent reliably to another process. Admission, resource ownership,

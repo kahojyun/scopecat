@@ -11,7 +11,7 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireId,
-    AcquireProduct,
+    AcquireResult,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -107,8 +107,10 @@ def instrument_acquisition(
     *,
     id: AcquireId | str | None = None,
     resource_port_id: LogicalResourcePortId | str = "source",
-    capability: str,
-    provider_key: str | None = None,
+    interface: str,
+    acquisition: str = "sample",
+    component_path: Sequence[str] = (),
+    result_id: str | None = None,
     metadata: dict[str, JsonValue] | None = None,
 ) -> AcquireEffect:
     """Build one explicit, single-product instrument acquisition."""
@@ -133,11 +135,13 @@ def instrument_acquisition(
     return AcquireEffect(
         id=selected_acquire_id,
         resource_port_id=selected_resource_port_id,
-        capability_id=capability,
-        products=(
-            AcquireProduct(
+        interface_id=interface,
+        component_path=tuple(component_path),
+        acquisition_id=acquisition,
+        results=(
+            AcquireResult(
                 product_id=selected_product_id,
-                provider_key=provider_key or selected_product_id.local_id,
+                result_id=result_id or selected_product_id.local_id,
                 metadata=dict(metadata or {}),
             ),
         ),
@@ -147,7 +151,8 @@ def instrument_acquisition(
 def instrument_acquisitions(
     *products: ProductDef | ProductId,
     resource_port_id: LogicalResourcePortId | str = "source",
-    capability: str,
+    interface: str,
+    acquisition: str = "sample",
 ) -> tuple[AcquireEffect, ...]:
     """Build one independently identified acquisition per logical product."""
 
@@ -155,7 +160,8 @@ def instrument_acquisitions(
         instrument_acquisition(
             product,
             resource_port_id=resource_port_id,
-            capability=capability,
+            interface=interface,
+            acquisition=acquisition,
         )
         for product in products
     )

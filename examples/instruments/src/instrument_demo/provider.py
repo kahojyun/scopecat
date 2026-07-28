@@ -1,4 +1,4 @@
-"""Demo provider composition with a capability-level bias safety policy."""
+"""Demo provider composition with an interface-level bias safety policy."""
 
 from __future__ import annotations
 
@@ -13,16 +13,16 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
     InstrumentStateSnapshot,
     StateValue,
 )
 from scopecat_instruments import ConfiguredInstrumentProvider
+from scopecat_instruments.interfaces import DC_SOURCE
 from scopecat_instruments.virtual import VirtualLabWorld
 
 FLUX_SOURCE_ID = "flux-source"
-DC_OUTPUT_CAPABILITY = "dc_output"
 
 
 class InstrumentDemoProvider:
@@ -66,7 +66,7 @@ class InstrumentDemoProvider:
 
 
 class _BiasSafeDriver:
-    """Forward one driver while enforcing capability-based output shutdown."""
+    """Forward one driver while enforcing interface-based output shutdown."""
 
     def __init__(self, driver: InstrumentDriver) -> None:
         self._driver = driver
@@ -115,11 +115,11 @@ class _BiasSafeDriver:
             InstrumentStateCommand(
                 operation_id=f"instrument-demo.{phase}.bias-off",
                 instrument_id=self.instrument_id,
-                fields=[
-                    InstrumentStateCommandField(
+                assignments=[
+                    InstrumentStateAssignment(
                         resource_id=self.instrument_id,
-                        capability_id=DC_OUTPUT_CAPABILITY,
-                        field_path="output_enabled",
+                        interface_id=DC_SOURCE,
+                        property_id="output_enabled",
                         value=StateValue(False),
                     )
                 ],

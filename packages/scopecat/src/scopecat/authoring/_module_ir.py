@@ -54,6 +54,7 @@ from scopecat.authoring.values import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -213,16 +214,16 @@ class ModuleDomainEffect:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleAcquireProduct:
-    """One product realized by an authored acquisition effect."""
+class ModuleAcquireResult:
+    """Map one hardware acquisition result to a logical product."""
 
     product: ProductRef
-    provider_key: str
+    result_id: str
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
     def __post_init__(self) -> None:
-        if not self.provider_key:
-            raise ValueError("module acquired product provider key must be non-empty")
+        if not self.result_id:
+            raise ValueError("module acquisition result id must be non-empty")
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
 
 
@@ -237,19 +238,23 @@ class ModuleAcquireEffect:
 
     id: str
     resource_port_id: LogicalResourcePortId
-    capability_id: str
-    products: tuple[ModuleAcquireProduct, ...]
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    acquisition_id: str
+    results: tuple[ModuleAcquireResult, ...]
 
     def __post_init__(self) -> None:
-        if not self.id or not self.products:
-            raise ValueError("module acquire requires an id and products")
-        if not self.capability_id:
-            raise ValueError("module acquire capability must be non-empty")
-        product_ids = tuple(product.product.product_id for product in self.products)
+        if not self.id or not self.results:
+            raise ValueError("module acquire requires an id and results")
+        if not self.acquisition_id or any(
+            not component for component in self.component_path
+        ):
+            raise ValueError("module acquisition and component ids must be non-empty")
+        product_ids = tuple(result.product.product_id for result in self.results)
         _require_unique("module acquire product", product_ids)
         _require_unique(
-            "module acquire provider key",
-            tuple(product.provider_key for product in self.products),
+            "module acquisition result",
+            tuple(result.result_id for result in self.results),
         )
 
 
@@ -557,18 +562,18 @@ def _check_module_resources(
                 )
                 continue
             child_port = child_ports[binding.import_id]
-            missing_capabilities = sorted(
-                set(child_port.selector.capabilities)
-                - set(parent_port.selector.capabilities)
+            missing_interfaces = sorted(
+                set(child_port.selector.interfaces)
+                - set(parent_port.selector.interfaces)
             )
-            if missing_capabilities:
+            if missing_interfaces:
                 add_problem(
-                    "module_resource_binding_capability_mismatch",
+                    "module_resource_binding_interface_mismatch",
                     f"{instance.instance_id}/{binding.import_id.qualified_name}",
                     message=(
                         f"parent resource {binding.source_id.qualified_name!r} "
-                        "does not provide child capabilities: "
-                        + ", ".join(missing_capabilities)
+                        "does not provide child interfaces: "
+                        + ", ".join(missing_interfaces)
                     ),
                 )
     for resource_id in _module_resource_uses(module):
@@ -593,7 +598,7 @@ def _check_module_products(
         for product_id, export in expected_products.items()
     }
     for acquire in module.body.acquisitions:
-        for acquired in acquire.products:
+        for acquired in acquire.results:
             product = acquired.product
             expected_origin = product_origins.get(product.product_id)
             if expected_origin != product.origin:

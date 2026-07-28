@@ -13,8 +13,8 @@ from scopecat.sdk.instruments import (
     CollectCommand,
     CollectReceipt,
     InstrumentDescription,
+    InstrumentPropertyState,
     InstrumentStateCommand,
-    InstrumentStateField,
 )
 from scopecat.sdk.instruments import (
     validate_collect_command as validate_collect_contract,
@@ -108,7 +108,7 @@ def strip_scpi_string(response: str) -> str:
 def quantity_value(value: StateValue, unit: str) -> float:
     literal = value.root
     if not isinstance(literal, Quantity):
-        raise TypeError("validated state field is not a quantity")
+        raise TypeError("validated state property is not a quantity")
     if literal.unit == unit:
         return literal.value
     return literal.to(unit).value
@@ -117,32 +117,32 @@ def quantity_value(value: StateValue, unit: str) -> float:
 def bool_value(value: StateValue) -> bool:
     literal = value.root
     if not isinstance(literal, bool):
-        raise TypeError("validated state field is not a boolean")
+        raise TypeError("validated state property is not a boolean")
     return literal
 
 
 def int_value(value: StateValue) -> int:
     literal = value.root
     if not isinstance(literal, int) or isinstance(literal, bool):
-        raise TypeError("validated state field is not an integer")
+        raise TypeError("validated state property is not an integer")
     return literal
 
 
 def string_value(value: StateValue) -> str:
     literal = value.root
     if not isinstance(literal, str):
-        raise TypeError("validated state field is not a string")
+        raise TypeError("validated state property is not a string")
     return literal
 
 
-def state_field(
-    capability_id: str,
-    field_path: str,
+def state_property(
+    interface_id: str,
+    property_id: str,
     value: bool | float | str | Quantity,
-) -> InstrumentStateField:
-    return InstrumentStateField(
-        capability_id=capability_id,
-        field_path=field_path,
+) -> InstrumentPropertyState:
+    return InstrumentPropertyState(
+        interface_id=interface_id,
+        property_id=property_id,
         value=StateValue(value),
     )
 

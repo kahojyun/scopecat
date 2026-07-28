@@ -311,7 +311,7 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
                 effect_id="point-0.apply.source-0",
                 point_index=0,
                 instrument_id="source-0",
-                fields=(),
+                assignments=(),
             ),
         ),
     )

@@ -81,7 +81,7 @@ def test_one_endpoint_key_can_map_to_multiple_explicit_channels() -> None:
     config_data["system"]["routing"]["bindings"].append(
         {
             "instrument_id": "source-0",
-            "capability": "set_frequency",
+            "interface_id": "test.set_frequency/v1",
             "entity_id": "q0",
             "channel_id": "readout-q0",
         }

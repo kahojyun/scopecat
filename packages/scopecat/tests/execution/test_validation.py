@@ -16,12 +16,13 @@ from scopecat.measurements.points import RunPoint
 from scopecat.measurements.results import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.sdk.instruments.contracts import (
-    CapabilityDescription,
     CollectCommand,
-    CollectProductRequest,
+    CollectResultRequest,
     InstrumentDescription,
-    capability,
-    product,
+    InterfaceSpec,
+    acquisition,
+    acquisition_result,
+    interface,
 )
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
@@ -46,27 +47,37 @@ def _validate(
     "payload",
     (
         {"id": "signal"},
-        {"id": "signal", "capability_id": ""},
+        {"id": "signal", "interface_id": ""},
     ),
 )
-def test_collect_product_request_requires_non_empty_capability_id(
+def test_collect_result_request_requires_complete_interface_identity(
     payload: dict[str, object],
 ) -> None:
     with pytest.raises(ValidationError):
-        CollectProductRequest.model_validate(payload)
+        CollectResultRequest.model_validate(payload)
 
 
-def test_explicit_collect_capability_selects_one_matching_product() -> None:
-    program = _collect_program(capability_id="spectrum", dtype="int64")
+def test_explicit_collect_interface_selects_one_matching_result() -> None:
+    program = _collect_program(interface_id="test.spectrum/v1", dtype="int64")
     description = _description(
-        capabilities=(
-            capability(
-                "readout",
-                products=(product("signal", dtype="float64"),),
+        interfaces=(
+            interface(
+                "test.readout/v1",
+                acquisitions=(
+                    acquisition(
+                        "sample",
+                        results=(acquisition_result("signal", dtype="float64"),),
+                    ),
+                ),
             ),
-            capability(
-                "spectrum",
-                products=(product("signal", dtype="int64"),),
+            interface(
+                "test.spectrum/v1",
+                acquisitions=(
+                    acquisition(
+                        "sample",
+                        results=(acquisition_result("signal", dtype="int64"),),
+                    ),
+                ),
             ),
         )
     )
@@ -79,16 +90,16 @@ def test_explicit_collect_capability_selects_one_matching_product() -> None:
     assert problems == []
 
 
-def test_duplicate_product_key_within_capability_is_rejected() -> None:
+def test_duplicate_result_id_within_acquisition_is_rejected() -> None:
     with pytest.raises(
         ValidationError,
-        match="capability product keys must be unique",
+        match="acquisition result ids must be unique",
     ):
-        capability(
-            "readout",
-            products=(
-                product("signal"),
-                product("signal"),
+        acquisition(
+            "sample",
+            results=(
+                acquisition_result("signal"),
+                acquisition_result("signal"),
             ),
         )
 
@@ -120,7 +131,7 @@ def test_run_measurements_have_expected_unique_points_and_observables() -> None:
 
 def _collect_program(
     *,
-    capability_id: str,
+    interface_id: str,
     dtype: MeasurementDType,
 ) -> LocalEffectInspection:
     operation_id = "point-0.collect.source-0"
@@ -144,16 +155,18 @@ def _collect_program(
                         point_index=0,
                         point_count=1,
                         requests=[
-                            CollectProductRequest(
+                            CollectResultRequest(
                                 id="signal",
-                                capability_id=capability_id,
+                                interface_id=interface_id,
+                                acquisition_id="sample",
+                                result_id="signal",
                                 dtype=dtype,
                             )
                         ],
                     ),
                     result_bindings=(
                         CollectionResultBinding(
-                            provider_key="signal",
+                            request_id="signal",
                             product_use_ids=(signal_use.id,),
                         ),
                     ),
@@ -167,11 +180,11 @@ def _collect_program(
 
 def _description(
     *,
-    capabilities: tuple[CapabilityDescription, ...],
+    interfaces: tuple[InterfaceSpec, ...],
 ) -> InstrumentDescription:
     return InstrumentDescription(
         instrument_id="source-0",
         implementation_id="tests.product_lookup",
         implementation_version="v1",
-        capabilities=list(capabilities),
+        interfaces=list(interfaces),
     )

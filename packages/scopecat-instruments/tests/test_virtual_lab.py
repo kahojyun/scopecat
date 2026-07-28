@@ -30,7 +30,8 @@ def test_virtual_state_survives_driver_session_close() -> None:
     assert second.output_enabled() is True
     assert world.flux_bias() == 0.5
     level = {
-        field.field_path: field.value.root for field in second.read_state().fields
+        property_state.property_id: property_state.value.root
+        for property_state in second.read_state().properties
     }["voltage_level"]
     assert isinstance(level, Quantity)
     assert level.value == 0.125

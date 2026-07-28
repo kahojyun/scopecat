@@ -493,7 +493,6 @@ export interface components {
              */
             type: "bool";
         };
-        _CapabilityScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_PayloadWire"];
         _Choices: [
             string,
             ...string[]
@@ -544,6 +543,7 @@ export interface components {
             /** Unit */
             unit?: string | null;
         };
+        _InstrumentScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_PayloadWire"];
         /** _IntWire */
         _IntWire: {
             /** Maximum */
@@ -609,6 +609,47 @@ export interface components {
              * @enum {string}
              */
             type: "string";
+        };
+        /** AcquisitionAxisSpec */
+        AcquisitionAxisSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            kind: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            /** Size */
+            size?: number | null;
+            /** Unit */
+            unit?: string | null;
+        };
+        /** AcquisitionResultSpec */
+        AcquisitionResultSpec: {
+            /** Axes */
+            axes?: components["schemas"]["AcquisitionAxisSpec"][];
+            /** Description */
+            description?: string | null;
+            /**
+             * Dtype
+             * @default float64
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            /** Unit */
+            unit?: string | null;
+        };
+        /** AcquisitionSpec */
+        AcquisitionSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            /** Results */
+            results?: components["schemas"]["AcquisitionResultSpec"][];
         };
         /**
          * ActiveConfigView
@@ -750,42 +791,10 @@ export interface components {
             proposal_id: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
         };
-        /** CapabilityDescription */
-        CapabilityDescription: {
-            /** Description */
-            description?: string | null;
-            /** Fields */
-            fields?: components["schemas"]["CapabilityField"][];
-            /** Id */
-            id: string;
-            /** Label */
-            label?: string | null;
-            /** Products */
-            products?: components["schemas"]["ProductDescription"][];
-        };
-        /** CapabilityField */
-        CapabilityField: {
-            /**
-             * Access
-             * @default read_write
-             * @enum {string}
-             */
-            access: "read_only" | "write_only" | "read_write";
-            /** Description */
-            description?: string | null;
-            /** Id */
-            id: string;
-            /** Label */
-            label?: string | null;
-            value_type: components["schemas"]["CapabilityScalarWire"];
-        };
-        CapabilityScalarWire: components["schemas"]["_CapabilityScalarModel"];
         /** CollectAxisRequest */
         CollectAxisRequest: {
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
+            id: components["schemas"]["_NonEmptyId"];
+            kind: components["schemas"]["_NonEmptyId"];
             metadata?: components["schemas"]["JsonMetadata-Input"];
             /** Size */
             size: number;
@@ -804,35 +813,7 @@ export interface components {
             /** Point Index */
             point_index: number;
             /** Requests */
-            requests?: components["schemas"]["CollectProductRequest"][];
-        };
-        /**
-         * CollectProductRequest
-         * @description One explicitly capability-scoped provider product request.
-         *
-         *     Capability identity is required because a provider must not infer ownership
-         *     from a product key or from accidental global uniqueness. Planning derives
-         *     it from the same logical resource contract used for physical binding.
-         */
-        CollectProductRequest: {
-            capability_id: components["schemas"]["_NonEmptyId"];
-            /** Channel Bindings */
-            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            /** Dimensions */
-            dimensions?: components["schemas"]["CollectAxisRequest"][];
-            /**
-             * Dtype
-             * @default float64
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
-            /** Entity Ids */
-            entity_ids?: components["schemas"]["_NonEmptyId"][];
-            /** Id */
-            id: string;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Unit */
-            unit?: string | null;
+            requests?: components["schemas"]["CollectResultRequest"][];
         };
         /**
          * CollectReceipt
@@ -857,11 +838,41 @@ export interface components {
              */
             status: "collected" | "not_collected" | "unknown";
         };
+        /**
+         * CollectResultRequest
+         * @description One explicitly acquisition-scoped result request.
+         *
+         *     Interface and acquisition identity prevent a driver from inferring
+         *     ownership from an accidentally unique result id.
+         */
+        CollectResultRequest: {
+            acquisition_id: components["schemas"]["_NonEmptyId"];
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            /** Dimensions */
+            dimensions?: components["schemas"]["CollectAxisRequest"][];
+            /**
+             * Dtype
+             * @default float64
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            id: components["schemas"]["_NonEmptyId"];
+            interface_id: components["schemas"]["InterfaceId"];
+            metadata?: components["schemas"]["JsonMetadata-Input"];
+            result_id: components["schemas"]["_NonEmptyId"];
+            /** Unit */
+            unit?: string | null;
+        };
         /** CommandChannelBinding */
         CommandChannelBinding: {
-            capability?: components["schemas"]["_NonEmptyId"] | null;
             channel_id: components["schemas"]["_NonEmptyId"];
             entity_id: components["schemas"]["_NonEmptyId"];
+            interface_id?: components["schemas"]["InterfaceId"] | null;
         };
         /**
          * CommandPayload
@@ -902,6 +913,25 @@ export interface components {
             real: number;
             /** Unit */
             unit: string;
+        };
+        /**
+         * ComponentSpec
+         * @description One stable role nested below an interface endpoint.
+         */
+        ComponentSpec: {
+            /** Acquisitions */
+            acquisitions?: components["schemas"]["AcquisitionSpec"][];
+            /** Components */
+            components?: components["schemas"]["ComponentSpec"][];
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            /** Operations */
+            operations?: components["schemas"]["OperationSpec"][];
+            /** Properties */
+            properties?: components["schemas"]["PropertySpec"][];
         };
         /** ConfigActivationHistoryView */
         ConfigActivationHistoryView: {
@@ -1318,8 +1348,6 @@ export interface components {
         "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"];
         /** InstrumentDescription */
         InstrumentDescription: {
-            /** Capabilities */
-            capabilities?: components["schemas"]["CapabilityDescription"][];
             /** Description */
             description?: string | null;
             /** Implementation Id */
@@ -1328,6 +1356,8 @@ export interface components {
             implementation_version: string;
             /** Instrument Id */
             instrument_id: string;
+            /** Interfaces */
+            interfaces?: components["schemas"]["InterfaceSpec"][];
             /** Label */
             label?: string | null;
         };
@@ -1347,6 +1377,18 @@ export interface components {
              */
             problems: components["schemas"]["Problem-Output"][];
         };
+        /** InstrumentPropertyState */
+        InstrumentPropertyState: {
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+            property_id: components["schemas"]["_NonEmptyId"];
+            value: components["schemas"]["StateValue"];
+        };
         /** InstrumentReadback */
         InstrumentReadback: {
             metadata?: components["schemas"]["JsonMetadata-Output"];
@@ -1365,6 +1407,7 @@ export interface components {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Output"][];
         };
+        InstrumentScalarWire: components["schemas"]["_InstrumentScalarModel"];
         /** InstrumentSessionEndReceipt */
         InstrumentSessionEndReceipt: {
             session_id: components["schemas"]["NonEmptyText"];
@@ -1425,10 +1468,24 @@ export interface components {
             /** Id */
             id: string;
         };
+        /** InstrumentStateAssignment */
+        InstrumentStateAssignment: {
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+            property_id: components["schemas"]["_NonEmptyId"];
+            /** Resource Id */
+            resource_id: string;
+            value: components["schemas"]["StateValue"];
+        };
         /** InstrumentStateCommand */
         InstrumentStateCommand: {
-            /** Fields */
-            fields?: components["schemas"]["InstrumentStateCommandField"][];
+            /** Assignments */
+            assignments?: components["schemas"]["InstrumentStateAssignment"][];
             /** Instrument Id */
             instrument_id: string;
             /** Operation Id */
@@ -1438,39 +1495,13 @@ export interface components {
                 [key: string]: components["schemas"]["CommandPayload"];
             };
         };
-        /** InstrumentStateCommandField */
-        InstrumentStateCommandField: {
-            /** Capability Id */
-            capability_id: string;
-            /** Channel Bindings */
-            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            /** Entity Ids */
-            entity_ids?: components["schemas"]["_NonEmptyId"][];
-            /** Field Path */
-            field_path: string;
-            /** Resource Id */
-            resource_id: string;
-            value: components["schemas"]["StateValue"];
-        };
-        /** InstrumentStateField */
-        InstrumentStateField: {
-            /** Capability Id */
-            capability_id: string;
-            /** Channel Bindings */
-            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            /** Entity Ids */
-            entity_ids?: components["schemas"]["_NonEmptyId"][];
-            /** Field Path */
-            field_path: string;
-            value: components["schemas"]["StateValue"];
-        };
         /** InstrumentStateSnapshot */
         InstrumentStateSnapshot: {
-            /** Fields */
-            fields?: components["schemas"]["InstrumentStateField"][];
             /** Instrument Id */
             instrument_id: string;
             metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Properties */
+            properties?: components["schemas"]["InstrumentPropertyState"][];
         };
         /**
          * InstrumentView
@@ -1494,6 +1525,26 @@ export interface components {
              */
             problems: components["schemas"]["Problem-Output"][];
             spec: components["schemas"]["InstrumentSpec-Output"];
+        };
+        InterfaceId: string;
+        /**
+         * InterfaceSpec
+         * @description Versioned behavior contract implemented by an instrument endpoint.
+         */
+        InterfaceSpec: {
+            /** Acquisitions */
+            acquisitions?: components["schemas"]["AcquisitionSpec"][];
+            /** Components */
+            components?: components["schemas"]["ComponentSpec"][];
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["InterfaceId"];
+            /** Label */
+            label?: string | null;
+            /** Operations */
+            operations?: components["schemas"]["OperationSpec"][];
+            /** Properties */
+            properties?: components["schemas"]["PropertySpec"][];
         };
         "JsonMetadata-Input": {
             [key: string]: components["schemas"]["JsonValue-Input"];
@@ -1652,6 +1703,25 @@ export interface components {
             root: string;
         };
         NonEmptyText: string;
+        /** OperationArgumentSpec */
+        OperationArgumentSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            value_type: components["schemas"]["InstrumentScalarWire"];
+        };
+        /** OperationSpec */
+        OperationSpec: {
+            /** Arguments */
+            arguments?: components["schemas"]["OperationArgumentSpec"][];
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+        };
         "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string;
         "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string;
         /**
@@ -1816,39 +1886,20 @@ export interface components {
          * @enum {string}
          */
         ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis";
-        /** ProductAxisDescription */
-        ProductAxisDescription: {
-            /** Description */
-            description?: string | null;
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Label */
-            label?: string | null;
-            /** Size */
-            size?: number | null;
-            /** Unit */
-            unit?: string | null;
-        };
-        /** ProductDescription */
-        ProductDescription: {
-            /** Axes */
-            axes?: components["schemas"]["ProductAxisDescription"][];
-            /** Description */
-            description?: string | null;
+        /** PropertySpec */
+        PropertySpec: {
             /**
-             * Dtype
-             * @default float64
+             * Access
+             * @default read_write
              * @enum {string}
              */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
-            /** Key */
-            key: string;
+            access: "read_only" | "write_only" | "read_write";
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
-            /** Unit */
-            unit?: string | null;
+            value_type: components["schemas"]["InstrumentScalarWire"];
         };
         pydantic__types__JsonValue: unknown;
         /**
@@ -1887,20 +1938,19 @@ export interface components {
          *     ownership fact.
          */
         RoutingEndpointBinding: {
-            /** Capability */
-            capability: string;
             /** Channel Id */
             channel_id?: string | null;
             /** Entity Id */
             entity_id?: string | null;
             /** Instrument Id */
             instrument_id: string;
+            interface_id: components["schemas"]["InterfaceId"];
         };
         /**
          * RoutingGraph
          * @description Finite static endpoint index stored in an accepted system snapshot.
          *
-         *     Planning may project logical capability and entity selections through this
+         *     Planning may project logical interface and entity selections through this
          *     index, but it never uses it for live availability, load balancing, or
          *     implicit failover.
          */

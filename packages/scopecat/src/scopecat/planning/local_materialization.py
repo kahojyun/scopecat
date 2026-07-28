@@ -41,6 +41,7 @@ from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import thaw_json_value
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -69,13 +70,13 @@ from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
     CollectCommand,
-    CollectProductRequest,
+    CollectResultRequest,
 )
 
 type _ChannelBindingIdentity = tuple[
     str,
     str,
-    str | None,
+    InterfaceId | None,
 ]
 type _ChannelSignature = tuple[_ChannelBindingIdentity, ...]
 
@@ -114,9 +115,11 @@ def _normalize_entity_ids(values: Sequence[object]) -> tuple[str, ...]:
 def _collection_channel_bindings(
     bindings: Sequence[CommandChannelBinding],
     *,
-    capability: str,
+    interface_id: InterfaceId,
 ) -> tuple[CommandChannelBinding, ...]:
-    return tuple(binding for binding in bindings if binding.capability == capability)
+    return tuple(
+        binding for binding in bindings if binding.interface_id == interface_id
+    )
 
 
 class _InstrumentOperation(Protocol):
@@ -294,7 +297,7 @@ def prepare_local_target(
         resource_ports = {
             requirement.port_id: physical_resources.bind_port(
                 port_id=requirement.port_id,
-                capabilities=requirement.capabilities,
+                interfaces=requirement.interfaces,
             )
             for requirement in linked.program.resource_requirements
             if requirement.port_id in active_resource_ports
@@ -490,21 +493,42 @@ def _bind_desired_state(
     grouped: dict[
         str,
         dict[
-            tuple[str, str, tuple[str, ...], _ChannelSignature],
+            tuple[
+                InterfaceId,
+                tuple[str, ...],
+                str,
+                tuple[str, ...],
+                _ChannelSignature,
+            ],
             StateTarget,
         ],
     ] = {}
     signatures: dict[
-        tuple[str, str, str, tuple[str, ...], _ChannelSignature],
+        tuple[
+            str,
+            InterfaceId,
+            tuple[str, ...],
+            str,
+            tuple[str, ...],
+            _ChannelSignature,
+        ],
         set[str],
     ] = {}
     owners: dict[
-        tuple[str, str, str, tuple[str, ...], _ChannelSignature],
+        tuple[
+            str,
+            InterfaceId,
+            tuple[str, ...],
+            str,
+            tuple[str, ...],
+            _ChannelSignature,
+        ],
         set[LogicalResourcePortId],
     ] = {}
     for record in records:
-        capability_id = record.capability_id
-        field_path = record.field_path
+        interface_id = record.interface_id
+        component_path = record.component_path
+        property_id = record.property_id
         if isinstance(record.value, ComputeResultRef):
             if record.value.value_id not in known_compute_results:
                 problems.append(
@@ -540,7 +564,7 @@ def _bind_desired_state(
         try:
             binding = _bind_state_resource(
                 record.resource_target,
-                capability_id=capability_id,
+                interface_id=interface_id,
                 resources=resources,
             )
         except ResourceBindingError as error:
@@ -557,11 +581,18 @@ def _bind_desired_state(
             continue
         channel_key = channel_signature(binding.channel_bindings)
         group = grouped.setdefault(binding.instrument_id, {})
-        key = (capability_id, field_path, binding.entity_ids, channel_key)
+        key = (
+            interface_id,
+            component_path,
+            property_id,
+            binding.entity_ids,
+            channel_key,
+        )
         signature_key = (
             binding.instrument_id,
-            capability_id,
-            field_path,
+            interface_id,
+            component_path,
+            property_id,
             binding.entity_ids,
             channel_key,
         )
@@ -570,8 +601,9 @@ def _bind_desired_state(
         group.setdefault(
             key,
             StateTarget(
-                capability_id=capability_id,
-                field_path=field_path,
+                interface_id=interface_id,
+                component_path=component_path,
+                property_id=property_id,
                 value=state_value,
                 entity_ids=binding.entity_ids,
                 channel_bindings=binding.channel_bindings,
@@ -579,8 +611,9 @@ def _bind_desired_state(
         )
     for (
         resource,
-        capability,
-        field_path,
+        interface,
+        component_path,
+        property_id,
         _entities,
         _channel,
     ), values in signatures.items():
@@ -588,15 +621,18 @@ def _bind_desired_state(
             problems.append(
                 _problem(
                     "experiment_conflicting_desired_state",
-                    f"{resource}.{capability}.{field_path} receives multiple values "
+                    f"{resource}.{interface}/"
+                    f"{'/'.join(component_path)}.{property_id} receives "
+                    "multiple values "
                     f"at point {point_index}",
                     model_location("points", point_index, "desired_state"),
                 )
             )
     for (
         resource,
-        capability,
-        field_path,
+        interface,
+        component_path,
+        property_id,
         _entities,
         _channel,
     ), target_owners in owners.items():
@@ -604,7 +640,8 @@ def _bind_desired_state(
             problems.append(
                 _problem(
                     "experiment_aliased_desired_state_target",
-                    f"{resource}.{capability}.{field_path} is owned by multiple "
+                    f"{resource}.{interface}/"
+                    f"{'/'.join(component_path)}.{property_id} is owned by multiple "
                     f"resource targets at point {point_index}",
                     model_location("points", point_index, "desired_state"),
                 )
@@ -654,7 +691,7 @@ def _bind_single_resource(
 def _bind_state_resource(
     target: LogicalResourcePortId,
     *,
-    capability_id: str,
+    interface_id: InterfaceId,
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
 ) -> ResourceBinding:
     resource = resources.get(target)
@@ -668,8 +705,8 @@ def _bind_state_resource(
         channel_binding
         for channel_binding in binding.channel_bindings
         if (
-            channel_binding.capability is None
-            or channel_binding.capability == capability_id
+            channel_binding.interface_id is None
+            or channel_binding.interface_id == interface_id
         )
     )
     entity_ids = binding.entity_ids or tuple(
@@ -688,7 +725,7 @@ def _channel_binding_identity(
     return (
         binding.entity_id,
         binding.channel_id,
-        binding.capability,
+        binding.interface_id,
     )
 
 
@@ -714,16 +751,14 @@ def _bind_collect(
     for use in product_uses:
         uses_by_product.setdefault(use.product_id, []).append(use)
     requested = tuple(
-        acquired
-        for acquired in acquire.products
-        if acquired.product_id in uses_by_product
+        result for result in acquire.results if result.product_id in uses_by_product
     )
     if not requested:
         return None
     try:
         instrument_id, entity_ids, channel_bindings = _bind_record_target(
             acquire.resource_port_id,
-            capability=acquire.capability_id,
+            interface_id=acquire.interface_id,
             resources=resources,
         )
     except ResourceBindingError as error:
@@ -743,11 +778,11 @@ def _bind_collect(
         return None
     selected = tuple(
         (
-            acquired,
-            products_by_id[acquired.product_id],
-            tuple(use.id for use in uses_by_product[acquired.product_id]),
+            result,
+            products_by_id[result.product_id],
+            tuple(use.id for use in uses_by_product[result.product_id]),
         )
-        for acquired in requested
+        for result in requested
     )
     operation_id = "collect-" + stable_content_hash(
         {
@@ -762,10 +797,10 @@ def _bind_collect(
         instrument_id=instrument_id,
         result_bindings=tuple(
             CollectionResultBinding(
-                provider_key=acquired.provider_key,
+                request_id=result.result_id,
                 product_use_ids=product_use_ids,
             )
-            for acquired, _product, product_use_ids in selected
+            for result, _product, product_use_ids in selected
         ),
         command=CollectCommand(
             operation_id=operation_id,
@@ -773,9 +808,12 @@ def _bind_collect(
             point_index=point_index,
             point_count=point_count,
             requests=[
-                CollectProductRequest(
-                    id=acquired.provider_key,
-                    capability_id=acquire.capability_id,
+                CollectResultRequest(
+                    id=result.result_id,
+                    interface_id=acquire.interface_id,
+                    component_path=list(acquire.component_path),
+                    acquisition_id=acquire.acquisition_id,
+                    result_id=result.result_id,
                     unit=product.unit,
                     dtype=product.dtype,
                     dimensions=[
@@ -795,10 +833,10 @@ def _bind_collect(
                     channel_bindings=list(channel_bindings),
                     metadata=cast(
                         "dict[str, JsonValue]",
-                        thaw_json_value(acquired.metadata),
+                        thaw_json_value(result.metadata),
                     ),
                 )
-                for acquired, product, _product_use_ids in selected
+                for result, product, _product_use_ids in selected
             ],
         ),
     )
@@ -807,7 +845,7 @@ def _bind_collect(
 def _bind_record_target(
     target: LogicalResourcePortId,
     *,
-    capability: str,
+    interface_id: InterfaceId,
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
 ) -> tuple[
     str,
@@ -821,7 +859,7 @@ def _bind_record_target(
     )
     channel_bindings = _collection_channel_bindings(
         binding.channel_bindings,
-        capability=capability,
+        interface_id=interface_id,
     )
     return (
         binding.instrument_id,

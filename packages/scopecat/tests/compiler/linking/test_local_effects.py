@@ -20,7 +20,7 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
     ValueInput,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
@@ -181,20 +181,20 @@ def test_bound_state_preserves_primitive_field_types(
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=_resource("source-0"),
-                capabilities=("configure",),
+                interfaces=("test.configure/v1",),
             ),
         ),
         state=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=_resource("source-0"),
-                capability_id="configure",
-                field_path="value",
+                interface_id="test.configure/v1",
+                property_id="value",
                 value=scalar_value_expr(lit(value), expected_type=value_type),
             ),
         ),
     )
     environment = build_config_environment(
-        config_with_physical_resources({"source-0": ("configure",)})
+        config_with_physical_resources({"source-0": ("test.configure/v1",)})
     )
 
     plan = materialize_local_execution(link_program(program, environment))
@@ -264,20 +264,20 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=_resource("source-0"),
-                capabilities=("play_program",),
+                interfaces=("test.play_program/v1",),
             ),
         ),
         state=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=_resource("source-0"),
-                capability_id="play_program",
-                field_path="program",
+                interface_id="test.play_program/v1",
+                property_id="program",
                 value=compute_result(consumer_output_id),
             ),
         ),
     )
     environment = build_config_environment(
-        config_with_physical_resources({"source-0": ("play_program",)})
+        config_with_physical_resources({"source-0": ("test.play_program/v1",)})
     )
 
     plan = materialize_local_execution(link_program(program, environment))

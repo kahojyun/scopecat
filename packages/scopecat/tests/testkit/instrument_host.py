@@ -15,15 +15,15 @@ from scopecat.execution.ports.instruments import (
 from scopecat.kernel.problems import Problem
 from scopecat.records.instrument import (
     InstrumentStateSnapshot,
-    state_target_identity,
+    property_target_identity,
 )
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
     apply_state_command_to_snapshot,
 )
 from scopecat.sdk.runtime_problems import runtime_problem
@@ -71,17 +71,17 @@ class TestRunInstrumentHost:
             driver = self._drivers[action.instrument_id]
             if isinstance(action, RunHardwareApply):
                 current = self._assumed_states[action.instrument_id]
-                fields = [
-                    field
-                    for field in action.fields
-                    if _state_value(current, field) != field.value
+                assignments = [
+                    assignment
+                    for assignment in action.assignments
+                    if _state_value(current, assignment) != assignment.value
                 ]
-                if not fields:
+                if not assignments:
                     continue
                 command = InstrumentStateCommand(
                     operation_id=action.effect_id,
                     instrument_id=action.instrument_id,
-                    fields=fields,
+                    assignments=assignments,
                     payloads=action.payloads,
                 )
                 receipt = driver.apply_state(command)
@@ -108,14 +108,14 @@ class TestRunInstrumentHost:
                 indeterminate = receipt.status == "unknown"
                 break
             bindings = {
-                binding.provider_key: binding.product_use_ids
+                binding.request_id: binding.product_use_ids
                 for binding in action.bindings
             }
             if set(receipt.readback.values) != set(bindings):
                 problems.append(
                     runtime_problem(
                         "instrument_unexpected_product",
-                        "instrument readback does not match requested products",
+                        "instrument readback does not match requested results",
                         run_id="test-run",
                     )
                 )
@@ -126,8 +126,8 @@ class TestRunInstrumentHost:
                     product_use_id=product_use_id,
                     value=value,
                 )
-                for provider_key, value in receipt.readback.values.items()
-                for product_use_id in bindings[provider_key]
+                for request_id, value in receipt.readback.values.items()
+                for product_use_id in bindings[request_id]
             )
         return RunHardwareBatchReceipt(
             operation_id=batch.operation_id,
@@ -158,23 +158,25 @@ class TestRunInstrumentHost:
 
 def _state_value(
     current: InstrumentStateSnapshot,
-    target: InstrumentStateCommandField,
+    target: InstrumentStateAssignment,
 ) -> object:
-    identity = state_target_identity(
-        target.capability_id,
-        target.field_path,
+    identity = property_target_identity(
+        target.interface_id,
+        target.component_path,
+        target.property_id,
         target.entity_ids,
         target.channel_bindings,
     )
     return next(
         (
-            field.value
-            for field in current.fields
-            if state_target_identity(
-                field.capability_id,
-                field.field_path,
-                field.entity_ids,
-                field.channel_bindings,
+            property.value
+            for property in current.properties
+            if property_target_identity(
+                property.interface_id,
+                property.component_path,
+                property.property_id,
+                property.entity_ids,
+                property.channel_bindings,
             )
             == identity
         ),

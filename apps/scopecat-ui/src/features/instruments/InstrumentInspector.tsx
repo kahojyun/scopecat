@@ -14,9 +14,9 @@ import {
   Unplug,
 } from "lucide-react";
 import type {
-  InstrumentCapability,
-  InstrumentCapabilityField,
   InstrumentCollectReceipt,
+  InstrumentInterface,
+  InstrumentProperty,
   InstrumentSession,
   InstrumentState,
   InstrumentStateValue,
@@ -25,13 +25,14 @@ import type {
 import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
 import {
   applyInstrumentState,
-  collectInstrumentCapability,
+  collectInstrumentAcquisition,
   createInstrumentOperationId,
-  instrumentCollectionReadiness,
+  instrumentAcquisitionReadiness,
   readInstrumentState,
   resolveInstrumentAttention,
   retryTransientInstrumentMutation,
-  type StagedInstrumentField,
+  type InstrumentAcquisitionTarget,
+  type StagedInstrumentProperty,
 } from "./instrument-api";
 
 interface DraftValue {
@@ -110,16 +111,16 @@ export function InstrumentInspector({
     // Only a newly opened session should trigger the initial read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, instrumentId, session?.session_id]);
-  const stagedFields = useMemo(() => stagedInstrumentFields(drafts), [drafts]);
+  const stagedProperties = useMemo(() => stagedInstrumentProperties(drafts), [drafts]);
   const invalidDraft = Object.values(drafts).some((draft) => draft.value === undefined);
   const applyMutation = useMutation({
     mutationFn: ({
-      fields,
+      properties,
       operationId,
     }: {
-      fields: StagedInstrumentField[];
+      properties: StagedInstrumentProperty[];
       operationId: string;
-    }) => applyInstrumentState(requireSession(session), instrumentId, fields, operationId),
+    }) => applyInstrumentState(requireSession(session), instrumentId, properties, operationId),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
     onSuccess: (receipt) => {
@@ -143,26 +144,27 @@ export function InstrumentInspector({
   });
   const collectMutation = useMutation({
     mutationFn: ({
-      capability,
+      target,
       stateSnapshot,
       operationId,
     }: {
-      capability: InstrumentCapability;
+      target: InstrumentAcquisitionTarget;
       stateSnapshot?: InstrumentState;
       operationId: string;
     }) =>
-      collectInstrumentCapability(
+      collectInstrumentAcquisition(
         requireSession(session),
         instrumentId,
-        capability,
+        target,
         stateSnapshot,
         operationId,
       ),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
-    onSuccess: (receipt, { capability }) => {
-      delete collectOperationIdsRef.current[capability.id];
-      setCollectResults((current) => ({ ...current, [capability.id]: receipt }));
+    onSuccess: (receipt, { target }) => {
+      const key = acquisitionKey(target);
+      delete collectOperationIdsRef.current[key];
+      setCollectResults((current) => ({ ...current, [key]: receipt }));
       if (receipt.status === "unknown") {
         onSessionLost(
           "The collection result is unknown. The daemon quarantined this session for operator review.",
@@ -187,11 +189,12 @@ export function InstrumentInspector({
   });
 
   const stage = (
-    capability: InstrumentCapability,
-    field: InstrumentCapabilityField,
+    interfaceId: string,
+    componentPath: string[],
+    property: InstrumentProperty,
     draft?: DraftValue,
   ) => {
-    const key = fieldKey(capability.id, field.id);
+    const key = propertyKey(interfaceId, componentPath, property.id);
     applyOperationIdRef.current = undefined;
     setDrafts((current) => {
       const next = { ...current };
@@ -205,7 +208,7 @@ export function InstrumentInspector({
   const applyStaged = () => {
     applyOperationIdRef.current ??= createInstrumentOperationId("apply");
     applyMutation.mutate({
-      fields: stagedFields,
+      properties: stagedProperties,
       operationId: applyOperationIdRef.current,
     });
   };
@@ -214,12 +217,13 @@ export function InstrumentInspector({
     setDrafts({});
     applyMutation.reset();
   };
-  const collectCapability = (capability: InstrumentCapability) => {
+  const collectAcquisition = (target: InstrumentAcquisitionTarget) => {
+    const key = acquisitionKey(target);
     const operationId =
-      collectOperationIdsRef.current[capability.id] ?? createInstrumentOperationId("collect");
-    collectOperationIdsRef.current[capability.id] = operationId;
+      collectOperationIdsRef.current[key] ?? createInstrumentOperationId("collect");
+    collectOperationIdsRef.current[key] = operationId;
     collectMutation.mutate({
-      capability,
+      target,
       stateSnapshot: state,
       operationId,
     });
@@ -302,41 +306,38 @@ export function InstrumentInspector({
 
       {description ? (
         <>
-          <div className="capability-heading">
+          <div className="interface-heading">
             <div>
               <span className="eyebrow">Driver contract</span>
-              <h3>Capabilities</h3>
-            </div>
-            <div>
-              <code>{description.implementation_id}</code>
-              <small>{versionLabel(description.implementation_version)}</small>
+              <h3>Interfaces</h3>
             </div>
           </div>
 
-          {(description.capabilities ?? []).length > 0 ? (
-            <div className="capability-list">
-              {(description.capabilities ?? []).map((capability) => (
-                <CapabilityCard
-                  key={capability.id}
-                  capability={capability}
+          {(description.interfaces ?? []).length > 0 ? (
+            <div className="interface-list">
+              {(description.interfaces ?? []).map((instrumentInterface) => (
+                <InterfaceCard
+                  key={instrumentInterface.id}
+                  instrumentInterface={instrumentInterface}
                   connected={interactionEnabled}
                   state={state}
                   drafts={drafts}
-                  collectResult={collectResults[capability.id]}
-                  collecting={
-                    collectMutation.isPending &&
-                    collectMutation.variables?.capability.id === capability.id
+                  collectResults={collectResults}
+                  collectingTarget={
+                    collectMutation.isPending ? collectMutation.variables?.target : undefined
                   }
-                  onStage={(field, draft) => stage(capability, field, draft)}
-                  onCollect={() => collectCapability(capability)}
+                  onStage={(componentPath, property, draft) =>
+                    stage(instrumentInterface.id, componentPath, property, draft)
+                  }
+                  onCollect={(target) => collectAcquisition(target)}
                 />
               ))}
             </div>
           ) : (
             <InspectorEmpty
               icon={<CircleOff />}
-              title="No interactive capabilities"
-              detail="This driver does not declare GUI-safe fields or products."
+              title="No interactive interfaces"
+              detail="This driver does not declare GUI-safe properties or acquisitions."
             />
           )}
 
@@ -345,7 +346,7 @@ export function InstrumentInspector({
               <div>
                 <strong>
                   {Object.keys(drafts).length} staged{" "}
-                  {Object.keys(drafts).length === 1 ? "field" : "fields"}
+                  {Object.keys(drafts).length === 1 ? "property" : "properties"}
                 </strong>
                 <small>Values remain local until you apply the complete staged change once.</small>
               </div>
@@ -365,7 +366,7 @@ export function InstrumentInspector({
                 disabled={
                   closePending ||
                   invalidDraft ||
-                  stagedFields.length === 0 ||
+                  stagedProperties.length === 0 ||
                   applyMutation.isPending
                 }
               >
@@ -436,8 +437,7 @@ function InstrumentSessionPanel({
           <div>
             <strong>Interactive session connected</strong>
             <small>
-              {session.actor} · opened {formatRelative(session.opened_at)} ·{" "}
-              <code>{session.session_id}</code>
+              {session.actor} · opened {formatRelative(session.opened_at)}
             </small>
           </div>
         </div>
@@ -583,128 +583,246 @@ function OwnerDescription({ instrument }: { instrument: InstrumentView }) {
   );
 }
 
-function CapabilityCard({
-  capability,
+function InterfaceCard({
+  instrumentInterface,
   connected,
   state,
   drafts,
-  collectResult,
-  collecting,
+  collectResults,
+  collectingTarget,
   onStage,
   onCollect,
 }: {
-  capability: InstrumentCapability;
+  instrumentInterface: InstrumentInterface;
   connected: boolean;
   state?: InstrumentState;
   drafts: Record<string, DraftValue>;
-  collectResult?: InstrumentCollectReceipt;
-  collecting: boolean;
-  onStage: (field: InstrumentCapabilityField, draft?: DraftValue) => void;
-  onCollect: () => void;
+  collectResults: Record<string, InstrumentCollectReceipt>;
+  collectingTarget?: InstrumentAcquisitionTarget;
+  onStage: (componentPath: string[], property: InstrumentProperty, draft?: DraftValue) => void;
+  onCollect: (target: InstrumentAcquisitionTarget) => void;
 }) {
-  const products = capability.products ?? [];
-  const collectionReadiness = instrumentCollectionReadiness(capability, state);
-  const collectionBlocked = !collectionReadiness.ready;
-  const collectionReasonId = `collect-reason-${capability.id}`;
   return (
-    <article className="capability-card" aria-labelledby={`capability-${capability.id}`}>
+    <article className="interface-card">
       <header>
         <div>
-          <h4 id={`capability-${capability.id}`}>{capability.label ?? titleCase(capability.id)}</h4>
-          <code>{capability.id}</code>
-          {capability.description && <p>{capability.description}</p>}
+          <h4>{instrumentInterface.label ?? interfaceFallbackLabel(instrumentInterface.id)}</h4>
+          {instrumentInterface.description && <p>{instrumentInterface.description}</p>}
         </div>
-        {products.length > 0 && (
-          <div className="capability-collect-action">
+      </header>
+
+      <InterfaceEndpoint
+        interfaceId={instrumentInterface.id}
+        componentPath={[]}
+        member={instrumentInterface}
+        connected={connected}
+        state={state}
+        drafts={drafts}
+        collectResults={collectResults}
+        collectingTarget={collectingTarget}
+        onStage={onStage}
+        onCollect={onCollect}
+      />
+    </article>
+  );
+}
+
+type InterfaceMember = Pick<
+  InstrumentInterface,
+  "label" | "description" | "properties" | "operations" | "acquisitions" | "components"
+>;
+
+function InterfaceEndpoint({
+  interfaceId,
+  componentPath,
+  member,
+  connected,
+  state,
+  drafts,
+  collectResults,
+  collectingTarget,
+  onStage,
+  onCollect,
+}: {
+  interfaceId: string;
+  componentPath: string[];
+  member: InterfaceMember;
+  connected: boolean;
+  state?: InstrumentState;
+  drafts: Record<string, DraftValue>;
+  collectResults: Record<string, InstrumentCollectReceipt>;
+  collectingTarget?: InstrumentAcquisitionTarget;
+  onStage: (componentPath: string[], property: InstrumentProperty, draft?: DraftValue) => void;
+  onCollect: (target: InstrumentAcquisitionTarget) => void;
+}) {
+  const hasLocalControls =
+    (member.properties ?? []).length > 0 || (member.acquisitions ?? []).length > 0;
+  return (
+    <>
+      {hasLocalControls && (
+        <section className={componentPath.length > 0 ? "interface-component" : undefined}>
+          {componentPath.length > 0 && (
+            <header>
+              <h5>{member.label ?? titleCase(componentPath.at(-1) ?? "")}</h5>
+              <small>{componentPath.map(titleCase).join(" / ")}</small>
+              {member.description && <p>{member.description}</p>}
+            </header>
+          )}
+
+          {(member.properties ?? []).length > 0 && (
+            <div className="interface-properties">
+              {(member.properties ?? []).map((property) => {
+                const key = propertyKey(interfaceId, componentPath, property.id);
+                return (
+                  <PropertyEditor
+                    key={property.id}
+                    property={property}
+                    currentValue={stateValue(state, interfaceId, componentPath, property.id)}
+                    draft={drafts[key]}
+                    editable={connected && property.access !== "read_only"}
+                    onChange={(draft) => onStage(componentPath, property, draft)}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {(member.acquisitions ?? []).length > 0 && (
+            <div className="acquisition-list">
+              {(member.acquisitions ?? []).map((acquisition) => {
+                const target = { interfaceId, componentPath, acquisition };
+                const key = acquisitionKey(target);
+                return (
+                  <AcquisitionControl
+                    key={acquisition.id}
+                    target={target}
+                    connected={connected}
+                    state={state}
+                    result={collectResults[key]}
+                    collecting={
+                      collectingTarget !== undefined && acquisitionKey(collectingTarget) === key
+                    }
+                    onCollect={() => onCollect(target)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {(member.components ?? []).map((child) => (
+        <InterfaceEndpoint
+          key={child.id}
+          interfaceId={interfaceId}
+          componentPath={[...componentPath, child.id]}
+          member={child}
+          connected={connected}
+          state={state}
+          drafts={drafts}
+          collectResults={collectResults}
+          collectingTarget={collectingTarget}
+          onStage={onStage}
+          onCollect={onCollect}
+        />
+      ))}
+    </>
+  );
+}
+
+function AcquisitionControl({
+  target,
+  connected,
+  state,
+  result,
+  collecting,
+  onCollect,
+}: {
+  target: InstrumentAcquisitionTarget;
+  connected: boolean;
+  state?: InstrumentState;
+  result?: InstrumentCollectReceipt;
+  collecting: boolean;
+  onCollect: () => void;
+}) {
+  const acquisition = target.acquisition;
+  const results = acquisition.results ?? [];
+  const readiness = instrumentAcquisitionReadiness(target, state);
+  const blocked = !readiness.ready;
+  const reasonId = domId("collect-reason", acquisitionKey(target));
+  return (
+    <section className="acquisition-control">
+      <header>
+        <div>
+          <strong>{acquisition.label ?? titleCase(acquisition.id)}</strong>
+          {acquisition.description && <p>{acquisition.description}</p>}
+        </div>
+        {results.length > 0 && (
+          <div className="acquisition-collect-action">
             <button
               type="button"
               className="secondary-button"
               onClick={onCollect}
-              disabled={!connected || collecting || collectionBlocked}
-              aria-describedby={connected && collectionBlocked ? collectionReasonId : undefined}
+              disabled={!connected || collecting || blocked}
+              aria-describedby={connected && blocked ? reasonId : undefined}
               title={
-                !connected
-                  ? "Connect before collecting"
-                  : collectionBlocked
-                    ? collectionReadiness.reason
-                    : undefined
+                !connected ? "Connect before collecting" : blocked ? readiness.reason : undefined
               }
             >
               {collecting ? <LoaderCircle className="spin" size={14} /> : <Database size={14} />}
               Collect
             </button>
-            {connected && collectionBlocked && (
-              <small id={collectionReasonId} className="collection-blocked-reason">
+            {connected && blocked && (
+              <small id={reasonId} className="collection-blocked-reason">
                 <AlertTriangle size={12} aria-hidden="true" />
-                {collectionReadiness.reason}
+                {readiness.reason}
               </small>
             )}
           </div>
         )}
       </header>
-
-      {(capability.fields ?? []).length > 0 && (
-        <div className="capability-fields">
-          {(capability.fields ?? []).map((field) => {
-            const key = fieldKey(capability.id, field.id);
-            return (
-              <CapabilityFieldEditor
-                key={field.id}
-                field={field}
-                currentValue={stateValue(state, capability.id, field.id)}
-                draft={drafts[key]}
-                editable={connected && field.access !== "read_only"}
-                onChange={(draft) => onStage(field, draft)}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      {products.length > 0 && (
-        <div className="capability-products">
-          <span>Products</span>
-          {products.map((product) => (
-            <span key={product.key} className="product-chip">
-              {product.label ?? product.key}
+      {results.length > 0 && (
+        <div className="acquisition-results">
+          <span>Results</span>
+          {results.map((acquisitionResult) => (
+            <span key={acquisitionResult.id} className="result-chip">
+              {acquisitionResult.label ?? titleCase(acquisitionResult.id)}
               <small>
-                {product.dtype}
-                {product.unit ? ` · ${product.unit}` : ""}
+                {acquisitionResult.dtype}
+                {acquisitionResult.unit ? ` · ${acquisitionResult.unit}` : ""}
               </small>
             </span>
           ))}
         </div>
       )}
-
-      {collectResult && <CollectPreview receipt={collectResult} />}
-    </article>
+      {result && <CollectPreview receipt={result} />}
+    </section>
   );
 }
 
-function CapabilityFieldEditor({
-  field,
+function PropertyEditor({
+  property,
   currentValue,
   draft,
   editable,
   onChange,
 }: {
-  field: InstrumentCapabilityField;
+  property: InstrumentProperty;
   currentValue?: InstrumentStateValue;
   draft?: DraftValue;
   editable: boolean;
   onChange: (draft?: DraftValue) => void;
 }) {
-  const type = field.value_type;
+  const type = property.value_type;
   const value = draft?.raw ?? inputValue(currentValue, type.type);
   const dirty = draft !== undefined;
   return (
-    <label className={`capability-field ${dirty ? "staged" : ""}`}>
-      <span className="field-label">
+    <label className={`interface-property ${dirty ? "staged" : ""}`}>
+      <span className="property-label">
         <span>
-          <strong>{field.label ?? titleCase(field.id)}</strong>
-          <code>{field.id}</code>
+          <strong>{property.label ?? titleCase(property.id)}</strong>
         </span>
-        <small>{accessLabel(field.access)}</small>
+        <small>{accessLabel(property.access)}</small>
       </span>
       {type.type === "bool" ? (
         <span className="boolean-editor">
@@ -779,9 +897,11 @@ function CapabilityFieldEditor({
       ) : (
         <input type="text" value="Payload editing unavailable in GUI" disabled />
       )}
-      {field.description && <small className="field-description">{field.description}</small>}
+      {property.description && (
+        <small className="property-description">{property.description}</small>
+      )}
       {dirty && (
-        <button type="button" className="field-reset" onClick={() => onChange()}>
+        <button type="button" className="property-reset" onClick={() => onChange()}>
           Reset staged value
         </button>
       )}
@@ -796,7 +916,7 @@ function CollectPreview({ receipt }: { receipt: InstrumentCollectReceipt }) {
       <div>
         <strong>Collect receipt: {titleCase(receipt.status)}</strong>
         {receipt.readback && (
-          <small>{Object.keys(receipt.readback.values ?? {}).length} products returned</small>
+          <small>{Object.keys(receipt.readback.values ?? {}).length} results returned</small>
         )}
       </div>
       {trace && <TracePreview values={trace} />}
@@ -871,17 +991,21 @@ export function AvailabilityBadge({
 
 function stateValue(
   state: InstrumentState | undefined,
-  capabilityId: string,
-  fieldPath: string,
+  interfaceId: string,
+  componentPath: string[],
+  propertyId: string,
 ): InstrumentStateValue | undefined {
-  return (state?.fields ?? []).find(
-    (field) => field.capability_id === capabilityId && field.field_path === fieldPath,
+  return (state?.properties ?? []).find(
+    (property) =>
+      property.interface_id === interfaceId &&
+      samePath(property.component_path ?? [], componentPath) &&
+      property.property_id === propertyId,
   )?.value;
 }
 
 function inputValue(
   value: InstrumentStateValue | undefined,
-  type: InstrumentCapabilityField["value_type"]["type"],
+  type: InstrumentProperty["value_type"]["type"],
 ): string | number | boolean {
   if (value === undefined) return "";
   if (type === "quantity") return quantityValue(value)?.value ?? "";
@@ -907,32 +1031,48 @@ function quantityValue(
   return undefined;
 }
 
-function stagedInstrumentFields(drafts: Record<string, DraftValue>): StagedInstrumentField[] {
+function stagedInstrumentProperties(
+  drafts: Record<string, DraftValue>,
+): StagedInstrumentProperty[] {
   return Object.entries(drafts).flatMap(([key, draft]) => {
     if (draft.value === undefined) return [];
-    const separator = key.indexOf("\u0000");
+    const segments = key.split("\u0000");
     return [
       {
-        capabilityId: key.slice(0, separator),
-        fieldPath: key.slice(separator + 1),
+        interfaceId: segments[0] ?? "",
+        componentPath: segments.slice(1, -1),
+        propertyId: segments.at(-1) ?? "",
         value: draft.value,
       },
     ];
   });
 }
 
-function fieldKey(capabilityId: string, fieldPath: string): string {
-  return `${capabilityId}\u0000${fieldPath}`;
+function propertyKey(interfaceId: string, componentPath: string[], propertyId: string): string {
+  return [interfaceId, ...componentPath, propertyId].join("\u0000");
 }
 
-function accessLabel(access: InstrumentCapabilityField["access"]): string {
+function acquisitionKey(target: InstrumentAcquisitionTarget): string {
+  return [target.interfaceId, ...target.componentPath, target.acquisition.id].join("\u0000");
+}
+
+function accessLabel(access: InstrumentProperty["access"]): string {
   if (access === "read_only") return "Read only";
   if (access === "write_only") return "Write only";
   return "Read / write";
 }
 
-function versionLabel(version: string): string {
-  return /^v/i.test(version) ? version : `v${version}`;
+function samePath(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function interfaceFallbackLabel(interfaceId: string): string {
+  const qualifiedName = interfaceId.slice(0, interfaceId.lastIndexOf("/"));
+  return titleCase(qualifiedName.slice(qualifiedName.lastIndexOf(".") + 1));
+}
+
+function domId(prefix: string, value: string): string {
+  return `${prefix}-${value.replaceAll(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
 function requireSession(session: InstrumentSession | undefined): InstrumentSession {

@@ -109,7 +109,7 @@ def verify_assembly_graph(
         semantic_graph = None
     if semantic_graph is not None:
         _verify_binding_compute_values(assembly, semantic_graph, problems)
-    _verify_state_resource_ports(assembly, resource_ports, problems)
+    _verify_property_resource_ports(assembly, resource_ports, problems)
     if semantic_graph is not None:
         _verify_static_value_dependencies(assembly, problems)
     if problems:
@@ -146,24 +146,24 @@ def _resource_ports(
     return selected
 
 
-def _verify_state_resource_ports(
+def _verify_property_resource_ports(
     assembly: SemanticExperimentIR,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
     for index, binding in enumerate(assembly.bindings):
-        _verify_state_resource_port(
+        _verify_interface_resource_port(
             binding.port_id,
-            binding.capability_id,
+            binding.interface_id,
             ports,
             context="binding",
             location=model_location("bindings", index, "resource"),
             problems=problems,
         )
     for index, acquire in enumerate(assembly.acquisitions):
-        _verify_state_resource_port(
+        _verify_interface_resource_port(
             acquire.resource_port_id,
-            acquire.capability_id,
+            acquire.interface_id,
             ports,
             context="acquisition",
             location=model_location("acquisitions", index, "resource_port"),
@@ -171,9 +171,9 @@ def _verify_state_resource_ports(
         )
 
 
-def _verify_state_resource_port(
+def _verify_interface_resource_port(
     port_id: LogicalResourcePortId,
-    capability_id: str | None,
+    interface_id: str | None,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     *,
     context: str,
@@ -191,29 +191,29 @@ def _verify_state_resource_port(
             )
         )
         return
-    _verify_resource_port_capability(
+    _verify_resource_port_interface(
         port_id,
-        capability_id,
+        interface_id,
         port,
         location=location,
         problems=problems,
     )
 
 
-def _verify_resource_port_capability(
+def _verify_resource_port_interface(
     port_id: LogicalResourcePortId,
-    capability_id: str | None,
+    interface_id: str | None,
     port: ResourcePort,
     *,
     location: ModelLocation,
     problems: list[Problem],
 ) -> None:
-    if capability_id is not None and capability_id not in port.selector.capabilities:
+    if interface_id is not None and interface_id not in port.selector.interfaces:
         problems.append(
             _problem(
-                "module_resource_port_capability_missing",
+                "module_resource_port_interface_missing",
                 f"resource port {port_id.qualified_name!r} does not declare "
-                f"capability {capability_id!r}",
+                f"interface {interface_id!r}",
                 location,
             )
         )
@@ -382,19 +382,19 @@ def _verify_product_schema(
             continue
         product_by_id[product.product_id] = product
     for acquire_index, acquire in enumerate(assembly.acquisitions):
-        for product_index, product in enumerate(acquire.products):
-            if product.product_id in product_by_id:
+        for result_index, result in enumerate(acquire.results):
+            if result.product_id in product_by_id:
                 continue
             problems.append(
                 _problem(
                     "acquire_product_definition_missing",
                     f"acquisition {acquire.id.qualified_name!r} references unknown "
-                    f"product {product.product_id.qualified_name!r}",
+                    f"product {result.product_id.qualified_name!r}",
                     model_location(
                         "acquisitions",
                         acquire_index,
-                        "products",
-                        product_index,
+                        "results",
+                        result_index,
                         "product_id",
                     ),
                 )

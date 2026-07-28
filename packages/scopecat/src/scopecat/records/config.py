@@ -16,6 +16,7 @@ from pydantic import (
 )
 
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterSnapshot,
@@ -114,7 +115,7 @@ class RoutingEndpointBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instrument_id: str = Field(min_length=1)
-    capability: str = Field(min_length=1)
+    interface_id: InterfaceId
     entity_id: str | None = None
     channel_id: str | None = None
 
@@ -122,7 +123,7 @@ class RoutingEndpointBinding(BaseModel):
 class RoutingGraph(BaseModel):
     """Finite static endpoint index stored in an accepted system snapshot.
 
-    Planning may project logical capability and entity selections through this
+    Planning may project logical interface and entity selections through this
     index, but it never uses it for live availability, load balancing, or
     implicit failover.
     """
@@ -140,7 +141,7 @@ class RoutingGraph(BaseModel):
         for binding in value:
             identity = (
                 binding.instrument_id,
-                binding.capability,
+                binding.interface_id,
                 binding.entity_id,
                 binding.channel_id,
             )
@@ -148,7 +149,7 @@ class RoutingGraph(BaseModel):
                 msg = (
                     "duplicate routing endpoint binding: "
                     f"instrument={binding.instrument_id}, "
-                    f"capability={binding.capability}, "
+                    f"interface={binding.interface_id}, "
                     f"entity={binding.entity_id}, channel={binding.channel_id}"
                 )
                 raise ValueError(msg)

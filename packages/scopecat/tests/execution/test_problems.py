@@ -30,8 +30,8 @@ class FailingCollectInstrument(TestSignalInstrument):
         raise RuntimeError("boom")
 
 
-class UnexpectedProductInstrument(TestSignalInstrument):
-    implementation_id = "test.unexpected_product_instrument"
+class UnexpectedResultInstrument(TestSignalInstrument):
+    implementation_id = "test.unexpected_result_instrument"
 
     @override
     def collect(self, command: CollectCommand) -> CollectReceipt:
@@ -92,11 +92,11 @@ def test_planning_rejects_missing_instrument(tmp_path: Path) -> None:
     }
 
 
-def test_planning_rejects_unsupported_field(tmp_path: Path) -> None:
+def test_planning_rejects_unsupported_property(tmp_path: Path) -> None:
     experiment = load_experiment()
     selected_state = core_state(experiment)[0]
     assert isinstance(selected_state, SetStateSpec)
-    state = replace(selected_state, field_path="amplitude")
+    state = replace(selected_state, property_id="amplitude")
     experiment = replace(experiment, effects=(state, *core_acquisitions(experiment)))
 
     with pytest.raises(ProviderContractError) as error:
@@ -107,17 +107,17 @@ def test_planning_rejects_unsupported_field(tmp_path: Path) -> None:
             project_root=tmp_path,
         )
 
-    assert "instrument_driver_unsupported_field" in {
+    assert "instrument_driver_unsupported_property" in {
         problem.code for problem in error.value.problems
     }
 
 
-def test_planning_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
+def test_planning_rejects_unsupported_acquisition_result(tmp_path: Path) -> None:
     experiment = load_experiment()
     acquisition = core_acquisitions(experiment)[0]
     unsupported_acquisition = replace(
         acquisition,
-        products=(replace(acquisition.products[0], provider_key="missing"),),
+        results=(replace(acquisition.results[0], result_id="missing"),),
     )
     experiment = replace(
         experiment,
@@ -135,12 +135,12 @@ def test_planning_rejects_unsupported_instrument_product(tmp_path: Path) -> None
             project_root=tmp_path,
         )
 
-    assert "instrument_product_unsupported" in {
+    assert "instrument_acquisition_result_unsupported" in {
         problem.code for problem in error.value.problems
     }
 
 
-def test_planning_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
+def test_planning_rejects_acquisition_result_dtype_mismatch(tmp_path: Path) -> None:
     experiment = load_experiment()
     experiment = replace(
         experiment,
@@ -155,7 +155,7 @@ def test_planning_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> N
             project_root=tmp_path,
         )
 
-    assert "instrument_product_dtype_mismatch" in {
+    assert "instrument_acquisition_result_dtype_mismatch" in {
         problem.code for problem in error.value.problems
     }
 
@@ -183,12 +183,12 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
     }
 
 
-def test_run_rejects_unexpected_instrument_products(tmp_path: Path) -> None:
+def test_run_rejects_unexpected_instrument_results(tmp_path: Path) -> None:
     with pytest.raises(RunFailed) as error:
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),
-            instruments=[UnexpectedProductInstrument()],
+            instruments=[UnexpectedResultInstrument()],
             project_root=tmp_path,
         )
 

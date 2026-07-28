@@ -104,11 +104,14 @@ DRIVE_FREQUENCY_POINT = authoring.coordinate(
 SIMPLE_MODULE = (
     authoring.module_body(id="test.simple_scan", metadata={"assembled_by": "module"})
     .inputs(_SIMPLE_SUBJECT)
-    .resource("source", requires=("set_frequency", "scalar_signal"))
-    .bind_field(
+    .resource(
         "source",
-        capability="set_frequency",
-        field="frequency",
+        requires=("test.set_frequency/v1", "test.scalar_signal/v1"),
+    )
+    .bind_property(
+        "source",
+        interface="test.set_frequency/v1",
+        property="frequency",
         value=DRIVE_FREQUENCY_POINT,
     )
     .product("signal", unit="ratio")
@@ -116,7 +119,9 @@ SIMPLE_MODULE = (
         "read-signal",
         "signal",
         resource="source",
-        capability="scalar_signal",
+        interface="test.scalar_signal/v1",
+        acquisition="sample",
+        result_id="signal",
     )
     .build()
 )

@@ -21,7 +21,7 @@ from tests.testkit.authoring import link_invocation, load_config, template_fixtu
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
-    materialized_state_fields,
+    materialized_state_properties,
 )
 
 
@@ -68,12 +68,12 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         bindings=(
             RoutingEndpointBinding(
                 instrument_id="drive-awg-0",
-                capability="drive.frequency",
+                interface_id="test.drive_frequency/v1",
                 entity_id="q0",
             ),
             RoutingEndpointBinding(
                 instrument_id="drive-awg-1",
-                capability="drive.frequency",
+                interface_id="test.drive_frequency/v1",
                 entity_id="q1",
             ),
         ),
@@ -87,13 +87,13 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         authoring.module_body(id="test.resource-binding-scenarios.entity-routing")
         .resource(
             "drive",
-            requires=("drive.frequency",),
+            requires=("test.drive_frequency/v1",),
             for_entities=(qubit,),
         )
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="drive.frequency",
-            field="value",
+            interface="test.drive_frequency/v1",
+            property="value",
             value=Quantity(value=5.0, unit="GHz"),
         )
         .build()
@@ -124,7 +124,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
     ]
     assert {
         (point_index, operation.instrument_id)
-        for point_index, operation, _field in materialized_state_fields(preview)
+        for point_index, operation, _target in materialized_state_properties(preview)
     } == {
         (0, "drive-awg-1"),
         (1, "drive-awg-0"),
@@ -155,13 +155,13 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         bindings=(
             RoutingEndpointBinding(
                 instrument_id="digitizer-0",
-                capability="readout.acquire",
+                interface_id="test.readout_acquire/v1",
                 entity_id="q0",
                 channel_id="readout-q0",
             ),
             RoutingEndpointBinding(
                 instrument_id=q1_instrument,
-                capability="readout.acquire",
+                interface_id="test.readout_acquire/v1",
                 entity_id="q1",
                 channel_id="readout-q1",
             ),
@@ -176,7 +176,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         authoring.module_body(id="test.resource-binding-scenarios.channel-selection")
         .resource(
             "digitizer",
-            requires=("readout.acquire",),
+            requires=("test.readout_acquire/v1",),
             for_entities=(qubit,),
         )
         .product("iq", dtype="complex128")
@@ -184,7 +184,8 @@ def test_acquisition_selects_point_local_instruments_and_channels(
             "capture-iq",
             "iq",
             resource="digitizer",
-            capability="readout.acquire",
+            interface="test.readout_acquire/v1",
+            acquisition="sample",
         )
         .build()
     )
@@ -242,12 +243,12 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         bindings=(
             RoutingEndpointBinding(
                 instrument_id="readout-source-0",
-                capability="readout.emit",
+                interface_id="test.readout_emit/v1",
                 entity_id="q0",
             ),
             RoutingEndpointBinding(
                 instrument_id="digitizer-0",
-                capability="readout.acquire",
+                interface_id="test.readout_acquire/v1",
                 entity_id="q0",
             ),
         ),
@@ -261,18 +262,18 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         .inputs(qubit)
         .resource(
             "readout_source",
-            requires=("readout.emit",),
+            requires=("test.readout_emit/v1",),
             for_entities=(qubit,),
         )
         .resource(
             "digitizer",
-            requires=("readout.acquire",),
+            requires=("test.readout_acquire/v1",),
             for_entities=(qubit,),
         )
-        .bind_field(
+        .bind_property(
             "readout_source",
-            capability="readout.emit",
-            field="frequency",
+            interface="test.readout_emit/v1",
+            property="frequency",
             value=Quantity(value=6.5, unit="GHz"),
         )
         .product(
@@ -283,7 +284,8 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
             "capture-iq",
             "iq",
             resource="digitizer",
-            capability="readout.acquire",
+            interface="test.readout_acquire/v1",
+            acquisition="sample",
         )
         .build()
     )

@@ -46,14 +46,14 @@ from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
-    materialized_state_fields,
+    materialized_state_properties,
 )
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,
     parameters,
 )
-from tests.testkit.relation_plans import state_field
+from tests.testkit.relation_plans import state_property
 from tests.testkit.typed_program import (
     link_program,
     overlay_parameter_cell,
@@ -119,15 +119,15 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("readout"),
-                capabilities=("readout",),
+                interfaces=("test.readout/v1",),
             ),
         ),
         parameter_overlays=[_frequency_overlay(axis_id="frequency")],
         state=[
-            state_field(
+            state_property(
                 "readout",
-                capability_id="readout",
-                field_path="frequency",
+                interface_id="test.readout/v1",
+                property_id="frequency",
                 value=parameter_lookup(
                     READOUT_FREQUENCY_LOOKUP,
                     key={"device_id": point_col("device_id")},
@@ -139,7 +139,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
 
     environment = replace(
         build_config_environment(
-            config_with_physical_resources({"readout-a": ("readout",)})
+            config_with_physical_resources({"readout-a": ("test.readout/v1",)})
         ),
         parameters=parameters(),
     )
@@ -151,7 +151,9 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         link_program(replace(spec, parameter_overlays=()), environment)
     )
 
-    assert [field.value.root for _, _, field in materialized_state_fields(plan)] == [
+    assert [
+        target.value.root for _, _, target in materialized_state_properties(plan)
+    ] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.2, unit="GHz"),
     ]

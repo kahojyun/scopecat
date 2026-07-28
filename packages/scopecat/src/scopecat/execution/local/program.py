@@ -13,12 +13,13 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from scopecat.graph.values import ComputeOutput, ValueId
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
-    InstrumentStateCommandField,
+    InstrumentStateAssignment,
 )
 
 type ComputeKernel = Callable[..., object]
@@ -64,19 +65,25 @@ class ComputeOperation:
 
 @dataclass(frozen=True, slots=True)
 class StateTarget:
-    """One field that must hold before subsequent point stages execute."""
+    """One property that must hold before subsequent point stages execute."""
 
-    capability_id: str
-    field_path: str
+    interface_id: InterfaceId
+    property_id: str
     value: StateValue
+    component_path: tuple[str, ...] = ()
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
-    def command_field(self, *, resource_id: str) -> InstrumentStateCommandField:
-        return InstrumentStateCommandField(
+    def command_assignment(
+        self,
+        *,
+        resource_id: str,
+    ) -> InstrumentStateAssignment:
+        return InstrumentStateAssignment(
             resource_id=resource_id,
-            capability_id=self.capability_id,
-            field_path=self.field_path,
+            interface_id=self.interface_id,
+            component_path=list(self.component_path),
+            property_id=self.property_id,
             value=self.value,
             entity_ids=list(self.entity_ids),
             channel_bindings=list(self.channel_bindings),
@@ -94,9 +101,9 @@ class ApplyStateOperation:
 
 @dataclass(frozen=True, slots=True)
 class CollectionResultBinding:
-    """Map one provider response key to every logical use of that result."""
+    """Map one collect request correlation id to its logical product uses."""
 
-    provider_key: str
+    request_id: str
     product_use_ids: tuple[ProductUseId, ...]
 
 

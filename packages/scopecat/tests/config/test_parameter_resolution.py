@@ -159,7 +159,7 @@ def test_parameter_problem_locations_preserve_dotted_ids_as_segments() -> None:
         id="catalog",
         definitions=[
             ParameterDefinition(
-                id="drive.frequency",
+                id="test.drive_frequency/v1",
                 value_type=Scalar(Float()),
             ),
             ParameterDefinition(
@@ -173,7 +173,7 @@ def test_parameter_problem_locations_preserve_dotted_ids_as_segments() -> None:
     snapshot = ParameterSnapshot(
         id="snapshot",
         values=[
-            ScalarParameterValue(id="drive.frequency", value="invalid"),
+            ScalarParameterValue(id="test.drive_frequency/v1", value="invalid"),
             TableParameterValue(
                 id="calibration",
                 rows=[{"readout.gain": "invalid"}],
@@ -186,7 +186,7 @@ def test_parameter_problem_locations_preserve_dotted_ids_as_segments() -> None:
     assert [problem.location for problem in problems] == [
         ModelLocation(
             root="parameter_snapshot",
-            path=("values", "drive.frequency", "value"),
+            path=("values", "test.drive_frequency/v1", "value"),
         ),
         ModelLocation(
             root="parameter_snapshot",

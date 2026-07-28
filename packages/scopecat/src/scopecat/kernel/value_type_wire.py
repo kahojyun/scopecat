@@ -85,7 +85,7 @@ type _PersistableScalarModel = Annotated[
     | _EntityWire,
     Field(discriminator="type"),
 ]
-type _CapabilityScalarModel = Annotated[
+type _InstrumentScalarModel = Annotated[
     _BoolWire
     | _IntWire
     | _FiniteFloatWire
@@ -98,11 +98,11 @@ type _CapabilityScalarModel = Annotated[
 _PERSISTABLE_SCALAR_ADAPTER = TypeAdapter[_PersistableScalarModel](
     _PersistableScalarModel
 )
-_CAPABILITY_SCALAR_ADAPTER = TypeAdapter[_CapabilityScalarModel](_CapabilityScalarModel)
+_INSTRUMENT_SCALAR_ADAPTER = TypeAdapter[_InstrumentScalarModel](_InstrumentScalarModel)
 
 
 def _scalar_from_model(
-    wire: _PersistableScalarModel | _CapabilityScalarModel,
+    wire: _PersistableScalarModel | _InstrumentScalarModel,
 ) -> Scalar:
     match wire:
         case _BoolWire():
@@ -144,15 +144,15 @@ def _persistable_scalar_from_wire(value: object) -> Scalar:
     return _scalar_from_model(_PERSISTABLE_SCALAR_ADAPTER.validate_python(value))
 
 
-def _capability_scalar_from_wire(value: object) -> Scalar:
+def _instrument_scalar_from_wire(value: object) -> Scalar:
     if isinstance(value, Scalar):
         return value
-    return _scalar_from_model(_CAPABILITY_SCALAR_ADAPTER.validate_python(value))
+    return _scalar_from_model(_INSTRUMENT_SCALAR_ADAPTER.validate_python(value))
 
 
 def _scalar_to_wire(
     value: Scalar,
-) -> _PersistableScalarModel | _CapabilityScalarModel:
+) -> _PersistableScalarModel | _InstrumentScalarModel:
     match value.atom:
         case Bool():
             return _BoolWire(type="bool")
@@ -198,11 +198,11 @@ type PersistableScalarWire = Annotated[
     PlainSerializer(_scalar_to_wire, return_type=_PersistableScalarModel),
 ]
 
-type CapabilityScalarWire = Annotated[
+type InstrumentScalarWire = Annotated[
     Scalar,
     BeforeValidator(
-        _capability_scalar_from_wire,
-        json_schema_input_type=_CapabilityScalarModel,
+        _instrument_scalar_from_wire,
+        json_schema_input_type=_InstrumentScalarModel,
     ),
-    PlainSerializer(_scalar_to_wire, return_type=_CapabilityScalarModel),
+    PlainSerializer(_scalar_to_wire, return_type=_InstrumentScalarModel),
 ]

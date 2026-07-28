@@ -13,7 +13,7 @@ def test_domain_invocation_spec_retains_only_lab_owned_declarations() -> None:
         invocation_id="invoke-1",
         target_id="test.target",
         compiler_id="test.compiler",
-        capability_fingerprint="capabilities-v1",
+        capability_fingerprint="interfaces-v1",
         artifact_id="artifact-1",
         artifact_fingerprint="artifact-v1",
         target_intent={"mode": "list"},

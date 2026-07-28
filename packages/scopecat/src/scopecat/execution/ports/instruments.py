@@ -11,8 +11,8 @@ from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments.contracts import (
-    CollectProductRequest,
-    InstrumentStateCommandField,
+    CollectResultRequest,
+    InstrumentStateAssignment,
     validate_payload_bindings,
 )
 
@@ -26,13 +26,13 @@ class RunHardwareApply(_HardwareModel):
     effect_id: str = Field(min_length=1)
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
-    fields: tuple[InstrumentStateCommandField, ...]
+    assignments: tuple[InstrumentStateAssignment, ...]
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_payloads(self) -> RunHardwareApply:
         validate_payload_bindings(
-            fields=self.fields,
+            assignments=self.assignments,
             payloads=self.payloads,
             label="hardware apply",
         )
@@ -40,7 +40,7 @@ class RunHardwareApply(_HardwareModel):
 
 
 class RunHardwareCollectBinding(_HardwareModel):
-    provider_key: str = Field(min_length=1)
+    request_id: str = Field(min_length=1)
     product_use_ids: tuple[str, ...] = Field(min_length=1)
 
 
@@ -50,15 +50,15 @@ class RunHardwareCollect(_HardwareModel):
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
     point_count: int = Field(ge=1)
-    requests: tuple[CollectProductRequest, ...] = ()
+    requests: tuple[CollectResultRequest, ...] = ()
     bindings: tuple[RunHardwareCollectBinding, ...]
 
     @model_validator(mode="after")
     def validate_bindings(self) -> RunHardwareCollect:
         request_ids = {request.id for request in self.requests}
-        binding_ids = {binding.provider_key for binding in self.bindings}
+        binding_ids = {binding.request_id for binding in self.bindings}
         if request_ids != binding_ids:
-            raise ValueError("hardware collect bindings must match requested products")
+            raise ValueError("hardware collect bindings must match requested results")
         return self
 
 

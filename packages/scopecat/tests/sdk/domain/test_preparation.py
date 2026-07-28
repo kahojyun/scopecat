@@ -305,7 +305,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
         invocation_id="test.complete-sdk.invocation",
         target_id="test.target",
         compiler_id="test.compiler",
-        capability_fingerprint="test.capabilities.v1",
+        capability_fingerprint="test.interfaces.v1",
         artifact_id="test.artifact",
         artifact_fingerprint="test.artifact.v1",
         target_intent={"mode": "test"},

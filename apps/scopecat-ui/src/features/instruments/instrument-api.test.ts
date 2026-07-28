@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ConfigProfileSnapshot,
-  InstrumentCapability,
+  InstrumentAcquisition,
   InstrumentConnection,
   InstrumentSession,
 } from "../../api-contract";
@@ -9,7 +9,7 @@ import { setConfigDefault } from "../config/config-api";
 import {
   applyInstrumentState,
   closeInstrumentSession,
-  collectInstrumentCapability,
+  collectInstrumentAcquisition,
   connectionSummary,
   openInstrumentSession,
   publishInstrumentConnection,
@@ -99,7 +99,7 @@ describe("instrument configuration publishing", () => {
 });
 
 describe("interactive collection request shaping", () => {
-  it("leaves a wholly dynamic product unspecified until every axis is known", async () => {
+  it("leaves a wholly dynamic result unspecified until every axis is known", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
         new Response(
@@ -113,25 +113,30 @@ describe("interactive collection request shaping", () => {
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const capability: InstrumentCapability = {
-      id: "network_sweep",
-      fields: [],
-      products: [
+    const acquisition: InstrumentAcquisition = {
+      id: "sweep",
+      results: [
         {
-          key: "trace",
+          id: "trace",
           dtype: "float64",
           axes: [{ id: "frequency", kind: "frequency", unit: "Hz" }],
         },
       ],
     };
+    const target = {
+      interfaceId: "scopecat.network_sweep/v1",
+      componentPath: [],
+      acquisition,
+    };
 
-    await collectInstrumentCapability(session(), "vna-1", capability);
-    await collectInstrumentCapability(session(), "vna-1", capability, {
+    await collectInstrumentAcquisition(session(), "vna-1", target);
+    await collectInstrumentAcquisition(session(), "vna-1", target, {
       instrument_id: "vna-1",
-      fields: [
+      properties: [
         {
-          capability_id: "network_sweep",
-          field_path: "points",
+          interface_id: "scopecat.network_sweep/v1",
+          component_path: [],
+          property_id: "points",
           value: 201,
         },
       ],
@@ -139,21 +144,27 @@ describe("interactive collection request shaping", () => {
 
     const firstBody = requestBody(fetchMock.mock.calls[0]?.[1]);
     expect(firstBody.requests?.[0]!.dimensions).toEqual([]);
+    expect(firstBody.requests?.[0]).toMatchObject({
+      id: "trace",
+      interface_id: "scopecat.network_sweep/v1",
+      component_path: [],
+      acquisition_id: "sweep",
+      result_id: "trace",
+    });
     const secondBody = requestBody(fetchMock.mock.calls[1]?.[1]);
     expect(secondBody.requests?.[0]!.dimensions).toEqual([
       { id: "frequency", kind: "frequency", size: 201, unit: "Hz" },
     ]);
   });
 
-  it("rejects a mixed static and unresolved dynamic product before HTTP", async () => {
+  it("rejects mixed static and unresolved dynamic axes before HTTP", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const capability: InstrumentCapability = {
-      id: "network_sweep",
-      fields: [],
-      products: [
+    const acquisition: InstrumentAcquisition = {
+      id: "sweep",
+      results: [
         {
-          key: "trace",
+          id: "trace",
           label: "S-parameter trace",
           dtype: "float64",
           axes: [
@@ -163,8 +174,13 @@ describe("interactive collection request shaping", () => {
         },
       ],
     };
+    const target = {
+      interfaceId: "scopecat.network_sweep/v1",
+      componentPath: [],
+      acquisition,
+    };
 
-    await expect(collectInstrumentCapability(session(), "vna-1", capability)).rejects.toThrow(
+    await expect(collectInstrumentAcquisition(session(), "vna-1", target)).rejects.toThrow(
       "Collect is unavailable until S-parameter trace has a positive point count for Frequency.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
@@ -179,12 +195,13 @@ describe("interactive collection request shaping", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
-    await collectInstrumentCapability(session(), "vna-1", capability, {
+    await collectInstrumentAcquisition(session(), "vna-1", target, {
       instrument_id: "vna-1",
-      fields: [
+      properties: [
         {
-          capability_id: "network_sweep",
-          field_path: "points",
+          interface_id: "scopecat.network_sweep/v1",
+          component_path: [],
+          property_id: "points",
           value: 201,
         },
       ],
@@ -208,18 +225,22 @@ describe("interactive collection request shaping", () => {
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const capability: InstrumentCapability = {
-      id: "network_sweep",
-      fields: [],
-      products: [],
+    const acquisition: InstrumentAcquisition = {
+      id: "sweep",
+      results: [],
+    };
+    const target = {
+      interfaceId: "scopecat.network_sweep/v1",
+      componentPath: [],
+      acquisition,
     };
 
     await openInstrumentSession("vna-1", "Ada", "open-retry");
     await openInstrumentSession("vna-1", "Ada", "open-retry");
     await applyInstrumentState(session(), "vna-1", [], "apply-retry");
     await applyInstrumentState(session(), "vna-1", [], "apply-retry");
-    await collectInstrumentCapability(session(), "vna-1", capability, undefined, "collect-retry");
-    await collectInstrumentCapability(session(), "vna-1", capability, undefined, "collect-retry");
+    await collectInstrumentAcquisition(session(), "vna-1", target, undefined, "collect-retry");
+    await collectInstrumentAcquisition(session(), "vna-1", target, undefined, "collect-retry");
     await closeInstrumentSession("session-1");
     await closeInstrumentSession("session-1");
 

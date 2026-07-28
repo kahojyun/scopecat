@@ -22,7 +22,7 @@ from scopecat.records.measurement import (
 from scopecat.sdk.instruments import (
     CollectAxisRequest,
     CollectCommand,
-    CollectProductRequest,
+    CollectResultRequest,
     InstrumentReadback,
 )
 
@@ -276,9 +276,11 @@ def _collect_operation(
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="iq",
-                    capability_id="readout",
+                    interface_id="test.readout/v1",
+                    acquisition_id="sample",
+                    result_id="iq",
                     dtype=dtype,
                     unit=unit,
                     dimensions=[
@@ -294,7 +296,7 @@ def _collect_operation(
         ),
         result_bindings=(
             CollectionResultBinding(
-                provider_key="iq",
+                request_id="iq",
                 product_use_ids=(product_use_id,),
             ),
         ),

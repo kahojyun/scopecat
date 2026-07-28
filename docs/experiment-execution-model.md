@@ -31,7 +31,7 @@ domain executions, and child-module occurrences.
 Composing a child scopes its resource, value, product, and effect identities to
 that instance and places its procedure exactly once.
 
-Logical resource ports and capability requirements form the reusable boundary
+Logical resource ports and interface requirements form the reusable boundary
 between a module and the physical configuration selected for a run. Authoring
 never names an instrument or channel. It may select logical entities from
 accepted inputs, parameters, or point coordinates; the accepted configuration
@@ -41,13 +41,14 @@ Product declaration, acquisition, and recording are distinct:
 
 1. A module declares the identity and shape of products it can make.
 2. An acquisition places instrument realization at an exact procedure position
-   and names one logical port, one explicit capability, and provider product
-   keys.
+   and names one logical port, one versioned interface, one acquisition, and
+   its result ids.
 3. A template or scratch experiment selects product uses that become records.
 
 Products created by domain execution or pure transforms retain those explicit
-producers and do not create instrument acquisitions. Provider product lookup
-never searches globally for a unique capability or product key.
+producers and do not create instrument acquisitions. Provider acquisition
+result resolution never searches globally for a coincidentally unique result
+id.
 
 A domain program owns opaque dialect data with typed inputs and result products.
 Scopecat owns the surrounding identities, typed bindings, effect order, and
@@ -140,7 +141,7 @@ Desired state may be split by static entity ownership so different instruments
 maintain explicit values for their devices. A single low-level action or
 acquisition is one driver invocation and is never implicitly broadcast across
 instruments. Each concrete effect carries only the endpoint bindings for its
-own explicit capability.
+own explicit interface.
 
 Switch matrices, patch panels, valves, probers, and similar path-changing
 devices are explicit desired-state or domain effects. Selecting replacement

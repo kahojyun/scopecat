@@ -36,8 +36,8 @@ from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
 )
 from tests.testkit.workflow_fixtures import load_config
 
@@ -137,11 +137,11 @@ def test_apply_externalizes_inline_payload_before_command_post() -> None:
     command = InstrumentStateCommand(
         operation_id="apply-payload-1",
         instrument_id="source-0",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="source-0",
-                capability_id="play_program",
-                field_path="program",
+                interface_id="test.play_program/v1",
+                property_id="program",
                 value=StateValue(PayloadRef(payload_id=payload.id)),
             )
         ],
@@ -197,11 +197,11 @@ def test_payload_object_put_retries_once_after_transport_failure() -> None:
     command = InstrumentStateCommand(
         operation_id="retry-apply",
         instrument_id="source-0",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="source-0",
-                capability_id="play_program",
-                field_path="program",
+                interface_id="test.play_program/v1",
+                property_id="program",
                 value=StateValue(PayloadRef(payload_id=payload.id)),
             )
         ],
