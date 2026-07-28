@@ -100,6 +100,11 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
 
     @property
     @override
+    def healthy(self) -> bool:
+        return True
+
+    @property
+    @override
     def provider_id(self) -> str:
         return "tests.actor_provider"
 

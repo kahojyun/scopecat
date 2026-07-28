@@ -66,12 +66,13 @@ there are no nested block leases or channel/group scheduler claims.
 `sc.open_project(...).connect()` returns the normal notebook `LabClient`. It
 loads only the application's planning composition, resolves the accepted
 config, and asks the daemon for the serializable instrument-contract catalog
-bound to that exact snapshot. Concrete providers, transports, and drivers are
-constructed once by the daemon-side backend factory and never enter the
-notebook process. Transient scratch invocations are planned and executed in the
-notebook when their closures or interactive objects cannot be reconstructed
-reliably in another process. Every durable effect still passes through the
-daemon, so the notebook never becomes a second writer.
+bound to that exact snapshot. Concrete providers, transports, codecs, and
+drivers are constructed once in a spawned project instrument worker and never
+enter the notebook process. The daemon control plane retains only serializable
+catalogs and opaque connection handles. Transient scratch invocations are
+planned and executed in the notebook when their closures or interactive objects
+cannot be reconstructed reliably in another process. Every durable effect still
+passes through the daemon, so the notebook never becomes a second writer.
 
 The same project client exposes event replay and attention resolution through
 `lab.control`. Execution remains an internal implementation of
@@ -114,8 +115,9 @@ source of truth.
 
 A single process-owner lock prevents two daemons opening the same lab instance.
 Inside that boundary, SQLite transactions and fencing tokens coordinate all
-durable executor effects. Interactive instrument drivers already run inside
-the daemon and use explicit daemon-owned sessions instead of a second lease.
+durable executor effects. Interactive and experiment instrument calls share
+daemon-owned sessions, while concrete drivers live in one project instrument
+worker.
 
 The process-owner lock answers only “which daemon owns this lab instance?” It is
 not a run coordination mechanism. Resource claims coordinate experiments and
@@ -126,22 +128,27 @@ The default transport is a same-user local control plane. It binds to loopback
 and restricts accepted host names; it is not an authenticated remote service.
 Remote or multi-user access needs a separate security boundary.
 
-Each project has a `scopecat.toml` pointing at its version-controlled Python
-application:
+Each project has a `scopecat.toml` pointing separately at its version-controlled
+control-plane application and worker backend:
 
 ```toml
 [lab]
 application = "my_lab.application:create_application"
+instrument_backend = "my_lab.backend:create_backend"
 ```
 
 The application may lazily construct an initial `ConfigProfileSnapshot` with
-Python. The daemon resolves and imports it only if the registry has no entries;
-ordinary notebook connections do not read bootstrap inputs. After that point
-the registry is authoritative: importing another snapshot creates an immutable
-entry, activation changes an explicit generation, and restart never silently
-restores the application seed. User code and editable config inputs belong in
-Git; runs, accepted snapshots, activation history, measurements, and artifacts
-belong to the daemon.
+Python. The daemon loads the application at startup but invokes its bootstrap
+factory only if the registry has no entries; ordinary notebook connections do
+not read bootstrap inputs. After that point the registry is authoritative:
+importing another snapshot creates an immutable entry, activation changes an
+explicit generation, and restart never silently restores the application seed.
+User code and editable config inputs belong in Git; runs, accepted snapshots,
+activation history, measurements, and artifacts belong to the daemon.
+
+The backend entry is imported only by the instrument worker. The daemon sees
+its serializable catalog and opaque handles, not provider, transport, codec, or
+driver objects.
 
 | Owner | Contents |
 |---|---|

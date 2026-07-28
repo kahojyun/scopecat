@@ -68,6 +68,9 @@ class ConnectedInstrument:
 
 class InstrumentBackendEndpoint(Protocol):
     @property
+    def healthy(self) -> bool: ...
+
+    @property
     def provider_id(self) -> str: ...
 
     @property
@@ -130,6 +133,11 @@ class LocalInstrumentBackendEndpoint:
         self._lock = RLock()
         self._provider_lock = RLock()
         self._closed = False
+
+    @property
+    def healthy(self) -> bool:
+        with self._lock:
+            return not self._closed
 
     @property
     def provider_id(self) -> str:
@@ -287,8 +295,11 @@ class LocalInstrumentBackendEndpoint:
     ) -> Generator[_LocalConnection]:
         with self._lock:
             connection = self._find_connection(handle)
-            connection.lock.acquire()
+        connection.lock.acquire()
         try:
+            with self._lock:
+                if self._connections.get(handle) is not connection:
+                    raise InstrumentHandleInvalid("instrument handle is stale")
             yield connection
         finally:
             connection.lock.release()

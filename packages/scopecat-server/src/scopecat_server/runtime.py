@@ -22,12 +22,13 @@ from scopecat.daemon.wire import (
     ConfigPublishCommand,
     DirectConfigRevisionSource,
 )
-from scopecat.project import LabApplicationFactory
+from scopecat.project import load_application_factory
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
 from .instrument_actor import InstrumentActorRegistry
-from .instrument_backend import LocalInstrumentBackendEndpoint
+from .instrument_backend import InstrumentBackendEndpoint
+from .instrument_worker import SubprocessInstrumentBackendEndpoint
 from .services import (
     AdmissionService,
     CommandPayloadService,
@@ -48,10 +49,16 @@ class LocalDaemonRuntime:
         self,
         project_root: str | Path,
         *,
-        bootstrap_config: ConfigProfileSnapshot | None = None,
-        application_factory: LabApplicationFactory | None = None,
+        bootstrap_config: ConfigProfileSnapshot | BootstrapConfigFactory | None = None,
+        application_spec: str | None = None,
+        instrument_backend_spec: str | None = None,
+        instrument_endpoint: InstrumentBackendEndpoint | None = None,
         lease_ttl: timedelta | None = None,
     ) -> None:
+        if instrument_backend_spec is not None and instrument_endpoint is not None:
+            raise ValueError(
+                "instrument_backend_spec and instrument_endpoint cannot be combined"
+            )
         self.project_root = Path(project_root).resolve()
         self.project_root.mkdir(parents=True, exist_ok=True)
         self.state_dir = self.project_root / ".scopecat"
@@ -69,17 +76,19 @@ class LocalDaemonRuntime:
         database = self.state_dir / "control.sqlite3"
         objects = self.state_dir / "objects"
         application_bootstrap: BootstrapConfigFactory | None = None
-        instrument_endpoint = None
 
         try:
-            if application_factory is not None:
-                lab_application = application_factory(self.project_root)
+            if application_spec is not None:
+                lab_application = load_application_factory(
+                    application_spec,
+                    self.project_root,
+                )(self.project_root)
                 application_bootstrap = lab_application.bootstrap_config
-                create_instrument_backend = lab_application.create_instrument_backend
-                if create_instrument_backend is not None:
-                    instrument_endpoint = LocalInstrumentBackendEndpoint(
-                        create_instrument_backend()
-                    )
+            if instrument_backend_spec is not None:
+                instrument_endpoint = SubprocessInstrumentBackendEndpoint(
+                    self.project_root,
+                    instrument_backend_spec,
+                )
 
             control = SQLiteControlPlane(database)
             runs = SQLiteRunRepository(database, objects)
@@ -163,6 +172,7 @@ class LocalDaemonRuntime:
                 application.close()
                 raise
             self.application = application
+            self._closed = False
         except BaseException:
             if instrument_endpoint is not None:
                 with suppress(Exception):
@@ -174,6 +184,9 @@ class LocalDaemonRuntime:
         return create_app(self.application, static_dir=static_dir)
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         try:
             self.application.close()
         finally:
@@ -218,4 +231,4 @@ def _project_id(project_root: Path) -> str:
     return f"local:{identity}"
 
 
-__all__ = ["LabApplicationFactory", "LocalDaemonRuntime"]
+__all__ = ["LocalDaemonRuntime"]

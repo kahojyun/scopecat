@@ -253,19 +253,26 @@ def test_runtime_cleans_up_partially_started_supervisor(
         pass
 
 
-def test_runtime_exclusively_owns_one_project(tmp_path: Path) -> None:
+def test_runtime_exclusively_owns_one_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     factory_calls = 0
 
-    def application_factory(_project_root: Path) -> Never:
+    def load_factory(_spec: str, _project_root: Path) -> Never:
         nonlocal factory_calls
         factory_calls += 1
         raise AssertionError("factory must not run before project ownership")
 
+    monkeypatch.setattr(
+        "scopecat_server.runtime.load_application_factory",
+        load_factory,
+    )
     with (
         LocalDaemonRuntime(tmp_path),
         pytest.raises(RuntimeError, match="already has a running daemon"),
     ):
-        LocalDaemonRuntime(tmp_path, application_factory=application_factory)
+        LocalDaemonRuntime(tmp_path, application_spec="tests.application:create")
 
     assert factory_calls == 0
     with LocalDaemonRuntime(tmp_path) as reopened:
@@ -284,14 +291,11 @@ def test_bootstrap_config_is_active_and_idempotent_across_restarts(
             raise AssertionError("an initialized registry must not resolve its seed")
         return _config()
 
-    def factory(_root: Path) -> LabApplication:
-        return LabApplication(bootstrap_config=bootstrap_config)
-
-    with LocalDaemonRuntime(tmp_path, application_factory=factory) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=bootstrap_config) as runtime:
         first = runtime.application.config.get_active_config().activation
         first_events = _events(runtime).items
 
-    with LocalDaemonRuntime(tmp_path, application_factory=factory) as reopened:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=bootstrap_config) as reopened:
         second = reopened.application.config.get_active_config().activation
         second_events = _events(reopened).items
 
@@ -311,10 +315,7 @@ def test_bootstrap_config_does_not_replace_later_activation(
     bootstrap = _config()
     selected = bootstrap.model_copy(update={"id": "operator-selected"})
 
-    def factory(_root: Path) -> LabApplication:
-        return LabApplication(bootstrap_config=lambda: bootstrap)
-
-    with LocalDaemonRuntime(tmp_path, application_factory=factory) as runtime:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=lambda: bootstrap) as runtime:
         activation = runtime.application.config.publish_config(
             _direct_publish_command(
                 config=selected,
@@ -324,7 +325,7 @@ def test_bootstrap_config_does_not_replace_later_activation(
             )
         )
 
-    with LocalDaemonRuntime(tmp_path, application_factory=factory) as reopened:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=lambda: bootstrap) as reopened:
         state = reopened.application.config.get_active_config().activation
 
     assert state.entry_id == "operator-selected"
@@ -333,17 +334,28 @@ def test_bootstrap_config_does_not_replace_later_activation(
 
 def test_explicit_runtime_bootstrap_overrides_application_seed(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def unavailable_bootstrap() -> ConfigProfileSnapshot:
         raise AssertionError("explicit test config must take precedence")
 
-    def factory(_root: Path) -> LabApplication:
+    def application_factory(_root: Path) -> LabApplication:
         return LabApplication(bootstrap_config=unavailable_bootstrap)
 
+    def load_factory(
+        _spec: str,
+        _project_root: Path,
+    ) -> object:
+        return application_factory
+
+    monkeypatch.setattr(
+        "scopecat_server.runtime.load_application_factory",
+        load_factory,
+    )
     explicit = _config().model_copy(update={"id": "explicit-test-bootstrap"})
     with LocalDaemonRuntime(
         tmp_path,
-        application_factory=factory,
+        application_spec="tests.application:create",
         bootstrap_config=explicit,
     ) as runtime:
         state = runtime.application.config.get_active_config().activation

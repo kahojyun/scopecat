@@ -66,8 +66,9 @@ change; it does not make the daemon watch or rewrite Python. `export` produces
 a complete JSON snapshot for review or backup, not a primary editing format.
 
 The quantum example is the fuller local lab project. Its `scopecat.toml` and
-Python application—including construction of its bootstrap snapshot—are
-version controlled; one daemon owns its `.scopecat` state:
+Python application and backend—including construction of its bootstrap
+snapshot and virtual devices—are version controlled; one daemon owns its
+`.scopecat` state:
 
 ```sh
 uv run scopecat config check examples/quantum
@@ -116,6 +117,7 @@ my-lab/
 ├── notebooks/
 ├── src/scopecat_lab/
 │   ├── application.py
+│   ├── backend.py
 │   └── configuration.py
 └── config/                  # optional external infrastructure inputs
 ```

@@ -62,7 +62,11 @@ class DaemonApplication:
         except Exception:
             status: Literal["ok", "degraded"] = "degraded"
         else:
-            status = "ok" if self._lease_supervisor.healthy else "degraded"
+            status = (
+                "ok"
+                if self._lease_supervisor.healthy and self.instruments.healthy
+                else "degraded"
+            )
         return DaemonHealth(
             status=status,
             project_id=self.project_id,

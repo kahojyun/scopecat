@@ -192,6 +192,11 @@ class InstrumentService:
         self._finalizing_runs: set[str] = set()
         self._attention_lock = RLock()
 
+    @property
+    def healthy(self) -> bool:
+        endpoint = self._endpoint
+        return endpoint is None or endpoint.healthy
+
     def list_instruments(self) -> InstrumentListView:
         active = self._config.get_active_config()
         catalog = self.resolve_instrument_contracts(active.config)
@@ -1514,9 +1519,7 @@ class InstrumentService:
             raise BackendNotFound(f"instrument was not found: {', '.join(missing)}")
         endpoint = self._endpoint
         if endpoint is None:
-            raise BackendConflict(
-                "project application does not configure an instrument backend"
-            )
+            raise BackendConflict("project does not configure an instrument backend")
         catalog = self.resolve_instrument_contracts(active.config)
         descriptions = self._selected_descriptions(
             catalog,

@@ -8,13 +8,11 @@ from typing import TYPE_CHECKING
 
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.sdk.instruments import InstrumentBackend
 
 if TYPE_CHECKING:
     from scopecat.api.lab import LabClient
 
 type BootstrapConfigFactory = Callable[[], ConfigProfileSnapshot]
-type InstrumentBackendFactory = Callable[[], InstrumentBackend]
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,16 +22,11 @@ class LabApplication:
     The application owns the initial snapshot because constructing configuration
     may require Python. Its factory stays lazy so ordinary notebook connections
     do not read seed inputs. Later accepted entries and activation state belong
-    to the daemon. The instrument backend factory is daemon-only so loading this
-    composition in a notebook does not import concrete drivers or transports.
+    to the daemon. Instrument backend composition is declared separately in the
+    project manifest and loaded only by the isolated worker.
     """
 
     build_experiment_system: ExperimentSystemBuilder | None = field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
-    create_instrument_backend: InstrumentBackendFactory | None = field(
         default=None,
         repr=False,
         compare=False,
@@ -63,6 +56,5 @@ class LabApplication:
 
 __all__ = [
     "BootstrapConfigFactory",
-    "InstrumentBackendFactory",
     "LabApplication",
 ]

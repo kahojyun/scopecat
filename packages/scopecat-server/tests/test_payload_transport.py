@@ -9,7 +9,6 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.adapters.sqlite.object_store import ImmutableObjectStore
-from scopecat.application import LabApplication
 from scopecat.control.models import ResourceKey, RunPlanSummary
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.wire import (
@@ -46,6 +45,7 @@ from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
 from scopecat_server import LocalDaemonRuntime
+from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
 from scopecat_server.payload_service import (
     DEFAULT_MAX_PAYLOAD_OBJECT_BYTES,
     CommandPayloadService,
@@ -662,18 +662,15 @@ def _runtime(
     root: Path,
     provider: _PayloadProvider,
 ) -> LocalDaemonRuntime:
-    def factory(_root: Path) -> LabApplication:
-        return LabApplication(
-            create_instrument_backend=lambda: InstrumentBackend(
-                provider=provider,
-                payload_codecs=_payload_codecs(),
-            )
-        )
-
     return LocalDaemonRuntime(
         root,
         bootstrap_config=load_config(),
-        application_factory=factory,
+        instrument_endpoint=LocalInstrumentBackendEndpoint(
+            InstrumentBackend(
+                provider=provider,
+                payload_codecs=_payload_codecs(),
+            )
+        ),
     )
 
 

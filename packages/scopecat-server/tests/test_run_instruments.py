@@ -7,7 +7,6 @@ from threading import Barrier
 from typing import Literal, override
 
 import pytest
-from scopecat.application import LabApplication
 from scopecat.control.models import ResourceKey, RunPlanSummary
 from scopecat.daemon.wire import (
     ExecutorStartRequest,
@@ -69,6 +68,7 @@ from tests.testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
+from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
 from scopecat_server.instrument_service import InstrumentService
 
 type _FailAction = (
@@ -1084,18 +1084,15 @@ def _runtime(
     *,
     lease_ttl: timedelta | None = None,
 ) -> LocalDaemonRuntime:
-    def factory(_root: Path) -> LabApplication:
-        return LabApplication(
-            create_instrument_backend=lambda: InstrumentBackend(
-                provider=provider,
-                payload_codecs=json_payload_codecs("pulse_program"),
-            )
-        )
-
     return LocalDaemonRuntime(
         root,
         bootstrap_config=load_config(),
-        application_factory=factory,
+        instrument_endpoint=LocalInstrumentBackendEndpoint(
+            InstrumentBackend(
+                provider=provider,
+                payload_codecs=json_payload_codecs("pulse_program"),
+            )
+        ),
         lease_ttl=lease_ttl,
     )
 

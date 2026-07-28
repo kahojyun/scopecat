@@ -19,11 +19,13 @@ validates its bootstrap source without starting a daemon or writing project
 state. Configuration reconciliation commands and the complete runnable
 walkthrough live in the [repository README](../../README.md).
 
-Each `scopecat.toml` names one importable application factory:
+Each `scopecat.toml` names the control-plane application and, when devices are
+configured, a separately importable worker backend:
 
 ```toml
 [lab]
 application = "my_lab.application:create_application"
+instrument_backend = "my_lab.backend:create_backend"
 ```
 
 ```python
@@ -33,7 +35,6 @@ from scopecat.application import LabApplication
 from my_lab import (
     build_experiment_system,
     build_initial_config,
-    create_instrument_backend,
 )
 
 
@@ -47,16 +48,25 @@ def create_application(project: Path) -> LabApplication:
                 project=project,
             )
         ),
-        create_instrument_backend=lambda: create_instrument_backend(
-            project=project,
-        ),
     )
 ```
 
-The callable accepts the resolved project `Path`. The bootstrap factory is a
+```python
+from pathlib import Path
+
+from scopecat.sdk.instruments import InstrumentBackend
+from my_lab.drivers import LabProvider
+
+
+def create_backend(project: Path) -> InstrumentBackend:
+    return InstrumentBackend(provider=LabProvider.from_project(project))
+```
+
+Both callables accept the resolved project `Path`. The bootstrap factory is a
 lazy seed used only for an empty registry. Notebook planning receives the
-accepted snapshot and the daemon-resolved contract catalog; the instrument
-backend factory runs once in the daemon process.
+accepted snapshot and the daemon-resolved contract catalog. Backend code,
+transports, codecs, and drivers are imported and constructed only in the
+long-lived instrument worker.
 
 Only one daemon owns a project. It stores SQLite and immutable objects below
 `.scopecat`, records its loopback endpoint in `.scopecat/daemon.json`, and

@@ -156,6 +156,7 @@ def test_local_backend_shutdown_disconnects_handles_and_fences_new_work() -> Non
     endpoint.shutdown()
     endpoint.shutdown()
 
+    assert not endpoint.healthy
     assert [driver.disconnect_count for driver in provider.drivers] == [1, 1]
     with pytest.raises(InstrumentBackendUnavailable, match="shut down"):
         endpoint.resolve_contracts(config)

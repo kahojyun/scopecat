@@ -43,11 +43,11 @@ operations, and acquisitions with typed results. GUI controls and experiment
 validation are derived from this description.
 
 `InstrumentBackendEndpoint` owns providers and raw drivers, returning only
-opaque connection handles. Its local implementation is the in-process endpoint;
-a worker-backed implementation can preserve the same service and actor API.
-`InstrumentActor` serializes one physical instrument and may retain a matching
-handle while the instrument is idle. It accepts only the driver backend ABI and
-never treats idle state as observed.
+opaque connection handles. Production uses one spawned, project-long worker;
+the in-process implementation is a test seam behind the same API.
+`InstrumentActor` remains in the daemon, serializes one physical instrument,
+and may retain a matching worker handle while the instrument is idle. It accepts
+only the driver backend ABI and never treats idle state as observed.
 
 `InstrumentSession` and an admitted run are ownership epochs, not connections.
 The daemon pins the config revision, claims all requested instruments, and
@@ -294,6 +294,9 @@ before a hardware batch begins, then lowers it to a driver-native payload
 containing codec metadata and raw bytes. Public inline/blob bodies never enter
 the driver API. The worker wire format keeps its JSON descriptor separate from
 hash-checked raw attachments and never serializes arbitrary Python objects.
+Control messages are capped at 1 MiB and must round-trip through JSON without
+changing value types. Larger acquisition arrays belong on a binary result
+transport rather than an expanded control envelope.
 
 An operator can recover a session left by another notebook kernel with
 `lab.instruments.abort_session(session_id)`. This asks the daemon to run the
@@ -305,7 +308,8 @@ Runs and direct sessions claim the same resource key, so an instrument cannot
 be manually adjusted while an experiment owns it. Multi-instrument acquisition
 is all-or-nothing. The daemon acquires the durable claim before contacting
 hardware. Only the external notebook executor needs a renewable lease and
-fencing token; direct driver calls already execute inside the owning daemon.
+fencing token; direct calls are already fenced by the owning daemon and reach
+the same instrument worker as experiment calls.
 
 Reads are observational: a failed read reports an error but does not by itself
 claim the physical state changed. Apply, invoke, and collect are consequential:
@@ -321,13 +325,14 @@ started/finished events provide an audit trail around consequential calls. A
 daemon restart releases an idle session, but the durable active-operation
 marker lets it quarantine a session interrupted between those two events.
 
-The daemon is the sole live driver host for both interactive sessions and
-experiment runs. A notebook plans and interprets the experiment program, but
-after the daemon grants its fenced executor lease, the daemon acquires actors
-bound to the run's accepted configuration snapshot. The notebook submits
-ordered hardware batches; the daemon owns current-state reconciliation, driver
-calls, batch replay, abort-on-failure, terminal readback, and connection
-retirement. Experiments therefore do not expose per-device lifecycle RPCs.
+The daemon-owned instrument worker is the sole live driver host for both
+interactive sessions and experiment runs. A notebook plans and interprets the
+experiment program, but after the daemon grants its fenced executor lease, the
+daemon acquires actors bound to the run's accepted configuration snapshot. The
+notebook submits ordered hardware batches; the daemon owns current-state
+reconciliation, batch replay, abort-on-failure, terminal readback, and
+connection retirement, while raw calls stay in the worker. Experiments
+therefore do not expose per-device lifecycle RPCs.
 Planning receives a serializable contract catalog resolved by the daemon for
 the exact configuration snapshot; it neither imports nor calls a provider.
 Fine-grained read, apply, and collect remain available only through an explicit

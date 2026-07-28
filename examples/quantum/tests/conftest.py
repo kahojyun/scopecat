@@ -13,10 +13,9 @@ from typing import cast
 
 import pytest
 import uvicorn
-from tests.testkit.project_loading import isolated_project_application_imports
+from tests.testkit.project_loading import isolated_project_imports
 
-from quantum_lab_demo.application import quantum_lab_application
-from quantum_lab_demo.configuration import DAEMON_URL_ENV
+from scopecat.daemon.endpoint import DAEMON_URL_ENV
 from scopecat.project import load_project
 from scopecat_server import LocalDaemonRuntime
 
@@ -33,7 +32,7 @@ class DemoDaemon:
 
 @pytest.fixture(autouse=True)
 def isolate_project_loader() -> Generator[None]:
-    with isolated_project_application_imports():
+    with isolated_project_imports():
         yield
 
 
@@ -43,12 +42,15 @@ def demo_daemon(tmp_path_factory: pytest.TempPathFactory) -> Generator[DemoDaemo
 
     project_root = tmp_path_factory.mktemp("quantum-project")
     shutil.copytree(EXAMPLE_ROOT / "config", project_root / "config")
+    shutil.copytree(EXAMPLE_ROOT / "support" / "src", project_root / "src")
     shutil.copy2(EXAMPLE_ROOT / "scopecat.toml", project_root / "scopecat.toml")
     project = load_project(project_root / "scopecat.toml")
-    runtime = LocalDaemonRuntime(
-        project.root,
-        application_factory=quantum_lab_application,
-    )
+    with isolated_project_imports(clear_roots=(EXAMPLE_ROOT,)):
+        runtime = LocalDaemonRuntime(
+            project.root,
+            application_spec=project.application_spec,
+            instrument_backend_spec=project.instrument_backend_spec,
+        )
     listener = socket.socket()
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", 0))

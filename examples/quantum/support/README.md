@@ -14,7 +14,8 @@ Inside `src/quantum_lab_demo/`:
 
 - `workflows/`: the DRAG-beta program, experiment, quadratic analysis, and
   production-gate follow-up.
-- `application.py`: the daemon-side `LabApplication` composition root.
+- `application.py`: planning and bootstrap `LabApplication` composition.
+- `backend.py`: worker-only virtual instrument backend composition.
 - `lab.py`: shared configuration, compiler, and experiment-system wiring.
 - `configuration.py`: combine schema-checked infrastructure with Python values.
 - `parameters.py`: the q0 DRAG calibration row.
@@ -26,8 +27,8 @@ Inside `src/quantum_lab_demo/`:
 Focused behavior checks live in `tests/unit/`.
 
 Notebook code uses the core `sc.open_project(...).connect()` client. This
-support package owns only the demo's user code and application composition, not
-a second client facade.
+support package owns only the demo's user code and project composition, not
+another client or driver host.
 
 The parent [quantum examples README](../README.md) describes the notebook
 learning path and where to start when adapting the demo.

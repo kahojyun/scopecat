@@ -8,6 +8,7 @@ _PROJECT_FILES = {
     "scopecat.toml": """\
 [lab]
 application = "scopecat_lab.application:create_application"
+instrument_backend = "scopecat_lab.backend:create_backend"
 """,
     "src/scopecat_lab/__init__.py": '''\
 """User-owned composition for this Scopecat project."""
@@ -82,6 +83,25 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat.application import LabApplication
+
+from .configuration import bootstrap_config
+
+
+def create_application(_project_root: Path) -> LabApplication:
+    """Compose version-controlled config and local execution capabilities."""
+
+    return LabApplication(bootstrap_config=bootstrap_config)
+
+
+__all__ = ["create_application"]
+''',
+    "src/scopecat_lab/backend.py": '''\
+"""Worker-only instrument backend composition for this project."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
 from scopecat.sdk.instruments import (
     InstrumentBackend,
     InstrumentConnectionContext,
@@ -89,8 +109,6 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
-
-from .configuration import bootstrap_config
 
 
 class LocalProvider:
@@ -111,18 +129,11 @@ class LocalProvider:
         raise RuntimeError(f"no instrument is configured: {context.instrument_id}")
 
 
-def create_application(_project_root: Path) -> LabApplication:
-    """Compose version-controlled config and local execution capabilities."""
-
-    return LabApplication(
-        bootstrap_config=bootstrap_config,
-        create_instrument_backend=lambda: InstrumentBackend(
-            provider=LocalProvider(),
-        ),
-    )
+def create_backend(_project_root: Path) -> InstrumentBackend:
+    return InstrumentBackend(provider=LocalProvider())
 
 
-__all__ = ["create_application"]
+__all__ = ["create_backend"]
 ''',
     "notebooks/01_first_run.py": '''\
 """Run the smallest scratch experiment through the project daemon."""

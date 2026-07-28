@@ -9,7 +9,6 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.api.lab import LabClient
-from scopecat.application import LabApplication
 from scopecat.control.models import ResourceKey, RunPlanSummary
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.wire import (
@@ -63,6 +62,7 @@ from tests.testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
+from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
 
 
 class _TrackingDriver(SignalInstrumentDriver):
@@ -1284,21 +1284,13 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
 def test_provider_instance_and_virtual_state_survive_across_sessions(
     tmp_path: Path,
 ) -> None:
-    backend_count = 0
-
-    def factory(_root: Path) -> LabApplication:
-        def create_backend() -> InstrumentBackend:
-            nonlocal backend_count
-            backend_count += 1
-            return InstrumentBackend(provider=_StatefulProvider())
-
-        return LabApplication(create_instrument_backend=create_backend)
-
     with (
         LocalDaemonRuntime(
             tmp_path,
             bootstrap_config=load_config(),
-            application_factory=factory,
+            instrument_endpoint=LocalInstrumentBackendEndpoint(
+                InstrumentBackend(provider=_StatefulProvider())
+            ),
         ) as runtime,
         TestClient(runtime.app()) as transport,
     ):
@@ -1332,7 +1324,6 @@ def test_provider_instance_and_virtual_state_survive_across_sessions(
 
     [property_state] = state.properties
     assert property_state.value == StateValue(Quantity(value=5.1, unit="GHz"))
-    assert backend_count == 1
 
 
 def test_contract_catalog_resolves_the_requested_non_active_config(
@@ -1452,18 +1443,15 @@ def _runtime(
     *,
     config: ConfigProfileSnapshot | None = None,
 ) -> LocalDaemonRuntime:
-    def factory(_root: Path) -> LabApplication:
-        return LabApplication(
-            create_instrument_backend=lambda: InstrumentBackend(
-                provider=provider,
-                payload_codecs=json_payload_codecs("pulse_program"),
-            )
-        )
-
     return LocalDaemonRuntime(
         root,
         bootstrap_config=config if config is not None else load_config(),
-        application_factory=factory,
+        instrument_endpoint=LocalInstrumentBackendEndpoint(
+            InstrumentBackend(
+                provider=provider,
+                payload_codecs=json_payload_codecs("pulse_program"),
+            )
+        ),
     )
 
 

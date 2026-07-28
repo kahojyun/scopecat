@@ -6,7 +6,6 @@ from pathlib import Path
 
 from scopecat.application import LabApplication
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.sdk.instruments import InstrumentBackend
 
 
 def _bootstrap_config() -> ConfigProfileSnapshot:
@@ -15,19 +14,10 @@ def _bootstrap_config() -> ConfigProfileSnapshot:
     return bootstrap_config()
 
 
-def _create_instrument_backend() -> InstrumentBackend:
-    from .provider import InstrumentDemoProvider
-
-    return InstrumentBackend(provider=InstrumentDemoProvider(seed=7))
-
-
 def create_application(_project_root: Path) -> LabApplication:
-    """Keep one virtual world alive for all daemon-owned device sessions."""
+    """Compose planning and bootstrap behavior for the virtual lab."""
 
-    return LabApplication(
-        bootstrap_config=_bootstrap_config,
-        create_instrument_backend=_create_instrument_backend,
-    )
+    return LabApplication(bootstrap_config=_bootstrap_config)
 
 
 __all__ = ["create_application"]

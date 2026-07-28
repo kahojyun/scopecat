@@ -6,6 +6,7 @@ from typing import Protocol
 
 import scopecat as sc
 from quantum_lab_demo.application import quantum_lab_application
+from quantum_lab_demo.backend import quantum_lab_backend
 from quantum_lab_demo.configuration import (
     EXAMPLE_ROOT,
     quantum_lab_bootstrap_config,
@@ -30,6 +31,10 @@ def test_demo_manifest_discovers_application_owned_bootstrap_config() -> None:
         project.application_spec
         == "quantum_lab_demo.application:quantum_lab_application"
     )
+    assert (
+        project.instrument_backend_spec
+        == "quantum_lab_demo.backend:quantum_lab_backend"
+    )
     assert application.bootstrap_config is not None
     assert application.bootstrap_config() == quantum_lab_bootstrap_config()
 
@@ -49,11 +54,10 @@ def test_demo_application_loads_selected_project_system(tmp_path: Path) -> None:
     application = quantum_lab_application(tmp_path)
 
     assert application.build_experiment_system is not None
-    assert application.create_instrument_backend is not None
     assert application.bootstrap_config is not None
     bootstrap_config = application.bootstrap_config()
     assert bootstrap_config == quantum_lab_bootstrap_config(config_dir)
-    backend = application.create_instrument_backend()
+    backend = quantum_lab_backend(tmp_path)
     provider = backend.provider
     from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 
