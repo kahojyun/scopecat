@@ -587,27 +587,7 @@ class InstrumentProviderDescription:
         if not self.provider_id:
             msg = "instrument provider id must be non-empty"
             raise ValueError(msg)
-        instrument_ids = [instrument.instrument_id for instrument in self.instruments]
-        if len(instrument_ids) != len(set(instrument_ids)):
-            duplicates = sorted(
-                instrument_id
-                for instrument_id in set(instrument_ids)
-                if instrument_ids.count(instrument_id) > 1
-            )
-            msg = (
-                "instrument provider descriptions require unique instrument ids: "
-                f"{', '.join(duplicates)}"
-            )
-            raise ValueError(msg)
-        declared: dict[str, InterfaceSpec] = {}
-        for instrument in self.instruments:
-            for interface_spec in instrument.interfaces:
-                previous = declared.setdefault(interface_spec.id, interface_spec)
-                if previous != interface_spec:
-                    raise ValueError(
-                        f"interface {interface_spec.id!r} must have one stable "
-                        "specification within a provider description"
-                    )
+        validate_instrument_description_collection(self.instruments)
 
 
 class InstrumentProvider(Protocol):
@@ -1869,6 +1849,33 @@ def _require_unique(values: Iterable[str], label: str) -> None:
     selected = tuple(values)
     if len(selected) != len(set(selected)):
         raise ValueError(f"{label} must be unique")
+
+
+def validate_instrument_description_collection(
+    instruments: Sequence[InstrumentDescription],
+) -> None:
+    """Require stable identities across one advertised instrument collection."""
+
+    instrument_ids = [instrument.instrument_id for instrument in instruments]
+    duplicates = sorted(
+        instrument_id
+        for instrument_id in set(instrument_ids)
+        if instrument_ids.count(instrument_id) > 1
+    )
+    if duplicates:
+        raise ValueError(
+            "instrument descriptions require unique instrument ids: "
+            f"{', '.join(duplicates)}"
+        )
+    declared: dict[str, InterfaceSpec] = {}
+    for instrument in instruments:
+        for interface_spec in instrument.interfaces:
+            previous = declared.setdefault(interface_spec.id, interface_spec)
+            if previous != interface_spec:
+                raise ValueError(
+                    f"interface {interface_spec.id!r} must have one stable "
+                    "specification within an instrument catalog"
+                )
 
 
 def _validate_component_members(

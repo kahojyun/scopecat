@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from tests.testkit.in_process_lab import in_process_lab
+from tests.testkit.instrument_host import compose_test_instruments
 
 import scopecat as sc
 from instrument_demo.configuration import (
@@ -22,7 +23,6 @@ from instrument_demo.workflows.flux_spectroscopy_analysis import (
     flux_spectroscopy_analysis,
 )
 from scopecat.kernel.errors import RunIndeterminate
-from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import ComplexQuantity, MeasurementArray
 from scopecat.records.parameter import ScalarParameterValue
@@ -32,10 +32,13 @@ from scopecat_instruments.virtual import VirtualNetworkAnalyzer
 
 def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     provider = InstrumentDemoProvider(seed=7)
+    config = bootstrap_config()
+    composition = compose_test_instruments(config=config, provider=provider)
     lab = in_process_lab(
         tmp_path,
-        config=bootstrap_config(),
-        system=ExperimentSystem(provider=provider),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
 
     prepared = lab.prepare(flux_spectroscopy_template())
@@ -125,10 +128,13 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
 
     monkeypatch.setattr(VirtualNetworkAnalyzer, "collect", fail_collect)
     provider = InstrumentDemoProvider(seed=7)
+    config = bootstrap_config()
+    composition = compose_test_instruments(config=config, provider=provider)
     lab = in_process_lab(
         tmp_path,
-        config=bootstrap_config(),
-        system=ExperimentSystem(provider=provider),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
 
     with pytest.raises(RunIndeterminate):

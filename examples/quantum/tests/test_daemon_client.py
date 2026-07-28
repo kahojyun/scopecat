@@ -5,14 +5,16 @@ from pathlib import Path
 from typing import Protocol
 
 import scopecat as sc
-from quantum_lab_demo import (
+from quantum_lab_demo.application import quantum_lab_application
+from quantum_lab_demo.configuration import (
     EXAMPLE_ROOT,
-    quantum_lab_application,
     quantum_lab_bootstrap_config,
 )
-from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
 from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.records.config import config_content_hash
+from scopecat.sdk.instruments import InstrumentProviderContext
 
 
 class _DemoDaemon(Protocol):
@@ -46,13 +48,27 @@ def test_demo_application_loads_selected_project_system(tmp_path: Path) -> None:
 
     application = quantum_lab_application(tmp_path)
 
-    assert application.build_system is not None
+    assert application.build_experiment_system is not None
+    assert application.create_instrument_backend is not None
     assert application.bootstrap_config is not None
     bootstrap_config = application.bootstrap_config()
     assert bootstrap_config == quantum_lab_bootstrap_config(config_dir)
-    provider = application.build_system(bootstrap_config).provider
+    backend = application.create_instrument_backend()
+    provider = backend.provider
+    from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
+
     assert isinstance(provider, QuantumLabVirtualProvider)
     assert provider.profile.id == "selected-project-virtual-lab"
+    described = provider.describe(InstrumentProviderContext(config=bootstrap_config))
+    catalog = InstrumentContractCatalog(
+        config_content_hash=config_content_hash(bootstrap_config),
+        provider_id=described.provider_id,
+        instruments=described.instruments,
+        problems=described.problems,
+    )
+    system = application.build_experiment_system(bootstrap_config, catalog)
+    assert system.instrument_catalog == catalog
+    assert system.domain_compiler is not None
 
 
 def test_drag_beta_candidate_accept_and_undo_round_trip_through_shared_daemon(

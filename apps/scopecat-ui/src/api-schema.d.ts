@@ -922,17 +922,8 @@ export interface components {
             codec_version: number;
             content_hash: components["schemas"]["Sha256ContentHash"];
             id: components["schemas"]["_NonEmptyText"];
-            /** Implementation Id */
-            implementation_id?: string | null;
             media_type: components["schemas"]["_NonEmptyText"];
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Operation Id */
-            operation_id?: string | null;
-            /** Point Index */
-            point_index?: number | null;
             schema_id: components["schemas"]["_NonEmptyText"];
-            /** Semantic Operation Id */
-            semantic_operation_id?: string | null;
             /** Size Bytes */
             size_bytes: number;
         };

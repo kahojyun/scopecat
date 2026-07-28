@@ -30,22 +30,33 @@ application = "my_lab.application:create_application"
 from pathlib import Path
 
 from scopecat.application import LabApplication
-from my_lab import build_initial_config, build_system
+from my_lab import (
+    build_experiment_system,
+    build_initial_config,
+    create_instrument_backend,
+)
 
 
 def create_application(project: Path) -> LabApplication:
     return LabApplication(
         bootstrap_config=lambda: build_initial_config(project),
-        build_system=lambda accepted_config: build_system(
-            accepted_config,
+        build_experiment_system=lambda accepted_config, instrument_catalog: (
+            build_experiment_system(
+                accepted_config,
+                instrument_catalog=instrument_catalog,
+                project=project,
+            )
+        ),
+        create_instrument_backend=lambda: create_instrument_backend(
             project=project,
         ),
     )
 ```
 
 The callable accepts the resolved project `Path`. The bootstrap factory is a
-lazy seed used only for an empty registry; the system builder receives the
-accepted snapshot selected for each run.
+lazy seed used only for an empty registry. Notebook planning receives the
+accepted snapshot and the daemon-resolved contract catalog; the instrument
+backend factory runs once in the daemon process.
 
 Only one daemon owns a project. It stores SQLite and immutable objects below
 `.scopecat`, records its loopback endpoint in `.scopecat/daemon.json`, and

@@ -15,6 +15,7 @@ from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.backend import InstrumentBackend
 from scopecat.sdk.instruments.contracts import (
     InstrumentConnectionContext,
     InstrumentDriver,
@@ -23,7 +24,10 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderDescription,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
-from tests.testkit.instrument_host import provision_test_instrument_host
+from tests.testkit.instrument_host import (
+    compose_test_instruments,
+    provision_test_instrument_host,
+)
 from tests.testkit.runtime import (
     admit_test_run,
     sqlite_execution_session,
@@ -86,6 +90,7 @@ def execute_invocation_run(
     config: ConfigProfileSnapshot,
     experiment: ExperimentInvocation,
     system: ExperimentSystem,
+    instrument_backend: InstrumentBackend | None,
     project_root: str | Path,
     config_source: RunConfigSource | None = None,
     metadata: Mapping[str, object] | None = None,
@@ -115,7 +120,7 @@ def execute_invocation_run(
             accepted.run_id,
             runs=repository,
             instruments=provision_test_instrument_host(
-                None if planned.system is None else planned.system.provider,
+                (None if instrument_backend is None else instrument_backend.provider),
                 context=InstrumentProviderContext(config=planned.config),
                 instrument_ids=planned.program.resource_order,
             ),
@@ -137,10 +142,12 @@ def execute_program_run(
 
     environment = build_config_environment(config)
     linked = link_program(experiment, environment)
-    program = ExperimentSystem(
+    composition = compose_test_instruments(
+        config=config,
         provider=instrument_provider,
         payload_codecs=payload_codecs,
-    ).compile(linked)
+    )
+    program = composition.system.compile(linked)
     repository = sqlite_run_repository(project_root)
     accepted = admit_test_run(
         config=config,

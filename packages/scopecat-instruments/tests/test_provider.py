@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import socket
+import subprocess
+import sys
 from threading import Thread
 from typing import cast
 
@@ -29,6 +31,24 @@ from scopecat_instruments.provider import (
     ConfiguredInstrumentProvider,
 )
 from scopecat_instruments.virtual import VirtualDcSource
+
+
+def test_driver_id_catalog_does_not_import_driver_implementations() -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import scopecat_instruments.driver_ids; "
+                "forbidden = ('scopecat_instruments.provider', "
+                "'scopecat_instruments.drivers', "
+                "'scopecat_instruments.transport'); "
+                "loaded = [name for name in forbidden if name in sys.modules]; "
+                "assert not loaded, loaded"
+            ),
+        ],
+        check=True,
+    )
 
 
 class _IdnServer:

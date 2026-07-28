@@ -41,7 +41,7 @@ from scopecat.records.run import (
 @dataclass(frozen=True, slots=True)
 class _DaemonRunner:
     client: DaemonClient
-    build_system: ExperimentSystemBuilder | None
+    build_experiment_system: ExperimentSystemBuilder | None
 
     def execute(
         self,
@@ -154,12 +154,14 @@ class _DaemonRunner:
             )
         else:
             selected_config = config
-        selected_system = build_experiment_system(
-            self.build_system,
+        instrument_catalog = self.client.resolve_instrument_contracts(
             selected_config,
         )
-        if selected_system is None:
-            raise ValueError("scratch execution requires an experiment system")
+        selected_system = build_experiment_system(
+            self.build_experiment_system,
+            selected_config,
+            instrument_catalog,
+        )
         selected_metadata = dict(metadata or {})
         if name is not None:
             selected_metadata["name"] = name

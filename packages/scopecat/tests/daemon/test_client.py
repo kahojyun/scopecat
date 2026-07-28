@@ -20,6 +20,7 @@ from scopecat.daemon.views import RunSummary, RunSummaryPage
 from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentContractCatalogRequest,
     PayloadObjectReceipt,
     RunAdmission,
     RunInstrumentProvisionCommand,
@@ -27,11 +28,13 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import (
     BlobPayloadBody,
     InlinePayloadBody,
     command_payload_from_bytes,
 )
+from scopecat.records.config import config_content_hash
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.contracts import (
@@ -85,6 +88,32 @@ def test_executor_start_rejects_receipt_for_another_run() -> None:
                 executor_id="notebook-1",
             ),
         )
+
+
+def test_resolve_instrument_contracts_posts_the_exact_config_snapshot() -> None:
+    requests: list[httpx2.Request] = []
+    config = load_config()
+    catalog = InstrumentContractCatalog(
+        config_content_hash=config_content_hash(config),
+        provider_id=None,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(catalog)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.resolve_instrument_contracts(config) == catalog
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/instrument-contracts/resolve"
+    assert InstrumentContractCatalogRequest.model_validate_json(request.content) == (
+        InstrumentContractCatalogRequest(config=config)
+    )
 
 
 def test_run_instrument_provision_retries_the_same_operation_after_response_loss() -> (

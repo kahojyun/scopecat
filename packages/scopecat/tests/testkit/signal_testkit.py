@@ -34,6 +34,7 @@ from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from tests.testkit.execution import execute_invocation_run
+from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 SUMMARY_STATS_STEP = "summary-stats"
@@ -191,10 +192,15 @@ def execute_signal_run(
     project_root: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> RunManifest:
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     return execute_invocation_run(
         config=config,
         experiment=experiment,
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        system=composition.system,
+        instrument_backend=composition.backend,
         project_root=project_root,
         config_source=config_source,
     )

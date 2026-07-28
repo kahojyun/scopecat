@@ -20,6 +20,7 @@ from tests.testkit.config_registry import (
     load_config_registry_config,
 )
 from tests.testkit.in_process_lab import in_process_lab
+from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.runtime import (
     sqlite_config_registry_unit_of_work,
@@ -33,10 +34,15 @@ def test_candidate_config_activation_materializes_table_row_updates(
     tmp_path: Path,
 ) -> None:
     config = _config_with_drive_channels()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     lab = in_process_lab(
         tmp_path,
         config=config,
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
     run = lab.prepare(load_invocation()).run()
     analysis = run.analysis("table update fixture").propose(

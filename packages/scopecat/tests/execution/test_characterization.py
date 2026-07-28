@@ -48,7 +48,10 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
-from tests.testkit.instrument_host import TestRunInstrumentHost
+from tests.testkit.instrument_host import (
+    TestRunInstrumentHost,
+    compose_test_instruments,
+)
 from tests.testkit.local_materialization import LocalEffectInspection
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -177,13 +180,17 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     )(lambda: sc.experiment(parent()))
     driver = SignalInstrumentDriver()
     payload_codecs = json_payload_codecs("pulse_program")
+    config = config_with_physical_resources({"source-0": ("test.play_program/v1",)})
+    composition = compose_test_instruments(
+        config=config,
+        provider=_SingleDriverProvider(driver),
+        payload_codecs=payload_codecs,
+    )
     lab = in_process_lab(
         tmp_path,
-        config=config_with_physical_resources({"source-0": ("test.play_program/v1",)}),
-        system=sc.ExperimentSystem(
-            provider=_SingleDriverProvider(driver),
-            payload_codecs=payload_codecs,
-        ),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
 
     run = lab.prepare(template).run()

@@ -16,6 +16,8 @@ from scopecat.daemon.endpoint import (
     DaemonEndpointRecord,
     daemon_record_path,
 )
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.system import ExperimentSystem
 from scopecat.project import (
     ProjectApplicationLoadError,
     ProjectManifestError,
@@ -23,6 +25,7 @@ from scopecat.project import (
     load_project,
     open_project,
 )
+from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.project_loading import isolated_project_application_imports
 
 
@@ -81,6 +84,27 @@ def test_project_connect_forwards_notebook_operator(
     )
 
     assert client._instruments._operator == "alice"
+    client.close()
+
+
+def test_project_connect_overrides_the_notebook_system_builder(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "scopecat.toml").write_text("[lab]\n", encoding="utf-8")
+
+    def build_experiment_system(
+        config: ConfigProfileSnapshot,
+        instrument_catalog: InstrumentContractCatalog,
+    ) -> ExperimentSystem:
+        del config
+        return ExperimentSystem(instrument_catalog=instrument_catalog)
+
+    client = open_project(tmp_path).connect(
+        "http://daemon.local",
+        build_experiment_system=build_experiment_system,
+    )
+
+    assert client._runner.build_experiment_system is build_experiment_system
     client.close()
 
 

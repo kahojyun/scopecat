@@ -36,6 +36,12 @@ from scopecat_instruments._support import (
     validate_collect_command,
     validate_writable_command,
 )
+from scopecat_instruments.driver_ids import (
+    VIRTUAL_DC_SOURCE,
+    VIRTUAL_RF_SOURCE,
+    VIRTUAL_TEMPERATURE_MONITOR,
+    VIRTUAL_VNA,
+)
 from scopecat_instruments.interfaces import (
     DC_SOURCE,
     NETWORK_SWEEP,
@@ -51,7 +57,7 @@ from scopecat_instruments.virtual.world import VirtualLabWorld
 
 
 class VirtualRfSource:
-    implementation_id = "scopecat.virtual.rf_source"
+    implementation_id = VIRTUAL_RF_SOURCE
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
@@ -162,7 +168,7 @@ class VirtualRfSource:
 
 
 class VirtualDcSource:
-    implementation_id = "scopecat.virtual.dc_source"
+    implementation_id = VIRTUAL_DC_SOURCE
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
@@ -421,7 +427,7 @@ class VirtualTemperatureTelemetry:
 
 
 class VirtualTemperatureMonitor:
-    implementation_id = "scopecat.virtual.temperature_monitor"
+    implementation_id = VIRTUAL_TEMPERATURE_MONITOR
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
@@ -545,7 +551,7 @@ class VirtualTemperatureMonitor:
 
 
 class VirtualNetworkAnalyzer:
-    implementation_id = "scopecat.virtual.vna"
+    implementation_id = VIRTUAL_VNA
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:

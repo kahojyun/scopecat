@@ -15,7 +15,8 @@ import pytest
 import uvicorn
 from tests.testkit.project_loading import isolated_project_application_imports
 
-from quantum_lab_demo import DAEMON_URL_ENV, quantum_lab_application
+from quantum_lab_demo.application import quantum_lab_application
+from quantum_lab_demo.configuration import DAEMON_URL_ENV
 from scopecat.project import load_project
 from scopecat_server import LocalDaemonRuntime
 

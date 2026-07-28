@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
 from scopecat.execution.ports.instruments import (
     RunHardwareApply,
@@ -14,10 +15,15 @@ from scopecat.execution.ports.instruments import (
     RunHardwareValue,
 )
 from scopecat.kernel.problems import Problem
+from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
+from scopecat.planning.system import ExperimentSystem
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.instrument import (
     InstrumentStateSnapshot,
     property_target_identity,
 )
+from scopecat.sdk.domain.compiler import DomainCompiler
+from scopecat.sdk.instruments import InstrumentBackend
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     InstrumentConnectionContext,
@@ -29,7 +35,40 @@ from scopecat.sdk.instruments.contracts import (
     InvokeCommand,
     apply_state_command_to_snapshot,
 )
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 from scopecat.sdk.runtime_problems import runtime_problem
+
+
+@dataclass(frozen=True, slots=True)
+class TestInstrumentComposition:
+    """Explicit planning and execution faces for an in-process test provider."""
+
+    system: ExperimentSystem
+    backend: InstrumentBackend
+
+
+def compose_test_instruments(
+    *,
+    config: ConfigProfileSnapshot,
+    provider: InstrumentProvider,
+    domain_compiler: DomainCompiler | None = None,
+    payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
+) -> TestInstrumentComposition:
+    backend = InstrumentBackend(
+        provider=provider,
+        payload_codecs=payload_codecs,
+    )
+    return TestInstrumentComposition(
+        system=ExperimentSystem(
+            instrument_catalog=resolve_instrument_contract_catalog(
+                config=config,
+                instrument_provider=provider,
+            ),
+            domain_compiler=domain_compiler,
+            payload_codecs=payload_codecs,
+        ),
+        backend=backend,
+    )
 
 
 class TestRunInstrumentHost:

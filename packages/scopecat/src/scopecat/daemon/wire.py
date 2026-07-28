@@ -410,6 +410,12 @@ class AttentionResolutionReceipt(_WireModel):
     released_resource_count: int = Field(ge=0)
 
 
+class InstrumentContractCatalogRequest(_WireModel):
+    """Resolve the exact contracts advertised for one config snapshot."""
+
+    config: ConfigProfileSnapshot
+
+
 class InstrumentSessionOpenCommand(_WireModel):
     """Acquire and synchronize instruments against the active config."""
 
@@ -489,6 +495,7 @@ __all__ = [
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",
+    "InstrumentContractCatalogRequest",
     "InstrumentSessionEndReceipt",
     "InstrumentSessionOpenCommand",
     "InstrumentSessionOpenReceipt",

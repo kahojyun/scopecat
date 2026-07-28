@@ -13,6 +13,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
 from tests.testkit.in_process_lab import in_process_lab
+from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
@@ -73,10 +74,16 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
 
 
 def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     lab = in_process_lab(
         tmp_path,
-        config=load_config(),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
 
     preview = lab.prepare(load_invocation()).preview()
@@ -88,10 +95,16 @@ def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
 def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     tmp_path: Path,
 ) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     lab = in_process_lab(
         tmp_path,
-        config=load_config(),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
     experiment = load_invocation()
 
@@ -130,10 +143,16 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
 def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     tmp_path: Path,
 ) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     lab = in_process_lab(
         tmp_path,
-        config=load_config(),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
     experiment = load_invocation()
 

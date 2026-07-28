@@ -29,7 +29,6 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
-from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.config import (
     ApplyDefaultsRunPreparation,
@@ -45,6 +44,7 @@ from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectResultRequest,
+    InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentOperationArgument,
@@ -1087,7 +1087,7 @@ def _runtime(
 ) -> LocalDaemonRuntime:
     def factory(_root: Path) -> LabApplication:
         return LabApplication(
-            build_system=lambda _config: ExperimentSystem(
+            create_instrument_backend=lambda: InstrumentBackend(
                 provider=provider,
                 payload_codecs=json_payload_codecs("pulse_program"),
             )

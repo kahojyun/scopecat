@@ -33,6 +33,7 @@ from scopecat_instruments._support import (
     validate_collect_command,
     validate_writable_command,
 )
+from scopecat_instruments.driver_ids import LAKESHORE_372
 from scopecat_instruments.interfaces import (
     TEMPERATURE_READOUT,
     temperature_readout_interface,
@@ -55,7 +56,7 @@ class LakeShore372Telemetry:
 class LakeShore372:
     """Read K/R/status/scanner/sample-heater telemetry without control writes."""
 
-    implementation_id = "scopecat.lakeshore.372"
+    implementation_id = LAKESHORE_372
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, transport: ScpiTransport) -> None:

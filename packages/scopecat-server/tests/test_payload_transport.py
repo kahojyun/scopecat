@@ -29,11 +29,11 @@ from scopecat.execution.ports.instruments import (
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
-from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     CollectResultRequest,
+    InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentOperationArgument,
     InstrumentProviderContext,
@@ -665,7 +665,7 @@ def _runtime(
 ) -> LocalDaemonRuntime:
     def factory(_root: Path) -> LabApplication:
         return LabApplication(
-            build_system=lambda _config: ExperimentSystem(
+            create_instrument_backend=lambda: InstrumentBackend(
                 provider=provider,
                 payload_codecs=_payload_codecs(),
             )

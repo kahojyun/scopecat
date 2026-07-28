@@ -21,6 +21,7 @@ from tests.testkit.authoring import (
     simple_template,
     template_fixture,
 )
+from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.runtime import check_experiment, sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
@@ -154,11 +155,16 @@ def test_authoring_compile_precedes_config_linking(tmp_path: Path) -> None:
 def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     tmp_path: Path,
 ) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     result = check_experiment(
         simple_template().bind(subject="q0"),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        system=composition.system,
         services=sqlite_project_services(tmp_path),
-        config=load_config(),
+        config=config,
     )
 
     assert result.preview is not None

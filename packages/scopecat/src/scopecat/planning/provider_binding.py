@@ -1,9 +1,8 @@
-"""Bind a configured instrument provider to host execution during planning."""
+"""Resolve and validate config-bound instrument contracts."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
@@ -16,10 +15,12 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.config import (
     ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
     InstrumentSpec,
+    config_content_hash,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
@@ -33,22 +34,12 @@ from scopecat.sdk.instruments.contracts import (
 from .provider_validation import preflight_problem_from_exception
 
 
-@dataclass(frozen=True, slots=True)
-class InstrumentProviderPreflight:
-    """Pure provider ABI snapshot captured before host point lowering."""
-
-    provider_id: str
-    instrument_order: tuple[str, ...]
-    advertised_descriptions: dict[str, InstrumentDescription]
-    problems: tuple[Problem, ...]
-
-
-def preflight_instrument_provider(
+def resolve_instrument_contract_catalog(
     *,
     config: ConfigProfileSnapshot,
     instrument_provider: InstrumentProvider,
-) -> InstrumentProviderPreflight:
-    """Describe and normalize the provider before point-local lowering."""
+) -> InstrumentContractCatalog:
+    """Resolve one serializable provider contract without connecting hardware."""
 
     problems: list[Problem] = []
     provider_id = instrument_provider.provider_id
@@ -66,7 +57,11 @@ def preflight_instrument_provider(
                 error,
             )
         )
-        raise ProviderContractError(problems) from error
+        return InstrumentContractCatalog(
+            config_content_hash=config_content_hash(config),
+            provider_id=provider_id,
+            problems=tuple(problems),
+        )
 
     problems.extend(description.problems)
     if description.provider_id != provider_id:
@@ -84,12 +79,10 @@ def preflight_instrument_provider(
             descriptions=description.instruments,
         )
     )
-    return InstrumentProviderPreflight(
+    return InstrumentContractCatalog(
+        config_content_hash=config_content_hash(config),
         provider_id=provider_id,
-        instrument_order=tuple(item.instrument_id for item in description.instruments),
-        advertised_descriptions={
-            item.instrument_id: item for item in description.instruments
-        },
+        instruments=description.instruments,
         problems=tuple(problems),
     )
 

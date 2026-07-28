@@ -47,6 +47,7 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentContractCatalogRequest,
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
@@ -68,12 +69,14 @@ from scopecat.execution.ports.instruments import (
     RunHardwareInvoke,
 )
 from scopecat.kernel.content_identity import sha256_content_hash
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import (
     BlobPayloadBody,
     CommandPayload,
     InlinePayloadBody,
     RunContentEntry,
 )
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
@@ -220,6 +223,16 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/instruments/{quote(instrument_id, safe='')}",
             InstrumentView,
+        )
+
+    def resolve_instrument_contracts(
+        self,
+        config: ConfigProfileSnapshot,
+    ) -> InstrumentContractCatalog:
+        return self._post_model(
+            f"{_API_PREFIX}/instrument-contracts/resolve",
+            InstrumentContractCatalogRequest(config=config),
+            InstrumentContractCatalog,
         )
 
     def open_instrument_session(

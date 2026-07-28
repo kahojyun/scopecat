@@ -53,8 +53,8 @@ from scopecat.graph.relations.model import (
     point_col,
 )
 from scopecat.graph.relations.point_domain import point_axis_values
-from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import ProblemPhase
+from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
@@ -66,11 +66,16 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.provider_binding import (
+    resolve_instrument_contract_catalog,
+)
 from scopecat.planning.routing import ResourcePortManifest, RoutingView
-from scopecat.planning.system import ExperimentSystem
+from scopecat.planning.system import ExperimentSystem, build_experiment_system
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
+    config_content_hash,
 )
 from scopecat.sdk.domain import (
     DomainBatchRequest,
@@ -93,6 +98,7 @@ from scopecat.sdk.domain.runtime import (
 )
 from scopecat.sdk.instruments import (
     InstrumentConnectionContext,
+    InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
@@ -586,14 +592,32 @@ def _assert_no_domain_effects(*compilers: _DomainCompiler) -> None:
     assert all(compiler.runtime.fetch_calls == 0 for compiler in compilers)
 
 
-def test_unified_planning_rejects_missing_local_provider_before_effects() -> None:
+def _catalog(
+    linked: LinkedPlan,
+    provider: InstrumentProvider | None = None,
+) -> InstrumentContractCatalog:
+    config = linked.environment.config
+    if provider is None:
+        return InstrumentContractCatalog(
+            config_content_hash=config_content_hash(config),
+        )
+    return resolve_instrument_contract_catalog(
+        config=config,
+        instrument_provider=provider,
+    )
+
+
+def test_unified_planning_rejects_missing_local_catalog_before_effects() -> None:
     linked = _linked_program(state_mode="varying")
     compiler = _DomainCompiler("tests.missing-claim")
 
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(domain_compiler=compiler).compile(linked)
+        ExperimentSystem(
+            instrument_catalog=_catalog(linked),
+            domain_compiler=compiler,
+        ).compile(linked)
 
-    assert _problem_codes(captured.value) == {"local_instrument_provider_missing"}
+    assert _problem_codes(captured.value) == {"local_instrument_catalog_missing"}
     assert captured.value.problems[0].details == {}
     assert all(
         problem.phase is ProblemPhase.PLANNING for problem in captured.value.problems
@@ -602,10 +626,123 @@ def test_unified_planning_rejects_missing_local_provider_before_effects() -> Non
     _assert_no_domain_effects(compiler)
 
 
+def test_planning_rejects_catalog_for_another_config() -> None:
+    linked = _linked_program()
+    catalog = _catalog(linked).model_copy(
+        update={"config_content_hash": "sha256:" + ("f" * 64)}
+    )
+
+    with pytest.raises(ProviderContractError) as captured:
+        ExperimentSystem(
+            instrument_catalog=catalog,
+            domain_compiler=_DomainCompiler("tests.catalog-config"),
+        ).compile(linked)
+
+    [issue] = captured.value.problems
+    assert issue.code == "instrument_catalog_config_mismatch"
+    assert issue.phase is ProblemPhase.PROVIDER_PREFLIGHT
+    assert issue.details == {
+        "expected": config_content_hash(linked.environment.config),
+        "actual": catalog.config_content_hash,
+    }
+
+
+def test_domain_only_planning_ignores_unrelated_catalog_problems() -> None:
+    linked = _linked_program()
+    catalog = _catalog(linked).model_copy(
+        update={
+            "problems": (
+                problem(
+                    "tests.instrument_unavailable",
+                    "an unused instrument is unavailable",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                ),
+            )
+        }
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=catalog,
+        domain_compiler=_DomainCompiler("tests.catalog-problems"),
+    ).compile(linked)
+
+    assert plan.host is None
+
+
+def test_local_planning_rejects_catalog_problems() -> None:
+    linked = _linked_program(state_mode="constant")
+    catalog = _catalog(linked, TestSignalInstrumentProvider()).model_copy(
+        update={
+            "problems": (
+                problem(
+                    "tests.instrument_unavailable",
+                    "a required instrument is unavailable",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                ),
+            )
+        }
+    )
+
+    with pytest.raises(ProviderContractError) as captured:
+        ExperimentSystem(
+            instrument_catalog=catalog,
+            domain_compiler=_DomainCompiler("tests.catalog-problems"),
+        ).compile(linked)
+
+    assert {issue.code for issue in captured.value.problems} == {
+        "tests.instrument_unavailable"
+    }
+
+
+def test_system_builder_receives_daemon_catalog() -> None:
+    config = load_config()
+    catalog = resolve_instrument_contract_catalog(
+        config=config,
+        instrument_provider=TestSignalInstrumentProvider(),
+    )
+    calls: list[tuple[ConfigProfileSnapshot, InstrumentContractCatalog]] = []
+
+    def build(
+        selected: ConfigProfileSnapshot,
+        contracts: InstrumentContractCatalog,
+    ) -> ExperimentSystem:
+        calls.append((selected, contracts))
+        return ExperimentSystem(instrument_catalog=contracts)
+
+    built = build_experiment_system(build, config, catalog)
+    catalog_only = build_experiment_system(None, config, catalog)
+
+    assert calls == [(config, catalog)]
+    assert built.instrument_catalog is catalog
+    assert catalog_only.instrument_catalog is catalog
+
+
+def test_system_builder_cannot_replace_daemon_catalog() -> None:
+    config = load_config()
+    catalog = resolve_instrument_contract_catalog(
+        config=config,
+        instrument_provider=TestSignalInstrumentProvider(),
+    )
+    replacement = InstrumentContractCatalog(
+        config_content_hash=catalog.config_content_hash,
+    )
+
+    with pytest.raises(ValueError, match="must retain"):
+        build_experiment_system(
+            lambda _config, _catalog: ExperimentSystem(
+                instrument_catalog=replacement,
+            ),
+            config,
+            catalog,
+        )
+
+
 def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None:
     linked = _linked_instrument_fed_postprocessor_program()
 
-    plan = ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked, TestSignalInstrumentProvider())
+    ).compile(linked)
 
     [postprocessor] = plan.measurement_postprocessors
     assert postprocessor.id.qualified_name == "normalize"
@@ -619,7 +756,10 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
         max_points_per_batch=1,
     )
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked),
+        domain_compiler=compiler,
+    ).compile(linked)
 
     assert len(plan.points.points) == 2
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
@@ -640,7 +780,9 @@ def test_local_resource_manifest_is_selected_once_for_complete_point_space(
 ) -> None:
     linked = _linked_program(domain_product_count=0, point_count=2)
     calls = _track_bound_resource_ports(monkeypatch)
-    plan = ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked, TestSignalInstrumentProvider())
+    ).compile(linked)
 
     assert calls == [logical_resource_port_id("source")]
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
@@ -669,7 +811,9 @@ def test_run_claims_and_host_order_include_only_used_local_instruments() -> None
     provider = _BroadTrackingProvider()
     linked = _linked_program(domain_product_count=0, config=config)
 
-    plan = ExperimentSystem(provider=provider).compile(linked)
+    plan = ExperimentSystem(instrument_catalog=_catalog(linked, provider)).compile(
+        linked
+    )
 
     assert plan.resource_claims == (ResourceClaim("source-0"),)
     assert plan.host is not None
@@ -684,7 +828,10 @@ def test_domain_target_instrument_does_not_require_a_local_manifest(
     compiler = _DomainCompiler("tests.domain-target-instrument")
     calls = _track_bound_resource_ports(monkeypatch)
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked),
+        domain_compiler=compiler,
+    ).compile(linked)
 
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert calls == []
@@ -705,7 +852,7 @@ def test_mixed_target_builds_manifests_only_for_local_resources(
     calls = _track_bound_resource_ports(monkeypatch)
 
     plan = ExperimentSystem(
-        provider=TestSignalInstrumentProvider(),
+        instrument_catalog=_catalog(linked, TestSignalInstrumentProvider()),
         domain_compiler=compiler,
     ).compile(linked)
 
@@ -746,7 +893,10 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     )
     compiler = _DomainCompiler("tests.parameter-binding")
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked),
+        domain_compiler=compiler,
+    ).compile(linked)
 
     assert plan.host is None
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
@@ -768,7 +918,7 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
     compiler = _DomainCompiler("tests.effect-regions")
     provider = _TrackingProvider()
     system = ExperimentSystem(
-        provider=provider,
+        instrument_catalog=_catalog(linked, provider),
         domain_compiler=compiler,
     )
 
@@ -801,8 +951,9 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
         state_mode="constant",
         domain_before_state=True,
     )
+    provider = _TrackingProvider()
     plan = ExperimentSystem(
-        provider=_TrackingProvider(),
+        instrument_catalog=_catalog(linked, provider),
         domain_compiler=_DomainCompiler("tests.declared-effect-order"),
     ).compile(linked)
 
@@ -827,8 +978,9 @@ def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
     compiler = _DomainCompiler("tests.instrument-overlap")
 
     with pytest.raises(CheckFailed) as captured:
+        provider = _TrackingProvider()
         ExperimentSystem(
-            provider=_TrackingProvider(),
+            instrument_catalog=_catalog(linked, provider),
             domain_compiler=compiler,
         ).compile(linked)
 
@@ -844,7 +996,10 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
         record_instrument_products=False,
     )
     compiler = _DomainCompiler("tests.unused-acquisition")
-    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked),
+        domain_compiler=compiler,
+    ).compile(linked)
 
     [domain] = (
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
@@ -860,7 +1015,7 @@ def test_domain_compiler_batches_complete_point_domain() -> None:
     compiler = _DomainCompiler("tests.constant-peripheral")
     provider = _TrackingProvider()
     system = ExperimentSystem(
-        provider=provider,
+        instrument_catalog=_catalog(linked, provider),
         domain_compiler=compiler,
     )
 
@@ -897,7 +1052,10 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
     )
     compiler = _DomainCompiler("tests.multi-call")
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked),
+        domain_compiler=compiler,
+    ).compile(linked)
 
     jobs = tuple(
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
@@ -925,7 +1083,10 @@ def test_system_rejects_a_compiler_for_a_different_target() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(domain_compiler=compiler).compile(linked)
+        ExperimentSystem(
+            instrument_catalog=_catalog(linked),
+            domain_compiler=compiler,
+        ).compile(linked)
 
     assert _problem_codes(captured.value) == {"domain_target_mismatch"}
 
@@ -950,7 +1111,10 @@ def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(domain_compiler=compiler).compile(linked)
+        ExperimentSystem(
+            instrument_catalog=_catalog(linked),
+            domain_compiler=compiler,
+        ).compile(linked)
 
     assert _problem_codes(captured.value) == {"domain_target_kind_mismatch"}
 
@@ -978,7 +1142,10 @@ def test_point_inventory_and_domain_compilation_close_before_program_returns(
         track_materialization,
     )
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked),
+        domain_compiler=compiler,
+    ).compile(linked)
 
     assert events == ["materialize", "compile"]
     assert isinstance(plan.coverage, tuple)
@@ -1011,7 +1178,7 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
     compiler = _DomainCompiler("tests.preview-domain")
     provider = _TrackingProvider()
     plan = ExperimentSystem(
-        provider=provider,
+        instrument_catalog=_catalog(linked, provider),
         domain_compiler=compiler,
     ).compile(linked)
 
@@ -1031,7 +1198,10 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
     linked = _linked_program(point_count=0)
     compiler = _DomainCompiler("tests.zero-point")
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(linked),
+        domain_compiler=compiler,
+    ).compile(linked)
     assert tuple(plan.coverage) == ()
     assert plan.measurements.catalog.product_use_ids == tuple(
         use.id for use in linked.program.product_uses

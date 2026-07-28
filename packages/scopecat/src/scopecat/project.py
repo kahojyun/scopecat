@@ -55,15 +55,18 @@ class Project:
         self,
         daemon: str | None = None,
         *,
-        build_system: ExperimentSystemBuilder | None = None,
+        build_experiment_system: ExperimentSystemBuilder | None = None,
         operator: str = "operator",
     ) -> LabClient:
         """Open the project's high-level notebook client."""
 
         endpoint = resolve_daemon_endpoint(self.root, explicit=daemon)
         application = self.load_application()
-        if build_system is not None:
-            application = replace(application, build_system=build_system)
+        if build_experiment_system is not None:
+            application = replace(
+                application,
+                build_experiment_system=build_experiment_system,
+            )
         return application.connect(endpoint, operator=operator)
 
 

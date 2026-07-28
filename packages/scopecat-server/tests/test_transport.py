@@ -18,12 +18,14 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentContractCatalogRequest,
     RunAdmission,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 
@@ -131,6 +133,17 @@ class FakeExecutor:
 class FakeInstruments:
     def __init__(self) -> None:
         self.last_run_provision: tuple[str, RunInstrumentProvisionCommand] | None = None
+        self.last_contract_config: ConfigProfileSnapshot | None = None
+
+    def resolve_instrument_contracts(
+        self,
+        config: ConfigProfileSnapshot,
+    ) -> InstrumentContractCatalog:
+        self.last_contract_config = config
+        return InstrumentContractCatalog(
+            config_content_hash=config_content_hash(config),
+            provider_id=None,
+        )
 
     def provision_run(
         self,
@@ -235,6 +248,22 @@ def test_run_instrument_provision_route_preserves_fencing_command() -> None:
         "ready"
     )
     assert backend.instruments.last_run_provision == ("run-1", command)
+
+
+def test_instrument_contract_route_resolves_the_exact_config_body() -> None:
+    backend = FakeApplication()
+    client = TestClient(_create_test_app(backend))
+    command = InstrumentContractCatalogRequest(config=_config())
+
+    response = client.post(
+        "/api/v1/instrument-contracts/resolve",
+        json=command.model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    catalog = InstrumentContractCatalog.model_validate(response.json())
+    assert catalog.config_content_hash == config_content_hash(command.config)
+    assert backend.instruments.last_contract_config == command.config
 
 
 def test_static_dist_serves_files_and_spa_without_shadowing_api(

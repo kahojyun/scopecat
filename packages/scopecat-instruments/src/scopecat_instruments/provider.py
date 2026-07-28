@@ -20,6 +20,17 @@ from scopecat.sdk.instruments import (
 from scopecat.sdk.problems import Problem
 
 from scopecat_instruments._support import ScpiIdentity, provider_problem
+from scopecat_instruments.driver_ids import (
+    KEYSIGHT_E5080B,
+    LAKESHORE_372,
+    ROHDE_SCHWARZ_SGS100A,
+    SUPPORTED_DRIVER_IDS,
+    VIRTUAL_DC_SOURCE,
+    VIRTUAL_RF_SOURCE,
+    VIRTUAL_TEMPERATURE_MONITOR,
+    VIRTUAL_VNA,
+    YOKOGAWA_GS200,
+)
 from scopecat_instruments.drivers import (
     KeysightE5080B,
     LakeShore372,
@@ -33,28 +44,6 @@ from scopecat_instruments.virtual import (
     VirtualNetworkAnalyzer,
     VirtualRfSource,
     VirtualTemperatureMonitor,
-)
-
-YOKOGAWA_GS200 = YokogawaGS200.implementation_id
-ROHDE_SCHWARZ_SGS100A = RohdeSchwarzSGS100A.implementation_id
-LAKESHORE_372 = LakeShore372.implementation_id
-KEYSIGHT_E5080B = KeysightE5080B.implementation_id
-VIRTUAL_RF_SOURCE = VirtualRfSource.implementation_id
-VIRTUAL_DC_SOURCE = VirtualDcSource.implementation_id
-VIRTUAL_TEMPERATURE_MONITOR = VirtualTemperatureMonitor.implementation_id
-VIRTUAL_VNA = VirtualNetworkAnalyzer.implementation_id
-
-SUPPORTED_DRIVER_IDS = frozenset(
-    {
-        YOKOGAWA_GS200,
-        ROHDE_SCHWARZ_SGS100A,
-        LAKESHORE_372,
-        KEYSIGHT_E5080B,
-        VIRTUAL_RF_SOURCE,
-        VIRTUAL_DC_SOURCE,
-        VIRTUAL_TEMPERATURE_MONITOR,
-        VIRTUAL_VNA,
-    }
 )
 
 type _ConfiguredDriver = (

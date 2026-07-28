@@ -67,13 +67,15 @@ class LocalDaemonRuntime:
         database = self.state_dir / "control.sqlite3"
         objects = self.state_dir / "objects"
         application_bootstrap: BootstrapConfigFactory | None = None
-        build_system = None
+        instrument_backend = None
 
         try:
             if application_factory is not None:
                 lab_application = application_factory(self.project_root)
                 application_bootstrap = lab_application.bootstrap_config
-                build_system = lab_application.build_system
+                create_instrument_backend = lab_application.create_instrument_backend
+                if create_instrument_backend is not None:
+                    instrument_backend = create_instrument_backend()
 
             control = SQLiteControlPlane(database)
             runs = SQLiteRunRepository(database, objects)
@@ -111,7 +113,7 @@ class LocalDaemonRuntime:
                 control=control,
                 runs=runs,
                 config=config_service,
-                build_system=build_system,
+                backend=instrument_backend,
                 payloads=payloads,
                 actors=instrument_actors,
             )

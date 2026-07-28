@@ -23,6 +23,7 @@ from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
 from tests.testkit.config_registry import activate_candidate_config
 from tests.testkit.in_process_lab import InProcessLab, in_process_lab
+from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.runtime import (
     sqlite_config_registry_unit_of_work,
     sqlite_project_services,
@@ -346,10 +347,16 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
 
 
 def _lab(tmp_path: Path) -> InProcessLab:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     return in_process_lab(
         tmp_path,
-        config=load_config(),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
 
 

@@ -32,6 +32,7 @@ from scopecat_instruments._support import (
     validate_collect_command,
     validate_writable_command,
 )
+from scopecat_instruments.driver_ids import ROHDE_SCHWARZ_SGS100A
 from scopecat_instruments.interfaces import RF_OUTPUT, rf_output_interface
 from scopecat_instruments.transport import ScpiTransport
 
@@ -39,7 +40,7 @@ from scopecat_instruments.transport import ScpiTransport
 class RohdeSchwarzSGS100A:
     """CW frequency, power, RF output, and reference source controls."""
 
-    implementation_id = "scopecat.rohde_schwarz.sgs100a"
+    implementation_id = ROHDE_SCHWARZ_SGS100A
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, transport: ScpiTransport) -> None:

@@ -22,11 +22,11 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.problems import ProblemPhase, model_location, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
-from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import (
     ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
+    config_content_hash,
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
@@ -35,6 +35,7 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     CollectResultRequest,
     DriverFault,
+    InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
@@ -90,11 +91,13 @@ class _TrackingProvider:
     ) -> None:
         self._driver_type = driver_type
         self.drivers: list[_TrackingDriver] = []
+        self.described_configs: list[ConfigProfileSnapshot] = []
 
     def describe(
         self,
         context: InstrumentProviderContext,
     ) -> InstrumentProviderDescription:
+        self.described_configs.append(context.config)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
@@ -1274,15 +1277,15 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
 def test_provider_instance_and_virtual_state_survive_across_sessions(
     tmp_path: Path,
 ) -> None:
-    build_count = 0
+    backend_count = 0
 
     def factory(_root: Path) -> LabApplication:
-        def build_system(_config: ConfigProfileSnapshot) -> ExperimentSystem:
-            nonlocal build_count
-            build_count += 1
-            return ExperimentSystem(provider=_StatefulProvider())
+        def create_backend() -> InstrumentBackend:
+            nonlocal backend_count
+            backend_count += 1
+            return InstrumentBackend(provider=_StatefulProvider())
 
-        return LabApplication(build_system=build_system)
+        return LabApplication(create_instrument_backend=create_backend)
 
     with (
         LocalDaemonRuntime(
@@ -1322,7 +1325,42 @@ def test_provider_instance_and_virtual_state_survive_across_sessions(
 
     [property_state] = state.properties
     assert property_state.value == StateValue(Quantity(value=5.1, unit="GHz"))
-    assert build_count == 1
+    assert backend_count == 1
+
+
+def test_contract_catalog_resolves_the_requested_non_active_config(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    requested = _two_instrument_config()
+    with (
+        _runtime(tmp_path, provider) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        catalog = _daemon_client(transport).resolve_instrument_contracts(requested)
+
+    assert catalog.config_content_hash == config_content_hash(requested)
+    assert tuple(item.instrument_id for item in catalog.instruments) == (
+        "source-0",
+        "source-1",
+    )
+    assert provider.described_configs[-1] == requested
+
+
+def test_contract_catalog_is_empty_without_an_instrument_backend(
+    tmp_path: Path,
+) -> None:
+    config = load_config()
+    with (
+        LocalDaemonRuntime(tmp_path, bootstrap_config=config) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        catalog = _daemon_client(transport).resolve_instrument_contracts(config)
+
+    assert catalog.config_content_hash == config_content_hash(config)
+    assert catalog.provider_id is None
+    assert catalog.instruments == ()
+    assert catalog.problems == ()
 
 
 def test_provider_problems_are_scoped_without_polluting_healthy_views(
@@ -1409,7 +1447,7 @@ def _runtime(
 ) -> LocalDaemonRuntime:
     def factory(_root: Path) -> LabApplication:
         return LabApplication(
-            build_system=lambda _config: ExperimentSystem(
+            create_instrument_backend=lambda: InstrumentBackend(
                 provider=provider,
                 payload_codecs=json_payload_codecs("pulse_program"),
             )

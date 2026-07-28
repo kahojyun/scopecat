@@ -37,6 +37,7 @@ from scopecat.daemon.wire import (
     ConfigUndoCommand,
     DirectConfigRevisionSource,
     ExecutorLease,
+    InstrumentContractCatalogRequest,
     ManualConfigDraftRevisionSource,
     RunAdmission,
     RunInstrumentProvisionCommand,
@@ -47,6 +48,7 @@ from scopecat.execution.program import RunProgram
 from scopecat.execution.services import ExecutionSession
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
@@ -57,6 +59,7 @@ from scopecat.records.run import (
     RunManifest,
 )
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.instruments import InstrumentProviderContext
 from tests.testkit.runtime import plan_experiment, sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import (
@@ -366,8 +369,8 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
-    provider = TestSignalInstrumentProvider()
-    system = ExperimentSystem(provider=provider)
+    catalog = _instrument_catalog(config)
+    system = ExperimentSystem(instrument_catalog=catalog)
     captured: dict[str, object] = {}
 
     def execute_run(
@@ -391,9 +394,17 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
 
     monkeypatch.setattr(_DaemonRunner, "execute", execute_run)
 
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/api/v1/instrument-contracts/resolve"
+        assert (
+            InstrumentContractCatalogRequest.model_validate_json(request.content).config
+            == config
+        )
+        return _model(catalog)
+
     result = _DaemonRunner(
-        _client(lambda _request: httpx2.Response(500)),
-        lambda _config: system,
+        _client(handler),
+        lambda _config, _catalog: system,
     ).run(
         load_invocation(),
         config=config,
@@ -421,7 +432,7 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     planned_system = planned.system
     assert planned_system is not None
     assert planned_system is system
-    assert planned_system.provider is provider
+    assert planned_system.instrument_catalog == catalog
     assert result.status == "completed"
 
 
@@ -430,16 +441,24 @@ def test_run_scratch_uses_active_config_and_bound_system(
 ) -> None:
     config = load_config()
     entry, activation = _config_registry_records(config)
-    provider = TestSignalInstrumentProvider()
-    system = ExperimentSystem(provider=provider)
+    catalog = _instrument_catalog(config)
+    system = ExperimentSystem(instrument_catalog=catalog)
     captured: dict[str, object] = {}
-    built_from: list[ConfigProfileSnapshot] = []
+    built_from: list[tuple[ConfigProfileSnapshot, InstrumentContractCatalog]] = []
 
     def handler(http_request: httpx2.Request) -> httpx2.Response:
-        assert http_request.url.path == "/api/v1/config-registry/active"
-        return _model(
-            ActiveConfigView(entry=entry, activation=activation, config=config)
+        if http_request.url.path == "/api/v1/config-registry/active":
+            return _model(
+                ActiveConfigView(entry=entry, activation=activation, config=config)
+            )
+        assert http_request.url.path == "/api/v1/instrument-contracts/resolve"
+        assert (
+            InstrumentContractCatalogRequest.model_validate_json(
+                http_request.content
+            ).config
+            == config
         )
+        return _model(catalog)
 
     def execute_run(
         self: _DaemonRunner,
@@ -459,13 +478,16 @@ def test_run_scratch_uses_active_config_and_bound_system(
 
     monkeypatch.setattr(_DaemonRunner, "execute", execute_run)
 
-    def build_system(selected: ConfigProfileSnapshot) -> ExperimentSystem:
-        built_from.append(selected)
+    def build_experiment_system(
+        selected: ConfigProfileSnapshot,
+        instrument_catalog: InstrumentContractCatalog,
+    ) -> ExperimentSystem:
+        built_from.append((selected, instrument_catalog))
         return system
 
     result = _DaemonRunner(
         _client(handler),
-        build_system,
+        build_experiment_system,
     ).run(load_invocation())
 
     planned = captured["planned"]
@@ -474,23 +496,55 @@ def test_run_scratch_uses_active_config_and_bound_system(
     planned_system = planned.system
     assert planned_system is not None
     assert planned_system is system
-    assert planned_system.provider is provider
-    assert built_from == [config]
+    assert planned_system.instrument_catalog == catalog
+    assert built_from == [(config, catalog)]
     assert result.status == "completed"
 
 
-def test_run_scratch_requires_an_explicit_or_bound_system() -> None:
-    runner = _DaemonRunner(
-        _client(
-            lambda request: pytest.fail(
-                f"unexpected daemon request: {request.method} {request.url.path}"
+def test_run_scratch_uses_daemon_catalog_without_a_local_builder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config()
+    catalog = _instrument_catalog(config)
+    captured: dict[str, object] = {}
+
+    def execute_run(
+        self: _DaemonRunner,
+        planned: PlannedRun,
+        *,
+        executor_id: str,
+        submission_id: str | None = None,
+    ) -> RunManifest:
+        del self, executor_id, submission_id
+        captured["planned"] = planned
+        return _terminal_manifest(
+            RunManifest(
+                run_id="run-scratch",
+                config_content_hash=planned.program.config_content_hash,
             )
-        ),
+        )
+
+    monkeypatch.setattr(_DaemonRunner, "execute", execute_run)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/api/v1/instrument-contracts/resolve"
+        assert (
+            InstrumentContractCatalogRequest.model_validate_json(request.content).config
+            == config
+        )
+        return _model(catalog)
+
+    runner = _DaemonRunner(
+        _client(handler),
         None,
     )
 
-    with pytest.raises(ValueError, match="requires an experiment system"):
-        runner.run(load_invocation(), config=load_config())
+    result = runner.run(load_invocation(), config=config)
+
+    planned = captured["planned"]
+    assert isinstance(planned, PlannedRun)
+    assert planned.system == ExperimentSystem(instrument_catalog=catalog)
+    assert result.status == "completed"
 
 
 def test_preview_scratch_uses_active_config_without_admission() -> None:
@@ -500,28 +554,51 @@ def test_preview_scratch_uses_active_config_without_admission() -> None:
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return _model(
-            ActiveConfigView(entry=entry, activation=activation, config=config)
+        if request.url.path == "/api/v1/config-registry/active":
+            return _model(
+                ActiveConfigView(entry=entry, activation=activation, config=config)
+            )
+        assert request.url.path == "/api/v1/instrument-contracts/resolve"
+        assert (
+            InstrumentContractCatalogRequest.model_validate_json(request.content).config
+            == config
         )
+        return _model(_instrument_catalog(config))
 
     preview = _DaemonRunner(
         _client(handler),
-        lambda _config: ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        lambda _config, catalog: ExperimentSystem(instrument_catalog=catalog),
     ).preview(load_invocation())
 
     assert preview.point_count > 0
     assert [request.url.path for request in requests] == [
-        "/api/v1/config-registry/active"
+        "/api/v1/config-registry/active",
+        "/api/v1/instrument-contracts/resolve",
     ]
 
 
 def _planned(tmp_path: Path) -> PlannedRun:
-    provider = TestSignalInstrumentProvider()
+    config = load_config()
     return plan_experiment(
         load_invocation(),
-        config=load_config(),
+        config=config,
         services=sqlite_project_services(tmp_path),
-        system=ExperimentSystem(provider=provider),
+        system=ExperimentSystem(
+            instrument_catalog=_instrument_catalog(config),
+        ),
+    )
+
+
+def _instrument_catalog(
+    config: ConfigProfileSnapshot,
+) -> InstrumentContractCatalog:
+    provider = TestSignalInstrumentProvider()
+    described = provider.describe(InstrumentProviderContext(config=config))
+    return InstrumentContractCatalog(
+        config_content_hash=config_content_hash(config),
+        provider_id=described.provider_id,
+        instruments=described.instruments,
+        problems=described.problems,
     )
 
 

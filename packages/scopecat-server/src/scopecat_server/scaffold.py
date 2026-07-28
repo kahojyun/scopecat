@@ -81,9 +81,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import scopecat as sc
 from scopecat.application import LabApplication
 from scopecat.sdk.instruments import (
+    InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDriver,
     InstrumentProviderContext,
@@ -116,7 +116,9 @@ def create_application(_project_root: Path) -> LabApplication:
 
     return LabApplication(
         bootstrap_config=bootstrap_config,
-        build_system=lambda _config: sc.ExperimentSystem(provider=LocalProvider()),
+        create_instrument_backend=lambda: InstrumentBackend(
+            provider=LocalProvider(),
+        ),
     )
 
 

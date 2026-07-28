@@ -57,7 +57,7 @@ from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.planning.provider_binding import (
-    preflight_instrument_provider,
+    resolve_instrument_contract_catalog,
     validate_run_host_binding,
 )
 from scopecat.records.config import ConfigProfileSnapshot
@@ -558,19 +558,27 @@ def _lower_test_host_binding(
     *,
     planning_problems: tuple[Problem, ...] = (),
 ):
-    preflight = preflight_instrument_provider(
+    catalog = resolve_instrument_contract_catalog(
         config=config,
         instrument_provider=provider,
     )
+    if catalog.problems and not catalog.instruments:
+        raise ProviderContractError((*planning_problems, *catalog.problems))
+    provider_id = catalog.provider_id
+    if provider_id is None:
+        raise AssertionError("provider resolution must retain its identity")
     program = RunHostBinding(
         resource_order=plan.resource_order,
-        provider_id=preflight.provider_id,
-        advertised_descriptions=preflight.advertised_descriptions,
+        provider_id=provider_id,
+        advertised_descriptions={
+            description.instrument_id: description
+            for description in catalog.instruments
+        },
     )
     return validate_run_host_binding(
         host=program,
         effect_blocks=(tuple(effect.operation for effect in plan.effects),),
-        problems=(*planning_problems, *preflight.problems),
+        problems=(*planning_problems, *catalog.problems),
     )
 
 
@@ -646,7 +654,7 @@ def test_provider_description_exception_fails_at_preflight_boundary(
     assert [problem.code for problem in captured.value.problems] == [
         "instrument_provider_description_failed"
     ]
-    assert captured.value.__cause__ is failure
+    assert captured.value.__cause__ is None
     assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 

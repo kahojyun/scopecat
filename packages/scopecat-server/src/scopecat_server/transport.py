@@ -48,6 +48,7 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentContractCatalogRequest,
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
@@ -67,6 +68,7 @@ from scopecat.execution.ports.instruments import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -210,6 +212,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/instruments/{{instrument_id}}")
     def get_instrument(instrument_id: str) -> InstrumentView:
         return application.instruments.get_instrument(instrument_id)
+
+    @app.post(f"{_API_PREFIX}/instrument-contracts/resolve")
+    def resolve_instrument_contracts(
+        command: InstrumentContractCatalogRequest,
+    ) -> InstrumentContractCatalog:
+        return application.instruments.resolve_instrument_contracts(command.config)
 
     @app.post(f"{_API_PREFIX}/instrument-sessions", status_code=201)
     def open_instrument_session(

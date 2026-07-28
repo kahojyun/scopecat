@@ -71,8 +71,11 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
         id="repetitions",
         value=128,
     )
-    assert application.build_system is not None
-    assert application.build_system(config).provider is not None
+    assert application.create_instrument_backend is not None
+    assert (
+        application.create_instrument_backend().provider.provider_id
+        == "scopecat-lab.local"
+    )
 
     with pytest.raises(DaemonLifecycleError, match="already initialized"):
         initialize_project(tmp_path)

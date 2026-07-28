@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from scopecat.planning.system import ExperimentSystem
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.runs.service import read_run_record_json
@@ -15,6 +14,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
 )
 from tests.testkit.execution import execute_invocation_run
+from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.runtime import sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import (
@@ -61,10 +61,16 @@ def test_state_evidence_requires_matching_observed_and_prepared_order() -> None:
 def test_execution_uses_provider_selected_config_instrument(
     tmp_path: Path,
 ) -> None:
+    config = config_with_instrument_id("source-a")
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     manifest = execute_invocation_run(
-        config=config_with_instrument_id("source-a"),
+        config=config,
         experiment=load_invocation(),
-        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        system=composition.system,
+        instrument_backend=composition.backend,
         project_root=tmp_path,
     )
     snapshot = read_run_record_json(
@@ -80,13 +86,21 @@ def test_execution_uses_provider_selected_config_instrument(
     assert evidence.prepared_state == evidence.observed_state
 
 
-def test_execution_reuses_point_provider_preflight(tmp_path: Path) -> None:
+def test_execution_uses_resolved_catalog_without_redescribing_provider(
+    tmp_path: Path,
+) -> None:
     provider = _CountingProvider()
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=provider,
+    )
 
     manifest = execute_invocation_run(
-        config=load_config(),
+        config=config,
         experiment=load_invocation(),
-        system=ExperimentSystem(provider=provider),
+        system=composition.system,
+        instrument_backend=composition.backend,
         project_root=tmp_path,
     )
 

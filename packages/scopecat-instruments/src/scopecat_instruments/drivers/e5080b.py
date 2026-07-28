@@ -43,6 +43,7 @@ from scopecat_instruments._support import (
     validate_collect_command,
     validate_writable_command,
 )
+from scopecat_instruments.driver_ids import KEYSIGHT_E5080B
 from scopecat_instruments.interfaces import (
     NETWORK_SWEEP,
     network_sweep_interface,
@@ -53,7 +54,7 @@ from scopecat_instruments.transport import ScpiTransport
 class KeysightE5080B:
     """Two-port linear sweep configuration and ASCII complex data retrieval."""
 
-    implementation_id = "scopecat.keysight.e5080b"
+    implementation_id = KEYSIGHT_E5080B
     implementation_version = "v1"
 
     def __init__(

@@ -35,6 +35,7 @@ from scopecat_instruments._support import (
     validate_collect_command,
     validate_writable_command,
 )
+from scopecat_instruments.driver_ids import YOKOGAWA_GS200
 from scopecat_instruments.interfaces import (
     DC_SOURCE,
     dc_monitor_interface,
@@ -46,7 +47,7 @@ from scopecat_instruments.transport import ScpiTransport, TransportError
 class YokogawaGS200:
     """GS200 source controls plus optional /MON single-value measurement."""
 
-    implementation_id = "scopecat.yokogawa.gs200"
+    implementation_id = YOKOGAWA_GS200
     implementation_version = "v1"
 
     def __init__(

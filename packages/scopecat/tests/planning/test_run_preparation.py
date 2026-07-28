@@ -9,11 +9,14 @@ from pydantic import ValidationError
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
-from scopecat.planning.provider_binding import preflight_instrument_provider
+from scopecat.planning.provider_binding import (
+    resolve_instrument_contract_catalog,
+)
 from scopecat.records.config import (
     ApplyDefaultsRunPreparation,
     ConfigProfileSnapshot,
     InstrumentSpec,
+    config_content_hash,
 )
 from scopecat.records.instrument import InstrumentPropertyState
 from scopecat.sdk.instruments import (
@@ -55,7 +58,7 @@ def test_instrument_spec_requires_an_explicit_run_preparation_policy() -> None:
         )
 
 
-def test_provider_preflight_validates_defaults_against_advertised_interface() -> None:
+def test_catalog_resolution_validates_defaults_against_advertised_interface() -> None:
     preparation = ApplyDefaultsRunPreparation(
         properties=[
             InstrumentPropertyState(
@@ -66,7 +69,7 @@ def test_provider_preflight_validates_defaults_against_advertised_interface() ->
         ]
     )
 
-    result = preflight_instrument_provider(
+    result = resolve_instrument_contract_catalog(
         config=_config_with_preparation(preparation),
         instrument_provider=TestSignalInstrumentProvider(),
     )
@@ -74,7 +77,7 @@ def test_provider_preflight_validates_defaults_against_advertised_interface() ->
     assert result.problems == ()
 
 
-def test_provider_preflight_reports_invalid_default_at_config_policy() -> None:
+def test_catalog_resolution_reports_invalid_default_at_config_policy() -> None:
     preparation = ApplyDefaultsRunPreparation(
         properties=[
             InstrumentPropertyState(
@@ -85,7 +88,7 @@ def test_provider_preflight_reports_invalid_default_at_config_policy() -> None:
         ]
     )
 
-    result = preflight_instrument_provider(
+    result = resolve_instrument_contract_catalog(
         config=_config_with_preparation(preparation),
         instrument_provider=TestSignalInstrumentProvider(),
     )
@@ -114,7 +117,7 @@ def test_case_local_default_requires_explicit_discriminator() -> None:
         ]
     )
 
-    result = preflight_instrument_provider(
+    result = resolve_instrument_contract_catalog(
         config=_config_with_preparation(preparation),
         instrument_provider=_ModeProvider(),
     )
@@ -140,7 +143,7 @@ def test_explicit_discriminator_makes_case_local_default_authoritative() -> None
         ]
     )
 
-    result = preflight_instrument_provider(
+    result = resolve_instrument_contract_catalog(
         config=_config_with_preparation(preparation),
         instrument_provider=_ModeProvider(),
     )
@@ -159,13 +162,29 @@ def test_apply_defaults_requires_an_advertised_description() -> None:
         ]
     )
 
-    result = preflight_instrument_provider(
+    result = resolve_instrument_contract_catalog(
         config=_config_with_preparation(preparation),
         instrument_provider=_EmptyProvider(),
     )
 
     assert [issue.code for issue in result.problems] == [
         "instrument_run_preparation_description_missing"
+    ]
+
+
+def test_catalog_resolution_records_description_failure() -> None:
+    config = load_config()
+
+    result = resolve_instrument_contract_catalog(
+        config=config,
+        instrument_provider=_FailingProvider(),
+    )
+
+    assert result.config_content_hash == config_content_hash(config)
+    assert result.provider_id == _FailingProvider.provider_id
+    assert result.instruments == ()
+    assert [issue.code for issue in result.problems] == [
+        "instrument_provider_description_failed"
     ]
 
 
@@ -260,3 +279,22 @@ class _EmptyProvider:
     ) -> Never:
         del context
         raise AssertionError("preflight must not connect an instrument")
+
+
+@dataclass(frozen=True)
+class _FailingProvider:
+    provider_id: str = "tests.failing_provider"
+
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        del context
+        raise RuntimeError("description failed")
+
+    def connect(
+        self,
+        context: InstrumentConnectionContext,
+    ) -> Never:
+        del context
+        raise AssertionError("catalog resolution must not connect an instrument")

@@ -9,7 +9,7 @@ from scopecat.sdk.instruments import (
 )
 
 from quantum_lab_demo.interfaces import PLAY_PULSE_PROGRAM
-from quantum_lab_demo.virtual_lab import load_virtual_lab_profile
+from quantum_lab_demo.virtual_lab.profiles import load_virtual_lab_profile
 from quantum_lab_demo.virtual_lab.provider import QuantumDriveStack
 
 from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE

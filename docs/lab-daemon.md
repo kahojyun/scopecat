@@ -58,12 +58,14 @@ set once and holds it across provider provisioning and all coverage blocks;
 there are no nested block leases or channel/group scheduler claims.
 
 `sc.open_project(...).connect()` returns the normal notebook `LabClient`. It
-loads the same application composition as the daemon, resolves the accepted
-config, and provides `prepare(...).preview()` and `prepare(...).run()`.
-Transient scratch invocations are planned and executed in the notebook when
-their closures or interactive objects cannot be reconstructed reliably in
-another process. Every durable effect still passes through the daemon, so the
-notebook never becomes a second writer.
+loads only the application's planning composition, resolves the accepted
+config, and asks the daemon for the serializable instrument-contract catalog
+bound to that exact snapshot. Concrete providers, transports, and drivers are
+constructed once by the daemon-side backend factory and never enter the
+notebook process. Transient scratch invocations are planned and executed in the
+notebook when their closures or interactive objects cannot be reconstructed
+reliably in another process. Every durable effect still passes through the
+daemon, so the notebook never becomes a second writer.
 
 The same project client exposes event replay and attention resolution through
 `lab.control`. Execution remains an internal implementation of

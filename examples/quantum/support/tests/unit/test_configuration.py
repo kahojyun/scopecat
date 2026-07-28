@@ -7,7 +7,7 @@ from scopecat.records.parameter import (
     TableParameterValue,
 )
 
-from quantum_lab_demo import quantum_lab_bootstrap_config
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 
 
 def test_bootstrap_config_provides_valid_drag_compiler_parameters() -> None:

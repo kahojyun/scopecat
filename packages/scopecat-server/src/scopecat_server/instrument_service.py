@@ -50,12 +50,15 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_identity import scalar_identity
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.provider_binding import (
+    resolve_instrument_contract_catalog,
+)
 from scopecat.planning.provider_validation import (
     describe_instruments,
     instrument_contract_fingerprint,
     validate_instruments,
 )
-from scopecat.planning.system import ExperimentSystem, ExperimentSystemBuilder
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import (
     ApplyDefaultsRunPreparation,
@@ -68,6 +71,7 @@ from scopecat.records.instrument import (
     property_target_identity,
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
+from scopecat.sdk.instruments.backend import InstrumentBackend
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectCommand,
@@ -77,7 +81,6 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProvider,
-    InstrumentProviderContext,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InvokeCommand,
@@ -138,14 +141,14 @@ class InstrumentService:
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
         config: ConfigService,
-        build_system: ExperimentSystemBuilder | None,
+        backend: InstrumentBackend | None,
         payloads: CommandPayloadService,
         actors: InstrumentActorRegistry,
     ) -> None:
         self._control = control
         self._runs = runs
         self._config = config
-        self._build_system = build_system
+        self._backend = backend
         self._payloads = payloads
         self._actors = actors
         self._sessions: dict[str, _OwnershipRuntime] = {}
@@ -161,16 +164,17 @@ class InstrumentService:
         self._run_open_locks: dict[str, RLock] = {}
         self._finalizing_runs: set[str] = set()
         self._attention_lock = RLock()
-        self._provider_lock = RLock()
-        self._system_content_hash: str | None = None
-        self._cached_system: ExperimentSystem | None = None
 
     def list_instruments(self) -> InstrumentListView:
         active = self._config.get_active_config()
-        descriptions, provider_problems = self._descriptions(active.config)
+        catalog = self.resolve_instrument_contracts(active.config)
+        descriptions = {
+            description.instrument_id: description
+            for description in catalog.instruments
+        }
         global_problems, instrument_problems = _scope_provider_problems(
             active.config.instrument_registry.instruments,
-            provider_problems,
+            catalog.problems,
         )
         with self._control.transaction() as connection:
             claims = {
@@ -207,6 +211,23 @@ class InstrumentService:
             config_content_hash=active.entry.content_hash,
             items=items,
             problems=global_problems,
+        )
+
+    def resolve_instrument_contracts(
+        self,
+        config: ConfigProfileSnapshot,
+    ) -> InstrumentContractCatalog:
+        """Resolve contracts against exactly the supplied config snapshot."""
+
+        backend = self._backend
+        if backend is None:
+            return InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config),
+                provider_id=None,
+            )
+        return resolve_instrument_contract_catalog(
+            config=config,
+            instrument_provider=backend.provider,
         )
 
     def get_instrument(self, instrument_id: str) -> InstrumentView:
@@ -295,49 +316,39 @@ class InstrumentService:
             if isinstance(config_source, ConfigRegistryRunConfigSource)
             else None
         )
-        try:
-            system = self._system(config)
-            provider = self._provider(config)
-        except Exception as error:
+        backend = self._backend
+        if backend is None:
             return self._reject_run_provision(
                 run_id,
                 command,
                 problems=(
                     _provision_problem(
-                        (
-                            "instrument_provider_unavailable"
-                            if isinstance(error, BackendConflict)
-                            else "instrument_provider_construction_failed"
-                        ),
-                        "instrument provider could not be constructed",
+                        "instrument_provider_unavailable",
+                        "project does not configure an instrument backend",
                         run_id=run_id,
                         operation_id=command.operation_id,
-                        details={"exception_type": type(error).__name__},
                     ),
                 ),
             )
-        provider_id = provider.provider_id
-
-        try:
-            provider_description = provider.describe(
-                InstrumentProviderContext(config=config)
-            )
-        except Exception:
+        catalog = self.resolve_instrument_contracts(config)
+        provider_id = catalog.provider_id
+        if provider_id is None:
             return self._reject_run_provision(
                 run_id,
                 command,
                 problems=(
                     _provision_problem(
-                        "instrument_provider_description_failed",
-                        "instrument provider description failed",
+                        "instrument_provider_unavailable",
+                        "project instrument backend has no provider identity",
                         run_id=run_id,
                         operation_id=command.operation_id,
                     ),
                 ),
             )
+        provider = backend.provider
         global_problems, instrument_problems = _scope_provider_problems(
             config.instrument_registry.instruments,
-            provider_description.problems,
+            catalog.problems,
         )
         setup_problems = list(global_problems)
         setup_problems.extend(
@@ -345,18 +356,9 @@ class InstrumentService:
             for instrument_id in instrument_ids
             for item in instrument_problems.get(instrument_id, ())
         )
-        if provider_description.provider_id != provider_id:
-            setup_problems.append(
-                _provision_problem(
-                    "instrument_provider_id_mismatch",
-                    "instrument provider description changed provider identity",
-                    run_id=run_id,
-                    operation_id=command.operation_id,
-                )
-            )
         advertised = {
             description.instrument_id: description
-            for description in provider_description.instruments
+            for description in catalog.instruments
             if description.instrument_id in instrument_claims
         }
         missing = tuple(
@@ -417,7 +419,7 @@ class InstrumentService:
                 ),
                 instrument_ids=instrument_ids,
                 expected=advertised,
-                payload_codecs=system.payload_codecs,
+                payload_codecs=backend.payload_codecs,
             )
         except _ProvisioningRejected as error:
             return self._reject_run_provision(
@@ -1471,10 +1473,15 @@ class InstrumentService:
         )
         if missing:
             raise BackendNotFound(f"instrument was not found: {', '.join(missing)}")
-        system = self._system(active.config)
-        provider = self._provider(active.config)
+        backend = self._backend
+        if backend is None:
+            raise BackendConflict(
+                "project application does not configure an instrument backend"
+            )
+        catalog = self.resolve_instrument_contracts(active.config)
+        provider = backend.provider
         descriptions = self._selected_descriptions(
-            provider,
+            catalog,
             config=active.config,
             instrument_ids=command.instrument_ids,
         )
@@ -1505,7 +1512,7 @@ class InstrumentService:
                 ),
                 instrument_ids=command.instrument_ids,
                 expected=descriptions,
-                payload_codecs=system.payload_codecs,
+                payload_codecs=backend.payload_codecs,
             )
         except _ProvisioningRejected as error:
             self._abort_open_session(session)
@@ -2121,9 +2128,6 @@ class InstrumentService:
             )
         with suppress(Exception):
             self._actors.shutdown()
-        with self._provider_lock:
-            self._system_content_hash = None
-            self._cached_system = None
 
     def _end_session(
         self,
@@ -2384,39 +2388,16 @@ class InstrumentService:
                 "run instrument audit event could not be recorded"
             ) from error
 
-    def _descriptions(
-        self,
-        config: ConfigProfileSnapshot,
-    ) -> tuple[dict[str, InstrumentDescription], tuple[Problem, ...]]:
-        if self._build_system is None:
-            return {}, ()
-        try:
-            provider = self._provider(config)
-            result = provider.describe(InstrumentProviderContext(config=config))
-        except Exception:
-            return {}, ()
-        return (
-            {
-                description.instrument_id: description
-                for description in result.instruments
-            },
-            result.problems,
-        )
-
     def _selected_descriptions(
         self,
-        provider: InstrumentProvider,
+        catalog: InstrumentContractCatalog,
         *,
         config: ConfigProfileSnapshot,
         instrument_ids: tuple[str, ...],
     ) -> dict[str, InstrumentDescription]:
-        try:
-            result = provider.describe(InstrumentProviderContext(config=config))
-        except Exception as error:
-            raise BackendConflict("instrument provider description failed") from error
         global_problems, instrument_problems = _scope_provider_problems(
             config.instrument_registry.instruments,
-            result.problems,
+            catalog.problems,
         )
         selected_problems = (
             *global_problems,
@@ -2430,7 +2411,7 @@ class InstrumentService:
             raise BackendConflict("instrument provider cannot describe the session")
         descriptions = {
             description.instrument_id: description
-            for description in result.instruments
+            for description in catalog.instruments
             if description.instrument_id in instrument_ids
         }
         missing = tuple(
@@ -2443,31 +2424,6 @@ class InstrumentService:
                 f"instrument provider does not expose: {', '.join(missing)}"
             )
         return descriptions
-
-    def _provider(self, config: ConfigProfileSnapshot) -> InstrumentProvider:
-        system = self._system(config)
-        if system.provider is None:
-            raise BackendConflict(
-                "project experiment system does not configure an instrument provider"
-            )
-        return system.provider
-
-    def _system(self, config: ConfigProfileSnapshot) -> ExperimentSystem:
-        if self._build_system is None:
-            raise BackendConflict(
-                "project application does not configure an instrument provider"
-            )
-        content_hash = config_content_hash(config)
-        with self._provider_lock:
-            if (
-                self._system_content_hash == content_hash
-                and self._cached_system is not None
-            ):
-                return self._cached_system
-            system = self._build_system(config)
-            self._system_content_hash = content_hash
-            self._cached_system = system
-            return system
 
     def _wire_session(
         self,

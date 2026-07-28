@@ -91,7 +91,7 @@ class LabClient:
         self,
         daemon: str | DaemonClient,
         *,
-        build_system: ExperimentSystemBuilder | None = None,
+        build_experiment_system: ExperimentSystemBuilder | None = None,
         config: ConfigProfileSnapshot | None = None,
         operator: str = "operator",
     ) -> None:
@@ -109,7 +109,7 @@ class LabClient:
             self._client,
             operator=operator,
         )
-        self._runner = _DaemonRunner(self._client, build_system)
+        self._runner = _DaemonRunner(self._client, build_experiment_system)
 
     def __enter__(self) -> Self:
         return self

@@ -313,9 +313,10 @@ bound to the run's accepted configuration snapshot. The notebook submits
 ordered hardware batches; the daemon owns current-state reconciliation, driver
 calls, batch replay, abort-on-failure, terminal readback, and connection
 retirement. Experiments therefore do not expose per-device lifecycle RPCs.
-Planning may call the provider's pure description contract; it never provisions
-a live driver. Fine-grained read, apply, and collect remain available only
-through an explicit interactive session.
+Planning receives a serializable contract catalog resolved by the daemon for
+the exact configuration snapshot; it neither imports nor calls a provider.
+Fine-grained read, apply, and collect remain available only through an explicit
+interactive session.
 
 Admission records the expected provider and an ordered instrument-contract
 fingerprint. The daemon verifies both before connecting drivers, so a provider

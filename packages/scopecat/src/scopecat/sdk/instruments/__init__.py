@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         InstrumentReadback,
         InstrumentStateSnapshot,
     )
+    from scopecat.sdk.instruments.backend import InstrumentBackend
     from scopecat.sdk.instruments.contracts import (
         AcquisitionAxisSpec,
         AcquisitionResultSpec,
@@ -102,6 +103,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentConnectionContext": (
         "scopecat.sdk.instruments.contracts",
         "InstrumentConnectionContext",
+    ),
+    "InstrumentBackend": (
+        "scopecat.sdk.instruments.backend",
+        "InstrumentBackend",
     ),
     "InterfaceSpec": ("scopecat.sdk.instruments.contracts", "InterfaceSpec"),
     "InstrumentDescription": (
