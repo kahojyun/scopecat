@@ -123,8 +123,6 @@ class InstrumentSpec(BaseModel):
                 item.interface_id,
                 item.component_path,
                 item.property_id,
-                item.entity_ids,
-                item.channel_bindings,
             )
             for item in value
         ]

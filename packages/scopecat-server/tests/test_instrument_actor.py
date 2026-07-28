@@ -281,7 +281,10 @@ def test_release_reuses_connection_but_requires_fresh_observation() -> None:
     assert second.reused_connection
     assert len(drivers) == 1
     refreshed = second.read_state()
-    assert refreshed.properties[0].value == number_state(7.0)
+    gain = next(
+        item for item in refreshed.properties if item.interface_id == "test.set_gain/v1"
+    )
+    assert gain.value == number_state(7.0)
     assert second.assumed_state is None
     second.adopt_state(refreshed)
     second.release()

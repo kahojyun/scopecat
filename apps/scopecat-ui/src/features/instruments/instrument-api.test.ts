@@ -75,8 +75,6 @@ describe("instrument configuration publishing", () => {
             component_path: [],
             property_id: "center_frequency",
             value: { value: 6.2, unit: "GHz" },
-            entity_ids: [],
-            channel_bindings: [],
           },
         ],
         run_start: "apply_default_state",
@@ -104,8 +102,6 @@ describe("instrument configuration publishing", () => {
         component_path: [],
         property_id: "center_frequency",
         value: { value: 6.2, unit: "GHz" },
-        entity_ids: [],
-        channel_bindings: [],
       },
     ]);
     expect(active.config.system.instrument_registry.instruments[0]?.run_start).toBe(
@@ -388,8 +384,6 @@ function activeConfig(): ActiveConfig {
                 component_path: [],
                 property_id: "center_frequency",
                 value: { value: 6.2, unit: "GHz" },
-                entity_ids: [],
-                channel_bindings: [],
               },
             ],
             run_start: "apply_default_state",

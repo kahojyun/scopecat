@@ -40,7 +40,6 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InvokeCommand,
-    apply_state_command_to_snapshot,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 from scopecat.sdk.runtime_problems import runtime_problem
@@ -147,12 +146,7 @@ class TestRunInstrumentHost:
                     indeterminate = receipt.status == "unknown"
                     break
                 self._assumed_states[action.instrument_id] = (
-                    receipt.state
-                    or apply_state_command_to_snapshot(
-                        current,
-                        command,
-                        description=self._descriptions[action.instrument_id],
-                    )
+                    receipt.state or driver.read_state()
                 )
                 continue
             if isinstance(action, RunHardwareInvoke):
@@ -259,8 +253,6 @@ def _state_value(
         target.interface_id,
         target.component_path,
         target.property_id,
-        target.entity_ids,
-        target.channel_bindings,
     )
     return next(
         (
@@ -270,8 +262,6 @@ def _state_value(
                 property.interface_id,
                 property.component_path,
                 property.property_id,
-                property.entity_ids,
-                property.channel_bindings,
             )
             == identity
         ),

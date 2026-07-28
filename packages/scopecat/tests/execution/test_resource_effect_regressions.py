@@ -18,56 +18,31 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.config.environment import build_config_environment
-from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
-    StateTarget,
 )
 from scopecat.graph.relations.model import lit
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
-    ResourceClaim,
     logical_resource_port_id,
 )
-from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Entity, Float, Scalar
-from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductDef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
     RoutingGraph,
 )
-from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    CommandChannelBinding,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverInvokeRequest,
-    DriverPropertyWrite,
-    InstrumentDescription,
-    InstrumentPropertyState,
-    InstrumentReadback,
-    InstrumentStateSnapshot,
-    InvokeReceipt,
-    float_property,
-    interface,
-)
 from tests.testkit.authoring import load_config, parameters
-from tests.testkit.instrument_host import TestRunInstrumentHost
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
     operations_of_type,
 )
 from tests.testkit.relation_plans import scalar_value_expr
-from tests.testkit.run_operations import complete_coverage_operations
-from tests.testkit.runtime import FakeExecutionJournal
 from tests.testkit.typed_program import (
     instrument_acquisition,
     link_program,
@@ -440,98 +415,6 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
     }
 
 
-def test_scoped_same_property_targets_survive_snapshot_reconciliation() -> None:
-    q0_binding = CommandChannelBinding(entity_id="q0", channel_id="drive-q0")
-    q1_binding = CommandChannelBinding(entity_id="q1", channel_id="readout-q0")
-    initial_state = InstrumentStateSnapshot(
-        instrument_id="source-0",
-        properties=[
-            InstrumentPropertyState(
-                interface_id="test.set_gain/v1",
-                property_id="gain",
-                value=StateValue(1.0),
-                entity_ids=["q0"],
-                channel_bindings=[q0_binding],
-            ),
-            InstrumentPropertyState(
-                interface_id="test.set_gain/v1",
-                property_id="gain",
-                value=StateValue(0.0),
-                entity_ids=["q1"],
-                channel_bindings=[q1_binding],
-            ),
-        ],
-    )
-    driver = _ScopedStateDriver(
-        initial_state,
-        state_after_apply=initial_state.model_copy(
-            update={
-                "properties": [
-                    initial_state.properties[0],
-                    initial_state.properties[1].model_copy(
-                        update={"value": StateValue(2.0)}
-                    ),
-                ]
-            }
-        ),
-    )
-    program = LocalEffectInspection.at_point(
-        RunPoint(
-            LogicalPointId(PointDomainId("scoped-same-property", "root"), 0),
-            {},
-        ),
-        (
-            ApplyStateOperation(
-                operation_id="scoped-same-property-point.state.source-0",
-                instrument_id="source-0",
-                targets=(
-                    StateTarget(
-                        interface_id="test.set_gain/v1",
-                        property_id="gain",
-                        value=StateValue(1.0),
-                        entity_ids=("q0",),
-                        channel_bindings=(q0_binding,),
-                    ),
-                    StateTarget(
-                        interface_id="test.set_gain/v1",
-                        property_id="gain",
-                        value=StateValue(2.0),
-                        entity_ids=("q1",),
-                        channel_bindings=(q1_binding,),
-                    ),
-                ),
-            ),
-        ),
-        resource_order=("source-0",),
-        resource_claims=(ResourceClaim(id="source-0"),),
-    )
-
-    result = RunEffectInterpreter(
-        run_id="scoped-same-property-run",
-        coordinate_ids=tuple(program.points[0].coordinates),
-        instruments=TestRunInstrumentHost((driver,)),
-        journal=FakeExecutionJournal(),
-    ).run(complete_coverage_operations(program), points=program.points)
-
-    assert not result.problems and not result.indeterminate
-    assert len(driver.applied) == 1
-    assert driver.applied[0].assignments == (
-        DriverPropertyWrite(
-            interface_id="test.set_gain/v1",
-            property_id="gain",
-            value=StateValue(2.0),
-        ),
-    )
-    assert {
-        (tuple(item.entity_ids), item.value) for item in driver.state.properties
-    } == {
-        (("q0",), StateValue(1.0)),
-        (("q1",), StateValue(2.0)),
-    }
-    assert len(result.final_state) == 1
-    assert len(result.final_state[0].properties) == 2
-
-
 def _same_instrument_record_config() -> ConfigProfileSnapshot:
     config = load_config()
     topology = config.topology.model_copy(
@@ -633,54 +516,3 @@ def _entity_only_config() -> ConfigProfileSnapshot:
     return config.model_copy(
         update={"system": config.system.model_copy(update={"routing": routing})}
     )
-
-
-class _ScopedStateDriver:
-    instrument_id = "source-0"
-    implementation_id = "tests.scoped-state-driver"
-    implementation_version = "v1"
-
-    def __init__(
-        self,
-        state: InstrumentStateSnapshot,
-        *,
-        state_after_apply: InstrumentStateSnapshot,
-    ) -> None:
-        self.state = state
-        self._state_after_apply = state_after_apply
-        self.applied: list[DriverApplyRequest] = []
-
-    def describe(self) -> InstrumentDescription:
-        return InstrumentDescription(
-            instrument_id=self.instrument_id,
-            implementation_id=self.implementation_id,
-            implementation_version=self.implementation_version,
-            interfaces=[
-                interface(
-                    "test.set_gain/v1",
-                    properties=[float_property("gain")],
-                )
-            ],
-        )
-
-    def read_state(self) -> InstrumentStateSnapshot:
-        return self.state.model_copy(deep=True)
-
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
-        self.applied.append(request)
-        self.state = self._state_after_apply
-        return ApplyReceipt(status="applied", state=self.read_state())
-
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
-        del request
-        return InvokeReceipt(status="invoked", state=self.read_state())
-
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
-        del request
-        return CollectReceipt(readback=InstrumentReadback())
-
-    def disconnect(self) -> None:
-        return None
-
-    def abort(self) -> None:
-        return None

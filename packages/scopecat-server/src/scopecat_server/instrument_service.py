@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
 from threading import Lock, RLock, Timer
@@ -747,11 +747,6 @@ class InstrumentService:
                     component_path=list(item.component_path),
                     property_id=item.property_id,
                     value=item.value,
-                    entity_ids=list(item.entity_ids),
-                    channel_bindings=[
-                        binding.model_copy(deep=True)
-                        for binding in item.channel_bindings
-                    ],
                 )
                 for item in spec.default_state
             ]
@@ -765,7 +760,7 @@ class InstrumentService:
                 instrument_id=instrument_id,
                 assignments=command.assignments,
                 description=runtime.instruments[instrument_id].description,
-                baseline=InstrumentStateSnapshot(instrument_id=instrument_id),
+                require_explicit_state_case=True,
             )
             if contract_problems:
                 raise _DefaultStateReconciliationRejected(
@@ -817,19 +812,13 @@ class InstrumentService:
                 )
             changed_state = True
             try:
-                state = receipt.state or _observe_instrument(instrument)
-            except Exception as error:
+                state = _confirmed_applied_state(
+                    instrument,
+                    receipt,
+                    command.assignments,
+                )
+            except BackendConflict as error:
                 raise _DefaultStateReconciliationUnknown from error
-            state_problems = validate_state_snapshot(
-                snapshot=state,
-                description=instrument.description,
-            )
-            # The execution baseline is trusted only after defaults converge.
-            if state_problems or not all(
-                _state_assignment_satisfied(state, assignment)
-                for assignment in command.assignments
-            ):
-                raise _DefaultStateReconciliationUnknown
             reconciled[instrument_id] = state.model_copy(deep=True)
         return tuple(reconciled[instrument_id] for instrument_id in instrument_ids)
 
@@ -1028,20 +1017,16 @@ class InstrumentService:
                 )
                 description = runtime.instruments[action.instrument_id].description
                 baseline = assumed_states[action.instrument_id]
-                validation_baseline = (
-                    baseline
-                    if baseline is not None
-                    else InstrumentStateSnapshot(instrument_id=action.instrument_id)
-                )
                 action_problems = validate_state_command(
                     command=command,
                     description=description,
-                    baseline=validation_baseline,
+                    baseline=baseline,
+                    require_explicit_state_case=baseline is None,
                 )
                 problems.extend(action_problems)
-                if not action_problems:
+                if not action_problems and baseline is not None:
                     projected = apply_state_command_to_snapshot(
-                        validation_baseline,
+                        baseline,
                         command,
                         description=description,
                     )
@@ -1115,8 +1100,12 @@ class InstrumentService:
         if current is None:
             raise BackendConflict("instrument state must be synchronized before apply")
         assignments = tuple(
-            assignment
-            for assignment in action.assignments
+            (assignment, physical)
+            for assignment, physical in zip(
+                action.assignments,
+                driver_request.assignments,
+                strict=True,
+            )
             if not _state_assignment_satisfied(current, assignment)
         )
         if not assignments:
@@ -1128,7 +1117,10 @@ class InstrumentService:
         command = InstrumentStateCommand(
             command_id=action.effect_id,
             instrument_id=action.instrument_id,
-            assignments=list(assignments),
+            assignments=[assignment for assignment, _physical in assignments],
+        )
+        driver_request = DriverApplyRequest(
+            assignments=tuple(physical for _assignment, physical in assignments)
         )
         description = instrument.description
         validation_problems = validate_state_command(
@@ -1164,23 +1156,20 @@ class InstrumentService:
                 "; ".join(item.message for item in receipt.problems)
                 or f"instrument apply returned {receipt.status}"
             )
-        next_state = receipt.state or apply_state_command_to_snapshot(
-            current,
-            command,
-            description=description,
-        )
-        snapshot_problems = validate_state_snapshot(
-            snapshot=next_state,
-            description=description,
-        )
-        if snapshot_problems:
+        try:
+            next_state = _confirmed_applied_state(
+                instrument,
+                receipt,
+                command.assignments,
+            )
+        except BackendConflict as error:
             self._lose_run_runtime(
                 run_id,
                 runtime,
                 token=token,
-                reason="run_instrument_apply_state_mismatch",
+                reason="run_instrument_apply_state_unknown",
             )
-            raise BackendConflict("; ".join(item.message for item in snapshot_problems))
+            raise BackendConflict(f"instrument apply completed but {error}") from error
         instrument.adopt_state(next_state)
         return {
             "effect_id": action.effect_id,
@@ -1809,25 +1798,16 @@ class InstrumentService:
             ) from error
         if receipt.status == "applied":
             try:
-                next_state = receipt.state or apply_state_command_to_snapshot(
-                    current,
-                    command,
-                    description=description,
+                next_state = _confirmed_applied_state(
+                    instrument,
+                    receipt,
+                    command.assignments,
                 )
-            except Exception as error:
+            except BackendConflict as error:
                 on_unknown("instrument_apply_state_unknown")
                 raise BackendConflict(
-                    "instrument apply completed but state projection failed"
+                    f"instrument apply completed but {error}"
                 ) from error
-            snapshot_problems = validate_state_snapshot(
-                snapshot=next_state,
-                description=description,
-            )
-            if snapshot_problems:
-                on_unknown("instrument_apply_state_mismatch")
-                raise BackendConflict(
-                    "; ".join(item.message for item in snapshot_problems)
-                )
             instrument.adopt_state(next_state)
             receipt = receipt.model_copy(update={"state": next_state})
         ledger.apply_receipts[command_id] = (command, receipt)
@@ -2750,8 +2730,6 @@ def _state_value(
         target.interface_id,
         target.component_path,
         target.property_id,
-        target.entity_ids,
-        target.channel_bindings,
     )
     return next(
         (
@@ -2761,8 +2739,6 @@ def _state_value(
                 item.interface_id,
                 item.component_path,
                 item.property_id,
-                item.entity_ids,
-                item.channel_bindings,
             )
             == identity
         ),
@@ -2834,6 +2810,28 @@ def _observe_instrument(
     )
     if problems:
         raise BackendConflict("; ".join(item.message for item in problems))
+    return state
+
+
+def _confirmed_applied_state(
+    instrument: OwnedInstrument,
+    receipt: ApplyReceipt,
+    assignments: Sequence[InstrumentStateAssignment],
+) -> InstrumentStateSnapshot:
+    state = receipt.state
+    if state is None:
+        state = _observe_instrument(instrument)
+    else:
+        problems = validate_state_snapshot(
+            snapshot=state,
+            description=instrument.description,
+        )
+        if problems:
+            raise BackendConflict("; ".join(item.message for item in problems))
+    if not all(
+        _state_assignment_satisfied(state, assignment) for assignment in assignments
+    ):
+        raise BackendConflict("instrument apply readback did not match requested state")
     return state
 
 

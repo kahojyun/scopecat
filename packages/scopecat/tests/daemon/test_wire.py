@@ -358,6 +358,27 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
         )
 
 
+def test_run_hardware_apply_rejects_duplicate_physical_targets() -> None:
+    assignment = InstrumentStateAssignment(
+        resource_id="source-0",
+        interface_id="test.set_frequency/v1",
+        property_id="frequency",
+        value=StateValue(Quantity(5.0, "GHz")),
+        entity_ids=["q0"],
+    )
+
+    with pytest.raises(ValidationError, match="property targets must be unique"):
+        RunHardwareApply(
+            effect_id="point-0.apply.source-0",
+            point_index=0,
+            instrument_id="source-0",
+            assignments=(
+                assignment,
+                assignment.model_copy(update={"entity_ids": ["q1"]}),
+            ),
+        )
+
+
 def test_run_instrument_provision_state_evidence_matches_instrument_order() -> None:
     source_a = InstrumentStateSnapshot(instrument_id="source-a")
     source_b = InstrumentStateSnapshot(instrument_id="source-b")

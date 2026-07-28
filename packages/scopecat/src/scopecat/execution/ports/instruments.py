@@ -16,6 +16,7 @@ from scopecat.sdk.instruments.contracts import (
     CollectResultRequest,
     InstrumentOperationArgument,
     InstrumentStateAssignment,
+    InstrumentStateCommand,
     InvokeCommand,
 )
 
@@ -30,6 +31,15 @@ class RunHardwareApply(_HardwareModel):
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
     assignments: tuple[InstrumentStateAssignment, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_command(self) -> RunHardwareApply:
+        InstrumentStateCommand(
+            command_id=self.effect_id,
+            instrument_id=self.instrument_id,
+            assignments=list(self.assignments),
+        )
+        return self
 
 
 class RunHardwareInvoke(_HardwareModel):

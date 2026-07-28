@@ -48,6 +48,7 @@ from scopecat.sdk.instruments import (
     acquisition_result,
     apply_state_command_to_snapshot,
     bool_property,
+    component,
     discriminated_state,
     enum_property,
     float_property,
@@ -830,7 +831,7 @@ def test_state_command_uses_observed_discriminator_for_partial_patches() -> None
     ] == ["instrument_driver_state_case_mismatch"]
 
 
-def test_state_command_requires_a_discriminator_in_the_same_target_scope() -> None:
+def test_state_command_uses_physical_discriminator_across_logical_targets() -> None:
     description = _variant_description()
     baseline = InstrumentStateSnapshot(
         instrument_id="source-0",
@@ -839,13 +840,16 @@ def test_state_command_requires_a_discriminator_in_the_same_target_scope() -> No
                 interface_id="test.dc/v1",
                 property_id="mode",
                 value=StateValue("current"),
-                entity_ids=["channel-a"],
             ),
             RecordInstrumentPropertyState(
                 interface_id="test.dc/v1",
                 property_id="current_level",
                 value=StateValue(0.01),
-                entity_ids=["channel-a"],
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id="output_enabled",
+                value=StateValue(False),
             ),
         ],
     )
@@ -863,14 +867,54 @@ def test_state_command_requires_a_discriminator_in_the_same_target_scope() -> No
         ],
     )
 
-    assert [
-        item.code
-        for item in validate_state_command(
+    assert (
+        validate_state_command(
             command=patch,
             description=description,
             baseline=baseline,
         )
+        == []
+    )
+
+
+def test_state_command_can_require_an_explicit_discriminator() -> None:
+    patch = _variant_command(("current_level", 0.02))
+
+    assert [
+        item.code
+        for item in validate_state_command(
+            command=patch,
+            description=_variant_description(),
+            require_explicit_state_case=True,
+        )
     ] == ["instrument_driver_state_case_unknown"]
+
+
+def test_state_command_rejects_duplicate_physical_targets() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="instrument state command property targets must be unique",
+    ):
+        InstrumentStateCommand(
+            command_id="duplicate-physical-target",
+            instrument_id="source-0",
+            assignments=[
+                InstrumentStateAssignment(
+                    resource_id="source-0",
+                    interface_id="test.dc/v1",
+                    property_id="output_enabled",
+                    value=StateValue(False),
+                    entity_ids=["channel-a"],
+                ),
+                InstrumentStateAssignment(
+                    resource_id="source-0",
+                    interface_id="test.dc/v1",
+                    property_id="output_enabled",
+                    value=StateValue(False),
+                    entity_ids=["channel-b"],
+                ),
+            ],
+        )
 
 
 def test_state_command_rejects_mixed_or_explicitly_mismatched_cases() -> None:
@@ -895,6 +939,121 @@ def test_state_command_rejects_mixed_or_explicitly_mismatched_cases() -> None:
     assert [item.code for item in explicit_mismatch] == [
         "instrument_driver_state_case_mismatch"
     ]
+
+
+def test_instrument_property_state_contains_only_a_physical_target() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        RecordInstrumentPropertyState.model_validate(
+            {
+                "interface_id": "test.control/v1",
+                "property_id": "gain",
+                "value": 1.0,
+                "entity_ids": ["logical-channel"],
+            }
+        )
+
+
+def test_state_snapshot_requires_every_static_observable_scope() -> None:
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.static_state",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.control/v1",
+                properties=[
+                    float_property("gain"),
+                    string_property("secret", access="write_only"),
+                ],
+                components=[
+                    component(
+                        "channel-a",
+                        properties=[
+                            bool_property("enabled", access="read_only"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    empty = InstrumentStateSnapshot(instrument_id="source-0")
+
+    assert [
+        item.code
+        for item in validate_state_snapshot(
+            snapshot=empty,
+            description=description,
+        )
+    ] == [
+        "instrument_driver_snapshot_missing_properties",
+        "instrument_driver_snapshot_missing_properties",
+    ]
+
+    complete = InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.control/v1",
+                property_id="gain",
+                value=StateValue(1.0),
+            ),
+            RecordInstrumentPropertyState(
+                interface_id="test.control/v1",
+                component_path=["channel-a"],
+                property_id="enabled",
+                value=StateValue(True),
+            ),
+        ],
+    )
+    assert (
+        validate_state_snapshot(
+            snapshot=complete,
+            description=description,
+        )
+        == []
+    )
+
+    with_write_only = complete.model_copy(
+        update={
+            "properties": [
+                *complete.properties,
+                RecordInstrumentPropertyState(
+                    interface_id="test.control/v1",
+                    property_id="secret",
+                    value=StateValue("returned-secret"),
+                ),
+            ]
+        }
+    )
+    assert [
+        item.code
+        for item in validate_state_snapshot(
+            snapshot=with_write_only,
+            description=description,
+        )
+    ] == ["instrument_driver_snapshot_write_only_property"]
+
+
+def test_discriminated_snapshot_requires_common_and_active_case_state() -> None:
+    incomplete = InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.dc/v1",
+                property_id="mode",
+                value=StateValue("voltage"),
+            )
+        ],
+    )
+
+    [missing] = validate_state_snapshot(
+        snapshot=incomplete,
+        description=_variant_description(),
+    )
+
+    assert missing.code == "instrument_driver_snapshot_missing_properties"
+    assert "output_enabled" in missing.message
+    assert "voltage_level" in missing.message
 
 
 def test_state_snapshot_and_projection_preserve_one_active_case() -> None:

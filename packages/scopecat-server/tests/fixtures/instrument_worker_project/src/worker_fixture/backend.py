@@ -46,7 +46,9 @@ class _Driver:
     def __init__(self, instrument_id: str, project_root: Path) -> None:
         self.instrument_id = instrument_id
         self._project_root = project_root
-        self._state: dict[tuple[str, str], StateValue] = {}
+        self._state: dict[tuple[str, str], StateValue] = {
+            ("tests.control/v1", "gain"): StateValue(0.0)
+        }
 
     def describe(self) -> InstrumentDescription:
         return InstrumentDescription(

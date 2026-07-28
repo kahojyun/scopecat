@@ -201,6 +201,13 @@ class _InvokeReadbackDriver(_TrackingDriver):
         return InvokeReceipt(status="invoked")
 
 
+class _NonConvergingApplyDriver(_ResyncDriver):
+    @override
+    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+        self.applied.append(request)
+        return ApplyReceipt(status="applied")
+
+
 class _StatefulDriver(_TrackingDriver):
     def __init__(
         self,
@@ -208,10 +215,18 @@ class _StatefulDriver(_TrackingDriver):
         state: dict[tuple[str, str], StateValue],
     ) -> None:
         super().__init__(instrument_id)
+        for target, value in self._state.items():
+            state.setdefault(target, value)
         self._state = state
 
 
 class _VariantDriver(_TrackingDriver):
+    def __init__(self, instrument_id: str) -> None:
+        super().__init__(instrument_id)
+        self.mode = "voltage"
+        self.voltage_level = 0.1
+        self.current_level = 0.01
+
     @override
     def describe(self) -> InstrumentDescription:
         base = super().describe()
@@ -248,18 +263,21 @@ class _VariantDriver(_TrackingDriver):
 
     @override
     def read_state(self) -> InstrumentStateSnapshot:
+        level_property = "voltage_level" if self.mode == "voltage" else "current_level"
+        level = self.voltage_level if self.mode == "voltage" else self.current_level
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
             properties=[
+                *super().read_state().properties,
                 InstrumentPropertyState(
                     interface_id="test.dc/v1",
                     property_id="mode",
-                    value=StateValue("voltage"),
+                    value=StateValue(self.mode),
                 ),
                 InstrumentPropertyState(
                     interface_id="test.dc/v1",
-                    property_id="voltage_level",
-                    value=StateValue(0.1),
+                    property_id=level_property,
+                    value=StateValue(level),
                 ),
                 InstrumentPropertyState(
                     interface_id="test.dc/v1",
@@ -272,6 +290,16 @@ class _VariantDriver(_TrackingDriver):
     @override
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         self.applied.append(request)
+        for assignment in request.assignments:
+            if assignment.property_id == "mode":
+                assert isinstance(assignment.value.root, str)
+                self.mode = assignment.value.root
+            elif assignment.property_id == "voltage_level":
+                assert isinstance(assignment.value.root, float)
+                self.voltage_level = assignment.value.root
+            elif assignment.property_id == "current_level":
+                assert isinstance(assignment.value.root, float)
+                self.current_level = assignment.value.root
         return ApplyReceipt(status="applied")
 
 
@@ -567,6 +595,64 @@ def test_invoke_without_reported_state_reads_back_before_returning(
             assert driver.read_count == reads_before_invoke + 1
 
 
+def test_apply_without_reported_state_reads_back_before_returning(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+                actor="alice",
+            )
+            _ = handle.session_id
+            [driver] = provider.drivers
+            assert isinstance(driver, _ResyncDriver)
+            reads_before_apply = driver.read_count
+
+            receipt = handle.apply(
+                "test.set_frequency/v1",
+                frequency=Quantity(value=5.1, unit="GHz"),
+            )
+            handle.close()
+
+            assert receipt.status == "applied"
+            assert receipt.state is not None
+            assert driver.read_count == reads_before_apply + 1
+
+
+def test_apply_readback_must_confirm_the_requested_state(tmp_path: Path) -> None:
+    provider = _TrackingProvider(_NonConvergingApplyDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-non-converging",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+
+            with pytest.raises(
+                DaemonConflictError,
+                match="readback did not match requested state",
+            ):
+                daemon.apply_instrument_state(
+                    session.session_id,
+                    "source-0",
+                    _apply_command(value=5.1),
+                )
+
+            [driver] = provider.drivers
+            assert isinstance(driver, _NonConvergingApplyDriver)
+            [instrument] = daemon.list_instruments().items
+            assert len(driver.applied) == 1
+            assert driver.read_count == 2
+            assert driver.disconnect_count == 1
+            assert instrument.availability == "quarantined"
+
+
 def test_interactive_apply_tracks_observed_discriminated_state(
     tmp_path: Path,
 ) -> None:
@@ -611,7 +697,9 @@ def test_interactive_apply_tracks_observed_discriminated_state(
 
             assert switched.state is not None
             switched_properties = {
-                item.property_id: item.value.root for item in switched.state.properties
+                item.property_id: item.value.root
+                for item in switched.state.properties
+                if item.interface_id == "test.dc/v1"
             }
             assert switched_properties == {
                 "current_level": 0.02,
@@ -663,6 +751,38 @@ def test_operation_retry_is_deduplicated_and_conflicting_content_is_rejected(
             daemon.close_instrument_session(session.session_id)
 
 
+def test_apply_rejects_logical_assignments_for_one_physical_property(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-duplicate-physical-property",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            payload = _apply_command(value=5.1).model_dump(mode="json")
+            duplicate = dict(payload["assignments"][0])
+            duplicate["entity_ids"] = ["sample"]
+            payload["assignments"].append(duplicate)
+
+            response = transport.post(
+                "/api/v1/instrument-sessions/"
+                f"{session.session_id}/instruments/source-0/state/apply",
+                json=payload,
+            )
+
+            assert response.status_code == 422
+            assert "property targets must be unique" in response.text
+            [driver] = provider.drivers
+            assert driver.applied == []
+            daemon.close_instrument_session(session.session_id)
+
+
 def test_open_retry_reuses_session_without_reprovisioning(tmp_path: Path) -> None:
     provider = _TrackingProvider()
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
@@ -705,7 +825,7 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
 
             [driver] = provider.drivers
             assert isinstance(driver, _ResyncDriver)
-            assert driver.read_count == 1
+            assert driver.read_count == 2
             driver.change_from_front_panel(5.1)
 
             second = daemon.open_instrument_session(
@@ -716,7 +836,7 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
                 )
             )
             assert provider.drivers == [driver]
-            assert driver.read_count == 2
+            assert driver.read_count == 3
             second_apply = daemon.apply_instrument_state(
                 second.session_id,
                 "source-0",
@@ -725,6 +845,7 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
             daemon.close_instrument_session(second.session_id)
 
             assert second_apply.status == "applied"
+            assert driver.read_count == 4
             assert len(driver.applied) == 2
             assert [
                 request.assignments[0].value.root for request in driver.applied
@@ -1363,7 +1484,11 @@ def test_provider_instance_and_virtual_state_survive_across_sessions(
         )
         daemon.close_instrument_session(second.session_id)
 
-    [property_state] = state.properties
+    property_state = next(
+        item
+        for item in state.properties
+        if item.interface_id == "test.set_frequency/v1"
+    )
     assert property_state.value == StateValue(Quantity(value=5.1, unit="GHz"))
 
 

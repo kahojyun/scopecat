@@ -198,7 +198,7 @@ describe("config snapshot import boundary", () => {
     expect(
       parseConfigProfileJson(
         JSON.stringify({
-          format_version: "scopecat.config_snapshot.v4",
+          format_version: "scopecat.config_snapshot.v5",
           ...config,
         }),
       ),
@@ -208,7 +208,7 @@ describe("config snapshot import boundary", () => {
       parseConfigProfileJson(
         JSON.stringify({
           ...config,
-          format_version: "scopecat.config_snapshot.v3",
+          format_version: "scopecat.config_snapshot.v4",
         }),
       ),
     ).toThrow("Unsupported config snapshot format");

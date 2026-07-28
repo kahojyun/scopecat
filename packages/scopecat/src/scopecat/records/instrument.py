@@ -16,15 +16,11 @@ type _NonEmptyId = Annotated[str, Field(min_length=1)]
 type StateTargetScopeIdentity = tuple[
     str,
     tuple[str, ...],
-    tuple[str, ...],
-    tuple[tuple[str, str, str | None], ...],
 ]
 type PropertyTargetIdentity = tuple[
     str,
     tuple[str, ...],
     str,
-    tuple[str, ...],
-    tuple[tuple[str, str, str | None], ...],
 ]
 
 
@@ -63,23 +59,12 @@ def validate_entity_target(
 def state_target_scope_identity(
     interface_id: str,
     component_path: Sequence[str],
-    entity_ids: Sequence[str],
-    channel_bindings: Sequence[CommandChannelBinding],
 ) -> StateTargetScopeIdentity:
-    """Identify one independently discriminated instrument-state scope."""
+    """Identify one physical instrument-state scope."""
 
     return (
         interface_id,
         tuple(component_path),
-        tuple(entity_ids),
-        tuple(
-            (
-                binding.entity_id,
-                binding.channel_id,
-                binding.interface_id,
-            )
-            for binding in channel_bindings
-        ),
     )
 
 
@@ -87,21 +72,15 @@ def property_target_identity(
     interface_id: str,
     component_path: Sequence[str],
     property_id: str,
-    entity_ids: Sequence[str],
-    channel_bindings: Sequence[CommandChannelBinding],
 ) -> PropertyTargetIdentity:
     scope = state_target_scope_identity(
         interface_id,
         component_path,
-        entity_ids,
-        channel_bindings,
     )
     return (
         scope[0],
         scope[1],
         property_id,
-        scope[2],
-        scope[3],
     )
 
 
@@ -110,22 +89,19 @@ def property_target_sort_key(identity: PropertyTargetIdentity) -> str:
 
 
 class InstrumentPropertyState(BaseModel):
+    """One physical persistent-property value."""
+
     model_config = ConfigDict(extra="forbid")
 
     interface_id: InterfaceId
     component_path: list[_NonEmptyId] = Field(default_factory=list)
     property_id: _NonEmptyId
     value: StateValue
-    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
-    channel_bindings: list[CommandChannelBinding] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_target(self) -> InstrumentPropertyState:
-        validate_entity_target(self.entity_ids, self.channel_bindings)
-        return self
 
 
 class InstrumentStateSnapshot(BaseModel):
+    """Complete observable persistent state for one physical instrument."""
+
     model_config = ConfigDict(extra="forbid")
 
     instrument_id: str
@@ -139,8 +115,6 @@ class InstrumentStateSnapshot(BaseModel):
                 item.interface_id,
                 item.component_path,
                 item.property_id,
-                item.entity_ids,
-                item.channel_bindings,
             )
             for item in self.properties
         ]

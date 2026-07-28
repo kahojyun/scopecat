@@ -94,7 +94,11 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
         ),
     )
     state = endpoint.read_state(connection.handle)
-    assert state.properties[0].value == number_state(2.0)
+    assert next(
+        item.value
+        for item in state.properties
+        if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
+    ) == number_state(2.0)
     receipt = endpoint.collect(
         connection.handle,
         DriverCollectRequest(

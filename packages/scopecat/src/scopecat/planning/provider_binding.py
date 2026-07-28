@@ -22,7 +22,6 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
-from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     InstrumentProviderContext,
@@ -255,19 +254,14 @@ def _validate_default_state(
             component_path=list(item.component_path),
             property_id=item.property_id,
             value=item.value,
-            entity_ids=list(item.entity_ids),
-            channel_bindings=[
-                binding.model_copy(deep=True) for binding in item.channel_bindings
-            ],
         )
         for item in instrument.default_state
     ]
-    # An empty authoritative baseline requires case-local defaults to switch modes.
     issues = validate_reconciled_state_assignments(
         instrument_id=instrument.id,
         assignments=assignments,
         description=description,
-        baseline=InstrumentStateSnapshot(instrument_id=instrument.id),
+        require_explicit_state_case=True,
     )
     location = model_location(
         "config",

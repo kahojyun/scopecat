@@ -133,7 +133,11 @@ class TestSignalInstrument:
     ) -> None:
         self.instrument_id = instrument_id
         self.result_ids = ("signal", *additional_result_ids)
-        self._state: dict[tuple[str, str], StateValue] = {}
+        self._state: dict[tuple[str, str], StateValue] = {
+            ("test.set_frequency/v1", "frequency"): StateValue(
+                Quantity(value=5.0, unit="GHz")
+            )
+        }
         self.applied_requests: list[DriverApplyRequest] = []
         self.invoked_requests: list[DriverInvokeRequest] = []
         self.collect_requests: list[DriverCollectRequest] = []

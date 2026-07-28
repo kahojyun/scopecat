@@ -33,7 +33,12 @@ class SignalInstrumentDriver:
         self._instrument_id = instrument_id
         self.implementation_id = "tests.signal_driver"
         self.implementation_version = "v0"
-        self._state: dict[tuple[str, str], StateValue] = {}
+        self._state: dict[tuple[str, str], StateValue] = {
+            ("test.set_frequency/v1", "frequency"): StateValue(
+                Quantity(value=4.0, unit="GHz")
+            ),
+            ("test.set_gain/v1", "gain"): StateValue(0.0),
+        }
         self.applied: list[DriverApplyRequest] = []
         self.invoked: list[DriverInvokeRequest] = []
         self.collect_requests: list[DriverCollectRequest] = []

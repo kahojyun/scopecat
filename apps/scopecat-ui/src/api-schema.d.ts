@@ -1412,14 +1412,13 @@ export interface components {
         };
         InstrumentOperationScalarWire: components["schemas"]["_InstrumentOperationScalarModel"];
         InstrumentPropertyScalarWire: components["schemas"]["_InstrumentPropertyScalarModel"];
-        /** InstrumentPropertyState */
+        /**
+         * InstrumentPropertyState
+         * @description One physical persistent-property value.
+         */
         InstrumentPropertyState: {
-            /** Channel Bindings */
-            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
             /** Component Path */
             component_path?: components["schemas"]["_NonEmptyId"][];
-            /** Entity Ids */
-            entity_ids?: components["schemas"]["_NonEmptyId"][];
             interface_id: components["schemas"]["InterfaceId"];
             property_id: components["schemas"]["_NonEmptyId"];
             value: components["schemas"]["StateValue"];
@@ -1540,7 +1539,10 @@ export interface components {
             command_id: components["schemas"]["_NonEmptyId"];
             instrument_id: components["schemas"]["_NonEmptyId"];
         };
-        /** InstrumentStateSnapshot */
+        /**
+         * InstrumentStateSnapshot
+         * @description Complete observable persistent state for one physical instrument.
+         */
         InstrumentStateSnapshot: {
             /** Instrument Id */
             instrument_id: string;

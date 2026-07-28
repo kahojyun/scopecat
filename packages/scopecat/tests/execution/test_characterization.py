@@ -463,7 +463,7 @@ def test_driver_disconnect_failure_is_reported_after_terminal_read() -> None:
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert driver.disconnect_count == 1
-    assert driver.read_count_when_disconnected == 2
+    assert driver.read_count_when_disconnected == 3
     assert "hardware_finalization_unknown" in {item.code for item in result.problems}
 
 
@@ -586,7 +586,11 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     assert len(first.applied) == 1
     assert second.applied == []
     assert result.final_state[0] != result.prepared_state[0]
-    assert result.final_state[0].properties[0].value == StateValue(1.0)
+    assert next(
+        item.value
+        for item in result.final_state[0].properties
+        if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
+    ) == StateValue(1.0)
 
 
 def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:

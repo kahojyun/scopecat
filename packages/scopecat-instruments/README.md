@@ -99,6 +99,9 @@ Every run first synchronizes the device. `preserve` retains that observed
 state; `apply_default_state` then applies the saved partial public state.
 Unspecified and private driver settings remain untouched.
 
+Driver snapshots contain complete public physical state. Experiment entity and
+channel bindings are routing provenance, not fields a driver reads back.
+
 Connection `options` are intentionally narrow:
 
 - Yokogawa GS200: `monitor_option` (`bool`, default `false`);

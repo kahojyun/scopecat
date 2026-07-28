@@ -340,6 +340,7 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             ("signal-use", Quantity(value=1.0, unit="ratio"))
         ]
         assert len(driver.applied) == 1
+        assert driver.read_count == 2
         assert len(driver.collect_requests) == 1
 
         unchanged = _batch_command(
@@ -390,7 +391,7 @@ def test_run_start_applies_default_state_after_fresh_observation(
         InstrumentPropertyState(
             interface_id="test.set_frequency/v1",
             property_id="frequency",
-            value=StateValue(Quantity(value=5.0, unit="GHz")),
+            value=StateValue(Quantity(value=5.1, unit="GHz")),
         )
     )
     with _runtime(tmp_path, provider) as runtime:
@@ -403,10 +404,26 @@ def test_run_start_applies_default_state_after_fresh_observation(
         assert replay == provision
         [observed] = provision.observed_state
         [reconciled] = provision.prepared_state
-        assert observed.properties == []
         assert {
-            item.property_id: item.value.root for item in reconciled.properties
-        } == {"frequency": Quantity(value=5.0, unit="GHz")}
+            (item.interface_id, item.property_id): item.value.root
+            for item in observed.properties
+        } == {
+            ("test.set_frequency/v1", "frequency"): Quantity(
+                value=4.0,
+                unit="GHz",
+            ),
+            ("test.set_gain/v1", "gain"): 0.0,
+        }
+        assert {
+            (item.interface_id, item.property_id): item.value.root
+            for item in reconciled.properties
+        } == {
+            ("test.set_frequency/v1", "frequency"): Quantity(
+                value=5.1,
+                unit="GHz",
+            ),
+            ("test.set_gain/v1", "gain"): 0.0,
+        }
         [driver] = provider.drivers
         assert len(driver.applied) == 1
         [assignment] = driver.applied[0].assignments

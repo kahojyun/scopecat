@@ -76,6 +76,10 @@ and shuts down the endpoint. If driver cleanup exceeds the shutdown grace
 period, the daemon fences the whole worker generation; pending consequential
 calls become unknown and the worker is terminated.
 
+A state snapshot is complete public physical state for every advertised static
+component. Logical entity and channel bindings remain command provenance; they
+are resolved before a driver request and never become device-state identity.
+
 An explicit state refresh is read-only. If it fails, or the driver returns an
 invalid snapshot, the daemon ends the whole multi-instrument ownership epoch
 and faults every connection without issuing hardware aborts. The durable
@@ -156,7 +160,7 @@ Example:
 }
 ```
 
-`default_state` is a reusable partial public state profile. It may be saved
+`default_state` is a reusable partial public physical-state profile. It may be saved
 independently of how runs start, so interactive tools can apply it explicitly.
 `run_start` is required for every instrument:
 
