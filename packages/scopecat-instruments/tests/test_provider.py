@@ -10,6 +10,8 @@ import pytest
 from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
+    InstrumentBindingSpec,
+    InstrumentConnection,
     InstrumentRegistry,
     InstrumentSpec,
     SystemSpec,
@@ -23,12 +25,19 @@ from scopecat.sdk.instruments import (
     DriverFault,
     InstrumentConnectionContext,
     InstrumentProviderContext,
+    InstrumentProviderDescription,
 )
 
 from scopecat_instruments.drivers import YokogawaGS200
 from scopecat_instruments.provider import (
+    KEYSIGHT_E5080B,
+    LAKESHORE_372,
     ROHDE_SCHWARZ_SGS100A,
+    SUPPORTED_DRIVER_IDS,
     VIRTUAL_DC_SOURCE,
+    VIRTUAL_RF_SOURCE,
+    VIRTUAL_TEMPERATURE_MONITOR,
+    VIRTUAL_VNA,
     YOKOGAWA_GS200,
     ConfiguredInstrumentProvider,
 )
@@ -51,6 +60,19 @@ def test_driver_id_catalog_does_not_import_driver_implementations() -> None:
         ],
         check=True,
     )
+
+
+def test_registered_driver_ids_match_the_lightweight_catalog() -> None:
+    assert {
+        YOKOGAWA_GS200,
+        ROHDE_SCHWARZ_SGS100A,
+        LAKESHORE_372,
+        KEYSIGHT_E5080B,
+        VIRTUAL_RF_SOURCE,
+        VIRTUAL_DC_SOURCE,
+        VIRTUAL_TEMPERATURE_MONITOR,
+        VIRTUAL_VNA,
+    } == SUPPORTED_DRIVER_IDS
 
 
 class _IdnServer:
@@ -108,6 +130,23 @@ def _config(*specs: InstrumentSpec) -> ConfigProfileSnapshot:
             parameter_catalog=ParameterCatalog(id="empty", definitions=[]),
         ),
         parameter_snapshot=ParameterSnapshot(id="empty", values=[]),
+    )
+
+
+def _describe_binding(
+    driver_id: str,
+    connection: InstrumentConnection,
+) -> InstrumentProviderDescription:
+    return ConfiguredInstrumentProvider().describe(
+        InstrumentProviderContext(
+            bindings=(
+                InstrumentBindingSpec(
+                    id="device",
+                    driver_id=driver_id,
+                    connection=connection,
+                ),
+            )
+        )
     )
 
 
@@ -232,28 +271,57 @@ def test_provider_rejects_gs200_without_requested_monitor_option() -> None:
 
 
 @pytest.mark.parametrize(
-    "option",
-    ["monitor_option", "remote_sense", "guard_enabled"],
-)
-def test_provider_requires_boolean_gs200_profile_options(option: str) -> None:
-    config = _config(
-        InstrumentSpec(
-            id="bias",
-            exclusivity_key="bias",
-            driver_id=YOKOGAWA_GS200,
-            connection=TcpipSocketInstrumentConnection(
+    ("driver_id", "connection"),
+    [
+        (
+            YOKOGAWA_GS200,
+            TcpipSocketInstrumentConnection(
                 host="127.0.0.1",
-                port=7655,
-                options={option: "yes"},
+                port=5025,
+                options={"monitor_option": "yes"},
             ),
-            run_start="preserve",
-        )
-    )
+        ),
+        (
+            KEYSIGHT_E5080B,
+            TcpipSocketInstrumentConnection(
+                host="127.0.0.1",
+                port=5025,
+                options={"channel": 0},
+            ),
+        ),
+        (
+            VIRTUAL_DC_SOURCE,
+            VirtualInstrumentConnection(options={"seed": 7}),
+        ),
+    ],
+)
+def test_provider_validates_registered_options(
+    driver_id: str,
+    connection: InstrumentConnection,
+) -> None:
+    description = _describe_binding(driver_id, connection)
+    assert description.instruments == ()
+    assert description.problems[0].code == "instrument_driver_configuration_invalid"
 
-    description = ConfiguredInstrumentProvider().describe(
-        InstrumentProviderContext(bindings=instrument_bindings(config))
-    )
 
+@pytest.mark.parametrize(
+    ("driver_id", "connection"),
+    [
+        (
+            VIRTUAL_DC_SOURCE,
+            TcpipSocketInstrumentConnection(host="127.0.0.1", port=5025),
+        ),
+        (
+            ROHDE_SCHWARZ_SGS100A,
+            VirtualInstrumentConnection(),
+        ),
+    ],
+)
+def test_provider_uses_the_registered_connection_kind(
+    driver_id: str,
+    connection: InstrumentConnection,
+) -> None:
+    description = _describe_binding(driver_id, connection)
     assert description.instruments == ()
     assert description.problems[0].code == "instrument_driver_configuration_invalid"
 

@@ -129,6 +129,10 @@ returns monitored current, while current-source mode returns monitored voltage.
 
 Connection `options` are intentionally narrow:
 
+Each registered driver declares its connection kind and a strict options model.
+Unknown fields and coerced scalar values are rejected during configuration
+discovery.
+
 - Yokogawa GS200: `monitor_option` requests `/MON` support (`bool`, default
   `false`) and is verified with `*OPT?` when the connection opens;
 - Yokogawa GS200: `remote_sense` and `guard_enabled` (`bool`, both default

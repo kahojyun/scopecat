@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
+from typing import Protocol
 
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from scopecat.sdk.instruments import (
     DriverFault,
     InstrumentBindingSpec,
@@ -23,7 +27,6 @@ from scopecat_instruments.driver_ids import (
     KEYSIGHT_E5080B,
     LAKESHORE_372,
     ROHDE_SCHWARZ_SGS100A,
-    SUPPORTED_DRIVER_IDS,
     VIRTUAL_DC_SOURCE,
     VIRTUAL_RF_SOURCE,
     VIRTUAL_TEMPERATURE_MONITOR,
@@ -45,16 +48,118 @@ from scopecat_instruments.virtual import (
     VirtualTemperatureMonitor,
 )
 
-type _ConfiguredDriver = (
-    YokogawaGS200
-    | RohdeSchwarzSGS100A
-    | LakeShore372
-    | KeysightE5080B
-    | VirtualRfSource
-    | VirtualDcSource
-    | VirtualTemperatureMonitor
-    | VirtualNetworkAnalyzer
+
+class _ConnectionOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class _NoConnectionOptions(_ConnectionOptions):
+    pass
+
+
+class _Gs200ConnectionOptions(_ConnectionOptions):
+    monitor_option: bool = False
+    remote_sense: bool = False
+    guard_enabled: bool = False
+
+
+class _E5080BConnectionOptions(_ConnectionOptions):
+    channel: int = Field(default=1, ge=1)
+    measurement: int = Field(default=1, ge=1)
+
+
+class _IdentifiableDriver(InstrumentDriver, Protocol):
+    def identify(self) -> ScpiIdentity: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _TcpScpiDriverDefinition:
+    driver_id: str
+    create: Callable[
+        [str, ScpiTransport, dict[str, JsonValue]],
+        _IdentifiableDriver,
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class _VirtualDriverDefinition:
+    driver_id: str
+    factory: Callable[[str, VirtualLabWorld], InstrumentDriver]
+
+
+type _DriverDefinition = _TcpScpiDriverDefinition | _VirtualDriverDefinition
+
+
+def _tcp_driver_definition[OptionsT: _ConnectionOptions](
+    driver_id: str,
+    options_type: type[OptionsT],
+    factory: Callable[[str, ScpiTransport, OptionsT], _IdentifiableDriver],
+) -> _TcpScpiDriverDefinition:
+    def create(
+        instrument_id: str,
+        transport: ScpiTransport,
+        raw_options: dict[str, JsonValue],
+    ) -> _IdentifiableDriver:
+        return factory(
+            instrument_id,
+            transport,
+            options_type.model_validate(raw_options),
+        )
+
+    return _TcpScpiDriverDefinition(
+        driver_id=driver_id,
+        create=create,
+    )
+
+
+_DEFINITIONS: tuple[_DriverDefinition, ...] = (
+    _tcp_driver_definition(
+        YOKOGAWA_GS200,
+        _Gs200ConnectionOptions,
+        lambda instrument_id, transport, options: YokogawaGS200(
+            instrument_id,
+            transport,
+            monitor_option=options.monitor_option,
+            remote_sense=options.remote_sense,
+            guard_enabled=options.guard_enabled,
+        ),
+    ),
+    _tcp_driver_definition(
+        ROHDE_SCHWARZ_SGS100A,
+        _NoConnectionOptions,
+        lambda instrument_id, transport, _options: RohdeSchwarzSGS100A(
+            instrument_id,
+            transport,
+        ),
+    ),
+    _tcp_driver_definition(
+        LAKESHORE_372,
+        _NoConnectionOptions,
+        lambda instrument_id, transport, _options: LakeShore372(
+            instrument_id,
+            transport,
+        ),
+    ),
+    _tcp_driver_definition(
+        KEYSIGHT_E5080B,
+        _E5080BConnectionOptions,
+        lambda instrument_id, transport, options: KeysightE5080B(
+            instrument_id,
+            transport,
+            channel=options.channel,
+            measurement=options.measurement,
+        ),
+    ),
+    _VirtualDriverDefinition(VIRTUAL_RF_SOURCE, VirtualRfSource),
+    _VirtualDriverDefinition(VIRTUAL_DC_SOURCE, VirtualDcSource),
+    _VirtualDriverDefinition(
+        VIRTUAL_TEMPERATURE_MONITOR,
+        VirtualTemperatureMonitor,
+    ),
+    _VirtualDriverDefinition(VIRTUAL_VNA, VirtualNetworkAnalyzer),
 )
+_DRIVERS = {definition.driver_id: definition for definition in _DEFINITIONS}
+SUPPORTED_DRIVER_IDS = frozenset(_DRIVERS)
 
 
 class ConfiguredInstrumentProvider:
@@ -83,11 +188,7 @@ class ConfiguredInstrumentProvider:
         descriptions: list[InstrumentDescription] = []
         for index, binding in enumerate(context.bindings):
             try:
-                driver = self._build_driver(
-                    binding,
-                    transport=self._transport_for(binding),
-                )
-                descriptions.append(driver.describe())
+                descriptions.append(_describe_driver(binding, self.world))
             except Exception as error:
                 problems.append(_configuration_problem(binding, index, error))
         return InstrumentProviderDescription(
@@ -101,117 +202,15 @@ class ConfiguredInstrumentProvider:
         context: InstrumentConnectionContext,
     ) -> InstrumentDriver:
         binding = context.binding
-        driver: _ConfiguredDriver | None = None
         try:
-            transport = self._transport_for(binding)
-            driver = self._build_driver(binding, transport=transport)
-            self._probe_real_driver(driver)
-            return driver
+            return _connect_driver(binding, self.world)
         except Exception as error:
-            if driver is not None:
-                with suppress(Exception):
-                    driver.disconnect()
             if isinstance(error, DriverFault):
                 raise
             raise DriverFault(_connection_problem(binding, error)) from error
 
-    def _transport_for(self, binding: InstrumentBindingSpec) -> ScpiTransport:
-        if binding.driver_id not in SUPPORTED_DRIVER_IDS:
-            raise ValueError(f"unsupported instrument driver_id {binding.driver_id!r}")
-        if binding.driver_id.startswith("scopecat.virtual."):
-            if not isinstance(binding.connection, VirtualInstrumentConnection):
-                raise ValueError(f"{binding.driver_id} requires a virtual connection")
-            return _NoIoTransport()
-        connection = binding.connection
-        if not isinstance(connection, TcpipSocketInstrumentConnection):
-            raise ValueError(
-                f"{binding.driver_id} v1 supports only tcpip_socket connections"
-            )
-        return TcpScpiTransport(
-            connection.host,
-            connection.port,
-            timeout_seconds=connection.timeout_seconds,
-        )
 
-    def _build_driver(
-        self,
-        binding: InstrumentBindingSpec,
-        *,
-        transport: ScpiTransport,
-    ) -> _ConfiguredDriver:
-        driver_id = binding.driver_id
-        if driver_id == YOKOGAWA_GS200:
-            _check_options(
-                binding,
-                {"monitor_option", "remote_sense", "guard_enabled"},
-            )
-            return YokogawaGS200(
-                binding.id,
-                transport,
-                monitor_option=_bool_option(
-                    binding,
-                    "monitor_option",
-                    default=False,
-                ),
-                remote_sense=_bool_option(
-                    binding,
-                    "remote_sense",
-                    default=False,
-                ),
-                guard_enabled=_bool_option(
-                    binding,
-                    "guard_enabled",
-                    default=False,
-                ),
-            )
-        if driver_id == ROHDE_SCHWARZ_SGS100A:
-            _check_options(binding, set())
-            return RohdeSchwarzSGS100A(binding.id, transport)
-        if driver_id == LAKESHORE_372:
-            _check_options(binding, set())
-            return LakeShore372(binding.id, transport)
-        if driver_id == KEYSIGHT_E5080B:
-            _check_options(binding, {"channel", "measurement"})
-            return KeysightE5080B(
-                binding.id,
-                transport,
-                channel=_int_option(binding, "channel", default=1),
-                measurement=_int_option(binding, "measurement", default=1),
-            )
-        if driver_id == VIRTUAL_RF_SOURCE:
-            _require_virtual(binding)
-            _check_options(binding, set())
-            return VirtualRfSource(binding.id, self.world)
-        if driver_id == VIRTUAL_DC_SOURCE:
-            _require_virtual(binding)
-            _check_options(binding, set())
-            return VirtualDcSource(binding.id, self.world)
-        if driver_id == VIRTUAL_TEMPERATURE_MONITOR:
-            _require_virtual(binding)
-            _check_options(binding, set())
-            return VirtualTemperatureMonitor(binding.id, self.world)
-        if driver_id == VIRTUAL_VNA:
-            _require_virtual(binding)
-            _check_options(binding, set())
-            return VirtualNetworkAnalyzer(binding.id, self.world)
-        raise AssertionError(f"unreachable supported driver_id {driver_id!r}")
-
-    @staticmethod
-    def _probe_real_driver(
-        driver: _ConfiguredDriver,
-    ) -> ScpiIdentity | None:
-        if isinstance(driver, YokogawaGS200):
-            return driver.identify()
-        if isinstance(driver, RohdeSchwarzSGS100A):
-            return driver.identify()
-        if isinstance(driver, LakeShore372):
-            return driver.identify()
-        if isinstance(driver, KeysightE5080B):
-            return driver.identify()
-        return None
-
-
-class _NoIoTransport:
+class _DescriptionOnlyTransport:
     def write(self, command: str) -> None:
         raise RuntimeError(f"description-only transport cannot write {command!r}")
 
@@ -222,41 +221,76 @@ class _NoIoTransport:
         pass
 
 
-def _require_virtual(binding: InstrumentBindingSpec) -> None:
-    if not isinstance(binding.connection, VirtualInstrumentConnection):
-        raise ValueError(f"{binding.driver_id} requires a virtual connection")
+def _driver_definition(driver_id: str) -> _DriverDefinition:
+    definition = _DRIVERS.get(driver_id)
+    if definition is None:
+        raise ValueError(f"unsupported instrument driver_id {driver_id!r}")
+    return definition
 
 
-def _check_options(binding: InstrumentBindingSpec, supported: set[str]) -> None:
-    unknown = sorted(set(binding.connection.options) - supported)
-    if unknown:
+def _describe_driver(
+    binding: InstrumentBindingSpec,
+    world: VirtualLabWorld,
+) -> InstrumentDescription:
+    definition = _driver_definition(binding.driver_id)
+    if isinstance(definition, _VirtualDriverDefinition):
+        return _create_virtual_driver(definition, binding, world).describe()
+    connection = _require_tcp_connection(definition, binding)
+    return definition.create(
+        binding.id,
+        _DescriptionOnlyTransport(),
+        connection.options,
+    ).describe()
+
+
+def _connect_driver(
+    binding: InstrumentBindingSpec,
+    world: VirtualLabWorld,
+) -> InstrumentDriver:
+    definition = _driver_definition(binding.driver_id)
+    if isinstance(definition, _VirtualDriverDefinition):
+        return _create_virtual_driver(definition, binding, world)
+    connection = _require_tcp_connection(definition, binding)
+    driver = definition.create(
+        binding.id,
+        TcpScpiTransport(
+            connection.host,
+            connection.port,
+            timeout_seconds=connection.timeout_seconds,
+        ),
+        connection.options,
+    )
+    try:
+        driver.identify()
+    except Exception:
+        with suppress(Exception):
+            driver.disconnect()
+        raise
+    return driver
+
+
+def _create_virtual_driver(
+    definition: _VirtualDriverDefinition,
+    binding: InstrumentBindingSpec,
+    world: VirtualLabWorld,
+) -> InstrumentDriver:
+    connection = binding.connection
+    if not isinstance(connection, VirtualInstrumentConnection):
+        raise ValueError(f"{definition.driver_id} requires a virtual connection")
+    _NoConnectionOptions.model_validate(connection.options)
+    return definition.factory(binding.id, world)
+
+
+def _require_tcp_connection(
+    definition: _TcpScpiDriverDefinition,
+    binding: InstrumentBindingSpec,
+) -> TcpipSocketInstrumentConnection:
+    connection = binding.connection
+    if not isinstance(connection, TcpipSocketInstrumentConnection):
         raise ValueError(
-            f"unsupported {binding.driver_id} connection options: {', '.join(unknown)}"
+            f"{definition.driver_id} supports only tcpip_socket connections"
         )
-
-
-def _bool_option(
-    binding: InstrumentBindingSpec,
-    key: str,
-    *,
-    default: bool,
-) -> bool:
-    value = binding.connection.options.get(key, default)
-    if not isinstance(value, bool):
-        raise ValueError(f"{binding.driver_id} option {key!r} must be boolean")
-    return value
-
-
-def _int_option(
-    binding: InstrumentBindingSpec,
-    key: str,
-    *,
-    default: int,
-) -> int:
-    value = binding.connection.options.get(key, default)
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{binding.driver_id} option {key!r} must be an integer")
-    return value
+    return connection
 
 
 def _configuration_problem(
