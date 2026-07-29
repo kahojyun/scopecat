@@ -71,6 +71,7 @@ from scopecat.sdk.instruments import (
     state_discriminated_acquisition,
 )
 from scopecat.sdk.instruments.contracts import (
+    ApplyReceipt,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InteractiveCollectIntent,
@@ -92,6 +93,32 @@ _DC_MODE = _DC.property("mode")
 _DC_VOLTAGE_LEVEL = _DC.property("voltage_level")
 _DC_CURRENT_LEVEL = _DC.property("current_level")
 _SESSION_LEASE_TTL = timedelta(seconds=90)
+
+
+def test_interactive_replay_ledger_keeps_only_the_recent_window() -> None:
+    ledger = instrument_service_module._InstrumentOperationLedger()
+    replay = instrument_service_module._ApplyReplay(
+        command=InstrumentStateCommand(
+            command_id="replay-window",
+            instrument_id="source-0",
+            assignments=[
+                InstrumentStateAssignment(
+                    resource_id="source-0",
+                    interface_id=_SET_FREQUENCY.interface_id,
+                    component_path=[],
+                    property_id=_SET_FREQUENCY.property_id,
+                    value=StateValue(1.0),
+                )
+            ],
+        ),
+        receipt=ApplyReceipt(),
+    )
+
+    for index in range(instrument_service_module._INTERACTIVE_REPLAY_LIMIT + 1):
+        ledger.remember(f"command-{index}", replay)
+
+    assert ledger.replay("command-0") is None
+    assert ledger.replay("command-1") is replay
 
 
 class _TrackingDriver(SignalInstrumentDriver):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -58,8 +59,6 @@ from scopecat.kernel.problems import (
     RuntimeLocation,
     problem,
 )
-from scopecat.kernel.state import StateValue
-from scopecat.kernel.value_identity import scalar_identity
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.provider_validation import (
@@ -75,10 +74,7 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
-from scopecat.records.instrument import (
-    InstrumentStateSnapshot,
-    property_target_identity,
-)
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import (
@@ -105,11 +101,9 @@ from scopecat.sdk.instruments.contracts import (
     resolve_interactive_collect,
     validate_collect_command,
     validate_collect_plan,
-    validate_collect_receipt,
     validate_invoke_command,
     validate_reconciled_state_assignments,
     validate_state_command,
-    validate_state_snapshot,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
 from scopecat.sdk.runtime_problems import contextualize_problems
@@ -128,16 +122,41 @@ from .instrument_backend import (
     InstrumentBackendRejected,
     InstrumentBackendUnavailable,
 )
+from .instrument_command_executor import (
+    InstrumentCommandExecutionError,
+    execute_instrument_apply,
+    execute_instrument_collect,
+    execute_instrument_invoke,
+    observe_instrument,
+    state_assignment_satisfied,
+)
 from .payload_service import CommandPayloadService
 
 type _BackendHardwareRequest = (
     BackendApplyRequest | BackendInvokeRequest | BackendCollectRequest
 )
 
+_INTERACTIVE_REPLAY_LIMIT = 256
+
 
 @dataclass(slots=True)
 class _InstrumentOperationLedger:
-    operations: dict[str, _InstrumentOperationReplay] = field(default_factory=dict)
+    _operations: OrderedDict[str, _InstrumentOperationReplay] = field(
+        default_factory=OrderedDict
+    )
+
+    def replay(self, command_id: str) -> _InstrumentOperationReplay | None:
+        return self._operations.get(command_id)
+
+    def remember(
+        self,
+        command_id: str,
+        replay: _InstrumentOperationReplay,
+    ) -> None:
+        self._operations[command_id] = replay
+        self._operations.move_to_end(command_id)
+        if len(self._operations) > _INTERACTIVE_REPLAY_LIMIT:
+            self._operations.popitem(last=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -711,7 +730,7 @@ class InstrumentService:
             )
             try:
                 observed = tuple(
-                    _observe_instrument(runtime.instruments[instrument_id])
+                    observe_instrument(runtime.instruments[instrument_id])
                     for instrument_id in instrument_ids
                 )
             except BackendConflict:
@@ -870,8 +889,12 @@ class InstrumentService:
             instrument_id = command.instrument_id
             instrument = runtime.instruments[instrument_id]
             try:
-                receipt = instrument.apply_state(lower_backend_apply_request(command))
-            except Exception as error:
+                receipt = execute_instrument_apply(
+                    instrument,
+                    lower_backend_apply_request(command),
+                    assignments=command.assignments,
+                )
+            except InstrumentCommandExecutionError as error:
                 raise _DefaultStateReconciliationUnknown from error
             if receipt.status == "unknown":
                 raise _DefaultStateReconciliationUnknown
@@ -879,14 +902,8 @@ class InstrumentService:
                 raise _DefaultStateReconciliationRejected(
                     problems=receipt.problems,
                 )
-            try:
-                state = _confirmed_applied_state(
-                    instrument,
-                    receipt,
-                    command.assignments,
-                )
-            except BackendConflict as error:
-                raise _DefaultStateReconciliationUnknown from error
+            assert receipt.state is not None
+            state = receipt.state
             reconciled[instrument_id] = state.model_copy(deep=True)
         return tuple(reconciled[instrument_id] for instrument_id in instrument_ids)
 
@@ -1255,7 +1272,7 @@ class InstrumentService:
                 driver_request.assignments,
                 strict=True,
             )
-            if not _state_assignment_satisfied(current, assignment)
+            if not state_assignment_satisfied(current, assignment)
         )
         if not assignments:
             return {
@@ -1280,17 +1297,19 @@ class InstrumentService:
         if validation_problems:
             raise _HardwareActionRejected(validation_problems)
         try:
-            receipt = instrument.apply_state(driver_request)
-        except Exception as error:
+            receipt = execute_instrument_apply(
+                instrument,
+                driver_request,
+                assignments=command.assignments,
+            )
+        except InstrumentCommandExecutionError as error:
             self._lose_run_runtime(
                 run_id,
                 runtime,
                 token=token,
-                reason="run_instrument_apply_unknown",
+                reason=f"run_{error.reason}",
             )
-            raise BackendConflict(
-                "instrument apply failed with unknown state"
-            ) from error
+            raise BackendConflict(str(error)) from error
         if receipt.status == "unknown":
             raise _HardwareActionIndeterminate(
                 receipt.problems,
@@ -1298,21 +1317,6 @@ class InstrumentService:
             )
         if receipt.status != "applied":
             raise _HardwareActionRejected(receipt.problems)
-        try:
-            next_state = _confirmed_applied_state(
-                instrument,
-                receipt,
-                command.assignments,
-            )
-        except BackendConflict as error:
-            self._lose_run_runtime(
-                run_id,
-                runtime,
-                token=token,
-                reason="run_instrument_apply_state_unknown",
-            )
-            raise BackendConflict(f"instrument apply completed but {error}") from error
-        instrument.adopt_state(next_state)
         return {
             "effect_id": action.effect_id,
             "status": receipt.status,
@@ -1329,17 +1333,15 @@ class InstrumentService:
     ) -> dict[str, JsonValue]:
         instrument = runtime.instruments[action.instrument_id]
         try:
-            receipt = instrument.invoke(backend_request)
-        except Exception as error:
+            receipt = execute_instrument_invoke(instrument, backend_request)
+        except InstrumentCommandExecutionError as error:
             self._lose_run_runtime(
                 run_id,
                 runtime,
                 token=token,
-                reason="run_instrument_invoke_unknown",
+                reason=f"run_{error.reason}",
             )
-            raise BackendConflict(
-                "instrument invoke failed with unknown state"
-            ) from error
+            raise BackendConflict(str(error)) from error
         if receipt.status == "unknown":
             raise _HardwareActionIndeterminate(
                 receipt.problems,
@@ -1347,32 +1349,6 @@ class InstrumentService:
             )
         if receipt.status != "invoked":
             raise _HardwareActionRejected(receipt.problems)
-        try:
-            next_state = receipt.state or _observe_instrument(instrument)
-        except Exception as error:
-            self._lose_run_runtime(
-                run_id,
-                runtime,
-                token=token,
-                reason="run_instrument_invoke_state_unknown",
-            )
-            raise BackendConflict(
-                "instrument invoke completed but state synchronization failed"
-            ) from error
-        snapshot_problems = validate_state_snapshot(
-            snapshot=next_state,
-            description=instrument.description,
-        )
-        if snapshot_problems:
-            self._lose_run_runtime(
-                run_id,
-                runtime,
-                token=token,
-                reason="run_instrument_invoke_state_mismatch",
-            )
-            raise BackendConflict("; ".join(item.message for item in snapshot_problems))
-        instrument.adopt_state(next_state)
-        receipt = receipt.model_copy(update={"state": next_state})
         return {
             "effect_id": action.effect_id,
             "status": receipt.status,
@@ -1403,42 +1379,28 @@ class InstrumentService:
             raise _HardwareActionRejected(validation_problems)
         started_at = datetime.now(UTC)
         try:
-            receipt = instrument.collect(driver_request)
-        except Exception as error:
+            receipt = execute_instrument_collect(
+                instrument,
+                driver_request,
+                command=command,
+            )
+        except InstrumentCommandExecutionError as error:
+            if error.reason == "instrument_collect_receipt_invalid":
+                raise _HardwareActionRejected(error.problems) from error
             self._lose_run_runtime(
                 run_id,
                 runtime,
                 token=token,
-                reason="run_instrument_collect_unknown",
+                reason=f"run_{error.reason}",
             )
-            raise BackendConflict(
-                "instrument collect failed with unknown state"
-            ) from error
+            raise BackendConflict(str(error)) from error
         completed_at = datetime.now(UTC)
-        receipt_problems = validate_collect_receipt(
-            command=command,
-            receipt=receipt,
-        )
-        if receipt_problems:
-            raise _HardwareActionRejected(receipt_problems)
         if receipt.status == "unknown":
             raise _HardwareActionIndeterminate(
                 receipt.problems,
                 reason="run_instrument_collect_receipt_unknown",
             )
         if receipt.status == "not_collected":
-            try:
-                instrument.adopt_state(_observe_instrument(instrument))
-            except Exception as error:
-                self._lose_run_runtime(
-                    run_id,
-                    runtime,
-                    token=token,
-                    reason="run_instrument_collect_rejection_state_unknown",
-                )
-                raise BackendConflict(
-                    "instrument rejected collection and state synchronization failed"
-                ) from error
             raise _HardwareActionRejected(receipt.problems)
         assert receipt.readback is not None
         bindings = {
@@ -1562,7 +1524,7 @@ class InstrumentService:
             faulted: set[str] = set()
             for instrument_id, instrument in runtime.instruments.items():
                 try:
-                    final_state.append(_observe_instrument(instrument))
+                    final_state.append(observe_instrument(instrument))
                 except BackendConflict as error:
                     faulted.add(instrument_id)
                     with suppress(Exception):
@@ -1830,7 +1792,7 @@ class InstrumentService:
         instrument: OwnedInstrument,
     ) -> InstrumentStateSnapshot:
         try:
-            state = _observe_instrument(instrument)
+            state = observe_instrument(instrument)
         except BackendConflict:
             self._end_failed_observation(session, runtime)
             raise
@@ -1854,7 +1816,7 @@ class InstrumentService:
             )
             command_id = command.command_id
             ledger = runtime.ledgers[instrument_id]
-            replay = ledger.operations.get(command_id)
+            replay = ledger.replay(command_id)
             if replay is not None:
                 if not isinstance(replay, _ApplyReplay):
                     raise BackendConflict(
@@ -1884,9 +1846,12 @@ class InstrumentService:
                     status="not_applied",
                     problems=tuple(validation_problems),
                 )
-                ledger.operations[command_id] = _ApplyReplay(
-                    command=command,
-                    receipt=receipt,
+                ledger.remember(
+                    command_id,
+                    _ApplyReplay(
+                        command=command,
+                        receipt=receipt,
+                    ),
                 )
                 return receipt
 
@@ -1929,7 +1894,7 @@ class InstrumentService:
                 instrument_id,
             )
             ledger = runtime.ledgers[instrument_id]
-            replay = ledger.operations.get(command.operation_id)
+            replay = ledger.replay(command.operation_id)
             if replay is not None:
                 if not isinstance(replay, _ConfiguredDefaultsReplay):
                     raise BackendConflict(
@@ -1985,7 +1950,7 @@ class InstrumentService:
                 )
 
             try:
-                observed = _observe_instrument(instrument)
+                observed = observe_instrument(instrument)
             except BackendConflict:
                 self._end_failed_observation(session, runtime)
                 raise
@@ -2031,18 +1996,31 @@ class InstrumentService:
                 )
 
             try:
-                driver_receipt = instrument.apply_state(
-                    lower_backend_apply_request(state_command)
+                driver_receipt = execute_instrument_apply(
+                    instrument,
+                    lower_backend_apply_request(state_command),
+                    assignments=state_command.assignments,
                 )
-            except Exception as error:
+            except InstrumentCommandExecutionError as error:
+                reason = (
+                    "instrument_configured_defaults_unknown"
+                    if error.reason == "instrument_apply_unknown"
+                    else "instrument_configured_defaults_state_unknown"
+                )
                 self._lose_runtime(
                     session,
                     runtime,
-                    reason="instrument_configured_defaults_unknown",
+                    reason=reason,
                 )
-                raise BackendConflict(
+                message = (
                     "configured-default apply failed with unknown state"
-                ) from error
+                    if error.reason == "instrument_apply_unknown"
+                    else str(error).replace(
+                        "instrument apply",
+                        "configured-default apply",
+                    )
+                )
+                raise BackendConflict(message) from error
             if driver_receipt.status == "unknown":
                 self._lose_runtime(
                     session,
@@ -2067,22 +2045,8 @@ class InstrumentService:
                         problems=driver_receipt.problems,
                     ),
                 )
-            try:
-                state = _confirmed_applied_state(
-                    instrument,
-                    driver_receipt,
-                    state_command.assignments,
-                )
-            except BackendConflict as error:
-                self._lose_runtime(
-                    session,
-                    runtime,
-                    reason="instrument_configured_defaults_state_unknown",
-                )
-                raise BackendConflict(
-                    f"configured-default apply completed but {error}"
-                ) from error
-            instrument.adopt_state(state)
+            assert driver_receipt.state is not None
+            state = driver_receipt.state
             return self._finish_configured_defaults(
                 session=session,
                 runtime=runtime,
@@ -2138,9 +2102,12 @@ class InstrumentService:
         command: InstrumentConfiguredDefaultsApplyCommand,
         receipt: InstrumentConfiguredDefaultsApplyReceipt,
     ) -> InstrumentConfiguredDefaultsApplyReceipt:
-        ledger.operations[command.operation_id] = _ConfiguredDefaultsReplay(
-            command=command,
-            receipt=receipt,
+        ledger.remember(
+            command.operation_id,
+            _ConfiguredDefaultsReplay(
+                command=command,
+                receipt=receipt,
+            ),
         )
         try:
             self._record_operation_finished(
@@ -2217,7 +2184,7 @@ class InstrumentService:
                 instrument_id,
             )
             ledger = runtime.ledgers[instrument_id]
-            replay = ledger.operations.get(intent.command_id)
+            replay = ledger.replay(intent.command_id)
             if replay is not None:
                 if not isinstance(
                     replay,
@@ -2255,9 +2222,12 @@ class InstrumentService:
                     status="not_collected",
                     problems=resolution.problems,
                 )
-                ledger.operations[intent.command_id] = _CollectRejectionReplay(
-                    intent=intent,
-                    receipt=receipt,
+                ledger.remember(
+                    intent.command_id,
+                    _CollectRejectionReplay(
+                        intent=intent,
+                        receipt=receipt,
+                    ),
                 )
                 return receipt
             command = resolution.command
@@ -2301,27 +2271,18 @@ class InstrumentService:
         driver_request = lower_backend_apply_request(command)
         on_started()
         try:
-            receipt = instrument.apply_state(driver_request)
-        except Exception as error:
-            on_unknown("instrument_apply_unknown")
-            raise BackendConflict(
-                "instrument apply failed with unknown state"
-            ) from error
-        if receipt.status == "applied":
-            try:
-                next_state = _confirmed_applied_state(
-                    instrument,
-                    receipt,
-                    command.assignments,
-                )
-            except BackendConflict as error:
-                on_unknown("instrument_apply_state_unknown")
-                raise BackendConflict(
-                    f"instrument apply completed but {error}"
-                ) from error
-            instrument.adopt_state(next_state)
-            receipt = receipt.model_copy(update={"state": next_state})
-        ledger.operations[command_id] = _ApplyReplay(command=command, receipt=receipt)
+            receipt = execute_instrument_apply(
+                instrument,
+                driver_request,
+                assignments=command.assignments,
+            )
+        except InstrumentCommandExecutionError as error:
+            on_unknown(error.reason)
+            raise BackendConflict(str(error)) from error
+        ledger.remember(
+            command_id,
+            _ApplyReplay(command=command, receipt=receipt),
+        )
         try:
             on_finished(receipt.status)
         except Exception as error:
@@ -2346,7 +2307,7 @@ class InstrumentService:
     ) -> InvokeReceipt:
         command_id = command.command_id
         ledger = runtime.ledgers[instrument.instrument_id]
-        replay = ledger.operations.get(command_id)
+        replay = ledger.replay(command_id)
         if replay is not None and not isinstance(replay, _InvokeReplay):
             raise BackendConflict(
                 f"{conflict_scope} command id was already used for another command kind"
@@ -2383,34 +2344,16 @@ class InstrumentService:
         )
         on_started()
         try:
-            receipt = instrument.invoke(backend_request)
-        except Exception as error:
-            on_unknown("instrument_invoke_unknown")
-            raise BackendConflict(
-                "instrument invoke failed with unknown state"
-            ) from error
-        if receipt.status == "invoked":
-            try:
-                next_state = receipt.state or _observe_instrument(instrument)
-            except Exception as error:
-                on_unknown("instrument_invoke_state_unknown")
-                raise BackendConflict(
-                    "instrument invoke completed but state synchronization failed"
-                ) from error
-            snapshot_problems = validate_state_snapshot(
-                snapshot=next_state,
-                description=instrument.description,
-            )
-            if snapshot_problems:
-                on_unknown("instrument_invoke_state_mismatch")
-                raise BackendConflict(
-                    "; ".join(item.message for item in snapshot_problems)
-                )
-            instrument.adopt_state(next_state)
-            receipt = receipt.model_copy(update={"state": next_state})
-        ledger.operations[command_id] = _InvokeReplay(
-            command=canonical_command,
-            receipt=receipt,
+            receipt = execute_instrument_invoke(instrument, backend_request)
+        except InstrumentCommandExecutionError as error:
+            on_unknown(error.reason)
+            raise BackendConflict(str(error)) from error
+        ledger.remember(
+            command_id,
+            _InvokeReplay(
+                command=canonical_command,
+                receipt=receipt,
+            ),
         )
         try:
             on_finished(receipt.status)
@@ -2439,43 +2382,39 @@ class InstrumentService:
         driver_request = lower_backend_collect_request(command)
         on_started()
         try:
-            receipt = instrument.collect(driver_request)
-        except Exception as error:
-            on_unknown("instrument_collect_unknown")
-            raise BackendConflict(
-                "instrument collect failed with unknown state"
-            ) from error
-        receipt_problems = validate_collect_receipt(
-            command=command,
-            receipt=receipt,
-        )
-        if receipt_problems:
-            message = "; ".join(item.message for item in receipt_problems)
+            receipt = execute_instrument_collect(
+                instrument,
+                driver_request,
+                command=command,
+            )
+        except InstrumentCommandExecutionError as error:
+            if error.reason != "instrument_collect_receipt_invalid":
+                on_unknown(error.reason)
+                raise BackendConflict(str(error)) from error
+            message = str(error)
             try:
                 on_finished("invalid_receipt")
-            except Exception as error:
+            except Exception as audit_error:
                 on_unknown("instrument_collect_audit_unknown")
                 raise BackendConflict(
                     "instrument collect completed but audit recording failed"
-                ) from error
-            ledger.operations[command_id] = _CollectFailureReplay(
+                ) from audit_error
+            ledger.remember(
+                command_id,
+                _CollectFailureReplay(
+                    intent=intent,
+                    command=command,
+                    message=message,
+                ),
+            )
+            raise BackendConflict(message) from error
+        ledger.remember(
+            command_id,
+            _CollectReceiptReplay(
                 intent=intent,
                 command=command,
-                message=message,
-            )
-            raise BackendConflict(message)
-        if receipt.status == "not_collected":
-            try:
-                instrument.adopt_state(_observe_instrument(instrument))
-            except Exception as error:
-                on_unknown("instrument_collect_rejection_state_unknown")
-                raise BackendConflict(
-                    "instrument rejected collection and state synchronization failed"
-                ) from error
-        ledger.operations[command_id] = _CollectReceiptReplay(
-            intent=intent,
-            command=command,
-            receipt=receipt,
+                receipt=receipt,
+            ),
         )
         try:
             on_finished(receipt.status)
@@ -3352,40 +3291,6 @@ def _payload_codec_problems(
     )
 
 
-def _state_value(
-    current: InstrumentStateSnapshot,
-    target: InstrumentStateAssignment,
-) -> StateValue | None:
-    identity = property_target_identity(
-        target.interface_id,
-        target.component_path,
-        target.property_id,
-    )
-    return next(
-        (
-            item.value
-            for item in current.properties
-            if property_target_identity(
-                item.interface_id,
-                item.component_path,
-                item.property_id,
-            )
-            == identity
-        ),
-        None,
-    )
-
-
-def _state_assignment_satisfied(
-    current: InstrumentStateSnapshot,
-    target: InstrumentStateAssignment,
-) -> bool:
-    actual = _state_value(current, target)
-    return actual is not None and (
-        scalar_identity(actual.root) == scalar_identity(target.value.root)
-    )
-
-
 def _configured_default_assignments(
     spec: InstrumentSpec,
     instrument: OwnedInstrument,
@@ -3424,7 +3329,7 @@ def _pending_configured_defaults_command(
     pending = [
         assignment
         for assignment in assignments
-        if not _state_assignment_satisfied(observed_state, assignment)
+        if not state_assignment_satisfied(observed_state, assignment)
     ]
     if not pending:
         return None
@@ -3484,44 +3389,6 @@ def _fault_ownership(
         except Exception:
             failed = True
     return failed
-
-
-def _observe_instrument(
-    instrument: OwnedInstrument,
-) -> InstrumentStateSnapshot:
-    try:
-        state = instrument.read_state()
-    except Exception as error:
-        raise BackendConflict("instrument state read failed") from error
-    problems = validate_state_snapshot(
-        snapshot=state,
-        description=instrument.description,
-    )
-    if problems:
-        raise BackendConflict("; ".join(item.message for item in problems))
-    return state
-
-
-def _confirmed_applied_state(
-    instrument: OwnedInstrument,
-    receipt: ApplyReceipt,
-    assignments: Sequence[InstrumentStateAssignment],
-) -> InstrumentStateSnapshot:
-    state = receipt.state
-    if state is None:
-        state = _observe_instrument(instrument)
-    else:
-        problems = validate_state_snapshot(
-            snapshot=state,
-            description=instrument.description,
-        )
-        if problems:
-            raise BackendConflict("; ".join(item.message for item in problems))
-    if not all(
-        _state_assignment_satisfied(state, assignment) for assignment in assignments
-    ):
-        raise BackendConflict("instrument apply readback did not match requested state")
-    return state
 
 
 def _scope_provider_problems(
