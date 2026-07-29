@@ -113,7 +113,8 @@ def test_endpoint_record_is_private_and_round_trips(tmp_path: Path) -> None:
 
     path = write_daemon_endpoint_record(record)
 
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert read_daemon_endpoint_record(tmp_path) == record
 
 
@@ -254,7 +255,8 @@ def test_cli_daemon_first_use_loop_uses_dynamic_port_and_cleans_record(
     try:
         assert record.base_url != "http://127.0.0.1:0"
         assert int(record.base_url.rsplit(":", maxsplit=1)[1]) > 0
-        assert stat.S_IMODE(daemon_record_path(tmp_path).stat().st_mode) == 0o600
+        if os.name != "nt":
+            assert stat.S_IMODE(daemon_record_path(tmp_path).stat().st_mode) == 0o600
         with httpx2.Client(timeout=2, trust_env=False) as client:
             health = client.get(f"{record.base_url}/api/v1/health")
             gui = client.get(record.base_url)

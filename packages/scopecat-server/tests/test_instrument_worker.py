@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import signal
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -223,7 +222,7 @@ def test_worker_crash_is_permanent_and_never_restarts(tmp_path: Path) -> None:
     config = load_config()
     bindings = instrument_bindings(config)
     worker_pid = endpoint.worker_pid
-    os.kill(worker_pid, signal.SIGKILL)
+    psutil.Process(worker_pid).kill()
 
     with pytest.raises(InstrumentBackendUnavailable, match="unavailable"):
         endpoint.describe(bindings)
@@ -284,7 +283,7 @@ def test_worker_crash_degrades_runtime_health(tmp_path: Path) -> None:
         instrument_backend_spec=_BACKEND,
     ) as runtime:
         worker_pid = int((project / "worker.pid").read_text(encoding="utf-8"))
-        os.kill(worker_pid, signal.SIGKILL)
+        psutil.Process(worker_pid).kill()
         client = TestClient(runtime.app())
         deadline = time.monotonic() + 2
         while (
