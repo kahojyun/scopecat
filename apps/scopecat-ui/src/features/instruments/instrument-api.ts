@@ -37,10 +37,16 @@ export interface InstrumentAcquisitionTarget {
   acquisition: InstrumentAcquisition;
 }
 
-export interface InstrumentAcquisitionReadiness {
-  ready: boolean;
-  reason?: string;
-}
+export type InstrumentAcquisitionReadiness =
+  | {
+      ready: true;
+      status: "ready";
+    }
+  | {
+      ready: false;
+      status: "blocked" | "unknown";
+      reason: string;
+    };
 
 export interface InstrumentOperationTarget {
   interfaceId: string;
@@ -137,6 +143,11 @@ export async function collectInstrumentAcquisition(
   state?: InstrumentState,
   commandId = createInstrumentCommandId("collect"),
 ): Promise<InstrumentCollectReceipt> {
+  if (state && state.instrument_id !== instrumentId) {
+    throw new Error(
+      `Cannot collect from ${instrumentId} using state synchronized from ${state.instrument_id}.`,
+    );
+  }
   const plan = planInstrumentAcquisition(target, state);
   if (!plan.ready) throw new Error(plan.reason);
   return request<InstrumentCollectReceipt>(
@@ -179,7 +190,9 @@ export function instrumentAcquisitionReadiness(
   state?: InstrumentState,
 ): InstrumentAcquisitionReadiness {
   const plan = planInstrumentAcquisition(target, state);
-  return plan.ready ? { ready: true } : { ready: false, reason: plan.reason };
+  return plan.ready
+    ? { ready: true, status: "ready" }
+    : { ready: false, status: plan.status, reason: plan.reason };
 }
 
 export async function closeInstrumentSession(sessionId: string, keepalive = false): Promise<void> {
@@ -305,9 +318,11 @@ type InstrumentAcquisitionResultSelection =
   | {
       ready: true;
       results: InstrumentAcquisitionResult[];
+      preconditions: InstrumentAcquisition["preconditions"];
     }
   | {
       ready: false;
+      status: "blocked" | "unknown";
       reason: string;
     };
 
@@ -318,6 +333,7 @@ type InstrumentCollectPlan =
     }
   | {
       ready: false;
+      status: "blocked" | "unknown";
       reason: string;
     };
 
@@ -326,11 +342,25 @@ function planInstrumentAcquisition(
   state?: InstrumentState,
 ): InstrumentCollectPlan {
   const selection = acquisitionResultsForState(target.acquisition, state);
-  if (!selection.ready) return selection;
+  if (!selection.ready) {
+    const commonReadiness = acquisitionPreconditionReadiness(
+      target.acquisition.preconditions ?? [],
+      state,
+    );
+    return !commonReadiness.ready && commonReadiness.status === "blocked"
+      ? commonReadiness
+      : selection;
+  }
+  const preconditionReadiness = acquisitionPreconditionReadiness(
+    [...(target.acquisition.preconditions ?? []), ...(selection.preconditions ?? [])],
+    state,
+  );
+  if (!preconditionReadiness.ready) return preconditionReadiness;
   const [firstResult, ...remainingResults] = selection.results;
   if (!firstResult) {
     return {
       ready: false,
+      status: "blocked",
       reason: "Collect is unavailable because the acquisition declares no results.",
     };
   }
@@ -359,6 +389,7 @@ function planInstrumentAcquisition(
       const resultLabel = result.label ?? result.id;
       return {
         ready: false,
+        status: "unknown",
         reason:
           `Collect is unavailable until ${resultLabel} has a positive point count for ` +
           `${formatList(missingAxes)}. Refresh state after configuring the sweep.`,
@@ -383,7 +414,11 @@ export function acquisitionResultsForState(
   state?: InstrumentState,
 ): InstrumentAcquisitionResultSelection {
   if (acquisition.kind === "fixed") {
-    return { ready: true, results: acquisition.results };
+    return {
+      ready: true,
+      results: acquisition.results,
+      preconditions: [],
+    };
   }
   const discriminator = (state?.properties ?? []).find(
     (property) =>
@@ -394,6 +429,7 @@ export function acquisitionResultsForState(
   if (typeof discriminator?.value !== "string") {
     return {
       ready: false,
+      status: "unknown",
       reason: "Collect is unavailable until the instrument mode is synchronized.",
     };
   }
@@ -403,10 +439,138 @@ export function acquisitionResultsForState(
   if (!selectedCase) {
     return {
       ready: false,
-      reason: `Collect is unavailable in instrument mode ${discriminator.value}.`,
+      status: "unknown",
+      reason:
+        `Collect cannot match instrument mode ${discriminator.value}. ` +
+        "Refresh the instrument state.",
     };
   }
-  return { ready: true, results: selectedCase.results };
+  return {
+    ready: true,
+    results: selectedCase.results,
+    preconditions: selectedCase.preconditions,
+  };
+}
+
+function acquisitionPreconditionReadiness(
+  preconditions: NonNullable<InstrumentAcquisition["preconditions"]>,
+  state?: InstrumentState,
+): InstrumentAcquisitionReadiness {
+  let unknownReason: string | undefined;
+  for (const precondition of preconditions) {
+    const observed = statePropertyValue(
+      state,
+      precondition.property.interface_id,
+      precondition.property.component_path ?? [],
+      precondition.property.property_id,
+    );
+    if (observed === undefined) {
+      unknownReason ??= precondition.unavailable_reason;
+      continue;
+    }
+    const matches = statePreconditionMatches(observed, precondition.operator, precondition.value);
+    if (matches === undefined) {
+      unknownReason ??= precondition.unavailable_reason;
+      continue;
+    }
+    if (!matches) {
+      return {
+        ready: false,
+        status: "blocked",
+        reason: precondition.unavailable_reason,
+      };
+    }
+  }
+  return unknownReason ? unknownPrecondition(unknownReason) : { ready: true, status: "ready" };
+}
+
+function unknownPrecondition(reason: string): InstrumentAcquisitionReadiness {
+  return {
+    ready: false,
+    status: "unknown",
+    reason: `Refresh state to verify acquisition readiness. ${reason}`,
+  };
+}
+
+function statePreconditionMatches(
+  observed: InstrumentStateValue,
+  operator: NonNullable<InstrumentAcquisition["preconditions"]>[number]["operator"],
+  expected: InstrumentStateValue,
+): boolean | undefined {
+  if (operator === "equal" || operator === "not_equal") {
+    const equal = equalStateValues(observed, expected);
+    return equal === undefined ? undefined : operator === "equal" ? equal : !equal;
+  }
+  const values = orderedStateValues(observed, expected);
+  if (!values) return undefined;
+  const [left, right] = values;
+  switch (operator) {
+    case "less_than":
+      return left < right;
+    case "less_than_or_equal":
+      return left <= right;
+    case "greater_than":
+      return left > right;
+    case "greater_than_or_equal":
+      return left >= right;
+  }
+}
+
+function equalStateValues(
+  observed: InstrumentStateValue,
+  expected: InstrumentStateValue,
+): boolean | undefined {
+  if (
+    typeof observed === "boolean" ||
+    typeof observed === "number" ||
+    typeof observed === "string"
+  ) {
+    return typeof observed === typeof expected ? observed === expected : undefined;
+  }
+  const values = orderedStateValues(observed, expected);
+  return values ? values[0] === values[1] : undefined;
+}
+
+function orderedStateValues(
+  observed: InstrumentStateValue,
+  expected: InstrumentStateValue,
+): [number, number] | undefined {
+  if (typeof observed === "number" && typeof expected === "number") {
+    return [observed, expected];
+  }
+  const left = quantityStateValue(observed);
+  const right = quantityStateValue(expected);
+  return left && right && left.unit === right.unit ? [left.value, right.value] : undefined;
+}
+
+function quantityStateValue(
+  value: InstrumentStateValue,
+): { value: number; unit: string } | undefined {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "value" in value &&
+    "unit" in value &&
+    typeof value.value === "number" &&
+    typeof value.unit === "string"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function statePropertyValue(
+  state: InstrumentState | undefined,
+  interfaceId: string,
+  componentPath: string[],
+  propertyId: string,
+): InstrumentStateValue | undefined {
+  return (state?.properties ?? []).find(
+    (property) =>
+      property.interface_id === interfaceId &&
+      samePath(property.component_path ?? [], componentPath) &&
+      property.property_id === propertyId,
+  )?.value;
 }
 
 export function declaredAcquisitionResults(

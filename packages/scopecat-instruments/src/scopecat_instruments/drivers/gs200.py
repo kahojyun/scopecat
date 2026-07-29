@@ -39,6 +39,7 @@ from scopecat_instruments._support import (
     quantity_value,
     state_properties_by_target,
     state_property,
+    state_property_problem,
     state_sync_failed,
     string_value,
     unsupported_invoke,
@@ -330,17 +331,6 @@ class YokogawaGS200:
         return unsupported_invoke(request, self.instrument_id)
 
     def collect(self, request: DriverCollectRequest) -> CollectReceipt:
-        if not self.monitor_option:
-            return not_collected(
-                [
-                    execution_problem(
-                        "gs200_monitor_option_required",
-                        "GS200 /MON is required for DC monitor collection",
-                        "driver_collect_request",
-                        "results",
-                    )
-                ]
-            )
         try:
             mode = self.source_mode()
             active_result = (
@@ -354,45 +344,41 @@ class YokogawaGS200:
             if requested_results != {active_result}:
                 return not_collected(
                     [
-                        execution_problem(
+                        state_property_problem(
                             "gs200_monitor_result_inactive",
                             f"{mode} source mode provides only "
                             f"{active_result.result_id}",
-                            "driver_collect_request",
-                            "results",
+                            DC_SOURCE_MODE,
                         )
                     ]
                 )
             if not self.output_enabled():
                 return not_collected(
                     [
-                        execution_problem(
+                        state_property_problem(
                             "gs200_output_disabled",
                             "GS200 output must be enabled for monitor collection",
-                            "instrument_state",
-                            DC_SOURCE_OUTPUT_ENABLED.property_id,
+                            DC_SOURCE_OUTPUT_ENABLED,
                         )
                     ]
                 )
             if not self.measurement_enabled():
                 return not_collected(
                     [
-                        execution_problem(
+                        state_property_problem(
                             "gs200_monitor_disabled",
                             "GS200 monitor measurement is disabled",
-                            "instrument_state",
-                            DC_MONITOR_MEASUREMENT_ENABLED.property_id,
+                            DC_MONITOR_MEASUREMENT_ENABLED,
                         )
                     ]
                 )
             if mode == "voltage" and self.source_range() < 1.0:
                 return not_collected(
                     [
-                        execution_problem(
+                        state_property_problem(
                             "gs200_monitor_voltage_range_too_low",
                             "GS200 current monitoring requires at least the 1 V range",
-                            "instrument_state",
-                            DC_SOURCE_VOLTAGE_RANGE.property_id,
+                            DC_SOURCE_VOLTAGE_RANGE,
                         )
                     ]
                 )

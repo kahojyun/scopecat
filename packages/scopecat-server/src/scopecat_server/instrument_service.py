@@ -97,6 +97,7 @@ from scopecat.sdk.instruments.contracts import (
     InvokeReceipt,
     project_instrument_state,
     validate_collect_command,
+    validate_collect_plan,
     validate_collect_receipt,
     validate_invoke_command,
     validate_reconciled_state_assignments,
@@ -108,6 +109,7 @@ from scopecat.sdk.instruments.driver import (
     DriverCollectRequest,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
+from scopecat.sdk.runtime_problems import contextualize_problems
 
 from .config_service import ConfigService
 from .errors import BackendConflict, BackendNotFound
@@ -862,10 +864,15 @@ class InstrumentService:
                 canonical_request,
             )
             if preflight_problems:
-                return RunHardwareBatchReceipt(
+                receipt = RunHardwareBatchReceipt(
                     operation_id=canonical_request.batch.operation_id,
                     problems=preflight_problems,
                 )
+                provision.batches[canonical_request.batch.operation_id] = (
+                    canonical_request,
+                    receipt,
+                )
+                return receipt
             materialized_payloads = self._payloads.materialize_payload_sets(
                 action.payloads if isinstance(action, RunHardwareInvoke) else {}
                 for action in canonical_request.batch.actions
@@ -904,6 +911,7 @@ class InstrumentService:
             problems: list[Problem] = []
             completed_effect_ids: list[str] = []
             effect_receipts: list[JsonValue] = []
+            indeterminate_reason: str | None = None
             with runtime.lock:
                 for action, backend_request in zip(
                     canonical_request.batch.actions,
@@ -952,40 +960,91 @@ class InstrumentService:
                             )
                         )
                         break
+                    except _HardwareActionRejected as rejection:
+                        problems.extend(
+                            contextualize_problems(
+                                rejection.problems,
+                                run_id=run_id,
+                                operation_id=action.effect_id,
+                                instrument_id=action.instrument_id,
+                                point_index=action.point_index,
+                            )
+                        )
+                        break
+                    except _HardwareActionIndeterminate as indeterminate:
+                        problems.extend(
+                            contextualize_problems(
+                                indeterminate.problems,
+                                run_id=run_id,
+                                operation_id=action.effect_id,
+                                instrument_id=action.instrument_id,
+                                point_index=action.point_index,
+                            )
+                        )
+                        indeterminate_reason = indeterminate.reason
+                        break
             receipt = RunHardwareBatchReceipt(
                 operation_id=canonical_request.batch.operation_id,
                 values=tuple(values),
                 problems=tuple(problems),
+                indeterminate=indeterminate_reason is not None,
             )
-            receipt_evidence: dict[str, JsonValue] = {
-                "completed_effect_ids": list(completed_effect_ids),
-                "effect_receipts": effect_receipts,
-                "problem_codes": [item.code for item in problems],
-                "value_product_use_ids": [value.product_use_id for value in values],
-            }
-            try:
-                self._record_run_operation_event(
-                    run_id,
-                    token=canonical_request.lease_id,
-                    instrument_id=None,
-                    operation_id=canonical_request.batch.operation_id,
-                    event_kind="run_hardware_batch_finished",
-                    status="failed" if problems else "completed",
-                    details=receipt_evidence,
-                )
-            except BackendConflict:
+            self._record_hardware_batch_finished(
+                run_id,
+                runtime,
+                canonical_request,
+                receipt,
+                completed_effect_ids=completed_effect_ids,
+                effect_receipts=effect_receipts,
+            )
+            if indeterminate_reason is not None:
                 self._lose_run_runtime(
                     run_id,
                     runtime,
                     token=canonical_request.lease_id,
-                    reason="run_hardware_batch_audit_unknown",
+                    reason=indeterminate_reason,
                 )
-                raise
+                return receipt
             provision.batches[canonical_request.batch.operation_id] = (
                 canonical_request,
                 receipt,
             )
             return receipt
+
+    def _record_hardware_batch_finished(
+        self,
+        run_id: str,
+        runtime: _OwnershipRuntime,
+        request: RunHardwareBatchCommand,
+        receipt: RunHardwareBatchReceipt,
+        *,
+        completed_effect_ids: Sequence[str] = (),
+        effect_receipts: Sequence[JsonValue] = (),
+    ) -> None:
+        receipt_evidence: dict[str, JsonValue] = {
+            "completed_effect_ids": list(completed_effect_ids),
+            "effect_receipts": list(effect_receipts),
+            "problem_codes": [item.code for item in receipt.problems],
+            "value_product_use_ids": [value.product_use_id for value in receipt.values],
+        }
+        try:
+            self._record_run_operation_event(
+                run_id,
+                token=request.lease_id,
+                instrument_id=None,
+                operation_id=request.batch.operation_id,
+                event_kind="run_hardware_batch_finished",
+                status="failed" if receipt.problems else "completed",
+                details=receipt_evidence,
+            )
+        except BackendConflict:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=request.lease_id,
+                reason="run_hardware_batch_audit_unknown",
+            )
+            raise
 
     def _preflight_hardware_batch(
         self,
@@ -1036,7 +1095,15 @@ class InstrumentService:
                     baseline=baseline,
                     require_explicit_state_case=baseline is None,
                 )
-                problems.extend(action_problems)
+                problems.extend(
+                    contextualize_problems(
+                        action_problems,
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                    )
+                )
                 if not action_problems:
                     assumed_states[action.instrument_id] = project_instrument_state(
                         baseline
@@ -1073,7 +1140,15 @@ class InstrumentService:
                         point_index=action.point_index,
                     )
                 )
-                problems.extend(action_problems)
+                problems.extend(
+                    contextualize_problems(
+                        action_problems,
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                    )
+                )
                 if not action_problems:
                     # Operations may mutate state without a projectable effect.
                     assumed_states[action.instrument_id] = None
@@ -1086,12 +1161,18 @@ class InstrumentService:
                     requests=list(action.requests),
                 )
                 problems.extend(
-                    validate_collect_command(
-                        command=command,
-                        description=runtime.instruments[
-                            action.instrument_id
-                        ].description,
-                        baseline=assumed_states[action.instrument_id],
+                    contextualize_problems(
+                        validate_collect_plan(
+                            command=command,
+                            description=runtime.instruments[
+                                action.instrument_id
+                            ].description,
+                            baseline=assumed_states[action.instrument_id],
+                        ),
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
                     )
                 )
         return tuple(problems)
@@ -1138,9 +1219,7 @@ class InstrumentService:
             baseline=current,
         )
         if validation_problems:
-            raise BackendConflict(
-                "; ".join(item.message for item in validation_problems)
-            )
+            raise _HardwareActionRejected(validation_problems)
         try:
             receipt = instrument.apply_state(driver_request)
         except Exception as error:
@@ -1154,17 +1233,12 @@ class InstrumentService:
                 "instrument apply failed with unknown state"
             ) from error
         if receipt.status == "unknown":
-            self._lose_run_runtime(
-                run_id,
-                runtime,
-                token=token,
+            raise _HardwareActionIndeterminate(
+                receipt.problems,
                 reason="run_instrument_apply_receipt_unknown",
             )
         if receipt.status != "applied":
-            raise BackendConflict(
-                "; ".join(item.message for item in receipt.problems)
-                or f"instrument apply returned {receipt.status}"
-            )
+            raise _HardwareActionRejected(receipt.problems)
         try:
             next_state = _confirmed_applied_state(
                 instrument,
@@ -1208,17 +1282,12 @@ class InstrumentService:
                 "instrument invoke failed with unknown state"
             ) from error
         if receipt.status == "unknown":
-            self._lose_run_runtime(
-                run_id,
-                runtime,
-                token=token,
+            raise _HardwareActionIndeterminate(
+                receipt.problems,
                 reason="run_instrument_invoke_receipt_unknown",
             )
         if receipt.status != "invoked":
-            raise BackendConflict(
-                "; ".join(item.message for item in receipt.problems)
-                or f"instrument invoke returned {receipt.status}"
-            )
+            raise _HardwareActionRejected(receipt.problems)
         try:
             next_state = receipt.state or _observe_instrument(instrument)
         except Exception as error:
@@ -1270,12 +1339,9 @@ class InstrumentService:
         validation_problems = validate_collect_command(
             command=command,
             description=instrument.description,
-            baseline=instrument.assumed_state,
         )
         if validation_problems:
-            raise BackendConflict(
-                "; ".join(item.message for item in validation_problems)
-            )
+            raise _HardwareActionRejected(validation_problems)
         try:
             receipt = instrument.collect(driver_request)
         except Exception as error:
@@ -1293,19 +1359,27 @@ class InstrumentService:
             receipt=receipt,
         )
         if receipt_problems:
-            raise BackendConflict("; ".join(item.message for item in receipt_problems))
+            raise _HardwareActionRejected(receipt_problems)
         if receipt.status == "unknown":
-            self._lose_run_runtime(
-                run_id,
-                runtime,
-                token=token,
+            raise _HardwareActionIndeterminate(
+                receipt.problems,
                 reason="run_instrument_collect_receipt_unknown",
             )
-        if receipt.status != "collected" or receipt.readback is None:
-            raise BackendConflict(
-                "; ".join(item.message for item in receipt.problems)
-                or f"instrument collect returned {receipt.status}"
-            )
+        if receipt.status == "not_collected":
+            try:
+                instrument.adopt_state(_observe_instrument(instrument))
+            except Exception as error:
+                self._lose_run_runtime(
+                    run_id,
+                    runtime,
+                    token=token,
+                    reason="run_instrument_collect_rejection_state_unknown",
+                )
+                raise BackendConflict(
+                    "instrument rejected collection and state synchronization failed"
+                ) from error
+            raise _HardwareActionRejected(receipt.problems)
+        assert receipt.readback is not None
         bindings = {
             binding.request_id: binding.product_use_ids for binding in action.bindings
         }
@@ -2238,7 +2312,6 @@ class InstrumentService:
         validation_problems = validate_collect_command(
             command=command,
             description=instrument.description,
-            baseline=instrument.assumed_state,
         )
         if validation_problems:
             raise BackendConflict(
@@ -2271,6 +2344,14 @@ class InstrumentService:
                 message=message,
             )
             raise BackendConflict(message)
+        if receipt.status == "not_collected":
+            try:
+                instrument.adopt_state(_observe_instrument(instrument))
+            except Exception as error:
+                on_unknown("instrument_collect_rejection_state_unknown")
+                raise BackendConflict(
+                    "instrument rejected collection and state synchronization failed"
+                ) from error
         ledger.operations[command_id] = _CollectReceiptReplay(
             command=command,
             receipt=receipt,
@@ -2902,6 +2983,19 @@ class _DefaultStateReconciliationRejected(RuntimeError):
 
 class _DefaultStateReconciliationUnknown(RuntimeError):
     pass
+
+
+class _HardwareActionRejected(RuntimeError):
+    def __init__(self, problems: Sequence[Problem]) -> None:
+        self.problems = tuple(problems)
+        super().__init__("; ".join(item.message for item in self.problems))
+
+
+class _HardwareActionIndeterminate(RuntimeError):
+    def __init__(self, problems: Sequence[Problem], *, reason: str) -> None:
+        self.problems = tuple(problems)
+        self.reason = reason
+        super().__init__("; ".join(item.message for item in self.problems))
 
 
 def _provision_problem(

@@ -13,6 +13,7 @@ import {
   closeInstrumentSession,
   collectInstrumentAcquisition,
   connectionSummary,
+  instrumentAcquisitionReadiness,
   invokeInstrumentOperation,
   openInstrumentSession,
   publishInstrumentConnection,
@@ -326,6 +327,393 @@ describe("interactive collection request shaping", () => {
       "instrument mode is synchronized",
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks collection until acquisition state preconditions are met", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "collected",
+            problems: [],
+            readback: { values: {} },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
+      id: "sample",
+      preconditions: [
+        {
+          property: {
+            interface_id: "test.source/v1",
+            component_path: [],
+            property_id: "output_enabled",
+          },
+          operator: "equal",
+          value: true,
+          unavailable_reason: "Enable the source output before collecting.",
+        },
+      ],
+      results: [{ id: "sample", dtype: "float64", axes: [] }],
+    };
+    const target = {
+      interfaceId: "test.monitor/v1",
+      componentPath: [],
+      acquisition,
+    };
+    const disabledState = {
+      instrument_id: "source-1",
+      properties: [
+        {
+          interface_id: "test.source/v1",
+          component_path: [],
+          property_id: "output_enabled",
+          value: false,
+        },
+      ],
+    };
+
+    expect(instrumentAcquisitionReadiness(target)).toEqual({
+      ready: false,
+      status: "unknown",
+      reason:
+        "Refresh state to verify acquisition readiness. " +
+        "Enable the source output before collecting.",
+    });
+    expect(instrumentAcquisitionReadiness(target, disabledState)).toEqual({
+      ready: false,
+      status: "blocked",
+      reason: "Enable the source output before collecting.",
+    });
+    await expect(
+      collectInstrumentAcquisition(session(), "source-1", target, disabledState),
+    ).rejects.toThrow("Enable the source output before collecting.");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await collectInstrumentAcquisition(session(), "source-1", target, {
+      ...disabledState,
+      properties: [{ ...disabledState.properties[0]!, value: true }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
+      command_id: expect.stringMatching(/^ui-collect-/),
+      instrument_id: "source-1",
+      point_index: 0,
+      point_count: 1,
+      requests: [
+        {
+          id: "sample",
+          interface_id: "test.monitor/v1",
+          component_path: [],
+          acquisition_id: "sample",
+          result_id: "sample",
+          dtype: "float64",
+          dimensions: [],
+        },
+      ],
+    });
+  });
+
+  it("reports a known blocked precondition before unknown state", () => {
+    const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
+      id: "sample",
+      preconditions: [
+        {
+          property: {
+            interface_id: "test.source/v1",
+            property_id: "interlock_ready",
+          },
+          operator: "equal",
+          value: true,
+          unavailable_reason: "Interlock state is unavailable.",
+        },
+        {
+          property: {
+            interface_id: "test.source/v1",
+            property_id: "output_enabled",
+          },
+          operator: "equal",
+          value: true,
+          unavailable_reason: "Enable the source output before collecting.",
+        },
+      ],
+      results: [{ id: "sample", dtype: "float64", axes: [] }],
+    };
+
+    expect(
+      instrumentAcquisitionReadiness(
+        {
+          interfaceId: "test.monitor/v1",
+          componentPath: [],
+          acquisition,
+        },
+        {
+          instrument_id: "source-1",
+          properties: [
+            {
+              interface_id: "test.source/v1",
+              property_id: "output_enabled",
+              value: false,
+            },
+          ],
+        },
+      ),
+    ).toEqual({
+      ready: false,
+      status: "blocked",
+      reason: "Enable the source output before collecting.",
+    });
+  });
+
+  it("reports a common block before an unknown acquisition case", () => {
+    const acquisition: InstrumentAcquisition = {
+      kind: "state_discriminated",
+      id: "sample",
+      discriminator: {
+        interface_id: "test.source/v1",
+        property_id: "mode",
+      },
+      preconditions: [
+        {
+          property: {
+            interface_id: "test.source/v1",
+            property_id: "output_enabled",
+          },
+          operator: "equal",
+          value: true,
+          unavailable_reason: "Enable the source output before collecting.",
+        },
+      ],
+      cases: [
+        {
+          value: "voltage",
+          results: [{ id: "current", dtype: "float64", unit: "A" }],
+        },
+        {
+          value: "current",
+          results: [{ id: "voltage", dtype: "float64", unit: "V" }],
+        },
+      ],
+    };
+
+    expect(
+      instrumentAcquisitionReadiness(
+        {
+          interfaceId: "test.monitor/v1",
+          componentPath: [],
+          acquisition,
+        },
+        {
+          instrument_id: "source-1",
+          properties: [
+            {
+              interface_id: "test.source/v1",
+              property_id: "output_enabled",
+              value: false,
+            },
+          ],
+        },
+      ),
+    ).toEqual({
+      ready: false,
+      status: "blocked",
+      reason: "Enable the source output before collecting.",
+    });
+  });
+
+  it("rejects state synchronized from another instrument", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
+      id: "sample",
+      results: [{ id: "sample", dtype: "float64", axes: [] }],
+    };
+    const target = {
+      interfaceId: "test.monitor/v1",
+      componentPath: [],
+      acquisition,
+    };
+
+    await expect(
+      collectInstrumentAcquisition(session(), "source-1", target, {
+        instrument_id: "source-2",
+        properties: [],
+      }),
+    ).rejects.toThrow("using state synchronized from source-2");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("applies active-case preconditions without leaking device-specific logic", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "collected",
+            problems: [],
+            readback: { values: {} },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const acquisition: InstrumentAcquisition = {
+      kind: "state_discriminated",
+      id: "monitor",
+      discriminator: {
+        interface_id: "test.source/v1",
+        component_path: [],
+        property_id: "source_mode",
+      },
+      preconditions: [
+        {
+          property: {
+            interface_id: "test.monitor/v1",
+            component_path: [],
+            property_id: "measurement_enabled",
+          },
+          operator: "equal",
+          value: true,
+          unavailable_reason: "Enable measurement before collecting.",
+        },
+      ],
+      cases: [
+        {
+          value: "voltage",
+          preconditions: [
+            {
+              property: {
+                interface_id: "test.source/v1",
+                component_path: [],
+                property_id: "voltage_range",
+              },
+              operator: "greater_than_or_equal",
+              value: { value: 1, unit: "V" },
+              unavailable_reason: "Select a voltage range of at least 1 V.",
+            },
+          ],
+          results: [{ id: "current", dtype: "float64", unit: "A" }],
+        },
+        {
+          value: "current",
+          results: [{ id: "voltage", dtype: "float64", unit: "V" }],
+        },
+      ],
+    };
+    const target = {
+      interfaceId: "test.monitor/v1",
+      componentPath: [],
+      acquisition,
+    };
+    const voltageState = {
+      instrument_id: "source-1",
+      properties: [
+        {
+          interface_id: "test.source/v1",
+          component_path: [],
+          property_id: "source_mode",
+          value: "voltage",
+        },
+        {
+          interface_id: "test.monitor/v1",
+          component_path: [],
+          property_id: "measurement_enabled",
+          value: true,
+        },
+        {
+          interface_id: "test.source/v1",
+          component_path: [],
+          property_id: "voltage_range",
+          value: { value: 0.1, unit: "V" },
+        },
+      ],
+    };
+
+    expect(instrumentAcquisitionReadiness(target, voltageState)).toEqual({
+      ready: false,
+      status: "blocked",
+      reason: "Select a voltage range of at least 1 V.",
+    });
+    expect(
+      instrumentAcquisitionReadiness(target, {
+        ...voltageState,
+        properties: [
+          voltageState.properties[0]!,
+          voltageState.properties[1]!,
+          {
+            ...voltageState.properties[2]!,
+            value: { value: 1, unit: "V" },
+          },
+        ],
+      }),
+    ).toEqual({ ready: true, status: "ready" });
+
+    await collectInstrumentAcquisition(session(), "source-1", target, {
+      ...voltageState,
+      properties: [
+        { ...voltageState.properties[0]!, value: "current" },
+        voltageState.properties[1]!,
+      ],
+    });
+
+    expect(requestBody(fetchMock.mock.calls[0]?.[1]).requests?.[0]?.result_id).toBe("voltage");
+  });
+
+  it("treats a non-canonical quantity unit as unknown readiness", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
+      id: "sample",
+      preconditions: [
+        {
+          property: {
+            interface_id: "test.source/v1",
+            component_path: [],
+            property_id: "voltage_range",
+          },
+          operator: "greater_than_or_equal",
+          value: { value: 1, unit: "V" },
+          unavailable_reason: "Select a voltage range of at least 1 V.",
+        },
+      ],
+      results: [{ id: "sample", dtype: "float64", axes: [] }],
+    };
+    const target = {
+      interfaceId: "test.monitor/v1",
+      componentPath: [],
+      acquisition,
+    };
+    const state = {
+      instrument_id: "source-1",
+      properties: [
+        {
+          interface_id: "test.source/v1",
+          component_path: [],
+          property_id: "voltage_range",
+          value: { value: 1000, unit: "mV" },
+        },
+      ],
+    };
+
+    expect(instrumentAcquisitionReadiness(target, state)).toEqual({
+      ready: false,
+      status: "unknown",
+      reason:
+        "Refresh state to verify acquisition readiness. " +
+        "Select a voltage range of at least 1 V.",
+    });
+    await expect(
+      collectInstrumentAcquisition(session(), "source-1", target, state),
+    ).rejects.toThrow("Refresh state to verify acquisition readiness.");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects mixed static and unresolved dynamic axes before HTTP", async () => {

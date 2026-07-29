@@ -114,6 +114,8 @@ consequential calls become unknown and the worker is terminated.
 A state snapshot is complete public physical state for every advertised static
 component. Logical entity and channel bindings remain command provenance; they
 are resolved before a driver request and never become device-state identity.
+Quantity readback uses the unit declared by its `PropertySpec`; canonical units
+keep daemon validation and browser readiness comparisons identical.
 
 An explicit state refresh is read-only. If it fails, or the driver returns an
 invalid snapshot, the daemon ends the whole multi-instrument ownership epoch
@@ -142,8 +144,16 @@ roles:
 
 A fixed acquisition always exposes the same results. A state-discriminated
 acquisition references one physical state discriminator and declares a result
-set for every mode. The daemon selects the active case from the synchronized
-snapshot before calling the driver.
+set for every mode. Acquisition- and case-level preconditions declare the
+observable public state required before a trigger. Interactive clients use a
+synchronized snapshot for readiness, and batch preflight uses projected state
+to reject an incoherent plan before its first side effect.
+
+Readiness is advisory at the hardware boundary. The daemon never rejects a
+direct collect solely from its assumed state, because a user may have changed
+the front panel while the connection was idle. The driver rechecks live mode
+and preconditions before the first trigger; implementation-specific constraints
+that are not part of every interface implementation remain driver guards.
 
 A driver implementation may expose several interfaces. Multi-device
 calibration, feedback, and analysis remain experiment procedures rather than
@@ -297,8 +307,8 @@ operator explicitly selects **Connect**, after which the detail view:
 6. submits all staged properties in one **Apply** operation;
 7. offers one-shot controls for declared operations whose arguments the GUI can
    encode;
-8. offers **Collect** per declared acquisition and requests its declared
-   results;
+8. offers **Collect** for the active result case only when public acquisition
+   preconditions are satisfied;
 9. releases session ownership on explicit disconnect or workspace teardown.
 
 **Refresh state** performs a new read when the operator wants to synchronize
@@ -401,13 +411,21 @@ The handle is synchronous to match the existing notebook API. It generates a
 new command id for every apply, invoke, or collect unless the caller supplies
 one, and closes or aborts through the daemon when leaving the context. If an
 HTTP response is lost, retry with the same `command_id`: the daemon returns the
-recorded receipt instead of touching the device again. The daemon client
-automatically retries one transport failure with the same complete command;
-callers can supply an id when they need to continue that retry explicitly.
+recorded receipt instead of touching the device again. The complete command
+must remain identical. A high-level state-discriminated collect therefore
+requires explicit result refs when the caller supplies `command_id`; replay
+bypasses client readiness checks and reaches the daemon ledger. The daemon
+client automatically retries one transport failure with the same complete
+command.
 Opening has a separate retry identity and replays the config resolution from
 its first successful attempt, even if the active config changes. Close and
 abort are naturally idempotent because the daemon records the session's
 terminal status.
+
+A state-dependent notebook collection refreshes once before building its
+request. The same readiness evaluator chooses default results and rejects an
+explicit inactive result or unmet precondition. The driver remains
+authoritative if hardware changes after that refresh.
 
 Opaque values such as compiled pulse programs are operation arguments, never
 persistent properties. A registered codec converts the in-memory value to an
@@ -490,14 +508,16 @@ The daemon's reconciliation cache is an assumed state: it starts from observed
 readback and advances only after confirmed writes, using driver-returned state
 when available. After an atomic operation it adopts the receipt state or reads
 the device again before executing later state effects. The cache is not
-presented as fresh physical observation. Drivers for devices whose properties
-drift independently can later require explicit readback without changing the
-batch boundary.
+presented as fresh physical observation. Projected acquisition readiness proves
+only that an ordered batch is internally coherent; live driver guards protect
+the trigger boundary. Drivers for devices whose properties drift independently
+can later require explicit readback without changing the batch boundary.
 
 The GS200 `/MON` interface treats `measurement_enabled`,
 `integration_cycles` (NPLC), and `measurement_delay` as public persistent
-state. `remote_sense` and `guard_enabled` instead describe the expected
-physical wiring profile: the driver verifies them but never changes them.
+state. Its monitor acquisition declares output and measurement enablement as
+public preconditions. `remote_sense` and `guard_enabled` instead describe the
+expected physical wiring profile: the driver verifies them but never changes them.
 Four-wire remote sense with a voltage range below 1 V is rejected before any
 state mutation because those ranges require two-terminal wiring.
 Collection is refused while NULL is enabled because disabling it discards the

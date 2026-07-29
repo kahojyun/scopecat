@@ -239,6 +239,21 @@ def execution_problem(
     )
 
 
+def state_property_problem(
+    code: str,
+    message: str,
+    target: PropertyRef,
+) -> Problem:
+    return execution_problem(
+        code,
+        message,
+        "instrument_state",
+        target.interface_id,
+        *target.component_path,
+        target.property_id,
+    )
+
+
 def provider_problem(
     code: str,
     message: str,

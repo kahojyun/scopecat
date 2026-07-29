@@ -31,7 +31,13 @@ from scopecat.execution.ports.instruments import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
-from scopecat.kernel.problems import ProblemPhase, problem
+from scopecat.kernel.problems import (
+    ModelLocation,
+    ProblemPhase,
+    RuntimeLocation,
+    model_location,
+    problem,
+)
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import PayloadRef, StateValue
@@ -67,8 +73,10 @@ from scopecat.sdk.instruments import (
     InstrumentReadback,
     InstrumentStateAssignment,
     InstrumentStateSnapshot,
+    InterfaceRef,
     InvokeReceipt,
     acquisition_case,
+    acquisition_precondition,
     acquisition_result,
     bool_property,
     discriminated_state,
@@ -78,7 +86,6 @@ from scopecat.sdk.instruments import (
     operation,
     state_case,
     state_discriminated_acquisition,
-    state_discriminator_ref,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -89,8 +96,19 @@ from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
 from scopecat_server.instrument_service import InstrumentService
 
 type _FailAction = (
-    Literal["apply", "reject_apply", "invoke", "abort", "disconnect"] | None
+    Literal[
+        "apply",
+        "reject_apply",
+        "invoke",
+        "unknown_collect_receipt",
+        "abort",
+        "disconnect",
+    ]
+    | None
 )
+
+_DC_MODE = InterfaceRef("test.dc/v1").property("mode")
+_DC_OUTPUT_ENABLED = InterfaceRef("test.dc/v1").property("output_enabled")
 
 
 class _Driver(SignalInstrumentDriver):
@@ -140,6 +158,26 @@ class _Driver(SignalInstrumentDriver):
         return InvokeReceipt(status="invoked")
 
     @override
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        if self.fail_action == "unknown_collect_receipt":
+            self.collect_requests.append(request)
+            return CollectReceipt(
+                status="unknown",
+                problems=(
+                    problem(
+                        "test_collect_receipt_unknown",
+                        "test driver lost collection confirmation",
+                        phase=ProblemPhase.EXECUTION,
+                        location=model_location(
+                            "driver_collect_request",
+                            "results",
+                        ),
+                    ),
+                ),
+            )
+        return super().collect(request)
+
+    @override
     def abort(self) -> None:
         self.abort_count += 1
         if self.fail_action == "abort":
@@ -153,6 +191,8 @@ class _Driver(SignalInstrumentDriver):
 
 
 class _VariantDriver(_Driver):
+    require_output_for_collect = False
+
     def __init__(
         self,
         instrument_id: str,
@@ -168,6 +208,7 @@ class _VariantDriver(_Driver):
         self.mode = "voltage"
         self.voltage_level = 0.1
         self.current_level = 0.01
+        self.output_enabled = False
 
     @override
     def describe(self) -> InstrumentDescription:
@@ -202,9 +243,18 @@ class _VariantDriver(_Driver):
                     acquisitions=[
                         state_discriminated_acquisition(
                             "measure",
-                            discriminator=state_discriminator_ref(
-                                "test.dc/v1",
-                                "mode",
+                            discriminator=_DC_MODE,
+                            preconditions=(
+                                (
+                                    acquisition_precondition(
+                                        _DC_OUTPUT_ENABLED,
+                                        operator="equal",
+                                        value=True,
+                                        unavailable_reason="Output is disabled.",
+                                    ),
+                                )
+                                if self.require_output_for_collect
+                                else ()
                             ),
                             cases=(
                                 acquisition_case(
@@ -253,7 +303,7 @@ class _VariantDriver(_Driver):
                 InstrumentPropertyState(
                     interface_id="test.dc/v1",
                     property_id="output_enabled",
-                    value=StateValue(False),
+                    value=StateValue(self.output_enabled),
                 ),
             ],
         )
@@ -271,6 +321,9 @@ class _VariantDriver(_Driver):
             elif assignment.property_id == "current_level":
                 assert isinstance(assignment.value.root, float)
                 self.current_level = assignment.value.root
+            elif assignment.property_id == "output_enabled":
+                assert isinstance(assignment.value.root, bool)
+                self.output_enabled = assignment.value.root
         return ApplyReceipt(status="applied")
 
     @override
@@ -282,6 +335,36 @@ class _VariantDriver(_Driver):
     @override
     def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         self.collect_requests.append(request)
+        if self.require_output_for_collect and not self.output_enabled:
+            return CollectReceipt(
+                status="not_collected",
+                problems=(
+                    problem(
+                        "test_acquisition_output_disabled",
+                        "Output is disabled.",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                ),
+            )
+        active_result = (
+            "monitored_voltage" if self.mode == "voltage" else "monitored_current"
+        )
+        if {result.result_id for result in request.results} != {active_result}:
+            return CollectReceipt(
+                status="not_collected",
+                problems=(
+                    problem(
+                        "test_acquisition_result_inactive",
+                        f"{self.mode} mode provides only {active_result}",
+                        phase=ProblemPhase.EXECUTION,
+                        location=model_location(
+                            "instrument_state",
+                            "test.dc/v1",
+                            "mode",
+                        ),
+                    ),
+                ),
+            )
         values: dict[str, MeasurementValue] = {
             result.request_id: (
                 MeasurementScalar.create(
@@ -299,6 +382,10 @@ class _VariantDriver(_Driver):
             for result in request.results
         }
         return CollectReceipt(readback=InstrumentReadback(values=values))
+
+
+class _PreconditionVariantDriver(_VariantDriver):
+    require_output_for_collect = True
 
 
 class _NonConvergingDriver(_Driver):
@@ -940,6 +1027,141 @@ def test_batch_projects_complete_mode_change_for_conditional_collect(
         assert len(driver.collect_requests) == 1
 
 
+def test_batch_projects_acquisition_preconditions_before_any_side_effect(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_PreconditionVariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_PreconditionVariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        rejected_command = _batch_command(
+            lease_id,
+            "collect-with-disabled-output",
+            _variant_apply_action(
+                effect_id="change-level-before-rejected-collect",
+                voltage_level=0.2,
+            ),
+            _variant_collect_action(
+                effect_id="collect-disabled-output",
+                result_id="monitored_voltage",
+            ),
+        )
+        rejected = instruments.execute_run_hardware(
+            run_id,
+            rejected_command,
+        )
+
+        assert [issue.code for issue in rejected.problems] == [
+            "instrument_driver_acquisition_precondition_not_met"
+        ]
+        [issue] = rejected.problems
+        assert isinstance(issue.location, RuntimeLocation)
+        assert issue.location.operation_id == "collect-disabled-output"
+        assert issue.location.instrument_id == "source-0"
+        assert isinstance(issue.related_locations[0], ModelLocation)
+        assert issue.related_locations[0].root == "instrument_collect_command"
+        assert isinstance(issue.related_locations[1], ModelLocation)
+        assert issue.related_locations[1].root == "instrument_state"
+        assert driver.applied == []
+        assert driver.collect_requests == []
+
+        accepted = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "enable-output-before-collect",
+                _variant_apply_action(
+                    effect_id="enable-output",
+                    output_enabled=True,
+                ),
+                _variant_collect_action(
+                    effect_id="collect-enabled-output",
+                    result_id="monitored_voltage",
+                ),
+            ),
+        )
+
+        assert accepted.problems == ()
+        assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
+
+        assert instruments.execute_run_hardware(run_id, rejected_command) == rejected
+        assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
+        with pytest.raises(BackendConflict, match="different operation content"):
+            instruments.execute_run_hardware(
+                run_id,
+                _batch_command(
+                    lease_id,
+                    "collect-with-disabled-output",
+                    _variant_collect_action(
+                        effect_id="different-content",
+                        result_id="monitored_voltage",
+                    ),
+                ),
+            )
+
+
+def test_live_collect_rejection_preserves_problem_context_and_replays(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        assert isinstance(driver, _VariantDriver)
+        driver.mode = "current"
+        command = _batch_command(
+            lease_id,
+            "collect-after-external-mode-change",
+            _variant_collect_action(
+                effect_id="collect-stale-voltage",
+                result_id="monitored_voltage",
+            ),
+        )
+
+        receipt = instruments.execute_run_hardware(run_id, command)
+        replay = instruments.execute_run_hardware(run_id, command)
+
+        assert replay == receipt
+        [issue] = receipt.problems
+        assert issue.code == "test_acquisition_result_inactive"
+        assert isinstance(issue.location, RuntimeLocation)
+        assert issue.location.run_id == run_id
+        assert issue.location.operation_id == "collect-stale-voltage"
+        assert isinstance(issue.related_locations[0], ModelLocation)
+        assert issue.related_locations[0].root == "instrument_state"
+        assert len(driver.collect_requests) == 1
+
+        recovered = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "collect-after-rejection-resync",
+                _variant_collect_action(
+                    effect_id="collect-current-after-resync",
+                    result_id="monitored_current",
+                ),
+            ),
+        )
+
+        assert recovered.problems == ()
+        assert len(driver.collect_requests) == 2
+
+
 def test_run_invoke_reads_back_state_before_later_actions(
     tmp_path: Path,
 ) -> None:
@@ -1043,6 +1265,40 @@ def test_unknown_driver_action_quarantines_and_discards_run_state(
                 ),
             )
 
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state == (
+            "attention_required"
+        )
+        _assert_run_state_discarded(instruments, run_id)
+
+
+def test_unknown_collect_receipt_preserves_driver_diagnostics(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="unknown_collect_receipt")
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        receipt = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "unknown-collect-receipt",
+                _collect_action("source-0", effect_id="collect-unknown"),
+            ),
+        )
+
+        assert receipt.indeterminate
+        [issue] = receipt.problems
+        assert issue.code == "test_collect_receipt_unknown"
+        assert isinstance(issue.location, RuntimeLocation)
+        assert issue.location.operation_id == "collect-unknown"
+        assert isinstance(issue.related_locations[0], ModelLocation)
+        assert issue.related_locations[0].root == "driver_collect_request"
         [driver] = provider.drivers
         assert driver.abort_count == 1
         assert driver.disconnect_count == 1
@@ -1528,11 +1784,13 @@ def _variant_apply_action(
     mode: str | None = None,
     voltage_level: float | None = None,
     current_level: float | None = None,
+    output_enabled: bool | None = None,
 ) -> RunHardwareApply:
     values = {
         "mode": mode,
         "voltage_level": voltage_level,
         "current_level": current_level,
+        "output_enabled": output_enabled,
     }
     return RunHardwareApply(
         effect_id=effect_id,

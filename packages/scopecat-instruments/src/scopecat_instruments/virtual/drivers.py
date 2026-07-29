@@ -26,12 +26,12 @@ from scopecat_instruments._support import (
     LinearSweepSettings,
     NetworkTrace,
     bool_value,
-    execution_problem,
     int_value,
     not_collected,
     quantity_value,
     state_properties_by_target,
     state_property,
+    state_property_problem,
     string_value,
     unsupported_invoke,
 )
@@ -361,22 +361,20 @@ class VirtualDcSource:
             if not source.output_enabled:
                 return not_collected(
                     [
-                        execution_problem(
+                        state_property_problem(
                             "virtual_dc_monitor_output_disabled",
                             "DC source output is disabled",
-                            "instrument_state",
-                            DC_SOURCE_OUTPUT_ENABLED.property_id,
+                            DC_SOURCE_OUTPUT_ENABLED,
                         )
                     ]
                 )
             if not source.measurement_enabled:
                 return not_collected(
                     [
-                        execution_problem(
+                        state_property_problem(
                             "virtual_dc_monitor_disabled",
                             "DC monitor measurement is disabled",
-                            "instrument_state",
-                            DC_MONITOR_MEASUREMENT_ENABLED.property_id,
+                            DC_MONITOR_MEASUREMENT_ENABLED,
                         )
                     ]
                 )
@@ -391,12 +389,11 @@ class VirtualDcSource:
             if requested_results != {active_result}:
                 return not_collected(
                     [
-                        execution_problem(
+                        state_property_problem(
                             "virtual_dc_monitor_result_inactive",
                             f"{source.source_mode} mode provides only "
                             f"{active_result.result_id}",
-                            "driver_collect_request",
-                            "results",
+                            DC_SOURCE_MODE,
                         )
                     ]
                 )

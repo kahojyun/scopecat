@@ -294,7 +294,7 @@ class _InstrumentActor:
             except Exception:
                 self._assumed_state = None
                 raise
-            if receipt.status == "unknown":
+            if receipt.status != "collected":
                 self._assumed_state = None
             return receipt
 

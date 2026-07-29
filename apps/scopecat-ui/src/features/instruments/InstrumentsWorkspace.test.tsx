@@ -1059,6 +1059,71 @@ describe("instrument workspace", () => {
     expect(collectInstrumentAcquisition).not.toHaveBeenCalled();
   });
 
+  it("shows schema-defined acquisition blockers until physical state is refreshed", async () => {
+    const gatedInstrument = instrument();
+    const description = gatedInstrument.description!;
+    const instrumentInterface = description.interfaces![0]!;
+    const acquisition = instrumentInterface.acquisitions![0]!;
+    gatedInstrument.description = {
+      ...description,
+      interfaces: [
+        {
+          ...instrumentInterface,
+          acquisitions: [
+            {
+              ...acquisition,
+              preconditions: [
+                {
+                  property: {
+                    interface_id: instrumentInterface.id,
+                    component_path: [],
+                    property_id: "output_enabled",
+                  },
+                  operator: "equal",
+                  value: true,
+                  unavailable_reason: "Enable RF output before collecting.",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const readyState = instrumentState();
+    readyState.properties = (readyState.properties ?? []).map((property) =>
+      property.property_id === "output_enabled" ? { ...property, value: true } : property,
+    );
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      problems: [],
+      items: [gatedInstrument],
+    });
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({
+        descriptions: [gatedInstrument.description!],
+        observed_state: [instrumentState()],
+      }),
+    );
+    vi.mocked(readInstrumentState).mockResolvedValue(readyState);
+
+    renderWorkspace();
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    expect(await screen.findByText("Enable RF output before collecting.")).toBeVisible();
+    const collect = screen.getByRole("button", { name: "Collect" });
+    expect(collect).toBeDisabled();
+    fireEvent.click(collect);
+    expect(collectInstrumentAcquisition).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh state" }));
+
+    await waitFor(() => expect(collect).toBeEnabled());
+    expect(screen.queryByText("Enable RF output before collecting.")).not.toBeInTheDocument();
+    fireEvent.click(collect);
+    await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledOnce());
+  });
+
   it("keeps the session available after close retries fail", async () => {
     vi.mocked(closeInstrumentSession)
       .mockRejectedValueOnce(new ApiError("Close request lost."))

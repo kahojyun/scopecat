@@ -21,7 +21,6 @@ from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
-    AcquisitionSpec,
     ApplyReceipt,
     CollectAxisRequest,
     CollectCommand,
@@ -36,6 +35,7 @@ from scopecat.sdk.instruments.contracts import (
     InvokeCommand,
     InvokeReceipt,
     acquisition_results,
+    evaluate_acquisition_readiness,
 )
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
@@ -343,26 +343,57 @@ class InstrumentSessionHandle:
                 f"interface {acquisition.interface_id!r} has no acquisition "
                 f"{acquisition.acquisition_id!r}"
             )
+        if any(result.acquisition != acquisition for result in results):
+            raise ValueError("collect results must belong to the selected acquisition")
+
+        requested_result_ids = tuple(result.result_id for result in results)
+        if (
+            command_id is not None
+            and not requested_result_ids
+            and acquisition_spec.kind == "state_discriminated"
+        ):
+            raise ValueError(
+                "state-discriminated collection with command_id requires "
+                "an explicit result"
+            )
         declared_results = {
             item.id: item for item in acquisition_results(acquisition_spec)
         }
-        if any(result.acquisition != acquisition for result in results):
-            raise ValueError("collect results must belong to the selected acquisition")
-        selected_result_ids = tuple(
-            result.result_id for result in results
-        ) or self._default_collect_result_ids(
-            selected,
-            acquisition_spec,
-        )
-        missing = tuple(
+        selected_results = declared_results
+        if command_id is None and (
+            acquisition_spec.kind == "state_discriminated"
+            or bool(acquisition_spec.preconditions)
+        ):
+            readiness = evaluate_acquisition_readiness(
+                description=description,
+                acquisition=acquisition_spec,
+                state=self.read_state(selected),
+            )
+            if readiness.status != "ready":
+                reasons = "; ".join(
+                    dict.fromkeys(issue.reason for issue in readiness.issues)
+                )
+                if readiness.status == "blocked":
+                    message = (
+                        f"acquisition {acquisition.acquisition_id!r} is unavailable"
+                    )
+                else:
+                    message = (
+                        f"acquisition {acquisition.acquisition_id!r} "
+                        "readiness is unknown"
+                    )
+                raise ValueError(f"{message}: {reasons}" if reasons else message)
+            selected_results = {item.id: item for item in readiness.results}
+        selected_result_ids = requested_result_ids or tuple(selected_results)
+        inactive = tuple(
             result_id
             for result_id in selected_result_ids
-            if result_id not in declared_results
+            if result_id not in selected_results
         )
-        if missing:
+        if inactive:
             raise ValueError(
-                f"acquisition {acquisition.acquisition_id!r} has no results: "
-                f"{', '.join(missing)}"
+                f"acquisition {acquisition.acquisition_id!r} has no active results: "
+                f"{', '.join(inactive)}"
             )
         session = self._require_session()
         command = CollectCommand(
@@ -381,8 +412,8 @@ class InstrumentSessionHandle:
                     component_path=list(acquisition.component_path),
                     acquisition_id=acquisition.acquisition_id,
                     result_id=result_id,
-                    unit=declared_results[result_id].unit,
-                    dtype=declared_results[result_id].dtype,
+                    unit=selected_results[result_id].unit,
+                    dtype=selected_results[result_id].dtype,
                     dimensions=[
                         CollectAxisRequest(
                             id=axis.id,
@@ -390,7 +421,7 @@ class InstrumentSessionHandle:
                             size=axis.size,
                             unit=axis.unit,
                         )
-                        for axis in declared_results[result_id].axes
+                        for axis in selected_results[result_id].axes
                         if axis.size is not None
                     ],
                 )
@@ -402,53 +433,6 @@ class InstrumentSessionHandle:
             selected,
             command,
         )
-
-    def _default_collect_result_ids(
-        self,
-        instrument_id: str,
-        acquisition: AcquisitionSpec,
-    ) -> tuple[str, ...]:
-        if acquisition.kind == "fixed":
-            return tuple(result.id for result in acquisition.results)
-
-        discriminator = acquisition.discriminator
-        state = self.read_state(instrument_id)
-        property_state = next(
-            (
-                item
-                for item in state.properties
-                if item.interface_id == discriminator.interface_id
-                and item.component_path == discriminator.component_path
-                and item.property_id == discriminator.property_id
-            ),
-            None,
-        )
-        if property_state is None:
-            discriminator_path = "/".join(
-                (
-                    str(discriminator.interface_id),
-                    *discriminator.component_path,
-                    discriminator.property_id,
-                )
-            )
-            raise ValueError(
-                "instrument state has no acquisition discriminator "
-                + discriminator_path
-            )
-        case = next(
-            (
-                item
-                for item in acquisition.cases
-                if item.value == property_state.value.root
-            ),
-            None,
-        )
-        if case is None:
-            raise ValueError(
-                f"acquisition {acquisition.id!r} has no case for discriminator "
-                f"value {property_state.value.root!r}"
-            )
-        return tuple(result.id for result in case.results)
 
     def close(
         self,

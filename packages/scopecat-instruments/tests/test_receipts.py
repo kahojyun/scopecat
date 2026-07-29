@@ -19,8 +19,6 @@ from scopecat_instruments.drivers import (
     YokogawaGS200,
 )
 from scopecat_instruments.members import (
-    DC_MONITOR_ACQUISITION,
-    DC_MONITOR_CURRENT_RESULT,
     DC_SOURCE_MODE,
     NETWORK_SWEEP,
     NETWORK_SWEEP_ACQUISITION,
@@ -78,20 +76,6 @@ def test_acquisition_transport_loss_reports_unknown() -> None:
 
     assert receipt.status == "unknown"
     assert receipt.problems[0].code == "instrument_collect_outcome_unknown"
-
-
-def test_collect_without_monitor_option_is_not_collected_without_io() -> None:
-    driver = YokogawaGS200("bias", ScriptedTransport([]))
-
-    receipt = driver.collect(
-        _collect_request(
-            DC_MONITOR_ACQUISITION,
-            DC_MONITOR_CURRENT_RESULT,
-        )
-    )
-
-    assert receipt.status == "not_collected"
-    assert receipt.problems[0].code == "gs200_monitor_option_required"
 
 
 def test_unsupported_invoke_returns_not_invoked_without_io() -> None:

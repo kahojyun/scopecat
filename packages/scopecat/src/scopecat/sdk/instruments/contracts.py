@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal, Protocol, cast
 
 from pydantic import (
     BaseModel,
@@ -14,9 +15,16 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.kernel.content_identity import model_wire_content_hash
+from scopecat.kernel.instrument_members import PropertyRef
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.units import compatible_units
+from scopecat.kernel.value_identity import (
+    quantity_comparison_values,
+    scalar_identity,
+)
 from scopecat.kernel.value_type_wire import (
     InstrumentOperationScalarWire,
     InstrumentPropertyScalarWire,
@@ -31,6 +39,7 @@ from scopecat.kernel.value_types import String as StringType
 from scopecat.kernel.value_validation import (
     ValuePath,
     ValueValidationError,
+    coerce_literal,
     validate_literal,
 )
 from scopecat.measurements.contracts import (
@@ -78,6 +87,7 @@ from scopecat.sdk.instruments.driver import (
 )
 from scopecat.sdk.problems import (
     LocationPathItem,
+    ModelLocation,
     Problem,
     ProblemPhase,
     model_location,
@@ -85,6 +95,15 @@ from scopecat.sdk.problems import (
 )
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
+_JSON_SAFE_INTEGER = (1 << 53) - 1
+type StateComparisonOperator = Literal[
+    "equal",
+    "not_equal",
+    "less_than",
+    "less_than_or_equal",
+    "greater_than",
+    "greater_than_or_equal",
+]
 
 
 class PropertySpec(BaseModel):
@@ -154,7 +173,7 @@ class AcquisitionAxisSpec(BaseModel):
     label: str | None = None
     description: str | None = None
     kind: _NonEmptyId
-    size: int | None = None
+    size: int | None = Field(default=None, ge=1, le=_JSON_SAFE_INTEGER)
     unit: str | None = None
 
 
@@ -187,8 +206,8 @@ class AcquisitionResultSpec(BaseModel):
         return self
 
 
-class StateDiscriminatorRef(BaseModel):
-    """Physical discriminator selecting one acquisition result case."""
+class StatePropertyRef(BaseModel):
+    """One observable persistent property used by an acquisition contract."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -197,11 +216,32 @@ class StateDiscriminatorRef(BaseModel):
     property_id: _NonEmptyId
 
 
+class AcquisitionPreconditionSpec(BaseModel):
+    """One public state comparison required before an acquisition can start."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    property: StatePropertyRef
+    operator: StateComparisonOperator
+    value: bool | int | float | str | Quantity
+    unavailable_reason: _NonEmptyId
+
+    @model_validator(mode="after")
+    def validate_finite_value(self) -> AcquisitionPreconditionSpec:
+        value = self.value
+        if (isinstance(value, float) and not math.isfinite(value)) or (
+            isinstance(value, Quantity) and not math.isfinite(value.value)
+        ):
+            raise ValueError("acquisition precondition values must be finite")
+        return self
+
+
 class AcquisitionCaseSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: _NonEmptyId
     results: list[AcquisitionResultSpec] = Field(min_length=1)
+    preconditions: list[AcquisitionPreconditionSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_unique_results(self) -> AcquisitionCaseSpec:
@@ -249,6 +289,7 @@ class _AcquisitionSpecBase(BaseModel):
     id: _NonEmptyId
     label: str | None = None
     description: str | None = None
+    preconditions: list[AcquisitionPreconditionSpec] = Field(default_factory=list)
 
 
 class FixedAcquisitionSpec(_AcquisitionSpecBase):
@@ -266,7 +307,7 @@ class FixedAcquisitionSpec(_AcquisitionSpecBase):
 
 class StateDiscriminatedAcquisitionSpec(_AcquisitionSpecBase):
     kind: Literal["state_discriminated"] = "state_discriminated"
-    discriminator: StateDiscriminatorRef
+    discriminator: StatePropertyRef
     cases: list[AcquisitionCaseSpec] = Field(min_length=2)
 
     @model_validator(mode="after")
@@ -286,6 +327,22 @@ type AcquisitionSpec = Annotated[
     FixedAcquisitionSpec | StateDiscriminatedAcquisitionSpec,
     Field(discriminator="kind"),
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class AcquisitionReadinessIssue:
+    kind: Literal["state_unknown", "precondition_not_met"]
+    reason: str
+    precondition: AcquisitionPreconditionSpec | None = None
+    observed_value: StateValue | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AcquisitionReadiness:
+    status: Literal["ready", "blocked", "unknown"]
+    active_case: str | None
+    results: tuple[AcquisitionResultSpec, ...]
+    issues: tuple[AcquisitionReadinessIssue, ...] = ()
 
 
 class ComponentSpec(BaseModel):
@@ -340,6 +397,10 @@ class InstrumentDescription(BaseModel):
 
     @model_validator(mode="after")
     def validate_unique_interfaces(self) -> InstrumentDescription:
+        # Description normalization must not mutate reusable interface specs.
+        self.interfaces = [
+            interface_spec.model_copy(deep=True) for interface_spec in self.interfaces
+        ]
         _require_unique(
             (interface.id for interface in self.interfaces),
             "instrument interface ids",
@@ -796,25 +857,39 @@ def acquisition(
     label: str | None = None,
     description: str | None = None,
     results: (list[AcquisitionResultSpec] | tuple[AcquisitionResultSpec, ...]) = (),
+    preconditions: (
+        list[AcquisitionPreconditionSpec] | tuple[AcquisitionPreconditionSpec, ...]
+    ) = (),
 ) -> FixedAcquisitionSpec:
     return FixedAcquisitionSpec(
         id=id,
         label=label,
         description=description,
         results=list(results),
+        preconditions=list(preconditions),
     )
 
 
-def state_discriminator_ref(
-    interface_id: str,
-    property_id: str,
+def _state_property_ref(property: PropertyRef) -> StatePropertyRef:
+    return StatePropertyRef(
+        interface_id=property.interface_id,
+        component_path=list(property.component_path),
+        property_id=property.property_id,
+    )
+
+
+def acquisition_precondition(
+    property: PropertyRef,
     *,
-    component_path: list[str] | tuple[str, ...] = (),
-) -> StateDiscriminatorRef:
-    return StateDiscriminatorRef(
-        interface_id=interface_id,
-        component_path=list(component_path),
-        property_id=property_id,
+    operator: StateComparisonOperator,
+    value: bool | float | str | Quantity,
+    unavailable_reason: str,
+) -> AcquisitionPreconditionSpec:
+    return AcquisitionPreconditionSpec(
+        property=_state_property_ref(property),
+        operator=operator,
+        value=value,
+        unavailable_reason=unavailable_reason,
     )
 
 
@@ -822,24 +897,35 @@ def acquisition_case(
     value: str,
     *,
     results: list[AcquisitionResultSpec] | tuple[AcquisitionResultSpec, ...],
+    preconditions: (
+        list[AcquisitionPreconditionSpec] | tuple[AcquisitionPreconditionSpec, ...]
+    ) = (),
 ) -> AcquisitionCaseSpec:
-    return AcquisitionCaseSpec(value=value, results=list(results))
+    return AcquisitionCaseSpec(
+        value=value,
+        results=list(results),
+        preconditions=list(preconditions),
+    )
 
 
 def state_discriminated_acquisition(
     id: str,
     *,
-    discriminator: StateDiscriminatorRef,
+    discriminator: PropertyRef,
     cases: list[AcquisitionCaseSpec] | tuple[AcquisitionCaseSpec, ...],
     label: str | None = None,
     description: str | None = None,
+    preconditions: (
+        list[AcquisitionPreconditionSpec] | tuple[AcquisitionPreconditionSpec, ...]
+    ) = (),
 ) -> StateDiscriminatedAcquisitionSpec:
     return StateDiscriminatedAcquisitionSpec(
         id=id,
         label=label,
         description=description,
-        discriminator=discriminator,
+        discriminator=_state_property_ref(discriminator),
         cases=list(cases),
+        preconditions=list(preconditions),
     )
 
 
@@ -849,6 +935,218 @@ def acquisition_results(
     if isinstance(acquisition_spec, FixedAcquisitionSpec):
         return tuple(acquisition_spec.results)
     return tuple(result for case in acquisition_spec.cases for result in case.results)
+
+
+def evaluate_acquisition_readiness(
+    *,
+    description: InstrumentDescription,
+    acquisition: AcquisitionSpec,
+    state: _InstrumentStateSnapshot | None,
+) -> AcquisitionReadiness:
+    """Evaluate public acquisition state without touching hardware."""
+
+    return _evaluate_acquisition_readiness(
+        description=description,
+        acquisition=acquisition,
+        state=state,
+    )
+
+
+def _evaluate_acquisition_readiness(
+    *,
+    description: InstrumentDescription,
+    acquisition: AcquisitionSpec,
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+) -> AcquisitionReadiness:
+    active_case: str | None = None
+    selected_case: AcquisitionCaseSpec | None = None
+    results: tuple[AcquisitionResultSpec, ...] = ()
+    issues = _acquisition_precondition_issues(
+        description=description,
+        preconditions=acquisition.preconditions,
+        state=state,
+    )
+    if isinstance(acquisition, StateDiscriminatedAcquisitionSpec):
+        if not _acquisition_state_is_usable(state, description):
+            issues.append(
+                AcquisitionReadinessIssue(
+                    kind="state_unknown",
+                    reason="the acquisition discriminator state is not synchronized",
+                )
+            )
+        else:
+            assert state is not None
+            discriminator = _state_value_for_reference(state, acquisition.discriminator)
+            if discriminator is None or not isinstance(discriminator.root, str):
+                issues.append(
+                    AcquisitionReadinessIssue(
+                        kind="state_unknown",
+                        reason=(
+                            "the acquisition discriminator state is not synchronized"
+                        ),
+                    )
+                )
+            else:
+                active_case = discriminator.root
+                selected_case = next(
+                    (case for case in acquisition.cases if case.value == active_case),
+                    None,
+                )
+            if active_case is not None and selected_case is None:
+                issues.append(
+                    AcquisitionReadinessIssue(
+                        kind="state_unknown",
+                        reason=f"the acquisition has no state case {active_case!r}",
+                    )
+                )
+        if selected_case is not None:
+            results = tuple(selected_case.results)
+            issues.extend(
+                _acquisition_precondition_issues(
+                    description=description,
+                    preconditions=selected_case.preconditions,
+                    state=state,
+                )
+            )
+    else:
+        results = tuple(acquisition.results)
+
+    status: Literal["ready", "blocked", "unknown"]
+    if any(issue.kind == "precondition_not_met" for issue in issues):
+        status = "blocked"
+    elif issues:
+        status = "unknown"
+    else:
+        status = "ready"
+    return AcquisitionReadiness(
+        status=status,
+        active_case=active_case,
+        results=results,
+        issues=tuple(issues),
+    )
+
+
+def _acquisition_precondition_issues(
+    *,
+    description: InstrumentDescription,
+    preconditions: Sequence[AcquisitionPreconditionSpec],
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+) -> list[AcquisitionReadinessIssue]:
+    if not preconditions:
+        return []
+    if not _acquisition_state_is_usable(state, description):
+        return [
+            AcquisitionReadinessIssue(
+                kind="state_unknown",
+                reason=precondition.unavailable_reason,
+                precondition=precondition,
+            )
+            for precondition in preconditions
+        ]
+
+    assert state is not None
+    issues: list[AcquisitionReadinessIssue] = []
+    for precondition in preconditions:
+        observed = _state_value_for_reference(state, precondition.property)
+        if observed is None:
+            issues.append(
+                AcquisitionReadinessIssue(
+                    kind="state_unknown",
+                    reason=precondition.unavailable_reason,
+                    precondition=precondition,
+                )
+            )
+            continue
+        resolved = _resolve_state_property(description, precondition.property)
+        assert resolved is not None
+        _, property_spec = resolved
+        if not _precondition_matches(
+            precondition,
+            observed=observed,
+            property_spec=property_spec,
+        ):
+            issues.append(
+                AcquisitionReadinessIssue(
+                    kind="precondition_not_met",
+                    reason=precondition.unavailable_reason,
+                    precondition=precondition,
+                    observed_value=observed,
+                )
+            )
+    return issues
+
+
+def _acquisition_state_is_usable(
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+    description: InstrumentDescription,
+) -> bool:
+    if state is None or state.instrument_id != description.instrument_id:
+        return False
+    return isinstance(state, _ProjectedInstrumentState) or not validate_state_snapshot(
+        snapshot=state,
+        description=description,
+    )
+
+
+def _state_value_for_reference(
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState,
+    reference: StatePropertyRef,
+) -> StateValue | None:
+    identity = _property_target_identity(
+        reference.interface_id,
+        reference.component_path,
+        reference.property_id,
+    )
+    return next(
+        (
+            property_state.value
+            for property_state in state.properties
+            if _property_target_identity(
+                property_state.interface_id,
+                property_state.component_path,
+                property_state.property_id,
+            )
+            == identity
+        ),
+        None,
+    )
+
+
+def _precondition_matches(
+    precondition: AcquisitionPreconditionSpec,
+    *,
+    observed: StateValue,
+    property_spec: PropertySpec,
+) -> bool:
+    left = coerce_literal(property_spec.value_type, observed.root)
+    right = coerce_literal(property_spec.value_type, precondition.value)
+    operator = precondition.operator
+    if isinstance(left, Quantity) and isinstance(right, Quantity):
+        left_value, right_value = quantity_comparison_values(left, right)
+        if operator == "equal":
+            return left_value == right_value
+        if operator == "not_equal":
+            return left_value != right_value
+    else:
+        if operator == "equal":
+            return scalar_identity(left) == scalar_identity(right)
+        if operator == "not_equal":
+            return scalar_identity(left) != scalar_identity(right)
+        assert (
+            isinstance(left, int | float)
+            and not isinstance(left, bool)
+            and isinstance(right, int | float)
+            and not isinstance(right, bool)
+        )
+        left_value, right_value = left, right
+    if operator == "less_than":
+        return left_value < right_value
+    if operator == "less_than_or_equal":
+        return left_value <= right_value
+    if operator == "greater_than":
+        return left_value > right_value
+    assert operator == "greater_than_or_equal"
+    return left_value >= right_value
 
 
 def operation_argument(
@@ -1073,7 +1371,6 @@ def _validate_state_assignments(
                 "instrument_driver_baseline_mismatch",
                 f"{instrument_id} cannot use state observed from "
                 f"{baseline.instrument_id}",
-                "baseline",
                 "instrument_id",
             )
         )
@@ -1090,12 +1387,17 @@ def _validate_state_assignments(
         _StateTargetScopeIdentity,
         tuple[InterfaceSpec | ComponentSpec, list[InstrumentStateAssignment]],
     ] = {}
-    for assignment in assignments:
+    for assignment_index, assignment in enumerate(assignments):
+        assignment_path: tuple[LocationPathItem, ...] = (
+            "assignments",
+            assignment_index,
+        )
         if assignment.resource_id != instrument_id:
             problems.append(
                 _problem(
                     "instrument_driver_resource_mismatch",
                     f"{instrument_id} cannot control {assignment.resource_id}",
+                    *assignment_path,
                     "resource_id",
                 )
             )
@@ -1106,6 +1408,7 @@ def _validate_state_assignments(
                 _problem(
                     "instrument_driver_unsupported_interface",
                     f"{instrument_id} does not support {assignment.interface_id}",
+                    *assignment_path,
                     "interface_id",
                 )
             )
@@ -1121,6 +1424,7 @@ def _validate_state_assignments(
                     f"{instrument_id} does not support component "
                     f"{'/'.join(assignment.component_path)!r} under "
                     f"{assignment.interface_id}",
+                    *assignment_path,
                     "component_path",
                 )
             )
@@ -1138,6 +1442,7 @@ def _validate_state_assignments(
                 _problem(
                     "instrument_driver_unsupported_property",
                     f"{instrument_id} does not support {assignment.property_id}",
+                    *assignment_path,
                     "property_id",
                 )
             )
@@ -1152,6 +1457,7 @@ def _validate_state_assignments(
                 _problem(
                     "instrument_driver_read_only_property",
                     f"{instrument_id} property {assignment.property_id} is read-only",
+                    *assignment_path,
                     "property_id",
                 )
             )
@@ -1162,6 +1468,7 @@ def _validate_state_assignments(
                     "instrument_driver_write_only_property",
                     f"{instrument_id} property {assignment.property_id} "
                     "is write-only and cannot be reconciled",
+                    *assignment_path,
                     "property_id",
                 )
             )
@@ -1171,6 +1478,7 @@ def _validate_state_assignments(
                 property_id=assignment.property_id,
                 value=assignment.value,
                 spec=property_spec,
+                assignment_path=assignment_path,
             )
         )
     baseline_by_scope = (
@@ -1181,6 +1489,7 @@ def _validate_state_assignments(
             _validate_state_case_assignments(
                 scoped_assignments,
                 component_spec,
+                scope=scope,
                 baseline_properties=(
                     baseline_by_scope.get(scope, ()) if baseline is not None else None
                 ),
@@ -1215,7 +1524,7 @@ def validate_state_snapshot(
         for scope, component_spec in _static_observable_state_scopes(description)
     }
     problems: list[Problem] = []
-    for property_state in snapshot.properties:
+    for property_index, property_state in enumerate(snapshot.properties):
         interface_spec = interfaces.get(property_state.interface_id)
         if interface_spec is None:
             problems.append(
@@ -1224,7 +1533,7 @@ def validate_state_snapshot(
                     f"{snapshot.instrument_id} returned unsupported interface "
                     f"{property_state.interface_id}",
                     "properties",
-                    property_state.property_id,
+                    property_index,
                     "interface_id",
                 )
             )
@@ -1240,7 +1549,7 @@ def validate_state_snapshot(
                     f"{snapshot.instrument_id} returned unsupported component "
                     f"{'/'.join(property_state.component_path)!r}",
                     "properties",
-                    property_state.property_id,
+                    property_index,
                     "component_path",
                 )
             )
@@ -1260,7 +1569,8 @@ def validate_state_snapshot(
                     f"{snapshot.instrument_id} returned unsupported property "
                     f"{property_state.property_id}",
                     "properties",
-                    property_state.property_id,
+                    property_index,
+                    "property_id",
                 )
             )
             continue
@@ -1276,7 +1586,8 @@ def validate_state_snapshot(
                     f"{snapshot.instrument_id} returned write-only property "
                     f"{property_state.property_id}",
                     "properties",
-                    property_state.property_id,
+                    property_index,
+                    "property_id",
                 )
             )
             continue
@@ -1292,10 +1603,31 @@ def validate_state_snapshot(
                     "instrument_driver_snapshot_property_value_mismatch",
                     f"{property_state.property_id}: {error.reason}",
                     "properties",
-                    property_state.property_id,
+                    property_index,
                     *error.path,
                 )
             )
+        else:
+            atom = property_spec.value_type.atom
+            literal = property_state.value.root
+            # Canonical snapshot units keep browser and worker comparisons identical.
+            if (
+                isinstance(atom, QuantityType)
+                and atom.unit is not None
+                and isinstance(literal, Quantity)
+                and literal.unit != atom.unit
+            ):
+                problems.append(
+                    _snapshot_problem(
+                        "instrument_driver_snapshot_property_value_mismatch",
+                        f"{property_state.property_id}: observed quantity must use "
+                        f"canonical unit {atom.unit!r}",
+                        "properties",
+                        property_index,
+                        "value",
+                        "unit",
+                    )
+                )
     for scope, (component_spec, scoped_properties) in grouped.items():
         problems.extend(
             _validate_snapshot_scope(
@@ -1316,7 +1648,7 @@ def validate_invoke_command(
 
     if command.instrument_id != description.instrument_id:
         return [
-            _problem(
+            _invoke_problem(
                 "instrument_driver_mismatch",
                 f"{description.instrument_id} cannot invoke for "
                 f"{command.instrument_id}",
@@ -1325,7 +1657,7 @@ def validate_invoke_command(
         ]
     if command.resource_id != command.instrument_id:
         return [
-            _problem(
+            _invoke_problem(
                 "instrument_driver_resource_mismatch",
                 f"{command.instrument_id} cannot control {command.resource_id}",
                 "resource_id",
@@ -1341,7 +1673,7 @@ def validate_invoke_command(
     )
     if interface_spec is None:
         return [
-            _problem(
+            _invoke_problem(
                 "instrument_driver_unsupported_interface",
                 f"{command.instrument_id} does not support {command.interface_id}",
                 "interface_id",
@@ -1350,7 +1682,7 @@ def validate_invoke_command(
     component_spec = _resolve_component(interface_spec, command.component_path)
     if component_spec is None:
         return [
-            _problem(
+            _invoke_problem(
                 "instrument_driver_unsupported_component",
                 f"{command.instrument_id} does not support component "
                 f"{'/'.join(command.component_path)!r} under {command.interface_id}",
@@ -1367,7 +1699,7 @@ def validate_invoke_command(
     )
     if operation_spec is None:
         return [
-            _problem(
+            _invoke_problem(
                 "instrument_driver_unsupported_operation",
                 f"{command.instrument_id} does not support operation "
                 f"{command.operation_id} under {command.interface_id}",
@@ -1380,7 +1712,7 @@ def validate_invoke_command(
     problems: list[Problem] = []
     for argument_id in sorted(declared.keys() - supplied.keys()):
         problems.append(
-            _problem(
+            _invoke_problem(
                 "instrument_driver_missing_operation_argument",
                 f"{command.instrument_id} operation {command.operation_id} "
                 f"requires argument {argument_id}",
@@ -1390,7 +1722,7 @@ def validate_invoke_command(
         )
     for argument_id in sorted(supplied.keys() - declared.keys()):
         problems.append(
-            _problem(
+            _invoke_problem(
                 "instrument_driver_unsupported_operation_argument",
                 f"{command.instrument_id} operation {command.operation_id} "
                 f"does not accept argument {argument_id}",
@@ -1414,87 +1746,16 @@ def validate_invoke_command(
     return problems
 
 
-def _active_acquisition_results(
-    *,
-    command: CollectCommand,
-    request: CollectResultRequest,
-    acquisition_spec: AcquisitionSpec,
-    description: InstrumentDescription,
-    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
-) -> tuple[str | None, frozenset[str], Problem | None]:
-    if isinstance(acquisition_spec, FixedAcquisitionSpec):
-        return (
-            None,
-            frozenset(result.id for result in acquisition_results(acquisition_spec)),
-            None,
-        )
-    if baseline is not None and baseline.instrument_id == command.instrument_id:
-        baseline_is_usable = isinstance(
-            baseline, _ProjectedInstrumentState
-        ) or not validate_state_snapshot(
-            snapshot=baseline,
-            description=description,
-        )
-        if baseline_is_usable:
-            reference = acquisition_spec.discriminator
-            identity = _property_target_identity(
-                reference.interface_id,
-                reference.component_path,
-                reference.property_id,
-            )
-            discriminator = next(
-                (
-                    property_state.value.root
-                    for property_state in baseline.properties
-                    if _property_target_identity(
-                        property_state.interface_id,
-                        property_state.component_path,
-                        property_state.property_id,
-                    )
-                    == identity
-                ),
-                None,
-            )
-            if isinstance(discriminator, str):
-                selected_case = next(
-                    (
-                        case
-                        for case in acquisition_spec.cases
-                        if case.value == discriminator
-                    ),
-                    None,
-                )
-                if selected_case is not None:
-                    return (
-                        discriminator,
-                        frozenset(result.id for result in selected_case.results),
-                        None,
-                    )
-    return (
-        None,
-        frozenset(),
-        _problem(
-            "instrument_driver_acquisition_state_unknown",
-            f"{command.instrument_id} acquisition {request.acquisition_id} "
-            "requires a complete observed discriminator state",
-            "requests",
-            request.id,
-            "acquisition_id",
-        ),
-    )
-
-
 def validate_collect_command(
     *,
     command: CollectCommand,
     description: InstrumentDescription,
-    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None = None,
 ) -> list[Problem]:
-    """Validate direct acquisition ownership before invoking a live driver."""
+    """Validate state-independent acquisition ownership and result contracts."""
 
     if command.instrument_id != description.instrument_id:
         return [
-            _problem(
+            _collect_command_problem(
                 "instrument_driver_mismatch",
                 f"{description.instrument_id} cannot collect for "
                 f"{command.instrument_id}",
@@ -1512,7 +1773,7 @@ def validate_collect_command(
     )
     if interface_spec is None:
         return [
-            _problem(
+            _collect_command_problem(
                 "instrument_driver_unsupported_interface",
                 f"{command.instrument_id} does not support "
                 f"{request_target.interface_id}",
@@ -1527,7 +1788,7 @@ def validate_collect_command(
     )
     if component_spec is None:
         return [
-            _problem(
+            _collect_command_problem(
                 "instrument_driver_unsupported_component",
                 f"{command.instrument_id} does not support component "
                 f"{'/'.join(request_target.component_path)!r}",
@@ -1546,7 +1807,7 @@ def validate_collect_command(
     )
     if acquisition_spec is None:
         return [
-            _problem(
+            _collect_command_problem(
                 "instrument_driver_unsupported_acquisition",
                 f"{command.instrument_id} does not support acquisition "
                 f"{request_target.acquisition_id} under "
@@ -1560,7 +1821,7 @@ def validate_collect_command(
         result.id: result for result in acquisition_results(acquisition_spec)
     }
     unsupported_results = [
-        _problem(
+        _collect_command_problem(
             "instrument_driver_unsupported_acquisition_result",
             f"{command.instrument_id} acquisition "
             f"{request.acquisition_id} has no result {request.result_id}",
@@ -1573,35 +1834,13 @@ def validate_collect_command(
     ]
     if unsupported_results:
         return unsupported_results
-    active_case, active_result_ids, state_problem = _active_acquisition_results(
-        command=command,
-        request=request_target,
-        acquisition_spec=acquisition_spec,
-        description=description,
-        baseline=baseline,
-    )
-    if state_problem is not None:
-        return [state_problem]
 
     problems: list[Problem] = []
     for request in command.requests:
         result_spec = declared_results[request.result_id]
-        if request.result_id not in active_result_ids:
-            problems.append(
-                _problem(
-                    "instrument_driver_inactive_acquisition_result",
-                    f"{command.instrument_id} acquisition "
-                    f"{request.acquisition_id} result {request.result_id} "
-                    f"is inactive in state case {active_case!r}",
-                    "requests",
-                    request.id,
-                    "result_id",
-                )
-            )
-            continue
         if request.dtype != result_spec.dtype:
             problems.append(
-                _problem(
+                _collect_command_problem(
                     "instrument_driver_acquisition_dtype_mismatch",
                     f"{command.instrument_id} acquisition result "
                     f"{request.result_id} requires dtype {result_spec.dtype}, "
@@ -1617,7 +1856,7 @@ def validate_collect_command(
             or not compatible_units(requested_unit, result_spec.unit)
         ):
             problems.append(
-                _problem(
+                _collect_command_problem(
                     "instrument_driver_acquisition_unit_mismatch",
                     f"{command.instrument_id} acquisition result "
                     f"{request.result_id} requires unit compatible with "
@@ -1638,7 +1877,7 @@ def validate_collect_command(
             continue
         if len(dimensions) != len(result_spec.axes):
             problems.append(
-                _problem(
+                _collect_command_problem(
                     "instrument_driver_acquisition_axes_mismatch",
                     f"{command.instrument_id} acquisition result "
                     f"{request.result_id} axes do not "
@@ -1661,7 +1900,7 @@ def validate_collect_command(
                 )
             ):
                 problems.append(
-                    _problem(
+                    _collect_command_problem(
                         "instrument_driver_acquisition_axis_mismatch",
                         f"{command.instrument_id} acquisition result "
                         f"{request.result_id} axis "
@@ -1678,7 +1917,7 @@ def validate_collect_command(
                 or not compatible_units(requested_axis_unit, declared_axis.unit)
             ):
                 problems.append(
-                    _problem(
+                    _collect_command_problem(
                         "instrument_driver_acquisition_axis_unit_mismatch",
                         f"{command.instrument_id} acquisition result "
                         f"{request.result_id} axis "
@@ -1692,6 +1931,106 @@ def validate_collect_command(
                     )
                 )
     return problems
+
+
+def validate_collect_plan(
+    *,
+    command: CollectCommand,
+    description: InstrumentDescription,
+    baseline: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+) -> list[Problem]:
+    """Check plan coherence; the driver's live guards remain authoritative."""
+
+    problems = validate_collect_command(
+        command=command,
+        description=description,
+    )
+    if problems:
+        return problems
+    request_target = command.requests[0]
+    interface_spec = next(
+        interface
+        for interface in description.interfaces
+        if interface.id == request_target.interface_id
+    )
+    component_spec = _resolve_component(
+        interface_spec,
+        request_target.component_path,
+    )
+    assert component_spec is not None
+    acquisition_spec = next(
+        acquisition
+        for acquisition in component_spec.acquisitions
+        if acquisition.id == request_target.acquisition_id
+    )
+    readiness = _evaluate_acquisition_readiness(
+        description=description,
+        acquisition=acquisition_spec,
+        state=baseline,
+    )
+    if readiness.status == "unknown":
+        unknown_problems: list[Problem] = []
+        if any(issue.precondition is None for issue in readiness.issues):
+            assert isinstance(
+                acquisition_spec,
+                StateDiscriminatedAcquisitionSpec,
+            )
+            unknown_problems.append(
+                _collect_state_reference_problem(
+                    "instrument_driver_acquisition_state_unknown",
+                    f"{command.instrument_id} acquisition "
+                    f"{request_target.acquisition_id} requires a complete "
+                    "observed discriminator state",
+                    reference=acquisition_spec.discriminator,
+                    request_id=request_target.id,
+                    observed_value=readiness.active_case,
+                )
+            )
+        unknown_problems.extend(
+            _collect_precondition_problem(
+                "instrument_driver_acquisition_precondition_state_unknown",
+                f"{command.instrument_id} acquisition "
+                f"{request_target.acquisition_id} requires synchronized state: "
+                f"{issue.reason}",
+                issue=issue,
+                request_id=request_target.id,
+            )
+            for issue in readiness.issues
+            if issue.kind == "state_unknown" and issue.precondition is not None
+        )
+        return unknown_problems
+
+    active_result_ids = frozenset(result.id for result in readiness.results)
+    plan_problems = (
+        [
+            _collect_command_problem(
+                "instrument_driver_inactive_acquisition_result",
+                f"{command.instrument_id} acquisition {request.acquisition_id} "
+                f"result {request.result_id} is inactive in state case "
+                f"{readiness.active_case!r}",
+                "requests",
+                request.id,
+                "result_id",
+            )
+            for request in command.requests
+            if request.result_id not in active_result_ids
+        ]
+        if not isinstance(acquisition_spec, StateDiscriminatedAcquisitionSpec)
+        or readiness.results
+        else []
+    )
+    plan_problems.extend(
+        _collect_precondition_problem(
+            "instrument_driver_acquisition_precondition_not_met",
+            f"{command.instrument_id} acquisition "
+            f"{request_target.acquisition_id} is unavailable: {issue.reason}",
+            issue=issue,
+            request_id=request_target.id,
+        )
+        for issue in readiness.issues
+        if issue.kind == "precondition_not_met"
+    )
+    return plan_problems
 
 
 def validate_collect_receipt(
@@ -1709,7 +2048,7 @@ def validate_collect_receipt(
     problems: list[Problem] = []
     for request_id in sorted(set(requests) - set(values)):
         problems.append(
-            _problem(
+            _collect_receipt_problem(
                 "instrument_driver_missing_acquisition_result",
                 f"{command.instrument_id} did not return acquisition request "
                 f"{request_id}",
@@ -1720,7 +2059,7 @@ def validate_collect_receipt(
         )
     for request_id in sorted(set(values) - set(requests)):
         problems.append(
-            _problem(
+            _collect_receipt_problem(
                 "instrument_driver_unexpected_acquisition_result",
                 f"{command.instrument_id} returned unexpected acquisition request "
                 f"{request_id}",
@@ -1748,7 +2087,7 @@ def validate_collect_receipt(
             expected_shape=expected_shape,
         ):
             problems.append(
-                _problem(
+                _collect_receipt_problem(
                     f"instrument_driver_readback_{issue.code.value}",
                     f"{command.instrument_id} acquisition request "
                     f"{request_id} violates "
@@ -1930,10 +2269,42 @@ def _state_case_by_property(
     }
 
 
+def _state_case_problem(
+    code: str,
+    message: str,
+    *,
+    scope: _StateTargetScopeIdentity,
+    state: DiscriminatedStateSpec,
+    details: Mapping[str, object] | None = None,
+) -> Problem:
+    interface_id, component_path = scope
+    context: dict[str, object] = {
+        "interface_id": interface_id,
+        "component_path": list(component_path),
+        "discriminator_property_id": state.discriminator_property_id,
+    }
+    context.update(details or {})
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location("instrument_state_command", "assignments"),
+        related_locations=(
+            _state_property_location(
+                interface_id,
+                component_path,
+                state.discriminator_property_id,
+            ),
+        ),
+        details=context,
+    )
+
+
 def _validate_state_case_assignments(
     assignments: Sequence[InstrumentStateAssignment],
     component_spec: InterfaceSpec | ComponentSpec,
     *,
+    scope: _StateTargetScopeIdentity,
     baseline_properties: Sequence[_InstrumentPropertyState] | None,
     require_explicit_state_case: bool,
 ) -> list[Problem]:
@@ -1949,10 +2320,12 @@ def _validate_state_case_assignments(
     }
     if len(referenced_cases) > 1:
         return [
-            _problem(
+            _state_case_problem(
                 "instrument_driver_mixed_state_cases",
                 "one state target cannot mix properties from multiple cases",
-                "assignments",
+                scope=scope,
+                state=state,
+                details={"referenced_cases": sorted(referenced_cases)},
             )
         ]
     explicit = by_property.get(state.discriminator_property_id)
@@ -1977,11 +2350,16 @@ def _validate_state_case_assignments(
     if explicit_case is not None:
         if referenced_cases and explicit_case not in referenced_cases:
             return [
-                _problem(
+                _state_case_problem(
                     "instrument_driver_state_case_mismatch",
                     f"state case {explicit_case!r} does not accept "
                     f"{next(iter(referenced_cases))!r} case properties",
-                    "assignments",
+                    scope=scope,
+                    state=state,
+                    details={
+                        "explicit_case": explicit_case,
+                        "referenced_cases": sorted(referenced_cases),
+                    },
                 )
             ]
         if baseline_case != explicit_case:
@@ -1989,6 +2367,7 @@ def _validate_state_case_assignments(
                 explicit_case,
                 by_property=by_property,
                 component_spec=component_spec,
+                scope=scope,
             )
         return []
     if not referenced_cases:
@@ -1999,33 +2378,41 @@ def _validate_state_case_assignments(
                 next(iter(referenced_cases)),
                 by_property=by_property,
                 component_spec=component_spec,
+                scope=scope,
             )
         return [
-            _problem(
+            _state_case_problem(
                 "instrument_driver_state_case_unknown",
                 "case-specific state requires an explicit discriminator",
-                "assignments",
-                state.discriminator_property_id,
+                scope=scope,
+                state=state,
+                details={"referenced_cases": sorted(referenced_cases)},
             )
         ]
     referenced_case = next(iter(referenced_cases))
     if baseline_case is None:
         return [
-            _problem(
+            _state_case_problem(
                 "instrument_driver_state_case_unknown",
                 "case-specific state requires an observed discriminator value",
-                "baseline",
-                state.discriminator_property_id,
+                scope=scope,
+                state=state,
+                details={"referenced_case": referenced_case},
             )
         ]
     if baseline_case != referenced_case:
         return [
-            _problem(
+            _state_case_problem(
                 "instrument_driver_state_case_mismatch",
                 f"observed state case {baseline_case!r} does not accept "
                 f"{referenced_case!r} case properties; set "
                 f"{state.discriminator_property_id} explicitly to switch cases",
-                "assignments",
+                scope=scope,
+                state=state,
+                details={
+                    "observed_case": baseline_case,
+                    "referenced_case": referenced_case,
+                },
             )
         ]
     return []
@@ -2036,6 +2423,7 @@ def _incomplete_state_case_problems(
     *,
     by_property: Mapping[str, InstrumentStateAssignment],
     component_spec: InterfaceSpec | ComponentSpec,
+    scope: _StateTargetScopeIdentity,
 ) -> list[Problem]:
     state = component_spec.state
     if state is None:
@@ -2058,11 +2446,13 @@ def _incomplete_state_case_problems(
     if not missing:
         return []
     return [
-        _problem(
+        _state_case_problem(
             "instrument_driver_state_case_incomplete",
             f"state case {case_value!r} requires all writable case properties "
             f"without a matching baseline; missing {missing!r}",
-            "assignments",
+            scope=scope,
+            state=state,
+            details={"case": case_value, "missing_property_ids": missing},
         )
     ]
 
@@ -2126,6 +2516,20 @@ def _validate_snapshot_scope(
             "instrument_driver_snapshot_inactive_state_property",
             f"state case {active_case!r} cannot contain properties {inactive!r}",
             "properties",
+            related_locations=tuple(
+                _state_property_location(
+                    scope[0],
+                    scope[1],
+                    property_id,
+                )
+                for property_id in inactive
+            ),
+            details={
+                "interface_id": scope[0],
+                "component_path": list(scope[1]),
+                "active_case": active_case,
+                "property_ids": inactive,
+            },
         )
     )
     return problems
@@ -2146,6 +2550,19 @@ def _snapshot_missing_properties(
             f"observed {interface_id} {component} state is missing "
             f"properties {selected!r}",
             "properties",
+            related_locations=tuple(
+                _state_property_location(
+                    interface_id,
+                    component_path,
+                    property_id,
+                )
+                for property_id in selected
+            ),
+            details={
+                "interface_id": interface_id,
+                "component_path": list(component_path),
+                "property_ids": selected,
+            },
         )
     ]
 
@@ -2155,6 +2572,7 @@ def _validate_state_value(
     property_id: str,
     value: StateValue,
     spec: PropertySpec,
+    assignment_path: tuple[LocationPathItem, ...],
 ) -> list[Problem]:
     try:
         validate_literal(spec.value_type, value.root, path=("value",))
@@ -2162,7 +2580,7 @@ def _validate_state_value(
         return _property_value_mismatch(
             property_id,
             error.reason,
-            path=error.path,
+            path=(*assignment_path, *error.path),
         )
     return []
 
@@ -2185,7 +2603,7 @@ def _validate_operation_argument(
         schema_id = payload_schemas.get(literal.payload_id)
         if schema_id is None:
             return [
-                _problem(
+                _invoke_problem(
                     "instrument_driver_unknown_payload",
                     f"{argument_id} references unknown payload {literal.payload_id}",
                     "arguments",
@@ -2219,7 +2637,7 @@ def _operation_argument_value_mismatch(
     path: ValuePath = ("value",),
 ) -> list[Problem]:
     return [
-        _problem(
+        _invoke_problem(
             "instrument_driver_operation_argument_value_mismatch",
             f"{argument_id}: {reason}",
             "arguments",
@@ -2258,9 +2676,58 @@ def _validate_instrument_scalar(
         )
     if isinstance(value.atom, PayloadType) and not allow_payload:
         raise ValueError("instrument properties cannot contain payload values")
+    if isinstance(value.atom, IntType):
+        if (
+            value.atom.minimum is not None and value.atom.minimum < -_JSON_SAFE_INTEGER
+        ) or (
+            value.atom.maximum is not None and value.atom.maximum > _JSON_SAFE_INTEGER
+        ):
+            raise ValueError(
+                "instrument integers must stay within the JSON safe integer range"
+            )
+        return Scalar(
+            IntType(
+                minimum=(
+                    -_JSON_SAFE_INTEGER
+                    if value.atom.minimum is None
+                    else value.atom.minimum
+                ),
+                maximum=(
+                    _JSON_SAFE_INTEGER
+                    if value.atom.maximum is None
+                    else value.atom.maximum
+                ),
+            )
+        )
     if isinstance(value.atom, FloatType | QuantityType) and not value.atom.finite:
         raise ValueError("instrument numeric values must require finite values")
+    if isinstance(value.atom, FloatType):
+        return Scalar(
+            FloatType(
+                minimum=_canonical_float(value.atom.minimum),
+                maximum=_canonical_float(value.atom.maximum),
+            )
+        )
+    if isinstance(value.atom, QuantityType):
+        return Scalar(
+            QuantityType(
+                dimension=value.atom.dimension,
+                unit=value.atom.unit,
+                minimum=_canonical_float(value.atom.minimum),
+                maximum=_canonical_float(value.atom.maximum),
+            )
+        )
     return value
+
+
+def _canonical_float(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        selected = float(value)
+    except OverflowError as error:
+        raise ValueError("instrument numeric bounds must be finite") from error
+    return 0.0 if selected == 0.0 else selected
 
 
 def _require_unique(values: Iterable[str], label: str) -> None:
@@ -2285,11 +2752,13 @@ def validate_instrument_description_collection(
             "instrument descriptions require unique instrument ids: "
             f"{', '.join(duplicates)}"
         )
-    declared: dict[str, InterfaceSpec] = {}
+    declared: dict[str, str] = {}
     for instrument in instruments:
+        _validate_acquisition_state_references(instrument)
         for interface_spec in instrument.interfaces:
-            previous = declared.setdefault(interface_spec.id, interface_spec)
-            if previous != interface_spec:
+            fingerprint = model_wire_content_hash(interface_spec)
+            previous = declared.setdefault(interface_spec.id, fingerprint)
+            if previous != fingerprint:
                 raise ValueError(
                     f"interface {interface_spec.id!r} must have one stable "
                     "specification within an instrument catalog"
@@ -2299,40 +2768,212 @@ def validate_instrument_description_collection(
 def _validate_acquisition_state_references(
     description: InstrumentDescription,
 ) -> None:
-    interfaces = {interface.id: interface for interface in description.interfaces}
     for interface_spec in description.interfaces:
         for component_spec in _component_specs(interface_spec):
             for acquisition_spec in component_spec.acquisitions:
-                if not isinstance(
+                if isinstance(
                     acquisition_spec,
                     StateDiscriminatedAcquisitionSpec,
                 ):
-                    continue
-                reference = acquisition_spec.discriminator
-                target_interface = interfaces.get(reference.interface_id)
-                target_component = (
-                    _resolve_component(target_interface, reference.component_path)
-                    if target_interface is not None
-                    else None
-                )
-                target_state = (
-                    target_component.state if target_component is not None else None
-                )
-                if (
-                    target_state is None
-                    or target_state.discriminator_property_id != reference.property_id
+                    _validate_acquisition_discriminator(
+                        description,
+                        acquisition_spec,
+                    )
+                for precondition in acquisition_spec.preconditions:
+                    _validate_acquisition_precondition(
+                        description,
+                        acquisition_spec,
+                        precondition,
+                        case_value=None,
+                    )
+                if isinstance(
+                    acquisition_spec,
+                    StateDiscriminatedAcquisitionSpec,
                 ):
-                    raise ValueError(
-                        f"acquisition {acquisition_spec.id!r} discriminator must "
-                        "reference a declared discriminated state"
-                    )
-                acquisition_cases = tuple(case.value for case in acquisition_spec.cases)
-                state_cases = tuple(case.value for case in target_state.cases)
-                if acquisition_cases != state_cases:
-                    raise ValueError(
-                        f"acquisition {acquisition_spec.id!r} case values must "
-                        "exactly match its discriminator state cases"
-                    )
+                    for case in acquisition_spec.cases:
+                        for precondition in case.preconditions:
+                            _validate_acquisition_precondition(
+                                description,
+                                acquisition_spec,
+                                precondition,
+                                case_value=case.value,
+                            )
+
+
+def _validate_acquisition_discriminator(
+    description: InstrumentDescription,
+    acquisition: StateDiscriminatedAcquisitionSpec,
+) -> None:
+    resolved = _resolve_state_property(description, acquisition.discriminator)
+    target_component = resolved[0] if resolved is not None else None
+    target_state = target_component.state if target_component is not None else None
+    if (
+        target_state is None
+        or target_state.discriminator_property_id
+        != acquisition.discriminator.property_id
+    ):
+        raise ValueError(
+            f"acquisition {acquisition.id!r} discriminator must reference "
+            "a declared discriminated state"
+        )
+    acquisition_cases = tuple(case.value for case in acquisition.cases)
+    state_cases = tuple(case.value for case in target_state.cases)
+    if acquisition_cases != state_cases:
+        raise ValueError(
+            f"acquisition {acquisition.id!r} case values must exactly match "
+            "its discriminator state cases"
+        )
+
+
+def _validate_acquisition_precondition(
+    description: InstrumentDescription,
+    acquisition: AcquisitionSpec,
+    precondition: AcquisitionPreconditionSpec,
+    *,
+    case_value: str | None,
+) -> None:
+    resolved = _resolve_state_property(description, precondition.property)
+    if resolved is None:
+        raise ValueError(
+            f"acquisition {acquisition.id!r} precondition must reference "
+            "a declared property"
+        )
+    component, property_spec = resolved
+    if property_spec.access == "write_only":
+        raise ValueError(
+            f"acquisition {acquisition.id!r} precondition property must be observable"
+        )
+    atom = property_spec.value_type.atom
+    if precondition.operator not in {"equal", "not_equal"} and not isinstance(
+        atom,
+        IntType | FloatType | QuantityType,
+    ):
+        raise ValueError(
+            f"acquisition {acquisition.id!r} ordered precondition requires "
+            "a numeric property"
+        )
+    if isinstance(atom, QuantityType):
+        literal = precondition.value
+        if not isinstance(literal, Quantity):
+            raise ValueError(
+                f"acquisition {acquisition.id!r} quantity precondition requires "
+                "an explicit unit"
+            )
+        if atom.unit is None:
+            raise ValueError(
+                f"acquisition {acquisition.id!r} quantity precondition property "
+                "must declare a canonical unit"
+            )
+        if literal.unit != atom.unit:
+            raise ValueError(
+                f"acquisition {acquisition.id!r} precondition must use canonical "
+                f"unit {atom.unit!r}"
+            )
+    try:
+        canonical_value = coerce_literal(
+            property_spec.value_type,
+            precondition.value,
+            path=("value",),
+        )
+    except ValueValidationError as error:
+        raise ValueError(
+            f"acquisition {acquisition.id!r} precondition value: {error.reason}"
+        ) from error
+    if not _precondition_property_is_visible(
+        acquisition,
+        case_value=case_value,
+        reference=precondition.property,
+        component=component,
+    ):
+        scope = "acquisition" if case_value is None else f"case {case_value!r}"
+        raise ValueError(
+            f"acquisition {acquisition.id!r} {scope} precondition references "
+            "state that is not always observable in that scope"
+        )
+    if isinstance(canonical_value, float) and canonical_value == 0.0:
+        canonical_value = 0.0
+    elif isinstance(canonical_value, Quantity) and canonical_value.value == 0.0:
+        canonical_value = canonical_value.model_copy(update={"value": 0.0})
+    precondition.value = cast(
+        "bool | int | float | str | Quantity",
+        canonical_value,
+    )
+
+
+def _precondition_property_is_visible(
+    acquisition: AcquisitionSpec,
+    *,
+    case_value: str | None,
+    reference: StatePropertyRef,
+    component: InterfaceSpec | ComponentSpec,
+) -> bool:
+    state = component.state
+    if state is None:
+        return True
+    if (
+        reference.property_id == state.discriminator_property_id
+        or reference.property_id in state.common_property_ids
+    ):
+        return True
+    if case_value is None or not isinstance(
+        acquisition, StateDiscriminatedAcquisitionSpec
+    ):
+        return False
+    discriminator_identity = _property_target_identity(
+        acquisition.discriminator.interface_id,
+        acquisition.discriminator.component_path,
+        acquisition.discriminator.property_id,
+    )
+    target_discriminator_identity = _property_target_identity(
+        reference.interface_id,
+        reference.component_path,
+        state.discriminator_property_id,
+    )
+    if discriminator_identity != target_discriminator_identity:
+        return False
+    selected_case = next(
+        (case for case in state.cases if case.value == case_value),
+        None,
+    )
+    return (
+        selected_case is not None
+        and reference.property_id in selected_case.property_ids
+    )
+
+
+def _resolve_state_property(
+    description: InstrumentDescription,
+    reference: StatePropertyRef,
+) -> tuple[InterfaceSpec | ComponentSpec, PropertySpec] | None:
+    interface = next(
+        (
+            candidate
+            for candidate in description.interfaces
+            if candidate.id == reference.interface_id
+        ),
+        None,
+    )
+    if interface is None:
+        return None
+    component = _resolve_component(interface, reference.component_path)
+    if component is None:
+        return None
+    property_spec = next(
+        (
+            candidate
+            for candidate in component.properties
+            if candidate.id == reference.property_id
+        ),
+        None,
+    )
+    return (
+        None
+        if property_spec is None
+        else (
+            component,
+            property_spec,
+        )
+    )
 
 
 def _component_specs(
@@ -2412,7 +3053,7 @@ def _problem(code: str, message: str, *path: LocationPathItem) -> Problem:
     )
 
 
-def _snapshot_problem(
+def _invoke_problem(
     code: str,
     message: str,
     *path: LocationPathItem,
@@ -2421,5 +3062,131 @@ def _snapshot_problem(
         code,
         message,
         phase=ProblemPhase.EXECUTION,
+        location=model_location("instrument_invoke_command", *path),
+    )
+
+
+def _collect_command_problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+) -> Problem:
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location("instrument_collect_command", *path),
+    )
+
+
+def _collect_precondition_problem(
+    code: str,
+    message: str,
+    *,
+    issue: AcquisitionReadinessIssue,
+    request_id: str,
+) -> Problem:
+    precondition = issue.precondition
+    assert precondition is not None
+    details: dict[str, object] = {
+        "precondition": precondition.model_dump(mode="json"),
+    }
+    if issue.observed_value is not None:
+        details["observed_value"] = issue.observed_value.model_dump(mode="json")
+    target = precondition.property
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location(
+            "instrument_collect_command",
+            "requests",
+            request_id,
+            "acquisition_id",
+        ),
+        related_locations=(
+            _state_property_location(
+                target.interface_id,
+                target.component_path,
+                target.property_id,
+            ),
+        ),
+        details=details,
+    )
+
+
+def _collect_state_reference_problem(
+    code: str,
+    message: str,
+    *,
+    reference: StatePropertyRef,
+    request_id: str,
+    observed_value: str | None,
+) -> Problem:
+    details: dict[str, object] = {
+        "state_property": reference.model_dump(mode="json"),
+    }
+    if observed_value is not None:
+        details["observed_value"] = observed_value
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location(
+            "instrument_collect_command",
+            "requests",
+            request_id,
+            "acquisition_id",
+        ),
+        related_locations=(
+            _state_property_location(
+                reference.interface_id,
+                reference.component_path,
+                reference.property_id,
+            ),
+        ),
+        details=details,
+    )
+
+
+def _collect_receipt_problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+) -> Problem:
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location("instrument_collect_receipt", *path),
+    )
+
+
+def _snapshot_problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+    related_locations: Sequence[ModelLocation] = (),
+    details: Mapping[str, object] | None = None,
+) -> Problem:
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
         location=model_location("instrument_state_snapshot", *path),
+        related_locations=related_locations,
+        details=details,
+    )
+
+
+def _state_property_location(
+    interface_id: str,
+    component_path: Sequence[str],
+    property_id: str,
+) -> ModelLocation:
+    return model_location(
+        "instrument_state",
+        interface_id,
+        *component_path,
+        property_id,
     )

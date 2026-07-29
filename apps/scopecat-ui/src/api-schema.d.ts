@@ -660,12 +660,25 @@ export interface components {
         };
         /** AcquisitionCaseSpec */
         AcquisitionCaseSpec: {
+            /** Preconditions */
+            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
             /** Results */
             results: [
                 components["schemas"]["AcquisitionResultSpec"],
                 ...components["schemas"]["AcquisitionResultSpec"][]
             ];
             value: components["schemas"]["_NonEmptyId"];
+        };
+        /**
+         * AcquisitionPreconditionSpec
+         * @description One public state comparison required before an acquisition can start.
+         */
+        AcquisitionPreconditionSpec: {
+            operator: components["schemas"]["StateComparisonOperator"];
+            property: components["schemas"]["StatePropertyRef"];
+            unavailable_reason: components["schemas"]["_NonEmptyId"];
+            /** Value */
+            value: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"];
         };
         /** AcquisitionResultSpec */
         AcquisitionResultSpec: {
@@ -1340,6 +1353,8 @@ export interface components {
             kind: "fixed";
             /** Label */
             label?: string | null;
+            /** Preconditions */
+            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
             /** Results */
             results: [
                 components["schemas"]["AcquisitionResultSpec"],
@@ -2459,6 +2474,8 @@ export interface components {
             property_ids?: components["schemas"]["_NonEmptyId"][];
             value: components["schemas"]["_NonEmptyId"];
         };
+        /** @enum {string} */
+        StateComparisonOperator: "equal" | "not_equal" | "less_than" | "less_than_or_equal" | "greater_than" | "greater_than_or_equal";
         /** StateDiscriminatedAcquisitionSpec */
         StateDiscriminatedAcquisitionSpec: {
             /** Cases */
@@ -2469,7 +2486,7 @@ export interface components {
             ];
             /** Description */
             description?: string | null;
-            discriminator: components["schemas"]["StateDiscriminatorRef"];
+            discriminator: components["schemas"]["StatePropertyRef"];
             id: components["schemas"]["_NonEmptyId"];
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2478,18 +2495,20 @@ export interface components {
             kind: "state_discriminated";
             /** Label */
             label?: string | null;
+            /** Preconditions */
+            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
         };
+        StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**
-         * StateDiscriminatorRef
-         * @description Physical discriminator selecting one acquisition result case.
+         * StatePropertyRef
+         * @description One observable persistent property used by an acquisition contract.
          */
-        StateDiscriminatorRef: {
+        StatePropertyRef: {
             /** Component Path */
             component_path?: components["schemas"]["_NonEmptyId"][];
             interface_id: components["schemas"]["InterfaceId"];
             property_id: components["schemas"]["_NonEmptyId"];
         };
-        StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
         /**
          * StateValue
          * @description A concrete primitive, finite quantity, or command-local payload reference.

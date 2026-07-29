@@ -6,6 +6,7 @@ from typing import override
 from uuid import uuid4
 
 import pytest
+from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
@@ -69,6 +70,22 @@ class _DisconnectFailDriver(_TrackingDriver):
     def disconnect(self) -> None:
         self.disconnect_count += 1
         raise RuntimeError("disconnect failed")
+
+
+class _RejectCollectDriver(_TrackingDriver):
+    @override
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        del request
+        return CollectReceipt(
+            status="not_collected",
+            problems=(
+                Problem(
+                    code="test_collect_rejected",
+                    phase=ProblemPhase.EXECUTION,
+                    message="collection rejected",
+                ),
+            ),
+        )
 
 
 class _BlockingReadDriver(_TrackingDriver):
@@ -653,6 +670,34 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     assert drivers[0].invoked == [expected_driver_invoke]
     assert drivers[0].collect_requests == [collect_request]
 
+    owned.release()
+    registry.shutdown()
+
+
+def test_rejected_collection_invalidates_the_assumed_state() -> None:
+    registry = InstrumentActorRegistry()
+    drivers: list[_TrackingDriver] = []
+    endpoint = _endpoint(drivers, driver_type=_RejectCollectDriver)
+    owned = registry.acquire(
+        _exclusivity_key("source-0"),
+        "source-0",
+        binding=_binding(),
+        owner=_owner("session-1"),
+        endpoint=endpoint,
+        connect=endpoint,
+    )
+    owned.adopt_state(owned.read_state())
+
+    receipt = owned.collect(
+        DriverCollectRequest(
+            interface_id="test.scalar_signal/v1",
+            acquisition_id="sample",
+            results=(DriverCollectResult(request_id="signal", result_id="signal"),),
+        )
+    )
+
+    assert receipt.status == "not_collected"
+    assert owned.assumed_state is None
     owned.release()
     registry.shutdown()
 

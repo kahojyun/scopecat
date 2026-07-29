@@ -8,10 +8,12 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat.sdk.instruments as instrument_sdk
+from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.kernel.value_types import Entity, Float, Payload, Scalar
+from scopecat.kernel.value_types import Entity, Float, Int, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import instrument_bindings
 from scopecat.records.instrument import (
@@ -33,6 +35,8 @@ from scopecat.records.measurement import (
 )
 from scopecat.sdk.instruments import (
     AcquisitionCaseSpec,
+    AcquisitionPreconditionSpec,
+    AcquisitionReadiness,
     CollectAxisRequest,
     CollectCommand,
     CollectReceipt,
@@ -46,20 +50,24 @@ from scopecat.sdk.instruments import (
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InterfaceRef,
     InvokeCommand,
     OperationArgumentSpec,
+    PropertyRef,
     PropertySpec,
     StateDiscriminatedAcquisitionSpec,
-    StateDiscriminatorRef,
+    StatePropertyRef,
     acquisition,
     acquisition_axis,
     acquisition_case,
+    acquisition_precondition,
     acquisition_result,
     acquisition_results,
     bool_property,
     component,
     discriminated_state,
     enum_property,
+    evaluate_acquisition_readiness,
     float_property,
     int_property,
     interface,
@@ -68,9 +76,9 @@ from scopecat.sdk.instruments import (
     quantity_property,
     state_case,
     state_discriminated_acquisition,
-    state_discriminator_ref,
     string_property,
     validate_collect_command,
+    validate_collect_plan,
     validate_collect_receipt,
     validate_invoke_command,
     validate_state_command,
@@ -80,6 +88,7 @@ from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import lower_driver_apply_request
 from scopecat.sdk.instruments.contracts import (
     project_instrument_state,
+    validate_instrument_description_collection,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import (
@@ -95,13 +104,15 @@ from tests.testkit.workflow_fixtures import load_experiment
 def test_instrument_records_are_public_from_the_sdk_facade() -> None:
     owners = {
         "AcquisitionCaseSpec": AcquisitionCaseSpec,
+        "AcquisitionPreconditionSpec": AcquisitionPreconditionSpec,
+        "AcquisitionReadiness": AcquisitionReadiness,
         "CommandChannelBinding": RecordCommandChannelBinding,
         "FixedAcquisitionSpec": FixedAcquisitionSpec,
         "InstrumentReadback": RecordInstrumentReadback,
         "InstrumentPropertyState": RecordInstrumentPropertyState,
         "InstrumentStateSnapshot": RecordInstrumentStateSnapshot,
         "StateDiscriminatedAcquisitionSpec": StateDiscriminatedAcquisitionSpec,
-        "StateDiscriminatorRef": StateDiscriminatorRef,
+        "StatePropertyRef": StatePropertyRef,
     }
 
     for name, owner in owners.items():
@@ -518,6 +529,8 @@ def test_instrument_driver_validator_applies_scalar_constraints() -> None:
     assert valid_gain == []
     assert compatible_frequency == []
     assert out_of_range_gain[0].code == "instrument_driver_property_value_mismatch"
+    assert isinstance(out_of_range_gain[0].location, ModelLocation)
+    assert out_of_range_gain[0].location.path == ("assignments", 0, "value")
     assert out_of_range_frequency[0].code == "instrument_driver_property_value_mismatch"
     assert implicit_unit_frequency == []
 
@@ -846,7 +859,7 @@ def test_acquisition_schema_uses_an_explicit_discriminated_union() -> None:
     assert [result.id for result in acquisition_results(fixed)] == ["signal"]
     assert isinstance(state_discriminated, StateDiscriminatedAcquisitionSpec)
     assert state_discriminated.kind == "state_discriminated"
-    assert isinstance(state_discriminated.discriminator, StateDiscriminatorRef)
+    assert isinstance(state_discriminated.discriminator, StatePropertyRef)
     assert all(
         isinstance(case, AcquisitionCaseSpec) for case in state_discriminated.cases
     )
@@ -872,11 +885,9 @@ def test_state_discriminated_acquisition_requires_unique_result_ids() -> None:
     ):
         state_discriminated_acquisition(
             "monitor",
-            discriminator=state_discriminator_ref(
-                "test.source/v1",
-                "mode",
-                component_path=("output",),
-            ),
+            discriminator=InterfaceRef("test.source/v1")
+            .component("output")
+            .property("mode"),
             cases=(
                 acquisition_case(
                     "voltage",
@@ -896,11 +907,9 @@ def test_acquisition_discriminator_must_reference_declared_physical_state() -> N
         match="discriminator must reference a declared discriminated state",
     ):
         _state_discriminated_collect_description(
-            discriminator=state_discriminator_ref(
-                "test.source/v1",
-                "missing",
-                component_path=("output",),
-            )
+            discriminator=InterfaceRef("test.source/v1")
+            .component("output")
+            .property("missing")
         )
 
 
@@ -921,6 +930,512 @@ def test_acquisition_cases_must_match_discriminator_state_cases() -> None:
                 ),
             )
         )
+
+
+def test_acquisition_readiness_uses_public_state_preconditions() -> None:
+    output_enabled = (
+        InterfaceRef("test.source/v1").component("output").property("output_enabled")
+    )
+    description = _state_discriminated_collect_description(
+        preconditions=(
+            acquisition_precondition(
+                output_enabled,
+                operator="equal",
+                value=True,
+                unavailable_reason="Source output is disabled.",
+            ),
+        )
+    )
+    acquisition_spec = description.interfaces[1].acquisitions[0]
+
+    unknown = evaluate_acquisition_readiness(
+        description=description,
+        acquisition=acquisition_spec,
+        state=None,
+    )
+    blocked = evaluate_acquisition_readiness(
+        description=description,
+        acquisition=acquisition_spec,
+        state=_state_discriminated_collect_snapshot("voltage"),
+    )
+    ready = evaluate_acquisition_readiness(
+        description=description,
+        acquisition=acquisition_spec,
+        state=_state_discriminated_collect_snapshot(
+            "voltage",
+            output_enabled=True,
+        ),
+    )
+
+    assert unknown.status == "unknown"
+    assert unknown.results == ()
+    assert blocked.status == "blocked"
+    assert blocked.active_case == "voltage"
+    assert [result.id for result in blocked.results] == ["monitored_current"]
+    assert [issue.reason for issue in blocked.issues] == ["Source output is disabled."]
+    assert ready.status == "ready"
+    assert ready.issues == ()
+
+
+def test_collect_plan_checks_preconditions_but_structural_validation_does_not() -> None:
+    description = _state_discriminated_collect_description(
+        preconditions=(
+            acquisition_precondition(
+                InterfaceRef("test.source/v1")
+                .component("output")
+                .property("output_enabled"),
+                operator="equal",
+                value=True,
+                unavailable_reason="Source output is disabled.",
+            ),
+        )
+    )
+    command = _state_discriminated_collect_command(
+        "monitored_current",
+        unit="A",
+    )
+
+    structural = validate_collect_command(
+        command=command,
+        description=description,
+    )
+    planned = validate_collect_plan(
+        command=command,
+        description=description,
+        baseline=_state_discriminated_collect_snapshot("voltage"),
+    )
+
+    assert structural == []
+    assert [problem.code for problem in planned] == [
+        "instrument_driver_acquisition_precondition_not_met"
+    ]
+    [problem] = planned
+    assert isinstance(problem.location, ModelLocation)
+    assert problem.location.root == "instrument_collect_command"
+    assert isinstance(problem.related_locations[0], ModelLocation)
+    assert problem.related_locations[0].root == "instrument_state"
+    assert problem.related_locations[0].path == (
+        "test.source/v1",
+        "output",
+        "output_enabled",
+    )
+    assert problem.details["observed_value"] is False
+
+
+def test_known_common_precondition_blocks_with_an_unknown_result_case() -> None:
+    description = _state_discriminated_collect_description(
+        preconditions=(
+            acquisition_precondition(
+                InterfaceRef("test.source/v1")
+                .component("output")
+                .property("output_enabled"),
+                operator="equal",
+                value=True,
+                unavailable_reason="Source output is disabled.",
+            ),
+        )
+    )
+    partial = ProjectedInstrumentState(
+        instrument_id="source-0",
+        properties=(
+            RecordInstrumentPropertyState(
+                interface_id="test.source/v1",
+                component_path=["output"],
+                property_id="output_enabled",
+                value=StateValue(False),
+            ),
+        ),
+    )
+
+    planned = validate_collect_plan(
+        command=_state_discriminated_collect_command(
+            "monitored_current",
+            unit="A",
+        ),
+        description=description,
+        baseline=partial,
+    )
+
+    assert [problem.code for problem in planned] == [
+        "instrument_driver_acquisition_precondition_not_met"
+    ]
+
+
+def test_acquisition_preconditions_validate_type_and_state_visibility() -> None:
+    output_enabled = (
+        InterfaceRef("test.source/v1").component("output").property("output_enabled")
+    )
+    voltage_level = (
+        InterfaceRef("test.source/v1").component("output").property("voltage_level")
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="ordered precondition requires a numeric property",
+    ):
+        _state_discriminated_collect_description(
+            preconditions=(
+                acquisition_precondition(
+                    output_enabled,
+                    operator="greater_than",
+                    value=True,
+                    unavailable_reason="Source output is disabled.",
+                ),
+            )
+        )
+    with pytest.raises(
+        ValidationError,
+        match="state that is not always observable",
+    ):
+        _state_discriminated_collect_description(
+            preconditions=(
+                acquisition_precondition(
+                    voltage_level,
+                    operator="equal",
+                    value=0.1,
+                    unavailable_reason="Voltage level is not configured.",
+                ),
+            )
+        )
+
+    description = _state_discriminated_collect_description(
+        cases=(
+            acquisition_case(
+                "voltage",
+                results=(acquisition_result("monitored_current", unit="A"),),
+                preconditions=(
+                    acquisition_precondition(
+                        voltage_level,
+                        operator="greater_than_or_equal",
+                        value=0.1,
+                        unavailable_reason="Voltage level is too low.",
+                    ),
+                ),
+            ),
+            acquisition_case(
+                "current",
+                results=(acquisition_result("monitored_voltage", unit="V"),),
+            ),
+        )
+    )
+    acquisition_spec = description.interfaces[1].acquisitions[0]
+    assert isinstance(acquisition_spec, StateDiscriminatedAcquisitionSpec)
+    assert acquisition_spec.cases[0].preconditions
+
+
+def test_quantity_preconditions_require_a_canonical_property_unit() -> None:
+    source = InterfaceRef("test.source/v1")
+    level = source.property("level")
+
+    with pytest.raises(
+        ValidationError,
+        match="quantity precondition property must declare a canonical unit",
+    ):
+        InstrumentDescription(
+            instrument_id="source-0",
+            implementation_id="tests.dimension_only_precondition",
+            implementation_version="v1",
+            interfaces=[
+                interface(
+                    source.interface_id,
+                    properties=[
+                        PropertySpec(
+                            id=level.property_id,
+                            value_type=Scalar(QuantityType(dimension="voltage")),
+                        )
+                    ],
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[acquisition_result("reading", unit="V")],
+                            preconditions=[
+                                acquisition_precondition(
+                                    level,
+                                    operator="equal",
+                                    value=Quantity(1.0, "V"),
+                                    unavailable_reason="Level is not one volt.",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ],
+        )
+
+
+def test_quantity_preconditions_compare_projected_compatible_units() -> None:
+    level = InterfaceRef("test.level/v1").property("level")
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.quantity_precondition",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.level/v1",
+                properties=[quantity_property("level", unit="V")],
+                acquisitions=[
+                    acquisition(
+                        "sample",
+                        results=[acquisition_result("reading", unit="V")],
+                        preconditions=[
+                            acquisition_precondition(
+                                level,
+                                operator="greater_than_or_equal",
+                                value=Quantity(1.0, "V"),
+                                unavailable_reason="Level is below one volt.",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    baseline = InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.level/v1",
+                property_id="level",
+                value=StateValue(Quantity(0.0, "V")),
+            )
+        ],
+    )
+    projection = project_instrument_state(
+        baseline,
+        InstrumentStateCommand(
+            command_id="set-level",
+            instrument_id="source-0",
+            assignments=[
+                InstrumentStateAssignment(
+                    resource_id="source-0",
+                    interface_id="test.level/v1",
+                    property_id="level",
+                    value=StateValue(Quantity(1_000.0, "mV")),
+                )
+            ],
+        ),
+        description=description,
+    )
+    command = CollectCommand(
+        command_id="collect-level",
+        instrument_id="source-0",
+        point_index=0,
+        point_count=1,
+        requests=[
+            CollectResultRequest(
+                id="reading",
+                interface_id="test.level/v1",
+                acquisition_id="sample",
+                result_id="reading",
+                unit="V",
+            )
+        ],
+    )
+
+    assert (
+        validate_collect_plan(
+            command=command,
+            description=description,
+            baseline=projection,
+        )
+        == []
+    )
+
+
+def test_precondition_literals_have_canonical_contract_fingerprints() -> None:
+    level = InterfaceRef("test.level/v1").property("level")
+
+    def describe(
+        value: float | Quantity,
+        property_spec: PropertySpec,
+    ) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id="source-0",
+            implementation_id="tests.canonical_precondition",
+            implementation_version="v1",
+            interfaces=[
+                interface(
+                    level.interface_id,
+                    properties=[property_spec],
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[acquisition_result("reading")],
+                            preconditions=[
+                                acquisition_precondition(
+                                    level,
+                                    operator="greater_than_or_equal",
+                                    value=value,
+                                    unavailable_reason="Level is too low.",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ],
+        )
+
+    integer_float = describe(1, float_property("level"))
+    explicit_float = describe(1.0, float_property("level"))
+    negative_zero = describe(
+        Quantity(-0.0, "V"),
+        quantity_property("level", unit="V"),
+    )
+    positive_zero = describe(
+        Quantity(0.0, "V"),
+        quantity_property("level", unit="V"),
+    )
+
+    assert integer_float.model_dump_json() == explicit_float.model_dump_json()
+    assert negative_zero.model_dump_json() == positive_zero.model_dump_json()
+    assert instrument_contract_fingerprint(
+        "tests",
+        (integer_float,),
+    ) == instrument_contract_fingerprint("tests", (explicit_float,))
+    assert instrument_contract_fingerprint(
+        "tests",
+        (negative_zero,),
+    ) == instrument_contract_fingerprint("tests", (positive_zero,))
+
+
+def test_description_normalization_owns_shared_interface_models() -> None:
+    level = InterfaceRef("test.shared_level/v1").property("level")
+    shared_acquisition = acquisition(
+        "sample",
+        results=[acquisition_result("reading")],
+        preconditions=[
+            acquisition_precondition(
+                level,
+                operator="greater_than_or_equal",
+                value=1,
+                unavailable_reason="Level is too low.",
+            )
+        ],
+    )
+    integer_interface = interface(
+        level.interface_id,
+        properties=[int_property("level")],
+        acquisitions=[shared_acquisition],
+    )
+    float_interface = interface(
+        level.interface_id,
+        properties=[float_property("level")],
+        acquisitions=[shared_acquisition],
+    )
+    integer_description = InstrumentDescription(
+        instrument_id="integer-source",
+        implementation_id="tests.shared_precondition",
+        implementation_version="v1",
+        interfaces=[integer_interface],
+    )
+    original_fingerprint = instrument_contract_fingerprint(
+        "tests",
+        (integer_description,),
+    )
+
+    float_description = InstrumentDescription(
+        instrument_id="float-source",
+        implementation_id="tests.shared_precondition",
+        implementation_version="v1",
+        interfaces=[float_interface],
+    )
+
+    assert (
+        instrument_contract_fingerprint(
+            "tests",
+            (integer_description,),
+        )
+        == original_fingerprint
+    )
+    assert type(shared_acquisition.preconditions[0].value) is int
+    assert (
+        type(integer_description.interfaces[0].acquisitions[0].preconditions[0].value)
+        is int
+    )
+    assert (
+        type(float_description.interfaces[0].acquisitions[0].preconditions[0].value)
+        is float
+    )
+    assert (
+        InstrumentDescription.model_validate_json(integer_description.model_dump_json())
+        == integer_description
+    )
+
+
+def test_instrument_ints_are_bounded_by_the_json_safe_range() -> None:
+    safe_limit = (1 << 53) - 1
+    count = InterfaceRef("test.counter/v1").property("count")
+    property_spec = int_property("count")
+    assert isinstance(property_spec.value_type.atom, Int)
+    assert property_spec.value_type.atom.minimum == -safe_limit
+    assert property_spec.value_type.atom.maximum == safe_limit
+
+    with pytest.raises(
+        ValidationError,
+        match="JSON safe integer range",
+    ):
+        int_property("count", maximum=safe_limit + 1)
+
+    with pytest.raises(
+        ValidationError,
+        match="at most",
+    ):
+        InstrumentDescription(
+            instrument_id="counter-0",
+            implementation_id="tests.counter",
+            implementation_version="v1",
+            interfaces=[
+                interface(
+                    count.interface_id,
+                    properties=[property_spec],
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[acquisition_result("reading")],
+                            preconditions=[
+                                acquisition_precondition(
+                                    count,
+                                    operator="equal",
+                                    value=safe_limit + 1,
+                                    unavailable_reason="Count differs.",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ],
+        )
+
+
+def test_numeric_property_bounds_have_canonical_interface_wire() -> None:
+    negative_zero = InstrumentDescription(
+        instrument_id="source-negative",
+        implementation_id="tests.quantity_bounds",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.quantity_bounds/v1",
+                properties=[quantity_property("level", unit="V", minimum=-0.0)],
+            )
+        ],
+    )
+    positive_zero = InstrumentDescription(
+        instrument_id="source-positive",
+        implementation_id="tests.quantity_bounds",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.quantity_bounds/v1",
+                properties=[quantity_property("level", unit="V", minimum=0.0)],
+            )
+        ],
+    )
+
+    assert (
+        negative_zero.interfaces[0].model_dump_json()
+        == positive_zero.interfaces[0].model_dump_json()
+    )
+    validate_instrument_description_collection((negative_zero, positive_zero))
 
 
 def test_discriminated_state_requires_an_exhaustive_property_partition() -> None:
@@ -1095,14 +1610,15 @@ def test_state_command_uses_physical_discriminator_across_logical_targets() -> N
 def test_state_command_can_require_an_explicit_discriminator() -> None:
     patch = _variant_command(("current_level", 0.02))
 
-    assert [
-        item.code
-        for item in validate_state_command(
-            command=patch,
-            description=_variant_description(),
-            require_explicit_state_case=True,
-        )
-    ] == ["instrument_driver_state_case_unknown"]
+    [problem] = validate_state_command(
+        command=patch,
+        description=_variant_description(),
+        require_explicit_state_case=True,
+    )
+
+    assert problem.code == "instrument_driver_state_case_unknown"
+    assert isinstance(problem.related_locations[0], ModelLocation)
+    assert problem.related_locations[0].path == ("test.dc/v1", "mode")
 
 
 def test_state_command_rejects_duplicate_physical_targets() -> None:
@@ -1249,6 +1765,38 @@ def test_state_snapshot_requires_every_static_observable_scope() -> None:
     ] == ["instrument_driver_snapshot_write_only_property"]
 
 
+def test_state_snapshot_requires_declared_quantity_units() -> None:
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.canonical_snapshot_units",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.source/v1",
+                properties=[quantity_property("frequency", unit="GHz")],
+            )
+        ],
+    )
+    snapshot = InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.source/v1",
+                property_id="frequency",
+                value=StateValue(Quantity(5_000.0, "MHz")),
+            )
+        ],
+    )
+
+    [problem] = validate_state_snapshot(
+        snapshot=snapshot,
+        description=description,
+    )
+    assert problem.code == "instrument_driver_snapshot_property_value_mismatch"
+    assert isinstance(problem.location, ModelLocation)
+    assert problem.location.path == ("properties", 0, "value", "unit")
+
+
 def test_discriminated_snapshot_requires_common_and_active_case_state() -> None:
     incomplete = InstrumentStateSnapshot(
         instrument_id="source-0",
@@ -1269,6 +1817,15 @@ def test_discriminated_snapshot_requires_common_and_active_case_state() -> None:
     assert missing.code == "instrument_driver_snapshot_missing_properties"
     assert "output_enabled" in missing.message
     assert "voltage_level" in missing.message
+    assert {
+        location.path
+        for location in missing.related_locations
+        if isinstance(location, ModelLocation)
+    } == {
+        ("test.dc/v1", "output_enabled"),
+        ("test.dc/v1", "voltage_level"),
+        ("test.dc/v1", "voltage_range"),
+    }
 
 
 def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
@@ -1287,13 +1844,16 @@ def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
         }
     )
 
-    assert [
-        item.code
-        for item in validate_state_snapshot(
-            snapshot=invalid,
-            description=description,
-        )
-    ] == ["instrument_driver_snapshot_inactive_state_property"]
+    [inactive] = validate_state_snapshot(
+        snapshot=invalid,
+        description=description,
+    )
+    assert inactive.code == "instrument_driver_snapshot_inactive_state_property"
+    assert isinstance(inactive.related_locations[0], ModelLocation)
+    assert inactive.related_locations[0].path == (
+        "test.dc/v1",
+        "current_level",
+    )
 
     switched = project_instrument_state(
         voltage,
@@ -1412,11 +1972,12 @@ def test_state_discriminated_collect_requires_a_complete_observed_state() -> Non
         unit="A",
     )
 
-    missing = validate_collect_command(
+    missing = validate_collect_plan(
         command=command,
         description=description,
+        baseline=None,
     )
-    incomplete = validate_collect_command(
+    incomplete = validate_collect_plan(
         command=command,
         description=description,
         baseline=InstrumentStateSnapshot(
@@ -1438,13 +1999,19 @@ def test_state_discriminated_collect_requires_a_complete_observed_state() -> Non
     assert [problem.code for problem in incomplete] == [
         "instrument_driver_acquisition_state_unknown"
     ]
+    assert isinstance(missing[0].related_locations[0], ModelLocation)
+    assert missing[0].related_locations[0].path == (
+        "test.source/v1",
+        "output",
+        "mode",
+    )
 
 
 def test_state_discriminated_collect_allows_only_the_active_case_results() -> None:
     description = _state_discriminated_collect_description()
     baseline = _state_discriminated_collect_snapshot("voltage")
 
-    active = validate_collect_command(
+    active = validate_collect_plan(
         command=_state_discriminated_collect_command(
             "monitored_current",
             unit="A",
@@ -1452,7 +2019,7 @@ def test_state_discriminated_collect_allows_only_the_active_case_results() -> No
         description=description,
         baseline=baseline,
     )
-    inactive = validate_collect_command(
+    inactive = validate_collect_plan(
         command=_state_discriminated_collect_command(
             "monitored_voltage",
             unit="V",
@@ -1525,7 +2092,7 @@ def test_partial_projection_drives_conditional_state_and_collect_preflight() -> 
         == []
     )
     assert (
-        validate_collect_command(
+        validate_collect_plan(
             command=_state_discriminated_collect_command(
                 "monitored_current",
                 unit="A",
@@ -1803,8 +2370,9 @@ def _collect_description() -> InstrumentDescription:
 
 def _state_discriminated_collect_description(
     *,
-    discriminator: StateDiscriminatorRef | None = None,
+    discriminator: PropertyRef | None = None,
     cases: tuple[AcquisitionCaseSpec, ...] | None = None,
+    preconditions: tuple[AcquisitionPreconditionSpec, ...] = (),
 ) -> InstrumentDescription:
     return InstrumentDescription(
         instrument_id="source-0",
@@ -1848,11 +2416,9 @@ def _state_discriminated_collect_description(
                     state_discriminated_acquisition(
                         "monitor",
                         discriminator=discriminator
-                        or state_discriminator_ref(
-                            "test.source/v1",
-                            "mode",
-                            component_path=("output",),
-                        ),
+                        or InterfaceRef("test.source/v1")
+                        .component("output")
+                        .property("mode"),
                         cases=cases
                         or (
                             acquisition_case(
@@ -1874,6 +2440,7 @@ def _state_discriminated_collect_description(
                                 ),
                             ),
                         ),
+                        preconditions=preconditions,
                     )
                 ],
             ),
@@ -1883,6 +2450,8 @@ def _state_discriminated_collect_description(
 
 def _state_discriminated_collect_snapshot(
     mode: str,
+    *,
+    output_enabled: bool = False,
 ) -> InstrumentStateSnapshot:
     level_property_id = "voltage_level" if mode == "voltage" else "current_level"
     return InstrumentStateSnapshot(
@@ -1898,7 +2467,7 @@ def _state_discriminated_collect_snapshot(
                 interface_id="test.source/v1",
                 component_path=["output"],
                 property_id="output_enabled",
-                value=StateValue(False),
+                value=StateValue(output_enabled),
             ),
             RecordInstrumentPropertyState(
                 interface_id="test.source/v1",

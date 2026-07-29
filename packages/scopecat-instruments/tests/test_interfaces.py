@@ -274,6 +274,31 @@ def test_dc_monitor_results_follow_the_source_mode() -> None:
     assert monitor.discriminator.component_path == []
     assert monitor.discriminator.property_id == DC_SOURCE_MODE.property_id
     assert [
+        (
+            precondition.property.interface_id,
+            precondition.property.property_id,
+            precondition.operator,
+            precondition.value,
+            precondition.unavailable_reason,
+        )
+        for precondition in monitor.preconditions
+    ] == [
+        (
+            DC_SOURCE_OUTPUT_ENABLED.interface_id,
+            DC_SOURCE_OUTPUT_ENABLED.property_id,
+            "equal",
+            True,
+            "DC source output is disabled.",
+        ),
+        (
+            DC_MONITOR_MEASUREMENT_ENABLED.interface_id,
+            DC_MONITOR_MEASUREMENT_ENABLED.property_id,
+            "equal",
+            True,
+            "DC monitor measurement is disabled.",
+        ),
+    ]
+    assert [
         (case.value, [result.id for result in case.results]) for case in monitor.cases
     ] == [
         ("voltage", [DC_MONITOR_CURRENT_RESULT.result_id]),

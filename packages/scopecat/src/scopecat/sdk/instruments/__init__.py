@@ -25,6 +25,9 @@ if TYPE_CHECKING:
     from scopecat.sdk.instruments.contracts import (
         AcquisitionAxisSpec,
         AcquisitionCaseSpec,
+        AcquisitionPreconditionSpec,
+        AcquisitionReadiness,
+        AcquisitionReadinessIssue,
         AcquisitionResultSpec,
         AcquisitionSpec,
         ApplyReceipt,
@@ -52,17 +55,20 @@ if TYPE_CHECKING:
         OperationSpec,
         PropertySpec,
         StateCaseSpec,
+        StateComparisonOperator,
         StateDiscriminatedAcquisitionSpec,
-        StateDiscriminatorRef,
+        StatePropertyRef,
         acquisition,
         acquisition_axis,
         acquisition_case,
+        acquisition_precondition,
         acquisition_result,
         acquisition_results,
         bool_property,
         component,
         discriminated_state,
         enum_property,
+        evaluate_acquisition_readiness,
         float_property,
         int_property,
         interface,
@@ -71,9 +77,9 @@ if TYPE_CHECKING:
         quantity_property,
         state_case,
         state_discriminated_acquisition,
-        state_discriminator_ref,
         string_property,
         validate_collect_command,
+        validate_collect_plan,
         validate_collect_receipt,
         validate_invoke_command,
         validate_state_assignments,
@@ -103,6 +109,18 @@ if TYPE_CHECKING:
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "AcquisitionPreconditionSpec": (
+        "scopecat.sdk.instruments.contracts",
+        "AcquisitionPreconditionSpec",
+    ),
+    "AcquisitionReadiness": (
+        "scopecat.sdk.instruments.contracts",
+        "AcquisitionReadiness",
+    ),
+    "AcquisitionReadinessIssue": (
+        "scopecat.sdk.instruments.contracts",
+        "AcquisitionReadinessIssue",
+    ),
     "AcquisitionRef": (
         "scopecat.sdk.instruments.members",
         "AcquisitionRef",
@@ -266,18 +284,26 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "PropertySpec": ("scopecat.sdk.instruments.contracts", "PropertySpec"),
     "StateCaseSpec": ("scopecat.sdk.instruments.contracts", "StateCaseSpec"),
+    "StateComparisonOperator": (
+        "scopecat.sdk.instruments.contracts",
+        "StateComparisonOperator",
+    ),
     "StateDiscriminatedAcquisitionSpec": (
         "scopecat.sdk.instruments.contracts",
         "StateDiscriminatedAcquisitionSpec",
     ),
-    "StateDiscriminatorRef": (
+    "StatePropertyRef": (
         "scopecat.sdk.instruments.contracts",
-        "StateDiscriminatorRef",
+        "StatePropertyRef",
     ),
     "acquisition": ("scopecat.sdk.instruments.contracts", "acquisition"),
     "acquisition_case": (
         "scopecat.sdk.instruments.contracts",
         "acquisition_case",
+    ),
+    "acquisition_precondition": (
+        "scopecat.sdk.instruments.contracts",
+        "acquisition_precondition",
     ),
     "acquisition_axis": (
         "scopecat.sdk.instruments.contracts",
@@ -315,9 +341,9 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "state_discriminated_acquisition",
     ),
-    "state_discriminator_ref": (
+    "evaluate_acquisition_readiness": (
         "scopecat.sdk.instruments.contracts",
-        "state_discriminator_ref",
+        "evaluate_acquisition_readiness",
     ),
     "string_property": ("scopecat.sdk.instruments.contracts", "string_property"),
     "validate_state_command": (
@@ -335,6 +361,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "validate_collect_command": (
         "scopecat.sdk.instruments.contracts",
         "validate_collect_command",
+    ),
+    "validate_collect_plan": (
+        "scopecat.sdk.instruments.contracts",
+        "validate_collect_plan",
     ),
     "validate_collect_receipt": (
         "scopecat.sdk.instruments.contracts",

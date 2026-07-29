@@ -7,6 +7,7 @@ from scopecat.sdk.instruments import (
     acquisition,
     acquisition_axis,
     acquisition_case,
+    acquisition_precondition,
     acquisition_result,
     bool_property,
     discriminated_state,
@@ -16,7 +17,6 @@ from scopecat.sdk.instruments import (
     quantity_property,
     state_case,
     state_discriminated_acquisition,
-    state_discriminator_ref,
 )
 
 import scopecat_instruments.members as member_refs
@@ -173,11 +173,21 @@ def dc_monitor_interface() -> InterfaceSpec:
                 member_refs.DC_MONITOR_ACQUISITION.acquisition_id,
                 label="Monitor output",
                 description="Read one monitor sample from the active source mode.",
-                discriminator=state_discriminator_ref(
-                    member_refs.DC_SOURCE_MODE.interface_id,
-                    member_refs.DC_SOURCE_MODE.property_id,
-                    component_path=member_refs.DC_SOURCE_MODE.component_path,
-                ),
+                discriminator=member_refs.DC_SOURCE_MODE,
+                preconditions=[
+                    acquisition_precondition(
+                        member_refs.DC_SOURCE_OUTPUT_ENABLED,
+                        operator="equal",
+                        value=True,
+                        unavailable_reason="DC source output is disabled.",
+                    ),
+                    acquisition_precondition(
+                        member_refs.DC_MONITOR_MEASUREMENT_ENABLED,
+                        operator="equal",
+                        value=True,
+                        unavailable_reason="DC monitor measurement is disabled.",
+                    ),
+                ],
                 cases=[
                     acquisition_case(
                         "voltage",

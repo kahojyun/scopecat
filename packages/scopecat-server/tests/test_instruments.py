@@ -68,7 +68,6 @@ from scopecat.sdk.instruments import (
     interface,
     state_case,
     state_discriminated_acquisition,
-    state_discriminator_ref,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -341,10 +340,7 @@ class _VariantDriver(_TrackingDriver):
                         acquisitions=[
                             state_discriminated_acquisition(
                                 "measure",
-                                discriminator=state_discriminator_ref(
-                                    "test.dc/v1",
-                                    "mode",
-                                ),
+                                discriminator=_DC_MODE,
                                 cases=(
                                     acquisition_case(
                                         "voltage",
@@ -896,7 +892,7 @@ def test_interactive_apply_tracks_observed_discriminated_state(
             assert len(driver.applied) == 3
 
 
-def test_direct_collect_requires_the_active_acquisition_state(
+def test_direct_collect_does_not_treat_assumed_state_as_authoritative(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider(_VariantDriver)
@@ -911,47 +907,19 @@ def test_direct_collect_requires_the_active_acquisition_state(
                 )
             )
             [driver] = provider.drivers
+            assert isinstance(driver, _VariantDriver)
+            driver.mode = "current"
 
             receipt = daemon.collect_instrument(
                 session.session_id,
                 "source-0",
                 _variant_collect_command(
-                    command_id="collect-active-voltage",
-                    result_id="monitored_voltage",
+                    command_id="collect-current-after-external-change",
+                    result_id="monitored_current",
                 ),
             )
 
             assert receipt.status == "collected"
-            assert len(driver.collect_requests) == 1
-            with pytest.raises(
-                DaemonConflictError,
-                match="is inactive in state case 'voltage'",
-            ):
-                daemon.collect_instrument(
-                    session.session_id,
-                    "source-0",
-                    _variant_collect_command(
-                        command_id="collect-inactive-current",
-                        result_id="monitored_current",
-                    ),
-                )
-            assert len(driver.collect_requests) == 1
-
-            runtime.application.instruments._sessions[session.session_id].instruments[
-                "source-0"
-            ].invalidate_state()
-            with pytest.raises(
-                DaemonConflictError,
-                match="requires a complete observed discriminator state",
-            ):
-                daemon.collect_instrument(
-                    session.session_id,
-                    "source-0",
-                    _variant_collect_command(
-                        command_id="collect-unknown-voltage",
-                        result_id="monitored_voltage",
-                    ),
-                )
             assert len(driver.collect_requests) == 1
             daemon.close_instrument_session(session.session_id)
 

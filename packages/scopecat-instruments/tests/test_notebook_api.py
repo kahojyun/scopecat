@@ -12,16 +12,25 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
+from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import (
+    InstrumentPropertyState,
     InstrumentReadback,
     InstrumentStateSnapshot,
 )
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
+    AcquisitionRef,
     AcquisitionResultRef,
     CollectCommand,
     CollectReceipt,
     InstrumentDescription,
+    InterfaceRef,
+    acquisition,
+    acquisition_precondition,
+    acquisition_result,
+    bool_property,
+    interface,
 )
 
 from scopecat_instruments.drivers import YokogawaGS200
@@ -45,6 +54,7 @@ class _CollectingDaemon(DaemonClient):
         self.state = state
         self.state_reads = 0
         self.collect_command: CollectCommand | None = None
+        self.collect_commands: list[CollectCommand] = []
 
     @override
     def open_instrument_session(
@@ -84,6 +94,7 @@ class _CollectingDaemon(DaemonClient):
         assert session_id == "session-1"
         assert instrument_id == self.description.instrument_id
         self.collect_command = command
+        self.collect_commands.append(command)
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
@@ -275,12 +286,197 @@ def test_gs200_notebook_monitor_defaults_to_the_current_mode_result() -> None:
 
 def test_virtual_notebook_monitor_defaults_to_the_voltage_mode_result() -> None:
     driver = VirtualDcSource("bias", VirtualLabWorld(seed=7))
+    driver.set_output(True)
 
     _assert_default_monitor_result(
         driver.describe(),
         driver.read_state(),
         expected_result=DC_MONITOR_CURRENT_RESULT,
     )
+
+
+def test_notebook_monitor_checks_explicit_results_against_the_current_mode() -> None:
+    driver = VirtualDcSource("bias", VirtualLabWorld(seed=11))
+    driver.set_output(True)
+    daemon = _CollectingDaemon(driver.describe(), driver.read_state())
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("bias",),
+        actor="test",
+    )
+
+    try:
+        receipt = handle.collect(
+            DC_MONITOR_ACQUISITION,
+            DC_MONITOR_CURRENT_RESULT,
+        )
+    finally:
+        daemon.close()
+
+    assert receipt.status == "collected"
+    assert daemon.state_reads == 1
+    assert daemon.collect_command is not None
+    assert [request.result_id for request in daemon.collect_command.requests] == [
+        DC_MONITOR_CURRENT_RESULT.result_id
+    ]
+
+
+def test_notebook_monitor_rejects_an_inactive_explicit_result() -> None:
+    driver = VirtualDcSource("bias", VirtualLabWorld(seed=13))
+    driver.set_output(True)
+    daemon = _CollectingDaemon(driver.describe(), driver.read_state())
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("bias",),
+        actor="test",
+    )
+
+    try:
+        with pytest.raises(ValueError, match="has no active results"):
+            handle.collect(
+                DC_MONITOR_ACQUISITION,
+                DC_MONITOR_VOLTAGE_RESULT,
+            )
+    finally:
+        daemon.close()
+
+    assert daemon.state_reads == 1
+    assert daemon.collect_command is None
+
+
+def test_notebook_replay_id_requires_an_explicit_discriminated_result() -> None:
+    driver = VirtualDcSource("bias", VirtualLabWorld(seed=17))
+    daemon = _CollectingDaemon(driver.describe(), driver.read_state())
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("bias",),
+        actor="test",
+    )
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="with command_id requires an explicit result",
+        ):
+            handle.collect(
+                DC_MONITOR_ACQUISITION,
+                command_id="collect-replay",
+            )
+    finally:
+        daemon.close()
+
+    assert daemon.state_reads == 0
+    assert daemon.collect_command is None
+
+
+def test_notebook_replay_id_sends_the_same_explicit_command_after_state_changes() -> (
+    None
+):
+    description, enabled_state, sample, reading = _fixed_acquisition_contract(
+        precondition=True,
+        enabled=True,
+    )
+    daemon = _CollectingDaemon(description, enabled_state)
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("sensor",),
+        actor="test",
+    )
+
+    try:
+        handle.collect(sample, reading, command_id="collect-replay")
+        daemon.state = _fixed_acquisition_contract(
+            precondition=True,
+            enabled=False,
+        )[1]
+        handle.collect(sample, reading, command_id="collect-replay")
+    finally:
+        daemon.close()
+
+    assert daemon.state_reads == 0
+    assert len(daemon.collect_commands) == 2
+    assert daemon.collect_commands[0] == daemon.collect_commands[1]
+
+
+@pytest.mark.parametrize(
+    ("precondition", "expected_state_reads"),
+    [(False, 0), (True, 1)],
+)
+def test_fixed_notebook_acquisition_reads_state_only_for_preconditions(
+    precondition: bool,
+    expected_state_reads: int,
+) -> None:
+    description, state, sample, _ = _fixed_acquisition_contract(
+        precondition=precondition,
+        enabled=True,
+    )
+    daemon = _CollectingDaemon(description, state)
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("sensor",),
+        actor="test",
+    )
+
+    try:
+        receipt = handle.collect(sample)
+    finally:
+        daemon.close()
+
+    assert receipt.status == "collected"
+    assert daemon.state_reads == expected_state_reads
+
+
+def test_notebook_collect_blocks_before_daemon_collect() -> None:
+    description, state, sample, _ = _fixed_acquisition_contract(
+        precondition=True,
+        enabled=False,
+    )
+    daemon = _CollectingDaemon(description, state)
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("sensor",),
+        actor="test",
+    )
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="is unavailable: sensor output must be enabled",
+        ):
+            handle.collect(sample)
+    finally:
+        daemon.close()
+
+    assert daemon.state_reads == 1
+    assert daemon.collect_command is None
+
+
+def test_notebook_collect_rejects_unknown_readiness_before_daemon_collect() -> None:
+    description, _, sample, _ = _fixed_acquisition_contract(
+        precondition=True,
+        enabled=True,
+    )
+    daemon = _CollectingDaemon(
+        description,
+        InstrumentStateSnapshot(instrument_id="sensor"),
+    )
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("sensor",),
+        actor="test",
+    )
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="readiness is unknown: sensor output must be enabled",
+        ):
+            handle.collect(sample)
+    finally:
+        daemon.close()
+
+    assert daemon.state_reads == 1
+    assert daemon.collect_command is None
 
 
 def _assert_default_monitor_result(
@@ -307,3 +503,61 @@ def _assert_default_monitor_result(
     assert [request.result_id for request in daemon.collect_command.requests] == [
         expected_result.result_id
     ]
+
+
+def _fixed_acquisition_contract(
+    *,
+    precondition: bool,
+    enabled: bool,
+) -> tuple[
+    InstrumentDescription,
+    InstrumentStateSnapshot,
+    AcquisitionRef,
+    AcquisitionResultRef,
+]:
+    sensor = InterfaceRef("tests.notebook_sensor/v1")
+    output_enabled = sensor.property("output_enabled")
+    sample = sensor.acquisition("sample")
+    reading = sample.result("reading")
+    requirements = (
+        (
+            acquisition_precondition(
+                output_enabled,
+                operator="equal",
+                value=True,
+                unavailable_reason="sensor output must be enabled",
+            ),
+        )
+        if precondition
+        else ()
+    )
+    description = InstrumentDescription(
+        instrument_id="sensor",
+        implementation_id="tests.notebook_sensor",
+        implementation_version="1",
+        interfaces=[
+            interface(
+                sensor.interface_id,
+                properties=[bool_property(output_enabled.property_id)],
+                acquisitions=[
+                    acquisition(
+                        sample.acquisition_id,
+                        results=[acquisition_result(reading.result_id)],
+                        preconditions=requirements,
+                    )
+                ],
+            )
+        ],
+    )
+    state = InstrumentStateSnapshot(
+        instrument_id="sensor",
+        properties=[
+            InstrumentPropertyState(
+                interface_id=output_enabled.interface_id,
+                component_path=list(output_enabled.component_path),
+                property_id=output_enabled.property_id,
+                value=StateValue(enabled),
+            )
+        ],
+    )
+    return description, state, sample, reading
