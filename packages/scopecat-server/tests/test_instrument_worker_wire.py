@@ -21,7 +21,7 @@ from scopecat.sdk.instruments.backend import (
     BackendOperationArgument,
     BackendPayload,
 )
-from scopecat.sdk.instruments.contracts import CollectReceipt
+from scopecat.sdk.instruments.commands import CollectReceipt
 
 from scopecat_server.instrument_worker_wire import (
     DEFAULT_WIRE_LIMITS,

@@ -24,7 +24,7 @@ from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
     InvokeReceipt,

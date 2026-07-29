@@ -17,7 +17,7 @@ from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import CommandChannelBinding
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectCommand,
     InstrumentOperationArgument,
     InstrumentStateAssignment,

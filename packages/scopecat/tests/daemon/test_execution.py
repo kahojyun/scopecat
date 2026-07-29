@@ -50,7 +50,7 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments.contracts import InstrumentStateAssignment
+from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)

@@ -36,7 +36,7 @@ from scopecat.sdk.instruments.backend import (
     BackendOperationArgument,
     BackendPayload,
 )
-from scopecat.sdk.instruments.contracts import CollectReceipt
+from scopecat.sdk.instruments.commands import CollectReceipt
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 type _Sha256Hex = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]

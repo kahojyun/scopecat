@@ -72,7 +72,7 @@ from scopecat.planning.routing import (
     RoutingView,
 )
 from scopecat.records.instrument import CommandChannelBinding
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
     CollectCommand,
     CollectResultRequest,

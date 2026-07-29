@@ -24,7 +24,7 @@ from scopecat.sdk.instruments.members import (
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
 if TYPE_CHECKING:
-    from scopecat.sdk.instruments.contracts import (
+    from scopecat.sdk.instruments.commands import (
         CollectCommand,
         InstrumentStateCommand,
         InvokeCommand,

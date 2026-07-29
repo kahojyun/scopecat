@@ -34,7 +34,7 @@ from scopecat.sdk.instruments.backend import (
     BackendPayload,
     BackendPropertyWrite,
 )
-from scopecat.sdk.instruments.contracts import InvokeCommand
+from scopecat.sdk.instruments.commands import InvokeCommand
 from tests.testkit.instrument_drivers import load_config
 
 from scopecat_server.errors import BackendConflict

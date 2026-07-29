@@ -71,12 +71,14 @@ from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments import DriverPayload
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
-    FixedAcquisitionSpec,
-    InstrumentDescription,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+)
+from scopecat.sdk.instruments.contracts import (
+    FixedAcquisitionSpec,
+    InstrumentDescription,
     InterfaceSpec,
     PropertySpec,
     acquisition_axis,

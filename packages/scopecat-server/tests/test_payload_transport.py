@@ -43,7 +43,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectResultRequest,
     InstrumentOperationArgument,
     InvokeCommand,

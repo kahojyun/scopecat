@@ -16,12 +16,14 @@ from scopecat.sdk.instruments.backend import (
     BackendCollectRequest,
     BackendInvokeRequest,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
     InstrumentStateAssignment,
     InvokeReceipt,
+)
+from scopecat.sdk.instruments.contracts import (
     validate_collect_receipt,
     validate_state_snapshot,
 )

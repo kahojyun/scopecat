@@ -14,12 +14,12 @@ from scopecat.sdk.instruments.backend import (
     BackendCollectRequest,
     BackendInvokeRequest,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
-    InstrumentDescription,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 from .instrument_backend import (
     ConnectedInstrument,

@@ -36,6 +36,11 @@ if TYPE_CHECKING:
         DriverUnknown,
     )
     from scopecat.sdk.instruments.backend import InstrumentBackend
+    from scopecat.sdk.instruments.commands import (
+        ApplyReceipt,
+        CollectReceipt,
+        InvokeReceipt,
+    )
     from scopecat.sdk.instruments.contracts import (
         AcquisitionAxisSize,
         AcquisitionAxisSpec,
@@ -43,14 +48,11 @@ if TYPE_CHECKING:
         AcquisitionPreconditionSpec,
         AcquisitionResultSpec,
         AcquisitionSpec,
-        ApplyReceipt,
-        CollectReceipt,
         ComponentSpec,
         DiscriminatedState,
         FixedAcquisitionSpec,
         InstrumentDescription,
         InterfaceSpec,
-        InvokeReceipt,
         OperationArgumentSpec,
         OperationSpec,
         PropertySpec,
@@ -141,8 +143,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "AcquisitionResultSpec",
     ),
     "AcquisitionSpec": ("scopecat.sdk.instruments.contracts", "AcquisitionSpec"),
-    "ApplyReceipt": ("scopecat.sdk.instruments.contracts", "ApplyReceipt"),
-    "CollectReceipt": ("scopecat.sdk.instruments.contracts", "CollectReceipt"),
+    "ApplyReceipt": ("scopecat.sdk.instruments.commands", "ApplyReceipt"),
+    "CollectReceipt": ("scopecat.sdk.instruments.commands", "CollectReceipt"),
     "CommandChannelBinding": (
         "scopecat.records.instrument",
         "CommandChannelBinding",
@@ -211,7 +213,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "InterfaceRef": ("scopecat.sdk.instruments.members", "InterfaceRef"),
     "InterfaceSpec": ("scopecat.sdk.instruments.contracts", "InterfaceSpec"),
-    "InvokeReceipt": ("scopecat.sdk.instruments.contracts", "InvokeReceipt"),
+    "InvokeReceipt": ("scopecat.sdk.instruments.commands", "InvokeReceipt"),
     "OperationArgumentRef": (
         "scopecat.sdk.instruments.members",
         "OperationArgumentRef",

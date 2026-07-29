@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat.sdk.instruments as instrument_sdk
+import scopecat.sdk.instruments.commands as instrument_commands
 import scopecat.sdk.instruments.contracts as instrument_contracts
 import scopecat.sdk.instruments.provider as instrument_provider
 from scopecat.kernel.problems import ModelLocation, Problem
@@ -80,7 +81,7 @@ from scopecat.sdk.instruments._driver_adapter import (
 )
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import lower_backend_apply_request
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
     CollectCommand,
     CollectResultRequest,
@@ -91,6 +92,8 @@ from scopecat.sdk.instruments.contracts import (
     InvokeCommand,
     RejectedInteractiveCollect,
     ResolvedInteractiveCollect,
+)
+from scopecat.sdk.instruments.contracts import (
     evaluate_acquisition_readiness,
     project_instrument_state,
     resolve_acquisition_dimensions,
@@ -131,6 +134,20 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
 
     for name, owner in owners.items():
         assert getattr(instrument_sdk, name) is owner
+
+    for name in ("ApplyReceipt", "CollectReceipt", "InvokeReceipt"):
+        assert getattr(instrument_sdk, name) is getattr(instrument_commands, name)
+
+    for name in (
+        "ApplyReceipt",
+        "CollectCommand",
+        "CollectReceipt",
+        "InstrumentStateCommand",
+        "InteractiveCollectIntent",
+        "InvokeCommand",
+        "InvokeReceipt",
+    ):
+        assert not hasattr(instrument_contracts, name)
 
     for name in (
         "DriverFault",

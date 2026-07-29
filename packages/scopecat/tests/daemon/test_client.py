@@ -51,7 +51,7 @@ from scopecat.records.config import config_content_hash
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     InstrumentOperationArgument,
     InvokeCommand,
     InvokeReceipt,

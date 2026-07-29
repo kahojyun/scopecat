@@ -31,12 +31,12 @@ from scopecat.sdk.instruments.backend import (
     InstrumentBackend,
     decode_driver_operation,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
-    InstrumentDescription,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.provider import (
     DriverFault,
     InstrumentConnectionContext,

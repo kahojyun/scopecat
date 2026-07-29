@@ -22,7 +22,7 @@ from scopecat.records.artifact import (
     InlinePayloadBody,
 )
 from scopecat.sdk.instruments.backend import BackendPayload
-from scopecat.sdk.instruments.contracts import InvokeCommand
+from scopecat.sdk.instruments.commands import InvokeCommand
 
 DEFAULT_MAX_PAYLOAD_OBJECT_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_INLINE_PAYLOAD_BYTES = 1024 * 1024

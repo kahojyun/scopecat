@@ -15,9 +15,11 @@ from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.results import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectCommand,
     CollectResultRequest,
+)
+from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     InterfaceSpec,
     acquisition,

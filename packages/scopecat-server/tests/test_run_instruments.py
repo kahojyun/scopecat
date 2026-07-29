@@ -93,7 +93,7 @@ from scopecat.sdk.instruments import (
     state_case,
     state_discriminated_acquisition,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
     CollectResultRequest,
     InstrumentOperationArgument,

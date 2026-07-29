@@ -86,17 +86,19 @@ from scopecat.sdk.instruments.backend import (
     lower_backend_collect_request,
     lower_backend_invoke_request,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
-    InstrumentDescription,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
     RejectedInteractiveCollect,
+)
+from scopecat.sdk.instruments.contracts import (
+    InstrumentDescription,
     project_instrument_state,
     resolve_interactive_collect,
     validate_collect_command,

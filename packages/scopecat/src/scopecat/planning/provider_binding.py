@@ -22,9 +22,9 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
+from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
-    InstrumentStateAssignment,
     validate_reconciled_state_assignments,
 )
 from scopecat.sdk.instruments.provider import (

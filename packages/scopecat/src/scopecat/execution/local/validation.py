@@ -23,9 +23,9 @@ from scopecat.kernel.units import compatible_units
 from scopecat.kernel.value_types import Payload
 from scopecat.kernel.value_validation import ValueValidationError, validate_literal
 from scopecat.records.artifact import CommandPayload
+from scopecat.sdk.instruments.commands import CollectResultRequest
 from scopecat.sdk.instruments.contracts import (
     AcquisitionResultSpec,
-    CollectResultRequest,
     ComponentSpec,
     InstrumentDescription,
     InterfaceSpec,

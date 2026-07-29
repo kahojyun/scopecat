@@ -92,7 +92,7 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
     InstrumentStateCommand,

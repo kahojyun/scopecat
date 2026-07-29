@@ -23,10 +23,9 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
-    InstrumentDescription,
     InstrumentOperationArgument,
     InstrumentStateAssignment,
     InstrumentStateCommand,
@@ -34,6 +33,7 @@ from scopecat.sdk.instruments.contracts import (
     InvokeCommand,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,

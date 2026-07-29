@@ -23,7 +23,7 @@ from scopecat.sdk.instruments.backend import (
     lower_backend_collect_request,
     lower_backend_invoke_request,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
     CollectCommand,
     CollectResultRequest,

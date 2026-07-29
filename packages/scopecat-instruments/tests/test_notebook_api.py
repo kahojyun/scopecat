@@ -25,7 +25,7 @@ from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentDescription,
 )
-from scopecat.sdk.instruments.contracts import InteractiveCollectIntent
+from scopecat.sdk.instruments.commands import InteractiveCollectIntent
 
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,

@@ -50,7 +50,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
     InterfaceRef,
 )
-from scopecat.sdk.instruments.contracts import CollectCommand, CollectResultRequest
+from scopecat.sdk.instruments.commands import CollectCommand, CollectResultRequest
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.instrument_host import (

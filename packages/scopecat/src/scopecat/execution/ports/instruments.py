@@ -14,7 +14,7 @@ from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementValue,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     CollectCommand,
     CollectResultRequest,
     InstrumentOperationArgument,

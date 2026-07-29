@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 from scopecat.execution.ports.instruments import RunHardwareInvoke
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     InstrumentOperationArgument,
     InvokeCommand,
 )
