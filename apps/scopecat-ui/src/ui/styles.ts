@@ -1,3 +1,5 @@
+import { twMerge } from "tailwind-merge";
+
 export const primaryButton =
   "inline-flex min-h-9 cursor-pointer items-center justify-center gap-[7px] rounded-[8px] border border-accent bg-accent px-3 text-[0.7rem] font-[750] text-bg hover:not-disabled:border-[#9ff4ec] hover:not-disabled:bg-[#9ff4ec] disabled:cursor-not-allowed disabled:opacity-45";
 
@@ -28,5 +30,5 @@ export const dialogTitle = "m-0 text-[0.86rem] font-bold text-text";
 export const dialogDescription = "mt-[5px] mb-0 text-[0.66rem] leading-normal text-text-dim";
 
 export function classes(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(" ");
+  return twMerge(values);
 }
