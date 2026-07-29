@@ -190,10 +190,6 @@
   padding: 7px 0 3px;
 }
 
-.run-pagination .secondary-button {
-  width: 100%;
-}
-
 .run-pagination-error {
   margin: 4px 8px 0;
   color: var(--red);
@@ -1056,10 +1052,6 @@
   justify-content: center;
   padding: 9px 10px;
   border-top: 1px solid var(--line);
-}
-
-.measurement-pagination .secondary-button {
-  width: 100%;
 }
 
 .analysis-list {

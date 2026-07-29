@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, X } from "lucide-react";
 import { ApiError } from "../../api";
+import { iconButton, primaryButton, secondaryButton } from "../../ui/styles";
 import { previewConfigDraft, setConfigDefault } from "./config-api";
 import { deriveConfigDraftUpdates } from "./config-draft";
 import { ConfigParameters } from "./ConfigParameters";
@@ -196,7 +197,7 @@ export function ConfigDraftEditor({
           </p>
         </div>
         <button
-          className="icon-button"
+          className={iconButton}
           type="button"
           onClick={onCancel}
           aria-label="Discard parameter draft"
@@ -249,7 +250,7 @@ export function ConfigDraftEditor({
                 </div>
                 {editedValues[selectedDefinition.id] && (
                   <button
-                    className="secondary-button"
+                    className={secondaryButton}
                     type="button"
                     onClick={() => resetParameter(selectedDefinition.id)}
                   >
@@ -297,7 +298,7 @@ export function ConfigDraftEditor({
               : `${updates.length} typed operation${updates.length === 1 ? "" : "s"}`}
           </span>
           <button
-            className="secondary-button"
+            className={secondaryButton}
             type="button"
             disabled={
               stale ||
@@ -309,14 +310,14 @@ export function ConfigDraftEditor({
             onClick={runPreview}
           >
             {previewMutation.isPending ? (
-              <LoaderCircle className="spin" size={15} />
+              <LoaderCircle className="animate-spin" size={15} />
             ) : (
               <Eye size={15} />
             )}
             Preview changes
           </button>
           <button
-            className="primary-button"
+            className={primaryButton}
             type="button"
             disabled={
               stale ||
@@ -329,7 +330,7 @@ export function ConfigDraftEditor({
             onClick={runSetDefault}
           >
             {defaultMutation.isPending ? (
-              <LoaderCircle className="spin" size={15} />
+              <LoaderCircle className="animate-spin" size={15} />
             ) : (
               <CheckCircle2 size={15} />
             )}

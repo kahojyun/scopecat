@@ -21,6 +21,7 @@ import {
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import type { MeasurementPreview, ProjectHealth, ProjectRun, ProjectRunPage } from "../../types";
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";
+import { classes, secondaryButton } from "../../ui/styles";
 import { RunDetail } from "./RunDetail";
 
 type FilterKey = "all" | "active" | "attention" | "complete";
@@ -203,7 +204,11 @@ export function RunsWorkspace({
               <h2 id="runs-heading">Experiments</h2>
             </div>
             {runsQuery.isFetching && (
-              <LoaderCircle className="spin subtle-icon" size={17} aria-label="Refreshing runs" />
+              <LoaderCircle
+                className="animate-spin subtle-icon"
+                size={17}
+                aria-label="Refreshing runs"
+              />
             )}
           </div>
 
@@ -236,7 +241,7 @@ export function RunsWorkspace({
           <div className="run-list">
             {runsQuery.isPending && (
               <PanelMessage
-                icon={<LoaderCircle className="spin" />}
+                icon={<LoaderCircle className="animate-spin" />}
                 title="Reading project"
                 detail="Waiting for the daemon to return its run index."
               />
@@ -278,7 +283,7 @@ export function RunsWorkspace({
             {runsQuery.isSuccess && runHeadCursor !== undefined && nextRunCursor !== undefined && (
               <div className="run-pagination">
                 <button
-                  className="secondary-button"
+                  className={classes(secondaryButton, "w-full")}
                   type="button"
                   disabled={olderRunsMutation.isPending}
                   onClick={() =>
@@ -289,7 +294,7 @@ export function RunsWorkspace({
                   }
                 >
                   {olderRunsMutation.isPending ? (
-                    <LoaderCircle className="spin" size={14} aria-hidden="true" />
+                    <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
                   ) : (
                     <ChevronRight size={14} aria-hidden="true" />
                   )}
@@ -336,7 +341,7 @@ export function RunsWorkspace({
             />
           ) : runsQuery.isPending ? (
             <DetailEmpty
-              icon={<LoaderCircle className="spin" />}
+              icon={<LoaderCircle className="animate-spin" />}
               title="Loading run details"
               detail="The project run index is being read."
             />

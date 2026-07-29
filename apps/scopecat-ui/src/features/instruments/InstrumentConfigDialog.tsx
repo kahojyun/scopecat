@@ -12,6 +12,17 @@ import type {
   InstrumentSpec,
 } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
+import {
+  classes,
+  dialogBackdrop,
+  dialogDescription,
+  dialogPopup,
+  dialogTitle,
+  dialogViewport,
+  iconButton,
+  primaryButton,
+  secondaryButton,
+} from "../../ui/styles";
 import { InstrumentDefaultsEditor } from "./InstrumentDefaultsEditor";
 import { probeInstrumentDriver, publishInstrumentSpec, type ActiveConfig } from "./instrument-api";
 
@@ -205,25 +216,33 @@ function InstrumentConfigEditor({
   return (
     <Dialog.Root open onOpenChange={(open) => !open && !busy && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="dialog-backdrop" />
-        <Dialog.Viewport className="dialog-viewport">
-          <Dialog.Popup className="dialog-popup config-modal instrument-config-modal">
-            <header>
-              <span aria-hidden="true">
+        <Dialog.Backdrop className={dialogBackdrop} />
+        <Dialog.Viewport className={dialogViewport}>
+          <Dialog.Popup className={classes(dialogPopup, "w-[min(680px,100%)]")}>
+            <header className="grid grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-2.5 border-b border-line px-[18px] py-4">
+              <span
+                className="grid size-9 place-items-center rounded-[9px] bg-accent-soft text-accent"
+                aria-hidden="true"
+              >
                 <Cable size={19} />
               </span>
               <div>
-                <Dialog.Title className="dialog-title">
+                <Dialog.Title className={dialogTitle}>
                   {existing ? "Configure instrument" : "Add instrument"}
                 </Dialog.Title>
-                <Dialog.Description className="dialog-description">
+                <Dialog.Description
+                  className={classes(
+                    dialogDescription,
+                    "mt-[3px] overflow-hidden text-[0.59rem] text-ellipsis whitespace-nowrap",
+                  )}
+                >
                   {existing
                     ? `${existing.id} · publishes a new immutable default`
                     : "Choose a registered driver and publish it to the active laboratory config"}
                 </Dialog.Description>
               </div>
               <Dialog.Close
-                className="icon-button"
+                className={iconButton}
                 aria-label="Close instrument configuration"
                 disabled={busy}
               >
@@ -231,7 +250,7 @@ function InstrumentConfigEditor({
               </Dialog.Close>
             </header>
 
-            <div className="config-modal-body instrument-config-form">
+            <div className="config-modal-body instrument-config-form grid gap-3 p-[18px]">
               <div className="instrument-config-fields">
                 <label>
                   <span>Instrument ID</span>
@@ -333,12 +352,12 @@ function InstrumentConfigEditor({
               <div className="instrument-probe-row">
                 <button
                   type="button"
-                  className="secondary-button"
+                  className={secondaryButton}
                   disabled={!bindingValid || busy}
                   onClick={() => void testConnection()}
                 >
                   {probePending ? (
-                    <LoaderCircle className="spin" size={15} />
+                    <LoaderCircle className="animate-spin" size={15} />
                   ) : (
                     <PlugZap size={15} />
                   )}
@@ -354,17 +373,21 @@ function InstrumentConfigEditor({
               )}
             </div>
 
-            <footer>
-              <Dialog.Close className="secondary-button" disabled={busy}>
+            <footer className="flex justify-end gap-2 border-t border-line bg-panel-soft px-[18px] py-[13px]">
+              <Dialog.Close className={secondaryButton} disabled={busy}>
                 Cancel
               </Dialog.Close>
               <button
                 type="button"
-                className="primary-button"
+                className={primaryButton}
                 disabled={!publishValid || !changed || busy}
                 onClick={() => void publish()}
               >
-                {publishPending ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
+                {publishPending ? (
+                  <LoaderCircle className="animate-spin" size={15} />
+                ) : (
+                  <Save size={15} />
+                )}
                 Publish default
               </button>
             </footer>
@@ -627,23 +650,26 @@ function MissingInstrumentDialog({
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="dialog-backdrop" />
-        <Dialog.Viewport className="dialog-viewport">
-          <Dialog.Popup className="dialog-popup confirmation-dialog">
-            <div className="dialog-heading">
-              <span aria-hidden="true">
+        <Dialog.Backdrop className={dialogBackdrop} />
+        <Dialog.Viewport className={dialogViewport}>
+          <Dialog.Popup className={classes(dialogPopup, "w-[min(440px,100%)]")}>
+            <div className="grid grid-cols-[34px_minmax(0,1fr)] items-start gap-[11px] p-[18px]">
+              <span
+                className="grid size-8 place-items-center rounded-md bg-accent-soft text-accent"
+                aria-hidden="true"
+              >
                 <Cable size={18} />
               </span>
               <div>
-                <Dialog.Title className="dialog-title">Instrument changed</Dialog.Title>
-                <Dialog.Description className="dialog-description">
+                <Dialog.Title className={dialogTitle}>Instrument changed</Dialog.Title>
+                <Dialog.Description className={dialogDescription}>
                   {instrumentId} is no longer present in the active configuration. Refresh before
                   editing.
                 </Dialog.Description>
               </div>
             </div>
-            <div className="dialog-actions">
-              <Dialog.Close className="secondary-button">Close</Dialog.Close>
+            <div className="flex justify-end gap-2 border-t border-line bg-panel-soft px-[18px] py-3">
+              <Dialog.Close className={secondaryButton}>Close</Dialog.Close>
             </div>
           </Dialog.Popup>
         </Dialog.Viewport>

@@ -14,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { errorMessage } from "../../lib/presentation";
+import { classes, secondaryButton } from "../../ui/styles";
 import { ConfigDraftEditor, type ConfigDraftSeed } from "./ConfigDraftEditor";
 import { ConfigEntryInspector } from "./ConfigEntryInspector";
 import { ConfigImportDialog } from "./ConfigImportDialog";
@@ -52,7 +53,7 @@ export function ConfigWorkspace({
   if (registry.registryQuery.isPending) {
     return (
       <ConfigBoundaryMessage
-        icon={<LoaderCircle className="spin" />}
+        icon={<LoaderCircle className="animate-spin" />}
         title="Reading saved configurations"
         detail="Loading the default snapshot, saved versions, and change history."
       />
@@ -67,7 +68,7 @@ export function ConfigWorkspace({
         warning
         action={
           <button
-            className="secondary-button"
+            className={secondaryButton}
             type="button"
             onClick={() => void registry.registryQuery.refetch()}
           >
@@ -128,7 +129,7 @@ export function ConfigWorkspace({
             onChange={(event) => void workflow.readImport(event)}
           />
           <Menu.Root>
-            <Menu.Trigger className="secondary-button action-menu-trigger">
+            <Menu.Trigger className={classes(secondaryButton, "action-menu-trigger")}>
               <SlidersHorizontal size={15} aria-hidden="true" />
               Advanced
             </Menu.Trigger>

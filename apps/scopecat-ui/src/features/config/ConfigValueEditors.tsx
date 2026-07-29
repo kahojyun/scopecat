@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { iconButton, secondaryButton } from "../../ui/styles";
 import { defaultTableRow } from "./config-draft";
 import type {
   ParameterAtom,
@@ -157,7 +158,7 @@ function TableEditor({
                   ))}
                   <td>
                     <button
-                      className="icon-button"
+                      className={iconButton}
                       type="button"
                       onClick={() => deleteRow(rowIndex)}
                       aria-label={`Delete ${parameterId} row ${rowIndex + 1}`}
@@ -171,7 +172,7 @@ function TableEditor({
           </tbody>
         </table>
       </div>
-      <button className="secondary-button" type="button" onClick={addRow}>
+      <button className={secondaryButton} type="button" onClick={addRow}>
         <Plus size={15} />
         Add row
       </button>

@@ -26,6 +26,7 @@ import type {
   InstrumentStateValue,
   InstrumentView,
 } from "../../api-contract";
+import { classes, primaryButton, secondaryButton } from "../../ui/styles";
 import { ApiError } from "../../api";
 import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
 import { InstrumentPropertyInput, type InstrumentPropertyDraft } from "./InstrumentPropertyInput";
@@ -434,7 +435,7 @@ export function InstrumentInspector({
         </div>
         <button
           type="button"
-          className="secondary-button"
+          className={classes(secondaryButton, "max-[460px]:justify-self-start")}
           onClick={onConfigure}
           disabled={
             connected ||
@@ -454,7 +455,7 @@ export function InstrumentInspector({
           }
         >
           {configurationPending ? (
-            <LoaderCircle className="spin" size={14} />
+            <LoaderCircle className="animate-spin" size={14} />
           ) : (
             <Pencil size={14} />
           )}
@@ -570,7 +571,7 @@ export function InstrumentInspector({
               </div>
               <button
                 type="button"
-                className="secondary-button"
+                className={secondaryButton}
                 onClick={resetStaged}
                 disabled={applyMutation.isPending}
               >
@@ -579,7 +580,7 @@ export function InstrumentInspector({
               </button>
               <button
                 type="button"
-                className="primary-button"
+                className={primaryButton}
                 onClick={applyStaged}
                 disabled={
                   interactionDisabled ||
@@ -596,7 +597,7 @@ export function InstrumentInspector({
                 }
               >
                 {applyMutation.isPending ? (
-                  <LoaderCircle className="spin" size={14} />
+                  <LoaderCircle className="animate-spin" size={14} />
                 ) : (
                   <Check size={14} />
                 )}
@@ -676,13 +677,13 @@ function InstrumentSessionPanel({
           {configuredDefaultsVisible && (
             <button
               type="button"
-              className="secondary-button"
+              className={secondaryButton}
               onClick={onApplyConfiguredDefaults}
               disabled={configuredDefaultsDisabled}
               title={configuredDefaultsDisabledReason}
             >
               {configuredDefaultsPending ? (
-                <LoaderCircle className="spin" size={14} />
+                <LoaderCircle className="animate-spin" size={14} />
               ) : (
                 <RotateCcw size={14} />
               )}
@@ -691,7 +692,7 @@ function InstrumentSessionPanel({
           )}
           <button
             type="button"
-            className="secondary-button"
+            className={secondaryButton}
             onClick={onRefresh}
             disabled={interactionPending || closePending}
             title={
@@ -700,12 +701,12 @@ function InstrumentSessionPanel({
                 : undefined
             }
           >
-            <RefreshCw className={refreshPending ? "spin" : undefined} size={14} />
+            <RefreshCw className={refreshPending ? "animate-spin" : undefined} size={14} />
             Refresh state
           </button>
           <button
             type="button"
-            className="secondary-button"
+            className={secondaryButton}
             onClick={onClose}
             disabled={closePending || interactionPending}
             title={
@@ -714,7 +715,11 @@ function InstrumentSessionPanel({
                 : undefined
             }
           >
-            {closePending ? <LoaderCircle className="spin" size={14} /> : <Unplug size={14} />}
+            {closePending ? (
+              <LoaderCircle className="animate-spin" size={14} />
+            ) : (
+              <Unplug size={14} />
+            )}
             Disconnect
           </button>
         </div>
@@ -735,7 +740,7 @@ function InstrumentSessionPanel({
         </div>
         <button
           type="button"
-          className="secondary-button"
+          className={secondaryButton}
           onClick={onResolve}
           disabled={!canResolve || resolvePending}
           title={
@@ -744,7 +749,11 @@ function InstrumentSessionPanel({
               : "Resolve this owner from its run workflow"
           }
         >
-          {resolvePending ? <LoaderCircle className="spin" size={14} /> : <ShieldAlert size={14} />}
+          {resolvePending ? (
+            <LoaderCircle className="animate-spin" size={14} />
+          ) : (
+            <ShieldAlert size={14} />
+          )}
           Resolve quarantine
         </button>
       </div>
@@ -765,12 +774,16 @@ function InstrumentSessionPanel({
         {canDisconnectSession && (
           <button
             type="button"
-            className="secondary-button"
+            className={secondaryButton}
             onClick={onDisconnectOwner}
             disabled={closePending}
             title="Disconnect this daemon-owned interactive session"
           >
-            {closePending ? <LoaderCircle className="spin" size={14} /> : <Unplug size={14} />}
+            {closePending ? (
+              <LoaderCircle className="animate-spin" size={14} />
+            ) : (
+              <Unplug size={14} />
+            )}
             Disconnect session
           </button>
         )}
@@ -799,13 +812,8 @@ function InstrumentSessionPanel({
           connects it.
         </small>
       </div>
-      <button
-        type="button"
-        className="primary-button"
-        onClick={onConnect}
-        disabled={connectPending}
-      >
-        {connectPending ? <LoaderCircle className="spin" size={14} /> : <Cable size={14} />}
+      <button type="button" className={primaryButton} onClick={onConnect} disabled={connectPending}>
+        {connectPending ? <LoaderCircle className="animate-spin" size={14} /> : <Cable size={14} />}
         Connect
       </button>
     </div>
@@ -1081,7 +1089,7 @@ function OperationControl({
         </div>
         <button
           type="button"
-          className="secondary-button"
+          className={classes(secondaryButton, "flex-none")}
           aria-label={`Invoke ${label}`}
           onClick={() => onInvoke(operationArguments)}
           disabled={!connected || interactionDisabled || invalid}
@@ -1095,7 +1103,7 @@ function OperationControl({
                   : undefined
           }
         >
-          {invoking ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+          {invoking ? <LoaderCircle className="animate-spin" size={14} /> : <Play size={14} />}
           Invoke
         </button>
       </header>
@@ -1261,7 +1269,7 @@ function AcquisitionControl({
           <div className="acquisition-collect-action">
             <button
               type="button"
-              className="secondary-button"
+              className={secondaryButton}
               onClick={onCollect}
               disabled={!connected || interactionDisabled}
               title={
@@ -1272,7 +1280,11 @@ function AcquisitionControl({
                     : undefined
               }
             >
-              {collecting ? <LoaderCircle className="spin" size={14} /> : <Database size={14} />}
+              {collecting ? (
+                <LoaderCircle className="animate-spin" size={14} />
+              ) : (
+                <Database size={14} />
+              )}
               Collect
             </button>
           </div>

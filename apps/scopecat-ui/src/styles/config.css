@@ -179,48 +179,6 @@
   font-size: 0.72rem;
 }
 
-.primary-button,
-.secondary-button {
-  display: inline-flex;
-  gap: 7px;
-  align-items: center;
-  justify-content: center;
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.7rem;
-  font-weight: 750;
-}
-
-.primary-button {
-  border: 1px solid var(--accent);
-  color: var(--bg);
-  background: var(--accent);
-}
-
-.primary-button:hover:not(:disabled) {
-  border-color: #9ff4ec;
-  background: #9ff4ec;
-}
-
-.secondary-button {
-  border: 1px solid var(--line-strong);
-  color: var(--text-soft);
-  background: var(--panel);
-}
-
-.secondary-button:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--panel-strong);
-}
-
-.primary-button:disabled,
-.secondary-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
 .config-error {
   display: flex;
   gap: 9px;
@@ -383,10 +341,6 @@
   font-size: 0.66rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.config-summary-undo .secondary-button {
-  min-height: 31px;
 }
 
 .config-layout {
@@ -665,11 +619,6 @@
   gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
-}
-
-.config-provenance-heading .secondary-button {
-  min-height: 31px;
-  flex: none;
 }
 
 .candidate-evidence-status {

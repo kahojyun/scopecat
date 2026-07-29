@@ -6,6 +6,7 @@ import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import type { RunAnalysis } from "../../types";
+import { classes, primaryButton, secondaryButton } from "../../ui/styles";
 import { ConfigParameters } from "./ConfigParameters";
 import { ActionNote, ConfigFact, ConfigInlineEmpty } from "./ConfigUi";
 import type { ConfigSnapshotSummary } from "./config-api";
@@ -67,19 +68,27 @@ export function ConfigEntryInspector({
           <code title={entry.content_hash}>{entry.content_hash}</code>
         </div>
         {active && onEdit && (
-          <button className="primary-button" type="button" onClick={onEdit}>
+          <button
+            className={classes(primaryButton, "max-[680px]:justify-self-start")}
+            type="button"
+            onClick={onEdit}
+          >
             <SlidersHorizontal size={15} />
             Edit parameters
           </button>
         )}
         {!active && (
           <button
-            className="primary-button"
+            className={classes(primaryButton, "max-[680px]:justify-self-start")}
             type="button"
             disabled={actionDisabled}
             onClick={onActivate}
           >
-            {pending ? <LoaderCircle className="spin" size={15} /> : <CheckCircle2 size={15} />}
+            {pending ? (
+              <LoaderCircle className="animate-spin" size={15} />
+            ) : (
+              <CheckCircle2 size={15} />
+            )}
             Set as default
           </button>
         )}
@@ -218,7 +227,11 @@ function EntryProvenance({
             </p>
           </div>
           {runId && onOpenRun && (
-            <button className="secondary-button" type="button" onClick={() => onOpenRun(runId)}>
+            <button
+              className={classes(secondaryButton, "min-h-[31px] flex-none")}
+              type="button"
+              onClick={() => onOpenRun(runId)}
+            >
               Open producing run
             </button>
           )}

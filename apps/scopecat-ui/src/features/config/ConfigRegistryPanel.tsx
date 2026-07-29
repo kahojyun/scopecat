@@ -29,7 +29,7 @@ export function ConfigRegistryPanel({
           <strong>{overview.entries.length} versions</strong>
         </div>
         {refreshing && (
-          <LoaderCircle className="spin" size={16} aria-label="Refreshing configuration" />
+          <LoaderCircle className="animate-spin" size={16} aria-label="Refreshing configuration" />
         )}
       </div>
       <label className="config-search">

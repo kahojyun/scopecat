@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { InstrumentSession, InstrumentSessionLease, InstrumentView } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
+import { classes, iconButton } from "../../ui/styles";
 import { InstrumentConfigDialog } from "./InstrumentConfigDialog";
 import { AvailabilityBadge, InstrumentInspector } from "./InstrumentInspector";
 import {
@@ -279,7 +280,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             <div className="instrument-browser-actions">
               <button
                 type="button"
-                className="icon-button"
+                className={classes(iconButton, "size-[30px]")}
                 aria-label="Add instrument"
                 title={driverCatalogQuery.isError ? "Driver catalog unavailable" : "Add instrument"}
                 disabled={driverCatalogQuery.isPending || driverCatalogQuery.isError}
@@ -292,12 +293,15 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
               </button>
               <button
                 type="button"
-                className="icon-button"
+                className={classes(iconButton, "size-[30px]")}
                 aria-label="Refresh instruments"
                 title="Refresh instruments"
                 onClick={() => void queryClient.invalidateQueries({ queryKey: ["instruments"] })}
               >
-                <RefreshCw size={15} className={instrumentsQuery.isFetching ? "spin" : undefined} />
+                <RefreshCw
+                  size={15}
+                  className={instrumentsQuery.isFetching ? "animate-spin" : undefined}
+                />
               </button>
             </div>
           </div>
@@ -310,7 +314,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             />
           ) : instrumentsQuery.isPending ? (
             <InstrumentListMessage
-              icon={<LoaderCircle className="spin" />}
+              icon={<LoaderCircle className="animate-spin" />}
               title="Loading instruments"
               detail="Reading the active configuration and current instrument owners."
             />

@@ -278,10 +278,6 @@
     display: grid;
   }
 
-  .config-inspector-heading .primary-button {
-    justify-self: start;
-  }
-
   .config-inspector-heading code {
     max-width: 100%;
   }
@@ -448,14 +444,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .config-toolbar-actions > .primary-button {
-    width: 100%;
-  }
-
-  .dialog-viewport {
-    padding: 10px;
-  }
-
   .instruments-toolbar {
     display: grid;
   }
@@ -466,10 +454,6 @@
 
   .instrument-inspector-header {
     display: grid;
-  }
-
-  .instrument-inspector-header .secondary-button {
-    justify-self: start;
   }
 
   .session-actions {

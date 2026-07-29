@@ -1,6 +1,7 @@
 import { GitCompareArrows, History, LoaderCircle, RotateCcw } from "lucide-react";
 import type { ConfigActivationRecord, ConfigRegistryOverview } from "../../api-contract";
 import { formatDateTime, shorten } from "../../lib/presentation";
+import { classes, secondaryButton } from "../../ui/styles";
 import { ConfigInlineEmpty } from "./ConfigUi";
 
 export function ConfigSummary({
@@ -45,8 +46,17 @@ export function ConfigSummary({
       <div className="config-summary-undo">
         <span>Previous</span>
         <strong title={history[1]?.entry_id}>{history[1]?.entry_id ?? "Nothing to undo"}</strong>
-        <button className="secondary-button" type="button" disabled={undoDisabled} onClick={onUndo}>
-          {undoPending ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />}
+        <button
+          className={classes(secondaryButton, "min-h-[31px]")}
+          type="button"
+          disabled={undoDisabled}
+          onClick={onUndo}
+        >
+          {undoPending ? (
+            <LoaderCircle className="animate-spin" size={15} />
+          ) : (
+            <RotateCcw size={15} />
+          )}
           Undo
         </button>
       </div>

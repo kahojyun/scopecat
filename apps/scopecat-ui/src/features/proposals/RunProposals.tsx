@@ -89,7 +89,7 @@ export function RunProposals({ runId }: { runId: string }) {
 
       {proposalsQuery.isPending ? (
         <ProposalMessage
-          icon={<LoaderCircle className="spin" />}
+          icon={<LoaderCircle className="animate-spin" />}
           title="Reading proposals"
           detail="Loading parameter changes and their operator approvals."
         />
@@ -171,7 +171,7 @@ export function RunProposals({ runId }: { runId: string }) {
                     onClick={() => setDefault(proposal)}
                   >
                     {activating ? (
-                      <LoaderCircle className="spin" size={14} />
+                      <LoaderCircle className="animate-spin" size={14} />
                     ) : defaultedProposalId === proposal.id ? (
                       <CheckCircle2 size={14} />
                     ) : (

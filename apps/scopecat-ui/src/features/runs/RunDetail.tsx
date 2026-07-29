@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { canPreviewRunContent, getRunContent } from "../../api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
+import { classes, secondaryButton } from "../../ui/styles";
 import type {
   ContentEntry,
   MeasurementPreview,
@@ -597,12 +598,12 @@ function MeasurementRecords({
       {hasMore && (
         <div className="measurement-pagination">
           <button
-            className="secondary-button"
+            className={classes(secondaryButton, "w-full")}
             type="button"
             disabled={loadingMore}
             onClick={onLoadMore}
           >
-            {loadingMore && <LoaderCircle className="spin" size={14} aria-hidden="true" />}
+            {loadingMore && <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />}
             {loadingMore ? "Loading measurements…" : "Load more measurements"}
           </button>
         </div>

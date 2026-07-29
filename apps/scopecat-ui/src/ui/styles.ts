@@ -7,6 +7,18 @@ export const secondaryButton =
 export const iconButton =
   "grid size-[34px] cursor-pointer place-items-center rounded-sm border border-line bg-panel p-0 text-text-soft hover:border-line-strong hover:bg-panel-strong hover:text-text";
 
+export const dialogBackdrop = "fixed inset-0 z-50 bg-[rgb(3_6_9_/_70%)]";
+
+export const dialogViewport =
+  "fixed inset-0 z-51 grid overflow-auto p-5 place-items-center max-[460px]:p-2.5";
+
+export const dialogPopup =
+  "w-[min(520px,100%)] overflow-hidden rounded-lg border border-line-strong bg-panel shadow-[0_24px_70px_rgb(0_0_0_/_50%)] outline-0";
+
+export const dialogTitle = "m-0 text-[0.86rem] font-bold text-text";
+
+export const dialogDescription = "mt-[5px] mb-0 text-[0.66rem] leading-normal text-text-dim";
+
 export function classes(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(" ");
 }
