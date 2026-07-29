@@ -51,6 +51,8 @@ from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionEndReceipt,
@@ -224,6 +226,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/instrument-drivers")
     def get_driver_catalog() -> DriverCatalog:
         return application.instruments.driver_catalog()
+
+    @app.post(f"{_API_PREFIX}/instrument-drivers/probe")
+    def probe_driver(
+        command: InstrumentDriverProbeCommand,
+    ) -> InstrumentDriverProbeReceipt:
+        return application.instruments.probe_driver(command)
 
     @app.get(f"{_API_PREFIX}/instruments/{{instrument_id}}")
     def get_instrument(instrument_id: str) -> InstrumentView:

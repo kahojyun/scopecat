@@ -18,6 +18,7 @@ from scopecat.daemon.wire import (
     DirectConfigRevisionSource,
     ExecutorStartRequest,
     InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentDriverProbeCommand,
     InstrumentSessionOpenCommand,
     RunSubmission,
 )
@@ -40,6 +41,7 @@ from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
     DriverCatalog,
+    DriverConnectionSpec,
     DriverFault,
     DriverOperation,
     DriverOutcome,
@@ -47,6 +49,7 @@ from scopecat.sdk.instruments import (
     DriverReadback,
     DriverRejected,
     DriverScalar,
+    DriverSpec,
     DriverState,
     DriverStatePatch,
     DriverSuccess,
@@ -666,6 +669,45 @@ def test_instrument_views_expose_only_safe_configuration_summaries(
     ):
         assert forbidden not in list_response.text
         assert forbidden not in detail_response.text
+
+
+def test_driver_probe_uses_an_ephemeral_worker_connection(tmp_path: Path) -> None:
+    config = load_config()
+    [binding] = instrument_bindings(config)
+    provider = _TrackingProvider()
+    catalog = DriverCatalog(
+        provider_id=provider.provider_id,
+        drivers=(
+            DriverSpec(
+                driver_id=binding.driver_id,
+                implementation_version="v1",
+                label="Test signal instrument",
+                connections=(
+                    DriverConnectionSpec(
+                        kind=binding.connection.kind,
+                        options_schema={
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
+    with (
+        _runtime(tmp_path, provider, config=config, driver_catalog=catalog) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        receipt = _daemon_client(transport).probe_driver(
+            InstrumentDriverProbeCommand(binding=binding)
+        )
+
+    assert receipt.status == "connected"
+    assert receipt.description is not None
+    assert receipt.description.instrument_id == binding.id
+    [driver] = provider.drivers
+    assert driver.disconnect_count == 1
 
 
 def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
@@ -2896,6 +2938,7 @@ def _runtime(
     provider: InstrumentProvider,
     *,
     config: ConfigProfileSnapshot | None = None,
+    driver_catalog: DriverCatalog | None = None,
     session_lease_ttl: timedelta = _SESSION_LEASE_TTL,
 ) -> LocalDaemonRuntime:
     return LocalDaemonRuntime(
@@ -2904,7 +2947,11 @@ def _runtime(
         instrument_endpoint=LocalInstrumentBackendEndpoint(
             InstrumentBackend(
                 provider=provider,
-                driver_catalog=DriverCatalog(provider_id=provider.provider_id),
+                driver_catalog=(
+                    DriverCatalog(provider_id=provider.provider_id)
+                    if driver_catalog is None
+                    else driver_catalog
+                ),
                 payload_codecs=json_payload_codecs("pulse_program"),
             )
         ),

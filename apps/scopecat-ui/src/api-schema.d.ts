@@ -175,6 +175,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-drivers/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Probe Driver */
+        post: operations["probe_driver_api_v1_instrument_drivers_probe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instrument-sessions": {
         parameters: {
             query?: never;
@@ -1410,6 +1427,17 @@ export interface components {
             ];
         };
         /**
+         * InstrumentBindingSpec
+         * @description Provider-visible identity and connection for one configured instrument.
+         */
+        InstrumentBindingSpec: {
+            connection: components["schemas"]["InstrumentConnection-Input"];
+            /** Driver Id */
+            driver_id: string;
+            /** Id */
+            id: string;
+        };
+        /**
          * InstrumentConfiguredDefaultsApplyCommand
          * @description Reconcile one session instrument with its pinned configured defaults.
          */
@@ -1453,6 +1481,27 @@ export interface components {
             interfaces?: components["schemas"]["InterfaceSpec"][];
             /** Label */
             label?: string | null;
+        };
+        /**
+         * InstrumentDriverProbeCommand
+         * @description Open, identify, and close one candidate instrument binding.
+         */
+        InstrumentDriverProbeCommand: {
+            binding: components["schemas"]["InstrumentBindingSpec"];
+        };
+        /** InstrumentDriverProbeReceipt */
+        InstrumentDriverProbeReceipt: {
+            description?: components["schemas"]["InstrumentDescription"] | null;
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "connected" | "rejected";
         };
         /** InstrumentListView */
         InstrumentListView: {
@@ -3078,6 +3127,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DriverCatalog"];
+                };
+            };
+        };
+    };
+    probe_driver_api_v1_instrument_drivers_probe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentDriverProbeCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentDriverProbeReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

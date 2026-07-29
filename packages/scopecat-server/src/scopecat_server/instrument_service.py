@@ -34,6 +34,8 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
@@ -369,6 +371,40 @@ class InstrumentService:
         if endpoint is None:
             raise BackendConflict("project does not configure an instrument backend")
         return endpoint.driver_catalog
+
+    def probe_driver(
+        self,
+        command: InstrumentDriverProbeCommand,
+    ) -> InstrumentDriverProbeReceipt:
+        endpoint = self._endpoint
+        if endpoint is None:
+            raise BackendConflict("project does not configure an instrument backend")
+        registered = endpoint.driver_catalog.get(command.binding.driver_id)
+        if registered is None:
+            raise BackendNotFound(
+                f"instrument driver was not found: {command.binding.driver_id}"
+            )
+        connection_kind = command.binding.connection.kind
+        if all(
+            connection.kind != connection_kind for connection in registered.connections
+        ):
+            raise BackendConflict(
+                f"{command.binding.driver_id} does not support "
+                f"{connection_kind} connections"
+            )
+        try:
+            description = endpoint.probe(command.binding)
+        except InstrumentBackendRejected as error:
+            return InstrumentDriverProbeReceipt(
+                status="rejected",
+                problems=error.problems,
+            )
+        except InstrumentBackendUnavailable as error:
+            raise BackendConflict(str(error)) from error
+        return InstrumentDriverProbeReceipt(
+            status="connected",
+            description=description,
+        )
 
     def get_instrument(self, instrument_id: str) -> InstrumentView:
         instruments = self.list_instruments()

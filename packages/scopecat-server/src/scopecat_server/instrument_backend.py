@@ -96,6 +96,8 @@ class InstrumentBackendEndpoint(Protocol):
         bindings: tuple[InstrumentBindingSpec, ...],
     ) -> InstrumentProviderDescription: ...
 
+    def probe(self, binding: InstrumentBindingSpec) -> InstrumentDescription: ...
+
     def connect(
         self,
         *,
@@ -190,50 +192,7 @@ class LocalInstrumentBackendEndpoint:
                     raise InstrumentBackendUnavailable(
                         "instrument backend is shut down"
                     )
-            driver: InstrumentDriver | None = None
-            try:
-                driver = self._provider.connect(
-                    InstrumentConnectionContext(binding=binding)
-                )
-                problems = validate_instruments(
-                    bindings=(binding,),
-                    instruments=[driver],
-                )
-                described, description_problems = describe_instruments([driver])
-                problems.extend(description_problems)
-                actual = described[0] if described else None
-                if actual is not None and actual != expected:
-                    problems.append(_description_changed_problem(binding.id))
-                if problems:
-                    raise InstrumentBackendRejected(
-                        "instrument provider returned an invalid driver",
-                        problems=tuple(problems),
-                    )
-                if actual is None:
-                    raise AssertionError(
-                        "validated instrument connection has no description"
-                    )
-            except DriverFault as error:
-                if driver is not None:
-                    with suppress(Exception):
-                        driver.disconnect()
-                raise InstrumentBackendRejected(
-                    "instrument provider rejected connection",
-                    problems=(error.problem,),
-                ) from error
-            except InstrumentBackendRejected:
-                if driver is not None:
-                    with suppress(Exception):
-                        driver.disconnect()
-                raise
-            except Exception as error:
-                if driver is not None:
-                    with suppress(Exception):
-                        driver.disconnect()
-                raise InstrumentBackendUnavailable(
-                    "instrument connection could not be established"
-                ) from error
-
+            driver, actual = self._open_driver(binding, expected=expected)
             handle = InstrumentHandle(
                 endpoint_id=self._endpoint_id,
                 token=uuid4().hex,
@@ -248,6 +207,73 @@ class LocalInstrumentBackendEndpoint:
                     )
                 self._connections[handle] = connection
             return ConnectedInstrument(handle=handle, description=actual)
+
+    def probe(self, binding: InstrumentBindingSpec) -> InstrumentDescription:
+        with self._provider_lock:
+            with self._lock:
+                if self._closed:
+                    raise InstrumentBackendUnavailable(
+                        "instrument backend is shut down"
+                    )
+            driver, description = self._open_driver(binding)
+            try:
+                driver.disconnect()
+            except Exception as error:
+                raise InstrumentBackendUnavailable(
+                    "instrument probe cleanup failed"
+                ) from error
+            return description
+
+    def _open_driver(
+        self,
+        binding: InstrumentBindingSpec,
+        *,
+        expected: InstrumentDescription | None = None,
+    ) -> tuple[InstrumentDriver, InstrumentDescription]:
+        driver: InstrumentDriver | None = None
+        try:
+            driver = self._provider.connect(
+                InstrumentConnectionContext(binding=binding)
+            )
+            problems = validate_instruments(
+                bindings=(binding,),
+                instruments=[driver],
+            )
+            described, description_problems = describe_instruments([driver])
+            problems.extend(description_problems)
+            actual = described[0] if described else None
+            if expected is not None and actual is not None and actual != expected:
+                problems.append(_description_changed_problem(binding.id))
+            if problems:
+                raise InstrumentBackendRejected(
+                    "instrument provider returned an invalid driver",
+                    problems=tuple(problems),
+                )
+            if actual is None:
+                raise AssertionError(
+                    "validated instrument connection has no description"
+                )
+            return driver, actual
+        except DriverFault as error:
+            if driver is not None:
+                with suppress(Exception):
+                    driver.disconnect()
+            raise InstrumentBackendRejected(
+                "instrument provider rejected connection",
+                problems=(error.problem,),
+            ) from error
+        except InstrumentBackendRejected:
+            if driver is not None:
+                with suppress(Exception):
+                    driver.disconnect()
+            raise
+        except Exception as error:
+            if driver is not None:
+                with suppress(Exception):
+                    driver.disconnect()
+            raise InstrumentBackendUnavailable(
+                "instrument connection could not be established"
+            ) from error
 
     def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
         with self._locked_connection(handle) as connection:

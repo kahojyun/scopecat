@@ -31,6 +31,8 @@ from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionLeaseReceipt,
@@ -47,7 +49,11 @@ from scopecat.records.artifact import (
     InlinePayloadBody,
     command_payload_from_bytes,
 )
-from scopecat.records.config import config_content_hash
+from scopecat.records.config import (
+    InstrumentBindingSpec,
+    VirtualInstrumentConnection,
+    config_content_hash,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
@@ -57,6 +63,7 @@ from scopecat.sdk.instruments.commands import (
     InvokeCommand,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -148,6 +155,40 @@ def test_driver_catalog_reads_project_backend_metadata() -> None:
     [request] = requests
     assert request.method == "GET"
     assert request.url.path == "/api/v1/instrument-drivers"
+
+
+def test_driver_probe_posts_the_candidate_binding() -> None:
+    requests: list[httpx2.Request] = []
+    command = InstrumentDriverProbeCommand(
+        binding=InstrumentBindingSpec(
+            id="source-0",
+            driver_id="tests.signal",
+            connection=VirtualInstrumentConnection(),
+        )
+    )
+    receipt = InstrumentDriverProbeReceipt(
+        status="connected",
+        description=InstrumentDescription(
+            instrument_id=command.binding.id,
+            implementation_id=command.binding.driver_id,
+            implementation_version="v1",
+        ),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.probe_driver(command) == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/instrument-drivers/probe"
+    assert InstrumentDriverProbeCommand.model_validate_json(request.content) == command
 
 
 def test_run_instrument_provision_retries_the_same_operation_after_response_loss() -> (

@@ -50,6 +50,8 @@ from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentContractCatalogRequest,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionEndReceipt,
@@ -242,6 +244,16 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/instrument-drivers",
             DriverCatalog,
+        )
+
+    def probe_driver(
+        self,
+        command: InstrumentDriverProbeCommand,
+    ) -> InstrumentDriverProbeReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/instrument-drivers/probe",
+            command,
+            InstrumentDriverProbeReceipt,
         )
 
     def get_instrument(self, instrument_id: str) -> InstrumentView:

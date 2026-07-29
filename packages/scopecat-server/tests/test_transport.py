@@ -19,6 +19,8 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     InstrumentContractCatalogRequest,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
     InstrumentSessionLeaseReceipt,
     RunAdmission,
     RunInstrumentProvisionCommand,
@@ -26,10 +28,16 @@ from scopecat.daemon.wire import (
     RunSubmission,
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    InstrumentBindingSpec,
+    VirtualInstrumentConnection,
+    config_content_hash,
+)
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.catalog import DriverCatalog
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 from scopecat_server import (
     BackendConflict,
@@ -136,6 +144,7 @@ class FakeInstruments:
     def __init__(self) -> None:
         self.last_run_provision: tuple[str, RunInstrumentProvisionCommand] | None = None
         self.last_contract_config: ConfigProfileSnapshot | None = None
+        self.last_driver_probe: InstrumentDriverProbeCommand | None = None
         self.last_renewed_session_id: str | None = None
 
     def resolve_instrument_contracts(
@@ -150,6 +159,20 @@ class FakeInstruments:
 
     def driver_catalog(self) -> DriverCatalog:
         return DriverCatalog(provider_id="tests.fake")
+
+    def probe_driver(
+        self,
+        command: InstrumentDriverProbeCommand,
+    ) -> InstrumentDriverProbeReceipt:
+        self.last_driver_probe = command
+        return InstrumentDriverProbeReceipt(
+            status="connected",
+            description=InstrumentDescription(
+                instrument_id=command.binding.id,
+                implementation_id=command.binding.driver_id,
+                implementation_version="v1",
+            ),
+        )
 
     def provision_run(
         self,
@@ -289,6 +312,28 @@ def test_driver_catalog_route_returns_project_backend_catalog() -> None:
     assert DriverCatalog.model_validate_json(response.content) == DriverCatalog(
         provider_id="tests.fake"
     )
+
+
+def test_driver_probe_route_forwards_the_candidate_binding() -> None:
+    backend = FakeApplication()
+    client = TestClient(_create_test_app(backend))
+    command = InstrumentDriverProbeCommand(
+        binding=InstrumentBindingSpec(
+            id="source-0",
+            driver_id="tests.signal",
+            connection=VirtualInstrumentConnection(),
+        )
+    )
+
+    response = client.post(
+        "/api/v1/instrument-drivers/probe",
+        json=command.model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    receipt = InstrumentDriverProbeReceipt.model_validate_json(response.content)
+    assert receipt.status == "connected"
+    assert backend.instruments.last_driver_probe == command
 
 
 def test_instrument_session_heartbeat_renews_the_lease() -> None:

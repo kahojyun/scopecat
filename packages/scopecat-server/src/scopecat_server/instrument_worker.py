@@ -67,6 +67,7 @@ from .instrument_worker_wire import (
 
 type _Operation = Literal[
     "describe",
+    "probe",
     "connect",
     "read_state",
     "apply_state",
@@ -392,6 +393,16 @@ class SubprocessInstrumentBackendEndpoint:
         return ConnectedInstrument(
             handle=InstrumentHandle(endpoint_id=self._endpoint_id, token=token),
             description=description,
+        )
+
+    def probe(self, binding: InstrumentBindingSpec) -> InstrumentDescription:
+        received = self._rpc(
+            "probe",
+            body={"binding": _model_to_body(binding)},
+        )
+        return self._decode_response(
+            InstrumentDescription,
+            received.response,
         )
 
     def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
@@ -797,6 +808,14 @@ def _dispatch_request(
                 _ProviderDescription.from_description(description),
             )
         )
+    if operation == "probe":
+        description = endpoint.probe(
+            _model_from_body(
+                InstrumentBindingSpec,
+                _require_mapping(body, "binding"),
+            )
+        )
+        return _OutgoingResponse(response=_ok_response(request, description))
     if operation == "connect":
         connection = endpoint.connect(
             binding=_model_from_body(

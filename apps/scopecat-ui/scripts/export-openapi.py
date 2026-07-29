@@ -23,6 +23,7 @@ _OPERATIONS = {
     ("/api/v1/events", "get"),
     ("/api/v1/health", "get"),
     ("/api/v1/instrument-drivers", "get"),
+    ("/api/v1/instrument-drivers/probe", "post"),
     ("/api/v1/instruments", "get"),
     ("/api/v1/instruments/{instrument_id}", "get"),
     ("/api/v1/instrument-sessions", "post"),

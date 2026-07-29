@@ -173,6 +173,11 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
         raise AssertionError("actor tests do not resolve instrument contracts")
 
     @override
+    def probe(self, binding: InstrumentBindingSpec) -> InstrumentDescription:
+        del binding
+        raise AssertionError("actor tests do not probe connections")
+
+    @override
     def connect(
         self,
         *,

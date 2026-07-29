@@ -81,6 +81,10 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
         "driver_id",
         "connection",
     }
+    assert endpoint.probe(binding) == expected
+    assert (project / "driver-events.log").read_text(encoding="utf-8") == (
+        "disconnect:source-0\n"
+    )
 
     connection = endpoint.connect(
         binding=binding,
@@ -162,7 +166,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
 
     endpoint.disconnect(connection.handle)
     assert (project / "driver-events.log").read_text(encoding="utf-8") == (
-        "disconnect:source-0\n"
+        "disconnect:source-0\ndisconnect:source-0\n"
     )
     with pytest.raises(InstrumentHandleInvalid, match="stale"):
         endpoint.read_state(connection.handle)
@@ -177,7 +181,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
     endpoint.shutdown()
     endpoint.shutdown()
     assert (project / "driver-events.log").read_text(encoding="utf-8") == (
-        "disconnect:source-0\nabort\ndisconnect:source-0\n"
+        "disconnect:source-0\ndisconnect:source-0\nabort\ndisconnect:source-0\n"
     )
     assert not endpoint.healthy
     assert not psutil.pid_exists(endpoint.worker_pid)

@@ -35,6 +35,7 @@ from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
+    InstrumentBindingSpec,
 )
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -438,6 +439,28 @@ class InstrumentContractCatalogRequest(_WireModel):
     config: ConfigProfileSnapshot
 
 
+class InstrumentDriverProbeCommand(_WireModel):
+    """Open, identify, and close one candidate instrument binding."""
+
+    binding: InstrumentBindingSpec
+
+
+class InstrumentDriverProbeReceipt(_WireModel):
+    status: Literal["connected", "rejected"]
+    description: InstrumentDescription | None = None
+    problems: tuple[Problem, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> InstrumentDriverProbeReceipt:
+        if self.status == "connected":
+            valid = self.description is not None and not self.problems
+        else:
+            valid = self.description is None and bool(self.problems)
+        if not valid:
+            raise ValueError("driver probe status and outcome disagree")
+        return self
+
+
 class InstrumentSessionOpenCommand(_WireModel):
     """Acquire and synchronize instruments against the active config."""
 
@@ -595,6 +618,8 @@ __all__ = [
     "InstrumentConfiguredDefaultsApplyCommand",
     "InstrumentConfiguredDefaultsApplyReceipt",
     "InstrumentContractCatalogRequest",
+    "InstrumentDriverProbeCommand",
+    "InstrumentDriverProbeReceipt",
     "InstrumentInventoryMigrationCommand",
     "InstrumentInventoryMigrationReceipt",
     "InstrumentSessionEndReceipt",
