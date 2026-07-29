@@ -36,7 +36,7 @@ it. Its `id` is the logical name used by commands, UI, and evidence;
 scheduling and daemon actors. It also contains `driver_id` and a typed
 connection. The exclusivity key is neither inferred from an address nor exposed
 to drivers. A config cannot assign one key to multiple instruments; a device
-with several capabilities exposes multiple interfaces or components instead.
+with several roles exposes multiple interfaces or components instead.
 Ordinary activations may add physical domains but cannot remove or rekey one;
 renaming a logical instrument keeps the same key. Retirement and rekeying
 use a separate explicit inventory migration and only succeed after every
@@ -171,12 +171,12 @@ device operations.
 
 Persistent hardware settings may not remain undeclared if they can change an
 interface's promised behavior. A setting is either public state represented by
-a `PropertySpec`, a fixed adapter/profile invariant, or state local to one
+a `PropertySpec`, a fixed driver-configuration invariant, or state local to one
 operation or acquisition. A continuous invariant is verified by `read_state`
 and re-established before related writes; an action-local invariant is
 established at that action boundary and temporary trigger or transport state is
 restored afterward. Diagnostic metadata is not a substitute for observed public
-state. Calibration and correction choices belong to a named profile with
+state. Calibration and correction choices are explicit configuration with
 provenance and are never silently reset by a generic interface.
 
 The daemon validates the complete public command, keeps its retry and
@@ -197,15 +197,15 @@ case must set the discriminator and the target case's declared entry
 properties; otherwise safety-relevant hidden state from an earlier use of that
 mode could become active. Common and other case properties may remain sparse.
 The current `scopecat.dc_source/v2` contract uses this model for voltage and
-current source modes. Named startup profiles likewise remain configuration that
-resolves to property assignments; omitted experiment properties preserve
-freshly observed device state unless an explicit profile policy says otherwise.
+current source modes. Configured startup defaults resolve to property
+assignments; omitted experiment properties preserve freshly observed device
+state unless the run explicitly applies those defaults.
 
 ## Connection configuration
 
 The core configuration schema distinguishes:
 
-- `virtual`: an in-process simulated device selected by `driver_id`;
+- `virtual`: a deterministic simulated device selected by `driver_id`;
 - `tcpip_socket`: host, port, and timeout for line-oriented SCPI.
 
 Connections may carry driver-specific `options`. The first-party provider
@@ -266,12 +266,14 @@ user opened an interactive session. An explicit configured-default action reads
 again and uses the immutable config entry pinned when that session opened, even
 if another revision has since become active.
 
-The GUI's connection editor follows the same immutable workflow as other
-configuration: load the active complete snapshot, edit the selected
-instrument's current TCP/IP endpoint or timeout, publish a new entry, and
-activate it. The editor does not change `driver_id`, connection kind, or driver
-options. Virtual connections have no endpoint to edit. Editing is disabled
-while the instrument is owned.
+The GUI reads the provider's driver catalog when adding or configuring an
+instrument. It edits the registered driver, supported connection kind, endpoint,
+strict driver options, sparse default state, and run-start policy, then
+publishes and activates a new immutable configuration entry. Changing the driver
+clears defaults whose property identities may no longer be valid. **Test
+connection** opens the candidate binding in the worker, identifies it, returns
+its interface description, and closes it without changing the active config.
+Configuration is disabled while the instrument is owned or quarantined.
 
 Activation never hot-switches a live owner: a run or session keeps its accepted
 configuration through release. A later owner may reuse the idle connection only
@@ -335,10 +337,10 @@ units and validation, make changes auditable, and keep the same semantics in
 GUI, notebooks, and experiments.
 
 Output enable, source level, heater control, and similar consequential
-properties must never be “apply on change”. Staging makes a multi-property transition
-intentional and lets a driver order dependent device commands safely. The
-initial Lake Shore driver is read-only because generic heater controls need
-additional lab-specific safety policy.
+properties must never be “apply on change”. Staging makes a multi-property
+transition intentional and lets a driver order dependent device commands
+safely. The initial Lake Shore driver is read-only because generic heater
+controls need additional lab-specific safety policy.
 
 ## Notebook API
 
@@ -456,8 +458,9 @@ contain an unavailable result with reason `missing`, `invalid`, or `overload`;
 the value retains its declared dtype, unit, and complete point-local shape.
 `not_collected` instead means the acquisition did not happen, while `unknown`
 still means its consequence cannot be determined. NaN and infinity are never
-missing-value encodings. An unavailable array marks the whole result; element
-validity belongs in the future chunked-data representation.
+missing-value encodings. An unavailable array marks the whole result;
+element-level validity requires a chunked data representation and is outside
+the current whole-result contract.
 
 Recorded variables identify their logical source product in the dataset schema.
 Each directly collected point value also retains the instrument, interface,

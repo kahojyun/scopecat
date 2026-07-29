@@ -20,7 +20,7 @@ from quantum_lab_demo.interfaces import (
     PLAY_PULSE_PROGRAM_PLAY,
     PLAY_PULSE_PROGRAM_PROGRAM,
 )
-from quantum_lab_demo.payloads import PULSE_PROGRAM_SCHEMA_ID, DecodedPulseProgram
+from quantum_lab_demo.payloads import PULSE_PROGRAM_SCHEMA_ID
 from quantum_lab_demo.virtual_lab.profiles import load_virtual_lab_profile
 from quantum_lab_demo.virtual_lab.provider import (
     QuantumLabVirtualProvider,
@@ -58,6 +58,9 @@ def test_virtual_provider_catalog_and_connection_use_exact_bindings() -> None:
 
 
 def test_drive_program_is_an_invocation_not_persistent_state() -> None:
+    # Resolve the type after loader fixtures select the active project module.
+    from quantum_lab_demo.payloads import DecodedPulseProgram
+
     backend = create_quantum_lab_backend(EXPERIMENT_VIRTUAL_LAB_PROFILE)
     binding = InstrumentBindingSpec(
         id="drive-stack",
@@ -98,9 +101,8 @@ def test_drive_program_is_an_invocation_not_persistent_state() -> None:
 
     [argument] = operation.arguments.values()
     assert isinstance(argument, DriverPayload)
-    assert argument.value == DecodedPulseProgram(
-        document={"instructions": []},
-    )
+    assert isinstance(argument.value, DecodedPulseProgram)
+    assert argument.value.document == {"instructions": []}
     assert operation.target == PLAY_PULSE_PROGRAM_PLAY
     assert operation.arguments[PLAY_PULSE_PROGRAM_PROGRAM.argument_id] == argument
     assert isinstance(receipt, DriverSuccess)

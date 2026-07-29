@@ -7,7 +7,7 @@ exclusive claims, interface validation, operation receipts, and audit trail.
 
 The configured connection kinds are:
 
-- `virtual`, for an in-process simulated device selected by `driver_id`;
+- `virtual`, for a deterministic simulated device selected by `driver_id`;
 - `tcpip_socket`, for a configured host, port, and timeout.
 
 ## Notebook use
@@ -57,6 +57,11 @@ Consequential calls retain their replay identity automatically while retrying a
 transient transport failure.
 
 ## Configuration
+
+The Instruments workspace reads the provider's driver catalog to add or
+configure a device. It exposes only supported connection kinds and typed driver
+options, can test a candidate connection before publishing it, and derives
+sparse startup-default fields from the probed interface description.
 
 Virtual instrument:
 
@@ -127,11 +132,9 @@ channel bindings are routing provenance, not fields a driver reads back.
 The DC monitor acquisition is selected by DC source mode: voltage-source mode
 returns monitored current, while current-source mode returns monitored voltage.
 
-Connection `options` are intentionally narrow:
-
 Each registered driver declares its connection kind and a strict options model.
 Unknown fields and coerced scalar values are rejected during configuration
-discovery.
+discovery:
 
 - Yokogawa GS200: `monitor_option` requests `/MON` support (`bool`, default
   `false`) and is verified with `*OPT?` when the connection opens;

@@ -22,7 +22,9 @@ uv run scopecat open examples/instruments
 Open **Instruments**, choose a device, and explicitly connect it. Changes stay
 staged until **Apply staged** is selected. The daemon owns the exclusive
 session until disconnect. A later GUI client can disconnect a session left by
-a closed browser.
+a closed browser. The **Add instrument** and **Configure device** actions use
+the registered driver catalog; test a candidate connection before publishing
+its connection, options, and startup defaults.
 
 ## Try the notebook API
 
@@ -68,7 +70,6 @@ uv run ruff check examples/instruments
 uv run basedpyright examples/instruments
 ```
 
-Connection edits in the GUI publish a new immutable configuration revision.
-The four defaults use `virtual` connections; change one to a supported real
-driver and `tcpip_socket` address only when the corresponding hardware is safe
-to operate.
+Instrument configuration changes publish a new immutable revision. The four
+defaults use `virtual` connections; select a supported real driver and
+`tcpip_socket` address only when the corresponding hardware is safe to operate.
