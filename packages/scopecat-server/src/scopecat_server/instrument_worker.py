@@ -1,4 +1,4 @@
-"""Long-lived subprocess boundary for project instrument backends."""
+"""Long-lived subprocess boundary with framed driver payloads and results."""
 
 from __future__ import annotations
 
@@ -53,8 +53,14 @@ from .instrument_backend import (
 )
 from .instrument_worker_wire import (
     DEFAULT_WIRE_LIMITS,
+    CollectFrames,
     InvokeFrames,
+    WorkerWireError,
+    collect_attachment_sizes,
+    invoke_attachment_sizes,
+    join_collect_receipt,
     join_invoke_request,
+    split_collect_receipt,
     split_invoke_request,
 )
 
@@ -148,6 +154,12 @@ class _RpcRequest(_WireModel):
         le=DEFAULT_WIRE_LIMITS.max_attachments,
     )
 
+    @model_validator(mode="after")
+    def validate_frames(self) -> _RpcRequest:
+        if self.operation != "invoke" and self.attachment_count:
+            raise ValueError("only worker invoke requests can have attachments")
+        return self
+
 
 class _RpcError(_WireModel):
     kind: _ErrorKind
@@ -161,12 +173,23 @@ class _RpcResponse(_WireModel):
     request_id: int = Field(ge=1)
     status: Literal["ok", "error"]
     body: dict[str, JsonValue] | None = None
+    frame_kind: Literal["collect"] | None = None
+    attachment_count: int = Field(
+        default=0,
+        ge=0,
+        le=DEFAULT_WIRE_LIMITS.max_attachments,
+    )
     error: _RpcError | None = None
 
     @model_validator(mode="after")
     def validate_outcome(self) -> _RpcResponse:
         if (self.status == "error") != (self.error is not None):
             raise ValueError("worker response status and error disagree")
+        if self.frame_kind is None:
+            if self.attachment_count:
+                raise ValueError("unframed worker response cannot have attachments")
+        elif self.status != "ok" or self.body is not None:
+            raise ValueError("framed worker response must be a bodyless success")
         return self
 
 
@@ -190,11 +213,23 @@ class _StartupResponse(_WireModel):
         return self
 
 
+@dataclass(frozen=True, slots=True)
+class _ReceivedResponse:
+    response: _RpcResponse
+    collect_receipt: CollectReceipt | None = None
+
+
 @dataclass(slots=True)
 class _PendingResponse:
     event: Event = field(default_factory=Event)
-    response: _RpcResponse | None = None
+    received: _ReceivedResponse | None = None
     error: InstrumentBackendError | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _OutgoingResponse:
+    response: _RpcResponse
+    collect_frames: CollectFrames | None = None
 
 
 class SubprocessInstrumentBackendEndpoint:
@@ -297,13 +332,16 @@ class SubprocessInstrumentBackendEndpoint:
         self,
         bindings: tuple[InstrumentBindingSpec, ...],
     ) -> InstrumentProviderDescription:
-        response = self._rpc(
+        received = self._rpc(
             "describe",
             body={
                 "bindings": [_model_to_body(binding) for binding in bindings],
             },
         )
-        return self._decode_response(_ProviderDescription, response).to_description()
+        return self._decode_response(
+            _ProviderDescription,
+            received.response,
+        ).to_description()
 
     def connect(
         self,
@@ -311,7 +349,7 @@ class SubprocessInstrumentBackendEndpoint:
         binding: InstrumentBindingSpec,
         expected: InstrumentDescription,
     ) -> ConnectedInstrument:
-        response = self._rpc(
+        received = self._rpc(
             "connect",
             body={
                 "binding": _model_to_body(binding),
@@ -319,7 +357,7 @@ class SubprocessInstrumentBackendEndpoint:
             },
         )
         try:
-            body = _require_response_body(response)
+            body = _require_response_body(received.response)
             child_handle = _model_from_body(
                 _ChildHandle,
                 _require_mapping(body, "handle"),
@@ -340,10 +378,10 @@ class SubprocessInstrumentBackendEndpoint:
         )
 
     def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
-        response = self._rpc("read_state", handle=handle)
+        received = self._rpc("read_state", handle=handle)
         return self._decode_response(
             InstrumentStateSnapshot,
-            response,
+            received.response,
         )
 
     def apply_state(
@@ -351,12 +389,12 @@ class SubprocessInstrumentBackendEndpoint:
         handle: InstrumentHandle,
         request: DriverApplyRequest,
     ) -> ApplyReceipt:
-        response = self._rpc(
+        received = self._rpc(
             "apply_state",
             handle=handle,
             body={"request": _model_to_body(request)},
         )
-        return self._decode_response(ApplyReceipt, response)
+        return self._decode_response(ApplyReceipt, received.response)
 
     def invoke(
         self,
@@ -364,24 +402,28 @@ class SubprocessInstrumentBackendEndpoint:
         request: BackendInvokeRequest,
     ) -> InvokeReceipt:
         frames = split_invoke_request(request)
-        response = self._rpc(
+        received = self._rpc(
             "invoke",
             handle=handle,
             frames=frames,
         )
-        return self._decode_response(InvokeReceipt, response)
+        return self._decode_response(InvokeReceipt, received.response)
 
     def collect(
         self,
         handle: InstrumentHandle,
         request: DriverCollectRequest,
     ) -> CollectReceipt:
-        response = self._rpc(
+        received = self._rpc(
             "collect",
             handle=handle,
             body={"request": _model_to_body(request)},
         )
-        return self._decode_response(CollectReceipt, response)
+        if received.collect_receipt is None:
+            self._raise_invalid_response(
+                ValueError("instrument worker omitted its collect receipt frames")
+            )
+        return received.collect_receipt
 
     def abort(self, handle: InstrumentHandle) -> None:
         self._rpc("abort", handle=handle)
@@ -426,7 +468,7 @@ class SubprocessInstrumentBackendEndpoint:
         handle: InstrumentHandle | None = None,
         body: dict[str, JsonValue] | None = None,
         frames: InvokeFrames | None = None,
-    ) -> _RpcResponse:
+    ) -> _ReceivedResponse:
         with self._state_lock:
             self._require_available()
             child_handle = None if handle is None else self._resolve_handle(handle)
@@ -459,18 +501,27 @@ class SubprocessInstrumentBackendEndpoint:
         pending.event.wait()
         if pending.error is not None:
             raise pending.error
-        response = pending.response
-        if response is None:
+        received = pending.received
+        if received is None:
             raise InstrumentBackendUnavailable("instrument worker returned no response")
+        response = received.response
         if response.status == "error":
             assert response.error is not None
             _raise_worker_error(response.error)
-        return response
+        return received
 
     def _receive_responses(self) -> None:
         while True:
             try:
                 response = _recv_model(self._connection, _RpcResponse)
+                collect_receipt = (
+                    _receive_collect(
+                        self._connection,
+                        response.attachment_count,
+                    )
+                    if response.frame_kind == "collect"
+                    else None
+                )
             except EOFError, OSError, ValueError:
                 with self._state_lock:
                     if self._closed:
@@ -481,7 +532,10 @@ class SubprocessInstrumentBackendEndpoint:
                 pending = self._pending.get(response.request_id)
                 closed = self._closed
                 if pending is not None:
-                    pending.response = response
+                    pending.received = _ReceivedResponse(
+                        response=response,
+                        collect_receipt=collect_receipt,
+                    )
                     pending.event.set()
                     self._pending.pop(response.request_id, None)
             if pending is None:
@@ -625,14 +679,8 @@ def _instrument_worker_main(
                     if request.operation == "invoke"
                     else None
                 )
-            except Exception as error:
-                response = _error_response(request.request_id, error)
-                try:
-                    with response_lock:
-                        _send_model(connection, response)
-                except EOFError, OSError, ValueError:
-                    return
-                continue
+            except Exception:
+                return
             executor.submit(
                 _dispatch_and_respond,
                 connection,
@@ -658,16 +706,23 @@ def _dispatch_and_respond(
     invoke_request: BackendInvokeRequest | None,
 ) -> None:
     try:
-        response = _dispatch_request(
+        outgoing = _dispatch_request(
             endpoint,
             request,
             invoke_request=invoke_request,
         )
     except Exception as error:
-        response = _error_response(request.request_id, error)
+        outgoing = _OutgoingResponse(
+            response=_error_response(request.request_id, error)
+        )
     try:
         with response_lock:
-            _send_model(connection, response)
+            _send_model(connection, outgoing.response)
+            frames = outgoing.collect_frames
+            if frames is not None:
+                connection.send_bytes(frames.header)
+                for attachment in frames.attachments:
+                    connection.send_bytes(attachment)
     except EOFError, OSError, ValueError:
         with suppress(OSError):
             connection.close()
@@ -678,14 +733,16 @@ def _dispatch_request(
     request: _RpcRequest,
     *,
     invoke_request: BackendInvokeRequest | None,
-) -> _RpcResponse:
+) -> _OutgoingResponse:
     operation = request.operation
     body = request.body or {}
     if operation == "describe":
         description = endpoint.describe(_bindings_from_body(body))
-        return _ok_response(
-            request,
-            _ProviderDescription.from_description(description),
+        return _OutgoingResponse(
+            response=_ok_response(
+                request,
+                _ProviderDescription.from_description(description),
+            )
         )
     if operation == "connect":
         connection = endpoint.connect(
@@ -698,18 +755,24 @@ def _dispatch_request(
                 _require_mapping(body, "expected"),
             ),
         )
-        return _RpcResponse(
-            request_id=request.request_id,
-            status="ok",
-            body={
-                "handle": _model_to_body(_ChildHandle.from_handle(connection.handle)),
-                "description": _model_to_body(connection.description),
-            },
+        return _OutgoingResponse(
+            response=_RpcResponse(
+                request_id=request.request_id,
+                status="ok",
+                body={
+                    "handle": _model_to_body(
+                        _ChildHandle.from_handle(connection.handle)
+                    ),
+                    "description": _model_to_body(connection.description),
+                },
+            )
         )
 
     handle = _require_child_handle(request)
     if operation == "read_state":
-        return _ok_response(request, endpoint.read_state(handle))
+        return _OutgoingResponse(
+            response=_ok_response(request, endpoint.read_state(handle))
+        )
     if operation == "apply_state":
         receipt = endpoint.apply_state(
             handle,
@@ -718,11 +781,16 @@ def _dispatch_request(
                 _require_mapping(body, "request"),
             ),
         )
-        return _ok_response(request, receipt)
+        return _OutgoingResponse(response=_ok_response(request, receipt))
     if operation == "invoke":
         if invoke_request is None:
             raise ValueError("invoke request frames are missing")
-        return _ok_response(request, endpoint.invoke(handle, invoke_request))
+        return _OutgoingResponse(
+            response=_ok_response(
+                request,
+                endpoint.invoke(handle, invoke_request),
+            )
+        )
     if operation == "collect":
         receipt = endpoint.collect(
             handle,
@@ -731,13 +799,26 @@ def _dispatch_request(
                 _require_mapping(body, "request"),
             ),
         )
-        return _ok_response(request, receipt)
+        frames = split_collect_receipt(receipt)
+        return _OutgoingResponse(
+            response=_RpcResponse(
+                request_id=request.request_id,
+                status="ok",
+                frame_kind="collect",
+                attachment_count=len(frames.attachments),
+            ),
+            collect_frames=frames,
+        )
     if operation == "abort":
         endpoint.abort(handle)
-        return _RpcResponse(request_id=request.request_id, status="ok")
+        return _OutgoingResponse(
+            response=_RpcResponse(request_id=request.request_id, status="ok")
+        )
     if operation == "disconnect":
         endpoint.disconnect(handle)
-        return _RpcResponse(request_id=request.request_id, status="ok")
+        return _OutgoingResponse(
+            response=_RpcResponse(request_id=request.request_id, status="ok")
+        )
     raise AssertionError(f"unhandled worker operation: {operation}")
 
 
@@ -809,11 +890,42 @@ def _receive_invoke(
     attachment_count: int,
 ) -> BackendInvokeRequest:
     header = connection.recv_bytes(DEFAULT_WIRE_LIMITS.max_header_bytes)
-    attachments = tuple(
-        connection.recv_bytes(DEFAULT_WIRE_LIMITS.max_attachment_bytes)
-        for _ in range(attachment_count)
+    attachments = _receive_attachments(
+        connection,
+        attachment_count=attachment_count,
+        declared_sizes=invoke_attachment_sizes(header),
     )
     return join_invoke_request(header, attachments)
+
+
+def _receive_collect(
+    connection: _ByteConnection,
+    attachment_count: int,
+) -> CollectReceipt:
+    header = connection.recv_bytes(DEFAULT_WIRE_LIMITS.max_header_bytes)
+    attachments = _receive_attachments(
+        connection,
+        attachment_count=attachment_count,
+        declared_sizes=collect_attachment_sizes(header),
+    )
+    return join_collect_receipt(header, attachments)
+
+
+def _receive_attachments(
+    connection: _ByteConnection,
+    *,
+    attachment_count: int,
+    declared_sizes: tuple[int, ...],
+) -> tuple[bytes, ...]:
+    if attachment_count != len(declared_sizes):
+        raise WorkerWireError("worker frame count does not match its manifest")
+    attachments: list[bytes] = []
+    for declared_size in declared_sizes:
+        content = connection.recv_bytes(DEFAULT_WIRE_LIMITS.max_attachment_bytes)
+        if len(content) != declared_size:
+            raise WorkerWireError("worker frame size does not match its manifest")
+        attachments.append(content)
+    return tuple(attachments)
 
 
 def _send_model(connection: _ByteConnection, model: BaseModel) -> None:

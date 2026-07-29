@@ -45,7 +45,9 @@ decoded inside the worker before entering the driver API. Admission binds the
 expected provider and instrument-description fingerprint;
 provisioning verifies that contract before the first write. Renewable executor
 leases carry a unique fencing identity, so an expired client cannot continue
-writing.
+writing. Collection arrays cross the same process boundary in the other
+direction as hash-checked binary attachments; the bounded control response
+contains only their typed descriptors and the rest of the receipt.
 
 Admission and resource claims are durable before hardware access. The executor
 atomically acquires its control lease; all later journal, measurement, and

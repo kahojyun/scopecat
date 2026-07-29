@@ -410,8 +410,15 @@ value and its schema identity. A decode failure proves the operation was not
 invoked. Public inline/blob bodies, codec details, and transport bytes never
 enter the driver API; a codec may intentionally decode to `bytes` when bytes
 are the domain value. Control messages are capped at 1 MiB and must round-trip
-through JSON without changing value types. Larger acquisition arrays belong on
-a binary result transport rather than an expanded control envelope.
+through JSON without changing value types.
+
+Collection uses the reverse framed path. The worker keeps receipt status,
+problems, metadata, and scalar values in a bounded JSON descriptor, while every
+array is a separately sized and hash-checked attachment. Numeric and boolean
+arrays use canonical little-endian row-major bytes; string arrays use
+little-endian offsets over UTF-8 content. The daemon reconstructs the public
+`CollectReceipt` before validating it, so binary transport details do not enter
+the driver or experiment APIs.
 
 An operator can recover a session left by another notebook kernel with
 `lab.instruments.abort_session(session_id)`. This asks the daemon to run the

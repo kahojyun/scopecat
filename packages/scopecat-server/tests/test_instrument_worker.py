@@ -285,7 +285,7 @@ def test_worker_crash_degrades_runtime_health(tmp_path: Path) -> None:
     assert health.status == "degraded"
 
 
-def test_worker_rejects_lossy_collect_json_without_poisoning_protocol(
+def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
     tmp_path: Path,
 ) -> None:
     project = _copy_project(tmp_path)
@@ -334,10 +334,13 @@ def test_worker_rejects_lossy_collect_json_without_poisoning_protocol(
             ),
         )
     assert endpoint.healthy
+    assert endpoint.read_state(connection.handle).instrument_id == "source-0"
     endpoint.shutdown()
 
 
-def test_oversized_collect_response_fences_worker_generation(tmp_path: Path) -> None:
+def test_large_collect_response_uses_binary_frames_without_fencing_worker(
+    tmp_path: Path,
+) -> None:
     project = _copy_project(tmp_path)
     endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
     config = load_config()
@@ -348,22 +351,29 @@ def test_oversized_collect_response_fences_worker_generation(tmp_path: Path) -> 
         expected=expected,
     )
 
-    with pytest.raises(InstrumentBackendUnavailable, match="unavailable"):
-        endpoint.collect(
-            connection.handle,
-            DriverCollectRequest(
-                interface_id="tests.control/v1",
-                acquisition_id="sample",
-                results=(
-                    DriverCollectResult(
-                        request_id="signal",
-                        result_id="oversized_array",
-                    ),
+    receipt = endpoint.collect(
+        connection.handle,
+        DriverCollectRequest(
+            interface_id="tests.control/v1",
+            acquisition_id="sample",
+            results=(
+                DriverCollectResult(
+                    request_id="signal",
+                    result_id="large_array",
                 ),
             ),
-        )
+        ),
+    )
 
-    assert not endpoint.healthy
+    assert receipt.readback is not None
+    value = receipt.readback.values["signal"]
+    assert isinstance(value, MeasurementArray)
+    assert value.dtype == "string"
+    assert value.shape == (1,)
+    [text] = value.values
+    assert isinstance(text, str)
+    assert len(text) == 2 * 1024 * 1024
+    assert endpoint.healthy
     endpoint.shutdown()
 
 

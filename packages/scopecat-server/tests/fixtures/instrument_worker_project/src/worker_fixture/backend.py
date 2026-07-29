@@ -210,7 +210,7 @@ def _measurement_value(result_id: str) -> MeasurementValue:
             shape=(1,),
             values=(1.0 - 0.5j,),
         )
-    if result_id == "oversized_array":
+    if result_id == "large_array":
         return MeasurementArray.create(
             dtype="string",
             shape=(1,),

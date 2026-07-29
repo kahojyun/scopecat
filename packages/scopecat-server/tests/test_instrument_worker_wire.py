@@ -1,21 +1,34 @@
 from __future__ import annotations
 
 import json
+import struct
 from dataclasses import replace
+from hashlib import sha256
 from typing import cast
 
 import pytest
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.records.instrument import InstrumentReadback
+from scopecat.records.measurement import (
+    ComplexComponents,
+    MeasurementArray,
+    MeasurementScalar,
+)
 from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
 )
+from scopecat.sdk.instruments.contracts import CollectReceipt
 
 from scopecat_server.instrument_worker_wire import (
     DEFAULT_WIRE_LIMITS,
     WorkerWireError,
+    collect_attachment_sizes,
+    invoke_attachment_sizes,
+    join_collect_receipt,
     join_invoke_request,
+    split_collect_receipt,
     split_invoke_request,
 )
 
@@ -57,6 +70,18 @@ def _encode_header(document: dict[str, object]) -> bytes:
     return json.dumps(document, separators=(",", ":"), sort_keys=True).encode()
 
 
+def _collected(
+    values: dict[str, MeasurementArray | MeasurementScalar],
+) -> CollectReceipt:
+    return CollectReceipt(
+        readback=InstrumentReadback(
+            values=values,
+            metadata={"source": "driver"},
+        ),
+        metadata={"elapsed_seconds": 0.25},
+    )
+
+
 def test_invoke_wire_separates_json_descriptor_from_binary_content() -> None:
     request = _request(_payload("program", b"\x00\xffbinary\x00"))
 
@@ -95,6 +120,7 @@ def test_invoke_wire_separates_json_descriptor_from_binary_content() -> None:
     assert "command_id" not in header_text
     assert "instrument_id" not in header_text
     assert "resource_id" not in header_text
+    assert invoke_attachment_sizes(frames.header) == (len(frames.attachments[0]),)
     assert join_invoke_request(frames.header, frames.attachments) == request
 
 
@@ -195,4 +221,257 @@ def test_invoke_wire_enforces_attachment_count_and_size_limits() -> None:
             two_frames.header,
             two_frames.attachments,
             limits=replace(DEFAULT_WIRE_LIMITS, max_total_attachment_bytes=5),
+        )
+
+
+def test_collect_wire_uses_canonical_binary_for_every_array_dtype() -> None:
+    receipt = _collected(
+        {
+            "string": MeasurementArray.create(
+                dtype="string",
+                shape=(2,),
+                values=("猫", "ready"),
+                metadata={"encoding": "labels"},
+            ),
+            "float": MeasurementArray.create(
+                dtype="float64",
+                unit="V",
+                shape=(2,),
+                values=(1.25, -2.5),
+            ),
+            "bool": MeasurementArray.create(
+                dtype="bool",
+                shape=(3,),
+                values=(True, False, True),
+            ),
+            "int": MeasurementArray.create(
+                dtype="int64",
+                unit="count",
+                shape=(2,),
+                values=(-1, 2),
+            ),
+            "complex": MeasurementArray.create(
+                dtype="complex128",
+                unit="ratio",
+                shape=(2,),
+                values=(
+                    ComplexComponents(real=1.0, imag=-0.5),
+                    ComplexComponents(real=-2.0, imag=3.25),
+                ),
+            ),
+        }
+    )
+
+    frames = split_collect_receipt(receipt)
+    document = _header_document(frames.header)
+    arrays = cast("list[dict[str, object]]", document["arrays"])
+    manifests = cast("list[dict[str, object]]", document["attachments"])
+    request_ids = ["bool", "complex", "float", "int", "string"]
+
+    assert [item["request_id"] for item in arrays] == request_ids
+    assert [item["request_id"] for item in manifests] == request_ids
+    assert all("values" not in item for item in arrays)
+    receipt_document = cast("dict[str, object]", document["receipt"])
+    readback_document = cast("dict[str, object]", receipt_document["readback"])
+    assert readback_document["values"] == {}
+    assert "ready" not in frames.header.decode()
+    assert frames.attachments == (
+        b"\x01\x00\x01",
+        struct.pack("<dddd", 1.0, -0.5, -2.0, 3.25),
+        struct.pack("<dd", 1.25, -2.5),
+        struct.pack("<qq", -1, 2),
+        struct.pack("<QQQ", 0, 3, 8) + "猫ready".encode(),
+    )
+    assert collect_attachment_sizes(frames.header) == tuple(
+        len(item) for item in frames.attachments
+    )
+    assert join_collect_receipt(frames.header, frames.attachments) == receipt
+
+
+def test_collect_wire_keeps_scalars_in_header_and_arrays_in_attachments() -> None:
+    receipt = _collected(
+        {
+            "trace": MeasurementArray.create(
+                dtype="float64",
+                unit="V",
+                shape=(1, 2),
+                values=((0.5, 1.5),),
+                metadata={"channel": 2},
+            ),
+            "temperature": MeasurementScalar.create(
+                dtype="float64",
+                unit="K",
+                value=0.02,
+                metadata={"sensor": "mixing-chamber"},
+            ),
+        }
+    )
+
+    frames = split_collect_receipt(receipt)
+    document = _header_document(frames.header)
+    receipt_document = cast("dict[str, object]", document["receipt"])
+    readback_document = cast("dict[str, object]", receipt_document["readback"])
+
+    assert set(cast("dict[str, object]", readback_document["values"])) == {
+        "temperature"
+    }
+    assert cast("list[dict[str, object]]", document["arrays"]) == [
+        {
+            "dtype": "float64",
+            "metadata": {"channel": 2},
+            "request_id": "trace",
+            "shape": [1, 2],
+            "unit": "V",
+        }
+    ]
+    assert join_collect_receipt(frames.header, frames.attachments) == receipt
+
+
+@pytest.mark.parametrize("change", ["missing", "extra"])
+def test_collect_wire_rejects_missing_or_extra_attachments(change: str) -> None:
+    frames = split_collect_receipt(
+        _collected(
+            {
+                "signal": MeasurementArray.create(
+                    shape=(1,),
+                    values=(1.0,),
+                )
+            }
+        )
+    )
+    attachments = (
+        frames.attachments[:-1]
+        if change == "missing"
+        else (*frames.attachments, b"unexpected")
+    )
+
+    with pytest.raises(WorkerWireError, match="count"):
+        join_collect_receipt(frames.header, attachments)
+
+
+def test_collect_wire_rejects_manifest_order_size_and_hash_tampering() -> None:
+    frames = split_collect_receipt(
+        _collected(
+            {
+                "alpha": MeasurementArray.create(shape=(1,), values=(1.0,)),
+                "zeta": MeasurementArray.create(shape=(1,), values=(2.0,)),
+            }
+        )
+    )
+    order_document = _header_document(frames.header)
+    arrays = cast("list[object]", order_document["arrays"])
+    order_document["arrays"] = list(reversed(arrays))
+
+    with pytest.raises(WorkerWireError, match="invalid"):
+        join_collect_receipt(
+            _encode_header(order_document),
+            frames.attachments,
+        )
+    with pytest.raises(WorkerWireError, match="length mismatch"):
+        join_collect_receipt(
+            frames.header,
+            (frames.attachments[0][:-1], frames.attachments[1]),
+        )
+    with pytest.raises(WorkerWireError, match="hash mismatch"):
+        join_collect_receipt(
+            frames.header,
+            (struct.pack("<d", 3.0), frames.attachments[1]),
+        )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        [1_000_000, 0],
+        [1] * 17,
+    ],
+)
+def test_collect_wire_rejects_shapes_that_expand_beyond_frame_limits(
+    shape: list[int],
+) -> None:
+    receipt = _collected(
+        {
+            "empty": MeasurementArray.create(
+                shape=(1, 0),
+                values=((),),
+            )
+        }
+    )
+    frames = split_collect_receipt(receipt)
+    assert join_collect_receipt(frames.header, frames.attachments) == receipt
+    document = _header_document(frames.header)
+    [array] = cast("list[dict[str, object]]", document["arrays"])
+    array["shape"] = shape
+
+    with pytest.raises(WorkerWireError, match="invalid"):
+        collect_attachment_sizes(_encode_header(document))
+
+
+def test_collect_wire_enforces_attachment_limits_when_splitting_and_joining() -> None:
+    frames = split_collect_receipt(
+        _collected(
+            {
+                "alpha": MeasurementArray.create(shape=(1,), values=(1.0,)),
+                "zeta": MeasurementArray.create(shape=(1,), values=(2.0,)),
+            }
+        )
+    )
+
+    with pytest.raises(WorkerWireError, match="count exceeds"):
+        split_collect_receipt(
+            join_collect_receipt(frames.header, frames.attachments),
+            limits=replace(DEFAULT_WIRE_LIMITS, max_attachments=1),
+        )
+    with pytest.raises(WorkerWireError, match="attachment exceeds"):
+        join_collect_receipt(
+            frames.header,
+            frames.attachments,
+            limits=replace(DEFAULT_WIRE_LIMITS, max_attachment_bytes=7),
+        )
+    with pytest.raises(WorkerWireError, match="total size"):
+        join_collect_receipt(
+            frames.header,
+            frames.attachments,
+            limits=replace(DEFAULT_WIRE_LIMITS, max_total_attachment_bytes=15),
+        )
+
+
+def test_collect_wire_rejects_invalid_string_offsets_and_utf8() -> None:
+    frames = split_collect_receipt(
+        _collected(
+            {
+                "labels": MeasurementArray.create(
+                    dtype="string",
+                    shape=(1,),
+                    values=("valid",),
+                )
+            }
+        )
+    )
+    invalid_offsets = struct.pack("<QQ", 1, 1) + b"x"
+    invalid_utf8 = struct.pack("<QQ", 0, 1) + b"\xff"
+    offset_document = _header_document(frames.header)
+    offset_manifest = cast(
+        "list[dict[str, object]]",
+        offset_document["attachments"],
+    )[0]
+    offset_manifest["size_bytes"] = len(invalid_offsets)
+    offset_manifest["sha256"] = sha256(invalid_offsets).hexdigest()
+    utf8_document = _header_document(frames.header)
+    utf8_manifest = cast(
+        "list[dict[str, object]]",
+        utf8_document["attachments"],
+    )[0]
+    utf8_manifest["size_bytes"] = len(invalid_utf8)
+    utf8_manifest["sha256"] = sha256(invalid_utf8).hexdigest()
+
+    with pytest.raises(WorkerWireError, match="offsets"):
+        join_collect_receipt(
+            _encode_header(offset_document),
+            (invalid_offsets,),
+        )
+    with pytest.raises(WorkerWireError, match="UTF-8"):
+        join_collect_receipt(
+            _encode_header(utf8_document),
+            (invalid_utf8,),
         )
