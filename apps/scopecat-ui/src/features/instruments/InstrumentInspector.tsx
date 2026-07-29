@@ -28,6 +28,7 @@ import type {
 } from "../../api-contract";
 import { ApiError } from "../../api";
 import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
+import { InstrumentPropertyInput, type InstrumentPropertyDraft } from "./InstrumentPropertyInput";
 import {
   applyInstrumentState,
   applyInstrumentConfiguredDefaults,
@@ -44,11 +45,7 @@ import {
   type StagedInstrumentProperty,
 } from "./instrument-api";
 
-interface DraftValue {
-  raw: string | boolean;
-  unit?: string;
-  value?: InstrumentStateValue;
-}
+type DraftValue = InstrumentPropertyDraft;
 
 type DiscriminatedStateSpec = NonNullable<InstrumentInterface["state"]>;
 type DiscriminatedStateCase = DiscriminatedStateSpec["cases"][number];
@@ -1313,8 +1310,6 @@ function PropertyEditor({
   editable: boolean;
   onChange: (draft?: DraftValue) => void;
 }) {
-  const type = property.value_type;
-  const value = draft?.raw ?? inputValue(currentValue, type.type);
   const dirty = draft !== undefined;
   return (
     <label className={`interface-property ${dirty ? "staged" : ""}`}>
@@ -1324,77 +1319,13 @@ function PropertyEditor({
         </span>
         <small>{accessLabel(property.access)}</small>
       </span>
-      {type.type === "bool" ? (
-        <span className="boolean-editor">
-          <input
-            type="checkbox"
-            checked={typeof value === "boolean" ? value : false}
-            disabled={!editable}
-            onChange={(event) =>
-              onChange({ raw: event.target.checked, value: event.target.checked })
-            }
-          />
-          {typeof value === "boolean" ? (value ? "On" : "Off") : "Unknown"}
-        </span>
-      ) : type.type === "string" && type.choices ? (
-        <select
-          value={typeof value === "string" ? value : ""}
-          disabled={!editable}
-          onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
-        >
-          <option value="" disabled>
-            Select…
-          </option>
-          {type.choices.map((choice) => (
-            <option key={choice} value={choice}>
-              {choice}
-            </option>
-          ))}
-        </select>
-      ) : type.type === "int" || type.type === "float" || type.type === "quantity" ? (
-        <span className="number-unit-editor">
-          <input
-            type="number"
-            step={type.type === "int" ? 1 : "any"}
-            min={type.minimum ?? undefined}
-            max={type.maximum ?? undefined}
-            value={typeof value === "string" || typeof value === "number" ? value : ""}
-            placeholder={editable ? "Enter value" : "—"}
-            disabled={!editable}
-            aria-invalid={draft !== undefined && draft.value === undefined}
-            onChange={(event) => {
-              const raw = event.target.value;
-              const number = Number(raw);
-              const valid =
-                raw.length > 0 &&
-                Number.isFinite(number) &&
-                (type.type !== "int" || Number.isInteger(number)) &&
-                (type.minimum === null || type.minimum === undefined || number >= type.minimum) &&
-                (type.maximum === null || type.maximum === undefined || number <= type.maximum);
-              const unit =
-                type.type === "quantity"
-                  ? (type.unit ?? quantityValue(currentValue)?.unit)
-                  : undefined;
-              const typed =
-                valid && type.type === "quantity" && unit
-                  ? { value: number, unit }
-                  : valid && type.type !== "quantity"
-                    ? number
-                    : undefined;
-              onChange({ raw, value: typed });
-            }}
-          />
-          {type.type === "quantity" && <span>{type.unit ?? "unit required"}</span>}
-        </span>
-      ) : type.type === "string" ? (
-        <input
-          type="text"
-          value={typeof value === "string" ? value : ""}
-          placeholder={editable ? "Enter value" : "—"}
-          disabled={!editable}
-          onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
-        />
-      ) : null}
+      <InstrumentPropertyInput
+        property={property}
+        currentValue={currentValue}
+        draft={draft}
+        editable={editable}
+        onChange={onChange}
+      />
       {property.description && (
         <small className="property-description">{property.description}</small>
       )}
@@ -1686,34 +1617,6 @@ function stateValue(
       samePath(property.component_path ?? [], componentPath) &&
       property.property_id === propertyId,
   )?.value;
-}
-
-function inputValue(
-  value: InstrumentStateValue | undefined,
-  type: InstrumentProperty["value_type"]["type"],
-): string | number | boolean {
-  if (value === undefined) return "";
-  if (type === "quantity") return quantityValue(value)?.value ?? "";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return value;
-  }
-  return "";
-}
-
-function quantityValue(
-  value: InstrumentStateValue | undefined,
-): { value: number; unit: string } | undefined {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "value" in value &&
-    "unit" in value &&
-    typeof value.value === "number" &&
-    typeof value.unit === "string"
-  ) {
-    return value;
-  }
-  return undefined;
 }
 
 type NumericOperationArgumentType = Extract<
