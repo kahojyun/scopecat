@@ -155,6 +155,17 @@ export function InstrumentInspector({
   );
   const stagedCount = Object.keys(visibleDrafts).length;
   const invalidDraft = Object.values(visibleDrafts).some((draft) => draft.value === undefined);
+  const missingTransitionProperties = useMemo(
+    () =>
+      missingDiscriminatedTransitionProperties(description?.interfaces ?? [], state, visibleDrafts),
+    [description?.interfaces, state, visibleDrafts],
+  );
+  const incompleteTransitionReason =
+    missingTransitionProperties.length > 0
+      ? `Set target-mode ${
+          missingTransitionProperties.length === 1 ? "property" : "properties"
+        } before applying: ${missingTransitionProperties.join(", ")}.`
+      : undefined;
   useEffect(() => {
     if (!description) return;
     setDrafts((current) => {
@@ -572,7 +583,10 @@ export function InstrumentInspector({
                 <strong>
                   {stagedCount} staged {stagedCount === 1 ? "property" : "properties"}
                 </strong>
-                <small>Values remain local until you apply the complete staged change once.</small>
+                <small>
+                  {incompleteTransitionReason ??
+                    "Values remain local until you apply the complete staged change once."}
+                </small>
               </div>
               <button
                 type="button"
@@ -587,7 +601,19 @@ export function InstrumentInspector({
                 type="button"
                 className="primary-button"
                 onClick={applyStaged}
-                disabled={interactionDisabled || invalidDraft || stagedProperties.length === 0}
+                disabled={
+                  interactionDisabled ||
+                  invalidDraft ||
+                  incompleteTransitionReason !== undefined ||
+                  stagedProperties.length === 0
+                }
+                title={
+                  interactionDisabled
+                    ? "Wait for the current instrument interaction to finish"
+                    : invalidDraft
+                      ? "Correct invalid staged values before applying"
+                      : incompleteTransitionReason
+                }
               >
                 {applyMutation.isPending ? (
                   <LoaderCircle className="spin" size={14} />
@@ -1561,6 +1587,67 @@ function instrumentVisiblePropertyKeys(
     );
   }
   return keys;
+}
+
+function missingDiscriminatedTransitionProperties(
+  interfaces: InstrumentInterface[],
+  state: InstrumentState | undefined,
+  drafts: Record<string, DraftValue>,
+): string[] {
+  const missing: string[] = [];
+  for (const instrumentInterface of interfaces) {
+    collectMissingDiscriminatedTransitionProperties(
+      missing,
+      instrumentInterface.id,
+      [],
+      instrumentInterface,
+      state,
+      drafts,
+    );
+  }
+  return missing;
+}
+
+function collectMissingDiscriminatedTransitionProperties(
+  missing: string[],
+  interfaceId: string,
+  componentPath: string[],
+  member: InterfaceMember,
+  state: InstrumentState | undefined,
+  drafts: Record<string, DraftValue>,
+): void {
+  const discriminatedState = member.state;
+  if (discriminatedState) {
+    const discriminatorId = discriminatedState.discriminator_property_id;
+    const discriminatorDraft = drafts[propertyKey(interfaceId, componentPath, discriminatorId)];
+    const targetCase = stateCaseForValue(discriminatedState, discriminatorDraft?.value);
+    const currentValue = stateValue(state, interfaceId, componentPath, discriminatorId);
+    if (targetCase && discriminatorDraft?.value !== currentValue) {
+      const properties = new Map(
+        (member.properties ?? []).map((property) => [property.id, property]),
+      );
+      for (const propertyId of targetCase.property_ids ?? []) {
+        const property = properties.get(propertyId);
+        if (
+          property &&
+          property.access !== "read_only" &&
+          drafts[propertyKey(interfaceId, componentPath, propertyId)]?.value === undefined
+        ) {
+          missing.push(property.label ?? titleCase(property.id));
+        }
+      }
+    }
+  }
+  for (const child of member.components ?? []) {
+    collectMissingDiscriminatedTransitionProperties(
+      missing,
+      interfaceId,
+      [...componentPath, child.id],
+      child,
+      state,
+      drafts,
+    );
+  }
 }
 
 function collectVisiblePropertyKeys(
