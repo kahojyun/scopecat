@@ -51,19 +51,52 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
 
     assert preview.point_count == BIAS_POINTS
     assert preview.coordinate_ids == ("dc_bias",)
-    assert preview.primary_observables == (
-        "frequency",
-        "s_parameter",
-        "temperature",
+    assert preview.primary_observables == ("s_parameter", "temperature")
+    assert preview.schema is not None
+    assert preview.schema.primary_coordinates == ["dc_bias", "frequency"]
+    dimensions = {dimension.id: dimension for dimension in preview.schema.dimensions}
+    assert dimensions["shared/capture/frequency_sample"].label == "frequency_sample"
+    variables = {variable.id: variable for variable in preview.schema.variables}
+    assert variables["dc_bias"].role == "coordinate"
+    assert variables["dc_bias"].dims == ["point"]
+    assert variables["frequency"].role == "coordinate"
+    assert variables["frequency"].dims == [
+        "point",
+        "shared/capture/frequency_sample",
+    ]
+    assert variables["s_parameter"].role == "observable"
+    assert variables["s_parameter"].dims == [
+        "point",
+        "shared/capture/frequency_sample",
+    ]
+    assert variables["temperature"].role == "observable"
+    assert variables["temperature"].dims == ["point"]
+    preview_records = {record.id: record for record in preview.records}
+    assert preview_records["frequency"].role == "coordinate"
+    assert preview_records["frequency"].dims == (
+        "point",
+        "shared/capture/frequency_sample",
     )
+    assert preview_records["s_parameter"].role == "observable"
+    assert preview_records["s_parameter"].dims == (
+        "point",
+        "shared/capture/frequency_sample",
+    )
+    assert preview_records["temperature"].role == "observable"
+    assert preview_records["temperature"].dims == ("point",)
     assert run.manifest.status == "completed"
     records = run.data().measurements().dataset.records
     assert len(records) == BIAS_POINTS
     assert all(
-        isinstance(record.observables["frequency"], MeasurementArray)
-        and record.observables["frequency"].shape == (TRACE_POINTS,)
-        and record.observables["frequency"].dtype == "float64"
-        and record.observables["frequency"].unit == "Hz"
+        set(record.coordinates) == {"dc_bias", "frequency"}
+        and set(record.observables) == {"s_parameter", "temperature"}
+        for record in records
+    )
+    assert all(
+        isinstance(record.coordinates["frequency"], MeasurementArray)
+        and record.coordinates["frequency"].shape == (TRACE_POINTS,)
+        and record.coordinates["frequency"].dtype == "float64"
+        and record.coordinates["frequency"].unit == "Hz"
         and isinstance(record.observables["s_parameter"], MeasurementArray)
         and record.observables["s_parameter"].shape == (TRACE_POINTS,)
         and record.observables["s_parameter"].dtype == "complex128"

@@ -15,7 +15,6 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.units import compatible_units
 from scopecat.records.measurement import (
-    MEASUREMENT_RECORD_SCHEMA_VERSION,
     ComplexComponents,
     MeasurementArray,
     MeasurementDatasetSchema,
@@ -24,6 +23,7 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementValue,
     MeasurementVariable,
+    MeasurementVariableRole,
 )
 
 type MeasurementValueContractPathItem = str | int
@@ -242,17 +242,8 @@ def validate_measurement_records_against_schema(
                 ("dataset_schema", "dataset_id"),
             )
         )
-    if schema.record_schema != MEASUREMENT_RECORD_SCHEMA_VERSION:
-        problems.append(
-            _problem(
-                "measurement_record_schema_mismatch",
-                f"measurement dataset record_schema {schema.record_schema} "
-                f"does not match {MEASUREMENT_RECORD_SCHEMA_VERSION}",
-                ("dataset_schema", "record_schema"),
-            )
-        )
-
     problems.extend(_validate_dimension_sizes(records=records, schema=schema))
+    dimension_sizes = {dimension.id: dimension.size for dimension in schema.dimensions}
     coordinate_variables = {
         variable.id: variable
         for variable in schema.variables
@@ -263,14 +254,6 @@ def validate_measurement_records_against_schema(
         for variable in schema.variables
         if variable.role == "observable"
     }
-    for variable in schema.variables:
-        problems.extend(
-            _validate_variable_shape(
-                variable=variable,
-                record_count=len(records),
-            )
-        )
-
     for record in records:
         problems.extend(
             _validate_record_variables(
@@ -278,6 +261,7 @@ def validate_measurement_records_against_schema(
                 variables=coordinate_variables,
                 actual=record.coordinates,
                 role="coordinate",
+                dimension_sizes=dimension_sizes,
             )
         )
         problems.extend(
@@ -286,6 +270,7 @@ def validate_measurement_records_against_schema(
                 variables=observable_variables,
                 actual=record.observables,
                 role="observable",
+                dimension_sizes=dimension_sizes,
             )
         )
         extra_coordinates = set(record.coordinates) - set(coordinate_variables)
@@ -314,43 +299,19 @@ def validate_measurement_records_against_schema(
 def _validate_dimension_sizes(
     *, records: Sequence[MeasurementRecord], schema: MeasurementDatasetSchema
 ) -> list[Problem]:
-    problems: list[Problem] = []
-    for dimension in schema.dimensions:
-        if dimension.size is None:
-            continue
-        if dimension.kind != "point" and dimension.id != "point":
-            continue
-        if dimension.size != len(records):
-            problems.append(
-                _problem(
-                    "measurement_dataset_record_count_mismatch",
-                    f"measurement dataset dimension {dimension.id} size "
-                    f"{dimension.size} does not match {len(records)} records",
-                    ("dataset_schema", "dimensions", dimension.id, "size"),
-                )
-            )
-    return problems
-
-
-def _validate_variable_shape(
-    *, variable: MeasurementVariable, record_count: int
-) -> list[Problem]:
-    problems: list[Problem] = []
-    if (
-        variable.shape
-        and variable.dims
-        and variable.dims[0] == "point"
-        and variable.shape[0] != record_count
-    ):
-        problems.append(
+    point_dimension = next(
+        dimension for dimension in schema.dimensions if dimension.id == "point"
+    )
+    if point_dimension.size != len(records):
+        return [
             _problem(
-                "measurement_dataset_variable_shape_mismatch",
-                f"measurement variable {variable.id} shape {variable.shape} "
-                f"does not match {record_count} records",
-                ("dataset_schema", "variables", variable.id, "shape"),
+                "measurement_dataset_record_count_mismatch",
+                f"measurement dataset dimension point size {point_dimension.size} "
+                f"does not match {len(records)} records",
+                ("dataset_schema", "dimensions", "point", "size"),
             )
-        )
-    return problems
+        ]
+    return []
 
 
 def _validate_record_variables(
@@ -358,7 +319,8 @@ def _validate_record_variables(
     record: MeasurementRecord,
     variables: dict[str, MeasurementVariable],
     actual: Mapping[str, MeasurementValue],
-    role: str,
+    role: MeasurementVariableRole,
+    dimension_sizes: Mapping[str, int],
 ) -> list[Problem]:
     problems: list[Problem] = []
     field_name = "coordinates" if role == "coordinate" else "observables"
@@ -379,10 +341,8 @@ def _validate_record_variables(
                 )
             )
             continue
-        expected_shape = (
-            tuple(variable.shape[1:])
-            if variable.dims and variable.dims[0] == "point"
-            else tuple(variable.shape)
+        expected_shape = tuple(
+            dimension_sizes[dimension_id] for dimension_id in variable.dims[1:]
         )
         for issue in measurement_value_contract_issues(
             value,

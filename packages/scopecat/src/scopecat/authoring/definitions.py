@@ -24,7 +24,12 @@ from scopecat.authoring._module_handles import (
     create_experiment_module_internal,
     module_use_invocation,
 )
-from scopecat.authoring._products import ProductRef, RecordSelection, record_product
+from scopecat.authoring._products import (
+    ProductRef,
+    RecordSelection,
+    record_coordinate,
+    record_product,
+)
 from scopecat.authoring._value_refs import ValueRef, empty_frozen_mapping
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
@@ -110,6 +115,29 @@ class ExperimentBody:
                 *self.record_selections,
                 *(
                     record_product(
+                        product,
+                        record_id=record_id,
+                        metadata=metadata,
+                    )
+                    for product in products
+                ),
+            ),
+        )
+
+    def record_coordinate(
+        self,
+        *products: str | ProductRef,
+        record_id: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> ExperimentBody:
+        if record_id is not None and len(products) != 1:
+            raise ValueError("record_id can only be used with one product")
+        return replace(
+            self,
+            record_selections=(
+                *self.record_selections,
+                *(
+                    record_coordinate(
                         product,
                         record_id=record_id,
                         metadata=metadata,

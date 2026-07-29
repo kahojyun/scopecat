@@ -130,6 +130,8 @@ def _product_contract_view(product: ProductDef) -> DomainProductContractView:
         axes=tuple(
             DomainProductAxisView(
                 id=axis.id,
+                dimension_id=axis.dimension_id,
+                dimension_label=axis.dimension_label,
                 kind=axis.kind,
                 size=axis.size,
                 unit=axis.unit,

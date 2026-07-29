@@ -16,6 +16,7 @@ from scopecat.authoring._binding_intents import ResourcePort
 from scopecat.authoring._products import (
     ModuleProductDecl,
     ProductAxis,
+    product_axis_dimension_id,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -502,39 +503,54 @@ def _verify_product_schema(
             )
         )
 
-    axes_by_id: dict[str, tuple[str, ProductAxis]] = {}
-    for product in assembly.product_declarations:
+    _verify_product_axes(assembly.product_declarations, problems)
+    return product_by_id
+
+
+def _verify_product_axes(
+    products: Sequence[ModuleProductDecl],
+    problems: list[Problem],
+) -> None:
+    shared_axes_by_dimension_id: dict[str, tuple[str, ProductAxis]] = {}
+    for product in products:
         product_id = product.qualified_id
         _verify_product_definition(product, problems)
         seen_axis_ids: set[str] = set()
+        seen_shared_dimensions: set[str] = set()
         for axis in product.axes:
             if axis.id in seen_axis_ids:
                 continue
             seen_axis_ids.add(axis.id)
-            existing = axes_by_id.get(axis.id)
-            if existing is None:
-                axes_by_id[axis.id] = (product_id, axis)
+            if axis.shared_as is None:
                 continue
-            existing_record_id, existing_axis = existing
+            dimension_id = product_axis_dimension_id(product, axis)
+            if dimension_id in seen_shared_dimensions:
+                continue
+            seen_shared_dimensions.add(dimension_id)
+            existing = shared_axes_by_dimension_id.get(dimension_id)
+            if existing is None:
+                shared_axes_by_dimension_id[dimension_id] = (product_id, axis)
+                continue
+            existing_product_id, existing_axis = existing
             if _source_axes_can_conflict(existing_axis, axis):
                 problems.append(
                     _problem(
                         "product_axis_conflict",
                         f"product {product_id!r} axis {axis.id!r} conflicts with "
-                        f"product {existing_record_id!r}; shared axes must have "
-                        "identical kind, size, and unit",
+                        f"product {existing_product_id!r} on shared dimension "
+                        f"{dimension_id!r}; shared axes must have identical kinds, "
+                        "sizes, and units",
                         model_location("products", product_id, "axes", axis.id),
                         related_locations=(
                             model_location(
                                 "products",
-                                existing_record_id,
+                                existing_product_id,
                                 "axes",
-                                axis.id,
+                                existing_axis.id,
                             ),
                         ),
                     )
                 )
-    return product_by_id
 
 
 def _verify_product_definition(
@@ -560,16 +576,33 @@ def _verify_product_definition(
                 model_location(location.root, *location.path, "axes"),
             )
         )
+    axes_by_dimension_id: dict[str, ProductAxis] = {}
+    for axis in product.axes:
+        dimension_id = product_axis_dimension_id(product, axis)
+        existing_axis = axes_by_dimension_id.get(dimension_id)
+        if existing_axis is None:
+            axes_by_dimension_id[dimension_id] = axis
+            continue
+        if existing_axis.id == axis.id:
+            continue
+        problems.append(
+            _problem(
+                "product_axis_dimension_duplicate",
+                f"product {product_id!r} axes {existing_axis.id!r} and "
+                f"{axis.id!r} use the same dataset dimension {dimension_id!r}",
+                model_location(location.root, *location.path, "axes", axis.id),
+                related_locations=(
+                    model_location(
+                        location.root,
+                        *location.path,
+                        "axes",
+                        existing_axis.id,
+                    ),
+                ),
+            )
+        )
     for axis in product.axes:
         axis_location = model_location(location.root, *location.path, "axes", axis.id)
-        if axis.id == "point":
-            problems.append(
-                _problem(
-                    "product_axis_reserved",
-                    "product axis 'point' conflicts with the point dimension",
-                    axis_location,
-                )
-            )
         if axis.unit is not None and not is_supported_unit(axis.unit):
             problems.append(
                 _problem(

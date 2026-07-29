@@ -20,12 +20,11 @@ from scopecat.records._metadata import JsonMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
     missing_references,
-    validate_shape_rank,
     validate_supported_unit,
 )
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v2"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v1"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v2"
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
@@ -33,30 +32,27 @@ MeasurementArrayData = Sequence[object]
 
 
 class MeasurementDimension(BaseModel):
+    """One concrete extent; physical coordinate values are variables."""
+
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    kind: str
+    id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
     label: str | None = None
-    size: int | None = Field(default=None, ge=0)
-    unit: str | None = None
+    size: int = Field(ge=0)
     metadata: JsonMetadata = Field(default_factory=dict)
-
-    @field_validator("unit")
-    @classmethod
-    def validate_unit(cls, value: str | None) -> str | None:
-        return validate_supported_unit(value)
 
 
 class MeasurementVariable(BaseModel):
+    """A point-local variable whose shape is derived from its dimensions."""
+
     model_config = ConfigDict(extra="forbid")
 
-    id: str
+    id: str = Field(min_length=1)
     role: MeasurementVariableRole
     dtype: MeasurementDType
     unit: str | None = None
-    dims: list[str] = Field(default_factory=list)
-    shape: list[int] = Field(default_factory=list)
+    dims: list[str] = Field(min_length=1)
     label: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
@@ -65,14 +61,19 @@ class MeasurementVariable(BaseModel):
     def validate_unit(cls, value: str | None) -> str | None:
         return validate_supported_unit(value)
 
-    @model_validator(mode="after")
-    def validate_shape(self) -> MeasurementVariable:
-        message = f"measurement variable {self.id} shape length must match dims length"
-        validate_shape_rank(
-            shape=self.shape,
-            dims=self.dims,
-            message=message,
+    @field_validator("dims")
+    @classmethod
+    def validate_dims(cls, value: list[str]) -> list[str]:
+        ensure_unique_ids(
+            value,
+            "measurement variable dimensions must be unique",
         )
+        if value[0] != "point":
+            raise ValueError("measurement variables must use point as first dimension")
+        return value
+
+    @model_validator(mode="after")
+    def validate_unitless_dtype(self) -> MeasurementVariable:
         if self.dtype in {"bool", "string"} and self.unit is not None:
             raise ValueError(f"{self.dtype} measurement variables cannot have a unit")
         return self
@@ -81,12 +82,14 @@ class MeasurementVariable(BaseModel):
 class MeasurementDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v1"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v2"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
-    dataset_id: str
-    record_schema: str = MEASUREMENT_RECORD_SCHEMA_VERSION
-    dimensions: list[MeasurementDimension] = Field(default_factory=list)
+    dataset_id: str = Field(min_length=1)
+    record_schema: Literal["scopecat.measurement_record.v2"] = (
+        MEASUREMENT_RECORD_SCHEMA_VERSION
+    )
+    dimensions: list[MeasurementDimension]
     variables: list[MeasurementVariable] = Field(default_factory=list)
     primary_coordinates: list[str] = Field(default_factory=list)
     primary_observables: list[str] = Field(default_factory=list)
@@ -108,6 +111,21 @@ class MeasurementDatasetSchema(BaseModel):
 
         dimension_id_set = set(dimension_ids)
         variable_by_id = {variable.id: variable for variable in self.variables}
+        namespace_collisions = dimension_id_set & set(variable_by_id)
+        if namespace_collisions:
+            raise ValueError(
+                "measurement dimensions and variables must have distinct ids: "
+                + ", ".join(sorted(namespace_collisions))
+            )
+        point_dimensions = [
+            dimension for dimension in self.dimensions if dimension.kind == "point"
+        ]
+        if len(point_dimensions) != 1 or point_dimensions[0].id != "point":
+            raise ValueError(
+                "measurement dataset schema must define exactly one point "
+                "dimension with id point"
+            )
+
         for variable in self.variables:
             missing_dims = missing_references(variable.dims, dimension_id_set)
             if missing_dims:
@@ -116,6 +134,14 @@ class MeasurementDatasetSchema(BaseModel):
                     f"dimensions: {', '.join(missing_dims)}"
                 )
                 raise ValueError(msg)
+        ensure_unique_ids(
+            self.primary_coordinates,
+            "measurement dataset primary coordinate ids must be unique",
+        )
+        ensure_unique_ids(
+            self.primary_observables,
+            "measurement dataset primary observable ids must be unique",
+        )
 
         for variable_id in self.primary_coordinates:
             variable = variable_by_id.get(variable_id)

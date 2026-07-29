@@ -170,7 +170,7 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
 def _fit_record(record: MeasurementRecord) -> ResonatorTraceFit:
     try:
         dc_bias = record.coordinates["dc_bias"]
-        frequency = record.observables["frequency"]
+        frequency = record.coordinates["frequency"]
         s_parameter = record.observables["s_parameter"]
         temperature = record.observables["temperature"]
     except KeyError as error:
@@ -198,9 +198,9 @@ def _numeric_array(
     unit: str,
 ) -> tuple[float, ...]:
     if not isinstance(value, MeasurementArray):
-        raise TypeError("frequency observations must be measurement arrays")
+        raise TypeError("frequency coordinates must be measurement arrays")
     if value.dtype != dtype or value.unit != unit or len(value.shape) != 1:
-        raise TypeError("frequency observations have the wrong array contract")
+        raise TypeError("frequency coordinates have the wrong array contract")
     selected: list[float] = []
     for item in value.values:
         if isinstance(item, bool) or not isinstance(item, int | float):

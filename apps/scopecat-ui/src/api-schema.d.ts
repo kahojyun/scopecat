@@ -1763,13 +1763,13 @@ export interface components {
             /** Dataset Id */
             dataset_id: string;
             /** Dimensions */
-            dimensions?: components["schemas"]["MeasurementDimension"][];
+            dimensions: components["schemas"]["MeasurementDimension"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v1
+             * @default scopecat.measurement_dataset_schema.v2
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v1";
+            format_version: "scopecat.measurement_dataset_schema.v2";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -1778,12 +1778,16 @@ export interface components {
             /**
              * Record Schema
              * @default scopecat.measurement_record.v2
+             * @constant
              */
-            record_schema: string;
+            record_schema: "scopecat.measurement_record.v2";
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable"][];
         };
-        /** MeasurementDimension */
+        /**
+         * MeasurementDimension
+         * @description One concrete extent; physical coordinate values are variables.
+         */
         MeasurementDimension: {
             /** Id */
             id: string;
@@ -1793,9 +1797,7 @@ export interface components {
             label?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Size */
-            size?: number | null;
-            /** Unit */
-            unit?: string | null;
+            size: number;
         };
         /**
          * MeasurementPage
@@ -1831,10 +1833,16 @@ export interface components {
         };
         MeasurementScalarData: boolean | number | string | components["schemas"]["ComplexComponents"];
         "MeasurementValue-Output": components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray-Output"];
-        /** MeasurementVariable */
+        /**
+         * MeasurementVariable
+         * @description A point-local variable whose shape is derived from its dimensions.
+         */
         MeasurementVariable: {
             /** Dims */
-            dims?: string[];
+            dims: [
+                string,
+                ...string[]
+            ];
             /**
              * Dtype
              * @enum {string}
@@ -1850,8 +1858,6 @@ export interface components {
              * @enum {string}
              */
             role: "coordinate" | "observable";
-            /** Shape */
-            shape?: number[];
             /** Unit */
             unit?: string | null;
         };

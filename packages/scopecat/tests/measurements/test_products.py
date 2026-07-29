@@ -61,6 +61,55 @@ def test_bool_and_string_products_reject_units(
         )
 
 
+def test_product_axes_require_distinct_non_point_dimensions() -> None:
+    first = ProductAxisDef(
+        id="i",
+        dimension_id="shared/sample",
+        kind="sample",
+        size=2,
+    )
+    second = ProductAxisDef(
+        id="q",
+        dimension_id="shared/sample",
+        kind="sample",
+        size=2,
+    )
+
+    with pytest.raises(ValueError, match="distinct dataset dimensions"):
+        ProductDef(
+            id=product_id("invalid"),
+            axes=(first, second),
+        )
+    with pytest.raises(ValueError, match="dimension id point is reserved"):
+        ProductAxisDef(
+            id="sample",
+            dimension_id="point",
+            kind="sample",
+            size=2,
+        )
+
+
+def test_product_axes_require_distinct_acquisition_local_ids() -> None:
+    with pytest.raises(ValueError, match="distinct acquisition-local ids"):
+        ProductDef(
+            id=product_id("invalid"),
+            axes=(
+                ProductAxisDef(
+                    id="sample",
+                    dimension_id="product/invalid/first",
+                    kind="sample",
+                    size=2,
+                ),
+                ProductAxisDef(
+                    id="sample",
+                    dimension_id="product/invalid/second",
+                    kind="sample",
+                    size=2,
+                ),
+            ),
+        )
+
+
 def _program(
     *,
     products: tuple[ProductDef, ...],
@@ -100,6 +149,8 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
     }
     axis = ProductAxisDef(
         id="shot",
+        dimension_id="product/signal/shot",
+        dimension_label="shot",
         kind="shot",
         size=2,
         metadata=metadata,
@@ -117,7 +168,8 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
     use = product_use(product.id)
     record_use = RecordUse(id="signal", product_use_id=use.id, metadata=metadata)
     record_axis = RecordAxisPlan(
-        id="shot",
+        id="product/signal/shot",
+        label="shot",
         kind="shot",
         size=2,
         metadata=metadata,
@@ -169,6 +221,31 @@ def test_record_plan_boundary_rejects_duplicate_and_coordinate_ids() -> None:
     assert [problem.code for problem in problems] == [
         "experiment_record_duplicate",
         "experiment_record_coordinate_collision",
+    ]
+
+
+def test_record_plan_rejects_variable_and_inner_dimension_collision() -> None:
+    product = _product()
+    use = product_use(product.id)
+    record = RecordPlan(
+        id="signal",
+        product_use_id=use.id,
+        product_id=product.id,
+        dtype=product.dtype,
+        axes=(
+            RecordAxisPlan(
+                id="signal",
+                label="sample",
+                kind="sample",
+                size=2,
+            ),
+        ),
+    )
+
+    problems = validate_record_plan((record,))
+
+    assert [problem.code for problem in problems] == [
+        "experiment_record_dimension_collision"
     ]
 
 

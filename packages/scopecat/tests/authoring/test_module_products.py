@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._products import RecordSelection
+from scopecat.authoring._products import (
+    ModuleProductDecl,
+    RecordSelection,
+    product_axis,
+    product_axis_dimension_id,
+)
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import core_acquisitions
@@ -77,6 +82,142 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
         "adapter_mode": "fast"
     }
     assert [record.id for record in resolved.program.record_uses] == ["signal"]
+
+
+def test_product_axes_use_product_local_dimensions_by_default() -> None:
+    module = (
+        sc.module_body(id="test.products.local-axis")
+        .product(
+            "i",
+            axes=(sc.product_axis("sample", size=2),),
+        )
+        .product(
+            "q",
+            axes=(
+                sc.product_axis(
+                    "sample",
+                    size=3,
+                    kind="independent_sample",
+                ),
+            ),
+        )
+        .build()
+    )
+    call = module()
+
+    @sc.template(id="test.products.local-axis", kind="module_products")
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call)
+
+    resolved = link_invocation(
+        template_definition(),
+        config_profile=load_config(),
+    )
+
+    dimensions = [
+        product.axes[0].dimension_id for product in resolved.program.product_defs
+    ]
+    assert len(set(dimensions)) == 2
+    assert all(dimension.startswith("product/") for dimension in dimensions)
+
+
+def test_product_axes_share_dimensions_only_when_explicit() -> None:
+    module = (
+        sc.module_body(id="test.products.shared-axis")
+        .product(
+            "i",
+            axes=(
+                sc.product_axis(
+                    "i_sample",
+                    size=2,
+                    kind="sample",
+                    shared_as="sample",
+                ),
+            ),
+        )
+        .product(
+            "q",
+            axes=(
+                sc.product_axis(
+                    "q_sample",
+                    size=2,
+                    kind="sample",
+                    shared_as="sample",
+                ),
+            ),
+        )
+        .build()
+    )
+    call = module()
+
+    @sc.template(id="test.products.shared-axis", kind="module_products")
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call)
+
+    resolved = link_invocation(
+        template_definition(),
+        config_profile=load_config(),
+    )
+
+    dimensions = [
+        product.axes[0].dimension_id for product in resolved.program.product_defs
+    ]
+    assert len(set(dimensions)) == 1
+    assert dimensions[0].startswith("shared/")
+
+
+def test_local_and_shared_axis_namespaces_cannot_collide() -> None:
+    local_product = ModuleProductDecl(id="capture", scope=("nested",))
+    shared_product = ModuleProductDecl(
+        id="derived",
+        scope=("nested", "capture"),
+    )
+    local_axis = product_axis("sample", size=2)
+    shared_axis = product_axis("other", size=2, shared_as="sample")
+
+    assert product_axis_dimension_id(
+        local_product,
+        local_axis,
+    ) != product_axis_dimension_id(shared_product, shared_axis)
+
+
+def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
+    module = (
+        sc.module_body(id="test.products.shared-axis-conflict")
+        .product(
+            "i",
+            axes=(
+                sc.product_axis(
+                    "sample",
+                    size=2,
+                    shared_as="sample",
+                ),
+            ),
+        )
+        .product(
+            "q",
+            axes=(
+                sc.product_axis(
+                    "sample",
+                    size=3,
+                    shared_as="sample",
+                ),
+            ),
+        )
+        .build()
+    )
+    call = module()
+
+    @sc.template(id="test.products.shared-axis-conflict", kind="module_products")
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call)
+
+    with pytest.raises(CheckFailed) as error:
+        compile_invocation(template_definition())
+
+    assert [problem.code for problem in error.value.problems] == [
+        "product_axis_conflict"
+    ]
 
 
 def test_acquire_is_an_ordered_effect() -> None:
@@ -417,12 +558,12 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
     }
 
 
-def test_record_aliases_share_one_public_product_use(tmp_path: Path) -> None:
+def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) -> None:
     source = _product_module()
     selected = source.instantiate("selected")
     root = sc.module_body(id="test.products.alias").use(selected).build()
     call = root()
-    primary = sc.record_product(
+    primary = sc.record_coordinate(
         call.products["selected/signal"],
         record_id="primary",
     )
@@ -449,6 +590,10 @@ def test_record_aliases_share_one_public_product_use(tmp_path: Path) -> None:
     assert {record.product_use_id for record in resolved.program.record_uses} == {
         resolved.program.product_uses[0].id
     }
+    assert [record.role for record in resolved.program.record_uses] == [
+        "coordinate",
+        "coordinate",
+    ]
     assert resolved.program.record_uses[1].metadata == {"projection": "secondary"}
 
 

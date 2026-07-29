@@ -51,7 +51,6 @@ def signal_point_schema(
                 dtype="float64",
                 unit=drive_frequency_unit,
                 dims=["point"],
-                shape=[size],
             ),
             MeasurementVariable(
                 id="signal",
@@ -59,7 +58,6 @@ def signal_point_schema(
                 dtype="float64",
                 unit="ratio",
                 dims=["point"],
-                shape=[size],
             ),
         ],
         primary_coordinates=["drive_frequency"],

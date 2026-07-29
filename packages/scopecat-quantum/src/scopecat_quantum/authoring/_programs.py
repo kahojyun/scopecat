@@ -355,7 +355,7 @@ def _program_call_module(
             result.id,
             unit=contract.unit,
             dtype=contract.dtype,
-            axes=(shot_axis(shots_input),),
+            axes=(shot_axis(shots_input, shared_as="shot"),),
         )
     execution = _domain_execution(
         domain,

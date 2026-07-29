@@ -373,7 +373,14 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
     product = observable_product(
         "iq_trace",
         unit="V",
-        axes=[product_axis("time", size=16, kind="time")],
+        axes=[
+            product_axis(
+                "time",
+                dimension_id="product/iq_trace/time",
+                size=16,
+                kind="time",
+            )
+        ],
     )
     acquisition = instrument_acquisition(
         product,
@@ -400,5 +407,8 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
     preview = materialized_effects_contract(spec, _parameters(), config=config)
     [operation] = operations_of_type(preview, CollectOperation, point_index=0)
     [binding] = operation.result_bindings
+    [request] = operation.command.requests
     assert operation.instrument_id == "readout-a"
     assert binding.product_use_ids == (product_use.id,)
+    assert request.dimensions[0].id == "time"
+    assert product.axes[0].dimension_id == "product/iq_trace/time"

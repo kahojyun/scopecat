@@ -118,6 +118,8 @@ def test_materialized_effects_reports_demanded_product_without_a_local_producer(
     [
         product_axis(
             "shot",
+            dimension_id="shared/shot",
+            dimension_label="shot",
             size=3,
             kind="shot",
             unit="count",
@@ -125,6 +127,8 @@ def test_materialized_effects_reports_demanded_product_without_a_local_producer(
         ),
         product_axis(
             "shot",
+            dimension_id="shared/shot",
+            dimension_label="shot",
             size=2,
             kind="sample",
             unit="count",
@@ -132,6 +136,8 @@ def test_materialized_effects_reports_demanded_product_without_a_local_producer(
         ),
         product_axis(
             "shot",
+            dimension_id="shared/shot",
+            dimension_label="shot",
             size=2,
             kind="shot",
             unit=None,
@@ -139,6 +145,8 @@ def test_materialized_effects_reports_demanded_product_without_a_local_producer(
         ),
         product_axis(
             "shot",
+            dimension_id="shared/shot",
+            dimension_label="shot",
             size=2,
             kind="shot",
             unit="count",
@@ -151,6 +159,8 @@ def test_materialized_effects_rejects_conflicting_shared_record_axes(
 ) -> None:
     first_axis = product_axis(
         "shot",
+        dimension_id="shared/shot",
+        dimension_label="shot",
         size=2,
         kind="shot",
         unit="count",

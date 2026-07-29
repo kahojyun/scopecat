@@ -11,6 +11,8 @@ from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
     MeasurementDataset,
+    MeasurementDatasetSchema,
+    MeasurementDimension,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementVariable,
@@ -173,6 +175,44 @@ def test_bool_and_string_variable_schemas_reject_units(
             role="observable",
             dtype=dtype,
             unit="ratio",
+            dims=["point"],
+        )
+
+
+def test_measurement_dimensions_require_concrete_size() -> None:
+    with pytest.raises(ValidationError, match="Field required"):
+        MeasurementDimension.model_validate({"id": "point", "kind": "point"})
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        MeasurementDimension.model_validate(
+            {"id": "point", "kind": "point", "size": 1, "unit": "count"}
+        )
+
+
+def test_measurement_dataset_schema_rejects_previous_format() -> None:
+    with pytest.raises(
+        ValidationError,
+        match=r"scopecat\.measurement_dataset_schema\.v2",
+    ):
+        MeasurementDatasetSchema.model_validate(
+            {
+                "format_version": "scopecat.measurement_dataset_schema.v1",
+                "dataset_id": "raw-measurements",
+                "dimensions": [{"id": "point", "kind": "point", "size": 0}],
+            }
+        )
+
+
+def test_measurement_dataset_schema_rejects_previous_record_schema() -> None:
+    with pytest.raises(
+        ValidationError,
+        match=r"scopecat\.measurement_record\.v2",
+    ):
+        MeasurementDatasetSchema.model_validate(
+            {
+                "dataset_id": "raw-measurements",
+                "record_schema": "scopecat.measurement_record.v1",
+                "dimensions": [{"id": "point", "kind": "point", "size": 0}],
+            }
         )
 
 
@@ -186,6 +226,10 @@ def test_measurement_dataset_and_schema_round_trip() -> None:
     restored = assert_model_round_trip(dataset)
 
     assert restored.dataset_schema.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
+    assert (
+        restored.dataset_schema.format_version
+        == "scopecat.measurement_dataset_schema.v2"
+    )
     assert restored.dataset_schema.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
     assert restored.dataset_schema.record_schema == "scopecat.measurement_record.v2"
     assert restored.dataset_schema.dataset_id == "raw-measurements"

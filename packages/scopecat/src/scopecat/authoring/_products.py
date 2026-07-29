@@ -23,7 +23,7 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
-from scopecat.measurements.results import MeasurementDType
+from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
 
 type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
@@ -36,6 +36,12 @@ class ProductAxis:
     kind: str | None = None
     unit: str | None = None
     entity_values: bool = False
+    shared_as: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.shared_as is not None and not self.shared_as:
+            msg = "shared product axis identity must be non-empty"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -142,6 +148,7 @@ class RecordSelection:
         compare=False,
     )
     record_id: str | None = None
+    role: MeasurementVariableRole = "observable"
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
     def __post_init__(self) -> None:
@@ -161,6 +168,7 @@ def product_axis(
     size: ValueRef | Quantity | float | Sequence[EntityRef | str],
     kind: str | None = None,
     unit: str | None = None,
+    shared_as: str | None = None,
 ) -> ProductAxis:
     selected_size = _axis_value(size)
     return ProductAxis(
@@ -168,12 +176,15 @@ def product_axis(
         size=cast("AxisSizeInput", selected_size),
         kind=kind,
         unit=unit,
+        shared_as=shared_as,
     )
 
 
 def entity_axis(
     id: str,
     entities: ValueRef | Sequence[EntityRef | str],
+    *,
+    shared_as: str | None = None,
 ) -> ProductAxis:
     selected_entities = _axis_value(entities)
     return ProductAxis(
@@ -182,6 +193,7 @@ def entity_axis(
         kind="entity",
         unit=None,
         entity_values=True,
+        shared_as=shared_as,
     )
 
 
@@ -195,8 +207,33 @@ def _axis_value(value: object) -> object:
 
 def shot_axis(
     size: ValueRef | Quantity | float,
+    *,
+    shared_as: str | None = None,
 ) -> ProductAxis:
-    return product_axis("shot", size=size, kind="shot", unit="count")
+    return product_axis(
+        "shot",
+        size=size,
+        kind="shot",
+        unit="count",
+        shared_as=shared_as,
+    )
+
+
+def product_axis_dimension_id(
+    product: ModuleProductDecl,
+    axis: ProductAxis,
+) -> str:
+    """Keep product-owned and explicitly shared dimensions disjoint."""
+
+    if axis.shared_as is not None:
+        return SymbolId(
+            scope=("shared", *product.scope),
+            local_id=axis.shared_as,
+        ).qualified_name
+    return SymbolId(
+        scope=("product", *product.scope, product.id),
+        local_id=axis.id,
+    ).qualified_name
 
 
 def record_product(
@@ -205,7 +242,40 @@ def record_product(
     record_id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordSelection:
-    """Select a product, using its local id unless an explicit alias is given."""
+    """Select an observable product for durable experiment output."""
+
+    return _record_selection(
+        product_id,
+        role="observable",
+        record_id=record_id,
+        metadata=metadata,
+    )
+
+
+def record_coordinate(
+    product_id: str | ProductRef,
+    *,
+    record_id: str | None = None,
+    metadata: Mapping[str, MetadataValue] | None = None,
+) -> RecordSelection:
+    """Select a product as a coordinate for durable experiment output."""
+
+    return _record_selection(
+        product_id,
+        role="coordinate",
+        record_id=record_id,
+        metadata=metadata,
+    )
+
+
+def _record_selection(
+    product_id: str | ProductRef,
+    *,
+    role: MeasurementVariableRole,
+    record_id: str | None,
+    metadata: Mapping[str, MetadataValue] | None,
+) -> RecordSelection:
+    """Build one selection while preserving hygienic product identity."""
 
     selected_product_id = (
         product_id.product_id
@@ -219,6 +289,7 @@ def record_product(
         product_use=product_use(selected_product_id),
         product_origin=selected_product_origin,
         record_id=record_id or selected_product_id.local_id,
+        role=role,
         metadata=freeze_json_mapping(metadata or {}),
     )
 
@@ -238,6 +309,7 @@ def record_alias(
         product_use=selection.product_use,
         product_origin=selection.product_origin,
         record_id=record_id,
+        role=selection.role,
         metadata=freeze_json_mapping(metadata or {}),
     )
 

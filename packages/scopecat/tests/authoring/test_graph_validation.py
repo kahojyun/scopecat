@@ -192,6 +192,27 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
     )
 
 
+def test_product_rejects_duplicate_effective_dimensions() -> None:
+    module = (
+        sc.module_body(id="test.graph.duplicate-dimension")
+        .product(
+            "signal",
+            axes=(
+                sc.product_axis("i", size=2, shared_as="sample"),
+                sc.product_axis("q", size=2, shared_as="sample"),
+            ),
+        )
+        .build()
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        _resolve(module)
+
+    assert [problem.code for problem in error.value.problems] == [
+        "product_axis_dimension_duplicate"
+    ]
+
+
 def test_resource_selector_rejects_external_operation_value() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
     subject = sc.input("subject", entity_type)

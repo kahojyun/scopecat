@@ -64,7 +64,6 @@ def _seal_core_program(
                     program.product_defs,
                     program.product_uses,
                     program.record_uses,
-                    point_count=1,
                 ),
                 phase=ProblemPhase.AUTHORING,
             )

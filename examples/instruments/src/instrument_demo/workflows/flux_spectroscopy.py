@@ -46,6 +46,7 @@ _FREQUENCY_AXIS = sc.product_axis(
     size=TRACE_POINTS,
     kind="frequency",
     unit="Hz",
+    shared_as="frequency_sample",
 )
 
 
@@ -166,8 +167,8 @@ def flux_spectroscopy_template() -> sc.ExperimentBody:
                 points=BIAS_POINTS,
             )
         )
+        .record_coordinate(capture.products.frequency)
         .record_product(
-            capture.products.frequency,
             capture.products.s_parameter,
             capture.products.temperature,
         )

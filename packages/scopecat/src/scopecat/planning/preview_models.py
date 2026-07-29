@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.measurements.results import MeasurementDatasetSchema
+from scopecat.measurements.results import (
+    MeasurementDatasetSchema,
+    MeasurementVariableRole,
+)
 
 
 @dataclass(frozen=True)
@@ -16,6 +19,7 @@ class ExperimentPreviewPoint:
 @dataclass(frozen=True)
 class ExperimentPreviewRecord:
     id: str
+    role: MeasurementVariableRole
     unit: str | None
     dtype: str
     dims: tuple[str, ...]
@@ -41,4 +45,6 @@ class ExperimentPreview:
     def primary_observables(self) -> tuple[str, ...]:
         if self.schema is not None:
             return tuple(self.schema.primary_observables)
-        return tuple(record.id for record in self.records)
+        return tuple(
+            record.id for record in self.records if record.role == "observable"
+        )

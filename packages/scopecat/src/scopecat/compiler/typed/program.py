@@ -59,6 +59,7 @@ from scopecat.measurements.products import (
     ProductDef,
 )
 from scopecat.measurements.records import RecordUse
+from scopecat.measurements.results import MeasurementVariableRole
 
 ValueT_co = TypeVar(
     "ValueT_co",
@@ -255,6 +256,8 @@ def set_state_property(
 def product_axis(
     id: str,
     *,
+    dimension_id: str,
+    dimension_label: str | None = None,
     size: int,
     kind: str | None = None,
     unit: str | None = None,
@@ -262,6 +265,8 @@ def product_axis(
 ) -> ProductAxisDef:
     return ProductAxisDef(
         id=id,
+        dimension_id=dimension_id,
+        dimension_label=dimension_label,
         kind=kind or id,
         size=size,
         unit=unit,
@@ -269,14 +274,21 @@ def product_axis(
     )
 
 
-def shot_axis(size: int) -> ProductAxisDef:
-    return product_axis("shot", size=size, kind="shot", unit="count")
+def shot_axis(size: int, *, dimension_id: str) -> ProductAxisDef:
+    return product_axis(
+        "shot",
+        dimension_id=dimension_id,
+        size=size,
+        kind="shot",
+        unit="count",
+    )
 
 
 def record_product(
     product: ProductDef | ProductId,
     *,
     record_id: str | None = None,
+    role: MeasurementVariableRole = "observable",
     metadata: Mapping[str, JsonValue] | None = None,
 ) -> tuple[ProductUse, RecordUse]:
     """Create one product-use occurrence and one durable record consumer."""
@@ -286,5 +298,6 @@ def record_product(
     return use, RecordUse(
         id=record_id or selected_id.qualified_name,
         product_use_id=use.id,
+        role=role,
         metadata=metadata or {},
     )

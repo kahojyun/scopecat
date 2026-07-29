@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import cast
 
 from pydantic import JsonValue as WireJsonValue
@@ -35,12 +35,13 @@ from scopecat.records.measurement import (
     MeasurementRecord,
     MeasurementScalar,
     MeasurementValue,
+    MeasurementVariableRole,
 )
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class MeasurementProjection:
-    """Closed pre-effect plan for observable measurement records."""
+    """Closed pre-effect plan for durable measurement variables."""
 
     catalog: MeasurementValueCatalog = field(repr=False)
     _records: tuple[RecordPlan, ...] = field(repr=False)
@@ -81,10 +82,7 @@ class MeasurementProjection:
         return expected_dataset_schema(
             experiment_id=self.catalog.point_contract.experiment_id,
             points=selected,
-            records=tuple(
-                replace(record, shape=(len(selected), *record.shape[1:]))
-                for record in self.records
-            ),
+            records=self.records,
         )
 
 
@@ -161,7 +159,6 @@ def select_measurement_projection(
             product_defs,
             product_uses,
             selected_records,
-            point_count=0,
         )
     )
     record_problems = validate_record_plan(
@@ -202,14 +199,21 @@ def project_measurement_records(
                 run_id=run_id,
                 logical_point_id=point.logical_id.value,
                 point_index=point.logical_ordinal,
-                coordinates=_point_coordinates(point.row, projection.coordinate_ids),
-                observables={
-                    record.id: values.value_for_output(
-                        point.logical_id,
-                        record.product_use_id,
-                    ).value
-                    for record in record_plans
+                coordinates={
+                    **_point_coordinates(point.row, projection.coordinate_ids),
+                    **_projected_values(
+                        record_plans,
+                        role="coordinate",
+                        product_values=values,
+                        point=point,
+                    ),
                 },
+                observables=_projected_values(
+                    record_plans,
+                    role="observable",
+                    product_values=values,
+                    point=point,
+                ),
             )
             for point in points
         )
@@ -229,15 +233,30 @@ def _projection_contract_fingerprint(
     return stable_content_hash(
         content_fingerprint(
             {
-                "schema": "scopecat.measurements.projection_contract.v2",
+                "schema": "scopecat.measurements.projection_contract.v3",
                 "catalog_fingerprint": catalog_fingerprint,
-                "records": tuple(
-                    replace(record, shape=(0, *record.shape[1:])) for record in records
-                ),
+                "records": tuple(records),
                 "coordinate_ids": tuple(coordinate_ids),
             }
         )
     )
+
+
+def _projected_values(
+    records: Sequence[RecordPlan],
+    *,
+    role: MeasurementVariableRole,
+    product_values: ClosedMeasurementProductValues,
+    point: RunPoint,
+) -> dict[str, MeasurementValue]:
+    return {
+        record.id: product_values.value_for_output(
+            point.logical_id,
+            record.product_use_id,
+        ).value
+        for record in records
+        if record.role == role
+    }
 
 
 def _snapshot_measurement_records(

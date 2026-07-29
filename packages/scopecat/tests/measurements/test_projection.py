@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from scopecat.compiler.measurement_projection import (
     project_measurement_catalog,
     project_run_point_catalog,
@@ -7,6 +9,7 @@ from scopecat.compiler.measurement_projection import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.points import RunPoint
+from scopecat.measurements.products import ProductAxisDef
 from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
@@ -62,6 +65,49 @@ def test_projection_selects_only_the_linked_point_batch() -> None:
     )
 
 
+def test_dimension_identity_changes_catalog_and_projection_contracts() -> None:
+    scenario = measurement_assembly_scenario(use_count=2)
+    product = scenario.catalog.product_defs[0]
+    first_product = replace(
+        product,
+        axes=(
+            ProductAxisDef(
+                id="sample",
+                dimension_id="product/first/sample",
+                kind="sample",
+                size=2,
+            ),
+        ),
+    )
+    second_product = replace(
+        first_product,
+        axes=(
+            replace(
+                first_product.axes[0],
+                dimension_id="product/second/sample",
+            ),
+        ),
+    )
+    first_catalog = replace(
+        scenario.catalog,
+        product_defs=(first_product, *scenario.catalog.product_defs[1:]),
+    )
+    second_catalog = replace(
+        scenario.catalog,
+        product_defs=(second_product, *scenario.catalog.product_defs[1:]),
+    )
+
+    assert first_catalog.contract_fingerprint != second_catalog.contract_fingerprint
+    assert (
+        select_measurement_projection(
+            first_catalog, scenario.records
+        ).contract_fingerprint
+        != select_measurement_projection(
+            second_catalog, scenario.records
+        ).contract_fingerprint
+    )
+
+
 def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> None:
     scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)
@@ -79,6 +125,38 @@ def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> 
     for record in projected.records:
         assert set(record.observables) == {"primary", "alias", "secondary"}
         assert record.observables["primary"] == record.observables["alias"]
+
+
+def test_record_coordinates_project_as_inner_coordinate_variables() -> None:
+    scenario, assembled = assembled_measurement_values_for_all_uses()
+    observable_projection = select_measurement_projection(
+        scenario.catalog,
+        scenario.records,
+    )
+    records = (
+        replace(scenario.records[0], role="coordinate"),
+        *scenario.records[1:],
+    )
+    projection = select_measurement_projection(scenario.catalog, records)
+
+    assert projection.contract_fingerprint != observable_projection.contract_fingerprint
+    projected = project_measurement_records(
+        projection,
+        assembled,
+        run_id="coordinate-product-run",
+        points=scenario.points,
+    )
+
+    assert projected.schema is not None
+    assert projected.schema.primary_coordinates == ["x", "primary"]
+    assert projected.schema.primary_observables == ["alias", "secondary"]
+    variables = {variable.id: variable for variable in projected.schema.variables}
+    assert variables["primary"].role == "coordinate"
+    assert variables["primary"].dims == ["point"]
+    for record in projected.records:
+        assert set(record.coordinates) == {"x", "primary"}
+        assert set(record.observables) == {"alias", "secondary"}
+        assert record.coordinates["primary"] == record.observables["alias"]
 
 
 def test_projection_filters_non_coordinate_point_values() -> None:
