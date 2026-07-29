@@ -98,6 +98,26 @@ def _gs200_state_readback(
     ]
 
 
+def _sgs100a_state_readback(
+    *,
+    frequency_with_offset: str = "5.020000000000E+09",
+    frequency_offset: str = "2.000000000000E+07",
+    power: str = "-2.750000000000E+01",
+    output_enabled: bool,
+    reference_source: str = "EXT",
+) -> list[ScriptedExchange]:
+    return [
+        ScriptedExchange.query(":SOUR:OPM?", "NORM"),
+        ScriptedExchange.query(":SOUR:IQ:STAT?", "OFF"),
+        ScriptedExchange.query(":SOUR:PULM:STAT?", "OFF"),
+        ScriptedExchange.query(":SOUR:FREQ?", frequency_with_offset),
+        ScriptedExchange.query(":SOUR:FREQ:OFFS?", frequency_offset),
+        ScriptedExchange.query(":SOUR:POW:POW?", power),
+        ScriptedExchange.query(":OUTP?", "ON" if output_enabled else "OFF"),
+        ScriptedExchange.query(":SOUR:ROSC:SOUR?", reference_source),
+    ]
+
+
 def test_gs200_source_and_monitor_transcript() -> None:
     transport = ScriptedTransport(
         [
@@ -292,13 +312,10 @@ def test_sgs100a_cw_source_transcript() -> None:
                 "Rohde&Schwarz,SGS100A,1419.5505k02/100001,5.00",
             ),
             ScriptedExchange.write(":SOUR:FREQ 5000000000"),
-            ScriptedExchange.write(":SOUR:POW -27.5"),
+            ScriptedExchange.write(":SOUR:POW:POW -27.5"),
             ScriptedExchange.write(":SOUR:ROSC:SOUR EXT"),
             ScriptedExchange.write(":OUTP ON"),
-            ScriptedExchange.query(":SOUR:FREQ?", "5.000000000000E+09"),
-            ScriptedExchange.query(":SOUR:POW?", "-2.750000000000E+01"),
-            ScriptedExchange.query(":OUTP?", "ON"),
-            ScriptedExchange.query(":SOUR:ROSC:SOUR?", "EXT"),
+            *_sgs100a_state_readback(output_enabled=True),
         ]
     )
     driver = RohdeSchwarzSGS100A("readout-lo", transport)
@@ -311,6 +328,8 @@ def test_sgs100a_cw_source_transcript() -> None:
     state = driver.read_state()
 
     properties = state_properties_by_target(state)
+    assert properties[RF_OUTPUT_FREQUENCY].value.root == Quantity(5.0e9, "Hz")
+    assert properties[RF_OUTPUT_POWER].value.root == Quantity(-27.5, "dBm")
     assert properties[RF_OUTPUT_REFERENCE_SOURCE].value.root == "external"
     assert properties[RF_OUTPUT_ENABLED].value.root is True
     transport.assert_complete()
@@ -320,22 +339,24 @@ def test_sgs100a_cw_source_transcript() -> None:
 def test_sgs100a_apply_orders_output_around_frequency_and_power(
     enabled: bool,
 ) -> None:
-    writes = [ScriptedExchange.write(":OUTP OFF")] if not enabled else []
-    writes.extend(
-        [
-            ScriptedExchange.write(":SOUR:FREQ 5000000000"),
-            ScriptedExchange.write(":SOUR:POW -27.5"),
-        ]
-    )
-    if enabled:
-        writes.append(ScriptedExchange.write(":OUTP ON"))
+    initially_enabled = not enabled
     transport = ScriptedTransport(
         [
-            *writes,
-            ScriptedExchange.query(":SOUR:FREQ?", "5.0E9"),
-            ScriptedExchange.query(":SOUR:POW?", "-27.5"),
-            ScriptedExchange.query(":OUTP?", "1" if enabled else "0"),
-            ScriptedExchange.query(":SOUR:ROSC:SOUR?", "INT"),
+            ScriptedExchange.query(
+                ":OUTP?",
+                "ON" if initially_enabled else "OFF",
+            ),
+            *([ScriptedExchange.write(":OUTP OFF")] if initially_enabled else []),
+            ScriptedExchange.write(":SOUR:OPM NORM"),
+            ScriptedExchange.write(":SOUR:IQ:STAT OFF"),
+            ScriptedExchange.write(":SOUR:PULM:STAT OFF"),
+            ScriptedExchange.write(":SOUR:FREQ 5000000000"),
+            ScriptedExchange.write(":SOUR:POW:POW -27.5"),
+            *([ScriptedExchange.write(":OUTP ON")] if enabled else []),
+            *_sgs100a_state_readback(
+                output_enabled=enabled,
+                reference_source="INT",
+            ),
         ]
     )
     driver = RohdeSchwarzSGS100A("readout-lo", transport)
@@ -351,6 +372,35 @@ def test_sgs100a_apply_orders_output_around_frequency_and_power(
     )
 
     assert receipt.status == "applied"
+    transport.assert_complete()
+
+
+@pytest.mark.parametrize(
+    ("operation_mode", "iq_modulation", "pulse_modulation", "diagnostic"),
+    [
+        ("BBBY", "OFF", "OFF", "mode=BBBY"),
+        ("NORM", "ON", "OFF", "iq_modulation=ON"),
+        ("NORM", "OFF", "ON", "pulse_modulation=ON"),
+    ],
+)
+def test_sgs100a_read_state_rejects_non_cw_hardware_without_writing(
+    operation_mode: str,
+    iq_modulation: str,
+    pulse_modulation: str,
+    diagnostic: str,
+) -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(":SOUR:OPM?", operation_mode),
+            ScriptedExchange.query(":SOUR:IQ:STAT?", iq_modulation),
+            ScriptedExchange.query(":SOUR:PULM:STAT?", pulse_modulation),
+        ]
+    )
+    driver = RohdeSchwarzSGS100A("readout-lo", transport)
+
+    with pytest.raises(ValueError, match=diagnostic):
+        driver.read_state()
+
     transport.assert_complete()
 
 
@@ -397,8 +447,11 @@ def test_e5080b_linear_sweep_and_ascii_trace_transcript() -> None:
             ScriptedExchange.write("SENS1:BWID 1000"),
             ScriptedExchange.write("SOUR1:POW -30"),
             ScriptedExchange.write('CALC1:MEAS1:PAR "S21"'),
-            ScriptedExchange.query("INIT1:CONT?", "ON"),
-            ScriptedExchange.write("INIT1:CONT OFF"),
+            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.query("TRIG:SOUR?", "IMM"),
+            ScriptedExchange.write("TRIG:SOUR MAN"),
+            ScriptedExchange.query("SENS1:AVER?", "ON"),
+            ScriptedExchange.write("SENS1:AVER OFF"),
             ScriptedExchange.write("INIT1:IMM;*WAI"),
             ScriptedExchange.write("FORM:DATA ASC,0"),
             ScriptedExchange.query(
@@ -409,7 +462,8 @@ def test_e5080b_linear_sweep_and_ascii_trace_transcript() -> None:
                 "CALC1:MEAS1:DATA:SDAT?",
                 "1,0,0.25,-0.5,0.9,0.1",
             ),
-            ScriptedExchange.write("INIT1:CONT ON"),
+            ScriptedExchange.write("SENS1:AVER ON"),
+            ScriptedExchange.write("TRIG:SOUR IMM"),
         ]
     )
     driver = KeysightE5080B("vna", transport)
@@ -432,10 +486,13 @@ def test_e5080b_linear_sweep_and_ascii_trace_transcript() -> None:
     transport.assert_complete()
 
 
-def test_e5080b_collect_keeps_disabled_continuous_trigger_unchanged() -> None:
+def test_e5080b_collect_restores_external_trigger_source() -> None:
     transport = ScriptedTransport(
         [
-            ScriptedExchange.query("INIT1:CONT?", "OFF"),
+            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.query("TRIG:SOUR?", "EXT"),
+            ScriptedExchange.write("TRIG:SOUR MAN"),
+            ScriptedExchange.query("SENS1:AVER?", "OFF"),
             ScriptedExchange.write("INIT1:IMM;*WAI"),
             ScriptedExchange.write("FORM:DATA ASC,0"),
             ScriptedExchange.query("CALC1:MEAS1:X?", "4.9E9,5.1E9"),
@@ -443,6 +500,7 @@ def test_e5080b_collect_keeps_disabled_continuous_trigger_unchanged() -> None:
                 "CALC1:MEAS1:DATA:SDAT?",
                 "1,0,0.8,-0.1",
             ),
+            ScriptedExchange.write("TRIG:SOUR EXT"),
         ]
     )
     driver = KeysightE5080B("vna", transport)
@@ -458,11 +516,14 @@ def test_e5080b_collect_keeps_disabled_continuous_trigger_unchanged() -> None:
     transport.assert_complete()
 
 
-def test_e5080b_collect_restores_continuous_trigger_after_parse_failure() -> None:
+def test_e5080b_collect_restores_averaging_and_trigger_after_parse_failure() -> None:
     transport = ScriptedTransport(
         [
-            ScriptedExchange.query("INIT1:CONT?", "ON"),
-            ScriptedExchange.write("INIT1:CONT OFF"),
+            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.query("TRIG:SOUR?", "IMM"),
+            ScriptedExchange.write("TRIG:SOUR MAN"),
+            ScriptedExchange.query("SENS1:AVER?", "ON"),
+            ScriptedExchange.write("SENS1:AVER OFF"),
             ScriptedExchange.write("INIT1:IMM;*WAI"),
             ScriptedExchange.write("FORM:DATA ASC,0"),
             ScriptedExchange.query("CALC1:MEAS1:X?", "4.9E9,5.1E9"),
@@ -470,7 +531,31 @@ def test_e5080b_collect_restores_continuous_trigger_after_parse_failure() -> Non
                 "CALC1:MEAS1:DATA:SDAT?",
                 "1,0,0.8",
             ),
-            ScriptedExchange.write("INIT1:CONT ON"),
+            ScriptedExchange.write("SENS1:AVER ON"),
+            ScriptedExchange.write("TRIG:SOUR IMM"),
+        ]
+    )
+    driver = KeysightE5080B("vna", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
+        )
+    )
+
+    assert receipt.status == "unknown"
+    transport.assert_complete()
+
+
+def test_e5080b_collect_restores_trigger_when_averaging_read_fails() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.query("TRIG:SOUR?", "EXT"),
+            ScriptedExchange.write("TRIG:SOUR MAN"),
+            ScriptedExchange.query("SENS1:AVER?", "invalid"),
+            ScriptedExchange.write("TRIG:SOUR EXT"),
         ]
     )
     driver = KeysightE5080B("vna", transport)

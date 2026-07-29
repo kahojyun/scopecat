@@ -64,6 +64,7 @@ class RohdeSchwarzSGS100A:
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
+        self._require_cw_state()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Rohde & Schwarz",
             "model": "SGS100A",
@@ -99,8 +100,10 @@ class RohdeSchwarzSGS100A:
             bool_value(output_property.value) if output_property is not None else None
         )
         try:
-            if target_output is False:
+            observed_output = self.output_enabled()
+            if observed_output:
                 self.set_output(False)
+            self._establish_cw_state()
             if RF_OUTPUT_REFERENCE_SOURCE in properties:
                 self.set_reference_source(
                     string_value(properties[RF_OUTPUT_REFERENCE_SOURCE].value)
@@ -111,7 +114,8 @@ class RohdeSchwarzSGS100A:
                 )
             if RF_OUTPUT_POWER in properties:
                 self.set_power(quantity_value(properties[RF_OUTPUT_POWER].value, "dBm"))
-            if target_output is True:
+            final_output = observed_output if target_output is None else target_output
+            if final_output:
                 self.set_output(True)
             return ApplyReceipt(status="applied", state=self.read_state())
         except Exception as error:
@@ -128,13 +132,16 @@ class RohdeSchwarzSGS100A:
         self.transport.write(f":SOUR:FREQ {format_number(frequency_hz)}")
 
     def frequency(self) -> float:
-        return parse_float(self.transport.query(":SOUR:FREQ?"))
+        # FREQ? includes the downstream display offset, which does not shift RF.
+        displayed = parse_float(self.transport.query(":SOUR:FREQ?"))
+        offset = parse_float(self.transport.query(":SOUR:FREQ:OFFS?"))
+        return displayed - offset
 
     def set_power(self, power_dbm: float) -> None:
-        self.transport.write(f":SOUR:POW {format_number(power_dbm)}")
+        self.transport.write(f":SOUR:POW:POW {format_number(power_dbm)}")
 
     def power(self) -> float:
-        return parse_float(self.transport.query(":SOUR:POW?"))
+        return parse_float(self.transport.query(":SOUR:POW:POW?"))
 
     def set_output(self, enabled: bool) -> None:
         self.transport.write(f":OUTP {'ON' if enabled else 'OFF'}")
@@ -155,6 +162,27 @@ class RohdeSchwarzSGS100A:
         if response.startswith("EXT"):
             return "external"
         raise ValueError(f"SGS100A returned unknown reference source {response!r}")
+
+    def _establish_cw_state(self) -> None:
+        self.transport.write(":SOUR:OPM NORM")
+        self.transport.write(":SOUR:IQ:STAT OFF")
+        self.transport.write(":SOUR:PULM:STAT OFF")
+
+    def _require_cw_state(self) -> None:
+        operation_mode = self.transport.query(":SOUR:OPM?").strip().upper()
+        iq_modulation = parse_bool(self.transport.query(":SOUR:IQ:STAT?"))
+        pulse_modulation = parse_bool(self.transport.query(":SOUR:PULM:STAT?"))
+        incompatible: list[str] = []
+        if operation_mode not in {"NORM", "NORMAL"}:
+            incompatible.append(f"mode={operation_mode}")
+        if iq_modulation:
+            incompatible.append("iq_modulation=ON")
+        if pulse_modulation:
+            incompatible.append("pulse_modulation=ON")
+        if incompatible:
+            raise ValueError(
+                "SGS100A is outside the CW adapter state: " + ", ".join(incompatible)
+            )
 
     def identify(self) -> ScpiIdentity:
         identity = parse_identity(self.transport.query("*IDN?"))

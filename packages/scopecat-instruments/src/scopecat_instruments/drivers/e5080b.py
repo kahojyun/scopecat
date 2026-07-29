@@ -96,7 +96,6 @@ class KeysightE5080B:
             "model": "E5080B",
             "channel": self.channel,
             "measurement": self.measurement,
-            "sweep_type": "linear",
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
@@ -133,7 +132,7 @@ class KeysightE5080B:
             assignment.target: assignment for assignment in request.assignments
         }
         try:
-            self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
+            self._establish_linear_sweep()
             if NETWORK_SWEEP_START_FREQUENCY in properties:
                 self.set_start_frequency(
                     quantity_value(
@@ -222,7 +221,7 @@ class KeysightE5080B:
             )
         if settings.points < 2:
             raise ValueError("linear sweep requires at least two points")
-        self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
+        self._establish_linear_sweep()
         self.set_start_frequency(settings.start_frequency_hz)
         self.set_stop_frequency(settings.stop_frequency_hz)
         self.set_points(settings.points)
@@ -287,12 +286,6 @@ class KeysightE5080B:
     def single_trigger(self) -> None:
         self.transport.write(f"INIT{self.channel}:IMM;*WAI")
 
-    def set_continuous_trigger(self, enabled: bool) -> None:
-        self.transport.write(f"INIT{self.channel}:CONT {'ON' if enabled else 'OFF'}")
-
-    def continuous_trigger_enabled(self) -> bool:
-        return parse_bool(self.transport.query(f"INIT{self.channel}:CONT?"))
-
     def read_trace_ascii(self) -> NetworkTrace:
         self.transport.write("FORM:DATA ASC,0")
         frequencies = parse_csv_floats(
@@ -312,15 +305,49 @@ class KeysightE5080B:
         return NetworkTrace(frequencies_hz=frequencies, values=values)
 
     def acquire_trace(self) -> NetworkTrace:
-        restore_continuous = self.continuous_trigger_enabled()
+        # The interface promises a linear axis even after front-panel changes.
+        self._establish_linear_sweep()
+        trigger_source = self._trigger_source()
         try:
-            if restore_continuous:
-                self.set_continuous_trigger(False)
-            self.single_trigger()
-            return self.read_trace_ascii()
+            self._set_trigger_source("MAN")
+            averaging_enabled = self._averaging_enabled()
+            try:
+                # v1 returns one fresh sweep; averaging is outside its contract.
+                if averaging_enabled:
+                    self._set_averaging(False)
+                self.single_trigger()
+                return self.read_trace_ascii()
+            finally:
+                if averaging_enabled:
+                    self._set_averaging(True)
         finally:
-            if restore_continuous:
-                self.set_continuous_trigger(True)
+            self._set_trigger_source(trigger_source)
+
+    def _establish_linear_sweep(self) -> None:
+        self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
+
+    def _trigger_source(self) -> str:
+        response = strip_scpi_string(self.transport.query("TRIG:SOUR?")).upper()
+        source = {
+            "EXTERNAL": "EXT",
+            "EXT": "EXT",
+            "IMMEDIATE": "IMM",
+            "IMM": "IMM",
+            "MANUAL": "MAN",
+            "MAN": "MAN",
+        }.get(response)
+        if source is None:
+            raise ValueError(f"E5080B returned unknown trigger source {response!r}")
+        return source
+
+    def _set_trigger_source(self, source: str) -> None:
+        self.transport.write(f"TRIG:SOUR {source}")
+
+    def _averaging_enabled(self) -> bool:
+        return parse_bool(self.transport.query(f"SENS{self.channel}:AVER?"))
+
+    def _set_averaging(self, enabled: bool) -> None:
+        self.transport.write(f"SENS{self.channel}:AVER {'ON' if enabled else 'OFF'}")
 
     def identify(self) -> ScpiIdentity:
         identity = parse_identity(self.transport.query("*IDN?"))

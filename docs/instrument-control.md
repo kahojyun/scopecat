@@ -149,6 +149,16 @@ A driver implementation may expose several interfaces. Multi-device
 calibration, feedback, and analysis remain experiment procedures rather than
 device operations.
 
+Persistent hardware settings may not remain undeclared if they can change an
+interface's promised behavior. A setting is either public state represented by
+a `PropertySpec`, a fixed adapter/profile invariant, or state local to one
+operation or acquisition. A continuous invariant is verified by `read_state`
+and re-established before related writes; an action-local invariant is
+established at that action boundary and temporary trigger or transport state is
+restored afterward. Diagnostic metadata is not a substitute for observed public
+state. Calibration and correction choices belong to a named profile with
+provenance and are never silently reset by a generic interface.
+
 The daemon validates the complete public command, keeps its retry and
 provenance fields, then lowers it to a process-safe backend request. The worker
 performs the final lowering after decoding any payloads. Drivers see only
