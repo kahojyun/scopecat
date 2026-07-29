@@ -80,7 +80,7 @@ export function ConfigParameters({
         <aside className="parameter-index" aria-label="Parameters">
           <label className="parameter-search">
             <Search size={14} aria-hidden="true" />
-            <span className="visually-hidden">Find parameter</span>
+            <span className="sr-only">Find parameter</span>
             <input
               type="search"
               value={search}

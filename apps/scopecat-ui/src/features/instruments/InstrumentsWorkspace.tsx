@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type { InstrumentSession, InstrumentSessionLease, InstrumentView } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
-import { classes, iconButton } from "../../ui/styles";
+import { classes, eyebrow, iconButton } from "../../ui/styles";
 import { InstrumentConfigDialog } from "./InstrumentConfigDialog";
 import { AvailabilityBadge, InstrumentInspector } from "./InstrumentInspector";
 import {
@@ -252,7 +252,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
     <section className="instruments-workspace" aria-labelledby="instruments-heading">
       <header className="instruments-toolbar">
         <div>
-          <span className="eyebrow">Direct hardware interaction</span>
+          <span className={eyebrow}>Direct hardware interaction</span>
           <h2 id="instruments-heading">Instruments</h2>
           <p>Inspect device controls, then explicitly connect one device for direct interaction.</p>
         </div>

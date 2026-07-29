@@ -1,16 +1,4 @@
 @media (max-width: 1100px) {
-  .console-grid {
-    grid-template-columns: minmax(270px, 310px) minmax(0, 1fr);
-  }
-
-  .detail-grid {
-    grid-template-columns: minmax(0, 1.25fr) minmax(230px, 0.9fr);
-  }
-
-  .detail-meta {
-    gap: 18px;
-  }
-
   .config-summary {
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   }
@@ -55,46 +43,6 @@
 }
 
 @media (max-width: 880px) {
-  .console-grid {
-    display: block;
-    overflow: visible;
-    min-height: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .run-browser {
-    position: static;
-    min-height: 0;
-    max-height: none;
-    margin-bottom: 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-  }
-
-  .run-list {
-    display: grid;
-    grid-auto-columns: minmax(270px, 64vw);
-    grid-auto-flow: column;
-    overflow-x: auto;
-    padding-bottom: 5px;
-  }
-
-  .panel-message {
-    min-width: 280px;
-    padding: 28px 18px;
-  }
-
-  .run-detail {
-    min-height: 580px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-  }
-
-  .detail-empty {
-    min-height: 500px;
-  }
-
   .config-toolbar {
     align-items: flex-start;
   }
@@ -166,51 +114,6 @@
 }
 
 @media (max-width: 680px) {
-  .status-item {
-    grid-template-columns: auto auto;
-  }
-
-  .status-item small {
-    grid-column: 1 / -1;
-  }
-
-  .run-browser {
-    padding: 16px 11px 11px;
-  }
-
-  .run-detail {
-    padding: 20px 14px;
-  }
-
-  .detail-header {
-    display: block;
-  }
-
-  .detail-title > code {
-    max-width: 100%;
-  }
-
-  .detail-meta {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    margin-top: 20px;
-  }
-
-  .detail-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .progress-card,
-  .timeline-card {
-    grid-column: auto;
-    grid-row: auto;
-  }
-
-  .timeline {
-    max-height: 430px;
-  }
-
   .config-toolbar {
     display: grid;
     gap: 17px;
@@ -334,41 +237,6 @@
 }
 
 @media (max-width: 460px) {
-  .status-strip {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .status-item,
-  .status-item:nth-child(2) {
-    border-right: 0;
-  }
-
-  .status-item:nth-child(n + 2) {
-    border-top: 1px solid var(--line);
-  }
-
-  .run-list {
-    grid-auto-columns: minmax(260px, 86vw);
-  }
-
-  .filter-row {
-    overflow-x: auto;
-  }
-
-  .detail-meta {
-    grid-template-columns: 1fr;
-  }
-
-  .progress-facts,
-  .data-metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .progress-copy {
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
   .config-summary {
     grid-template-columns: minmax(0, 1fr);
   }

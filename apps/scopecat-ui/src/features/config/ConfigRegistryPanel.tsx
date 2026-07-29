@@ -34,7 +34,7 @@ export function ConfigRegistryPanel({
       </div>
       <label className="config-search">
         <Search size={15} aria-hidden="true" />
-        <span className="visually-hidden">Search saved versions</span>
+        <span className="sr-only">Search saved versions</span>
         <input
           type="search"
           placeholder="Find version"

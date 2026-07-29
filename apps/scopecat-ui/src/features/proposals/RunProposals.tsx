@@ -15,7 +15,7 @@ import { acceptProposal, getRunParameterProposals } from "../../data/parameter-p
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
-import { classes } from "../../ui/styles";
+import { classes, countBadge, detailCard } from "../../ui/styles";
 
 export function RunProposals({ runId }: { runId: string }) {
   const queryClient = useQueryClient();
@@ -68,7 +68,12 @@ export function RunProposals({ runId }: { runId: string }) {
   };
 
   return (
-    <article className="detail-card col-span-full overflow-hidden p-0 max-[680px]:col-auto max-[680px]:row-auto">
+    <article
+      className={classes(
+        detailCard,
+        "col-span-full overflow-hidden p-0 max-[680px]:col-auto max-[680px]:row-auto",
+      )}
+    >
       <header className="grid grid-cols-[30px_minmax(0,1fr)_auto_auto] items-center gap-2.5 border-b border-line px-[17px] py-4 max-[680px]:grid-cols-[30px_minmax(0,1fr)_auto]">
         <span
           className="grid size-[30px] place-items-center rounded-[8px] border border-line bg-panel text-accent"
@@ -91,7 +96,7 @@ export function RunProposals({ runId }: { runId: string }) {
             autoComplete="name"
           />
         </label>
-        <span className="count-badge">{proposalsQuery.data?.items.length ?? 0}</span>
+        <span className={countBadge}>{proposalsQuery.data?.items.length ?? 0}</span>
       </header>
 
       {proposalsQuery.isPending ? (

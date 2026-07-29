@@ -7,6 +7,14 @@ export const secondaryButton =
 export const iconButton =
   "grid size-[34px] cursor-pointer place-items-center rounded-sm border border-line bg-panel p-0 text-text-soft hover:border-line-strong hover:bg-panel-strong hover:text-text";
 
+export const detailCard = "min-w-0 rounded-md border border-line bg-panel-soft p-3.5";
+
+export const countBadge =
+  "inline-flex h-[23px] min-w-6 items-center justify-center rounded-md border border-line bg-panel px-[7px] text-[0.64rem] font-[750] text-text-dim";
+
+export const eyebrow =
+  "mb-[7px] text-[0.68rem] font-extrabold tracking-[0.14em] text-accent uppercase";
+
 export const dialogBackdrop = "fixed inset-0 z-50 bg-[rgb(3_6_9_/_70%)]";
 
 export const dialogViewport =

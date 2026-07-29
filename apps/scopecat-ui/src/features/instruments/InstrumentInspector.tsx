@@ -26,7 +26,7 @@ import type {
   InstrumentStateValue,
   InstrumentView,
 } from "../../api-contract";
-import { classes, primaryButton, secondaryButton } from "../../ui/styles";
+import { classes, eyebrow, primaryButton, secondaryButton } from "../../ui/styles";
 import { ApiError } from "../../api";
 import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
 import { InstrumentPropertyInput, type InstrumentPropertyDraft } from "./InstrumentPropertyInput";
@@ -510,7 +510,7 @@ export function InstrumentInspector({
         <>
           <div className="interface-heading">
             <div>
-              <span className="eyebrow">Device controls</span>
+              <span className={eyebrow}>Device controls</span>
               <h3>Interfaces</h3>
             </div>
           </div>

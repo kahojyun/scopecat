@@ -113,7 +113,7 @@ export function ConfigWorkspace({
         <div className="config-toolbar-actions">
           <label className="operator-field">
             <UserRound size={15} aria-hidden="true" />
-            <span className="visually-hidden">Operator name</span>
+            <span className="sr-only">Operator name</span>
             <input
               value={workflow.operator}
               onChange={(event) => workflow.setOperator(event.target.value)}
@@ -123,7 +123,7 @@ export function ConfigWorkspace({
           </label>
           <input
             ref={workflow.fileInput}
-            className="visually-hidden"
+            className="sr-only"
             type="file"
             accept=".json,application/json"
             onChange={(event) => void workflow.readImport(event)}

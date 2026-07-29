@@ -21,7 +21,7 @@ import {
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import type { MeasurementPreview, ProjectHealth, ProjectRun, ProjectRunPage } from "../../types";
 import { useConfirmationDialog, type ConfirmationRequest } from "../../ui/ConfirmationDialog";
-import { classes, secondaryButton } from "../../ui/styles";
+import { classes, eyebrow, secondaryButton } from "../../ui/styles";
 import { RunDetail } from "./RunDetail";
 
 type FilterKey = "all" | "active" | "attention" | "complete";
@@ -155,7 +155,10 @@ export function RunsWorkspace({
 
   return (
     <>
-      <section className="status-strip" aria-label="Project status">
+      <section
+        className="mb-2.5 grid grid-cols-3 overflow-hidden rounded-lg border border-line bg-panel max-[460px]:grid-cols-[minmax(0,1fr)]"
+        aria-label="Project status"
+      >
         <StatusItem
           label="Daemon"
           value={
@@ -196,26 +199,32 @@ export function RunsWorkspace({
         />
       </section>
 
-      <div className="console-grid">
-        <aside className="run-browser" aria-labelledby="runs-heading">
-          <div className="panel-heading">
+      <div className="grid min-h-[620px] grid-cols-[minmax(300px,340px)_minmax(0,1fr)] items-start overflow-hidden rounded-lg border border-line bg-panel max-[1100px]:grid-cols-[minmax(270px,310px)_minmax(0,1fr)] max-[880px]:block max-[880px]:min-h-0 max-[880px]:overflow-visible max-[880px]:bg-transparent">
+        <aside
+          className="sticky top-[60px] flex max-h-[calc(100vh-72px)] min-h-[620px] flex-col border-r border-line bg-panel-soft px-[11px] pt-[13px] pb-[11px] max-[880px]:static max-[880px]:mb-3 max-[880px]:max-h-none max-[880px]:min-h-0 max-[880px]:rounded-lg max-[880px]:border max-[880px]:border-line max-[680px]:px-[11px] max-[680px]:pt-4 max-[680px]:pb-[11px]"
+          aria-labelledby="runs-heading"
+        >
+          <div className="flex items-start justify-between px-1 pb-[11px]">
             <div>
-              <p className="eyebrow">Run browser</p>
-              <h2 id="runs-heading">Experiments</h2>
+              <p className={eyebrow}>Run browser</p>
+              <h2 className="m-0 text-[1.08rem] font-[650] tracking-[-0.02em]" id="runs-heading">
+                Experiments
+              </h2>
             </div>
             {runsQuery.isFetching && (
               <LoaderCircle
-                className="animate-spin subtle-icon"
+                className="mt-[7px] animate-spin text-text-dim"
                 size={17}
                 aria-label="Refreshing runs"
               />
             )}
           </div>
 
-          <label className="search-field">
+          <label className="flex min-h-10 items-center gap-[9px] rounded-[9px] border border-line bg-bg px-[11px] text-text-dim transition-[border-color,box-shadow] duration-150 focus-within:border-[rgb(128_163_207_/_55%)] focus-within:shadow-[0_0_0_3px_rgb(128_163_207_/_7%)]">
             <Search size={16} aria-hidden="true" />
-            <span className="visually-hidden">Search by run, experiment, mode, or resource</span>
+            <span className="sr-only">Search by run, experiment, mode, or resource</span>
             <input
+              className="w-full min-w-0 border-0 bg-transparent p-0 text-[0.8rem] text-text outline-none placeholder:text-[#5e6a77]"
               type="search"
               placeholder="Search runs"
               value={search}
@@ -223,12 +232,19 @@ export function RunsWorkspace({
             />
           </label>
 
-          <div className="filter-row" aria-label="Filter runs">
-            <ListFilter size={15} aria-hidden="true" />
+          <div
+            className="my-2.5 mb-[11px] flex items-center gap-1 text-text-dim max-[460px]:overflow-x-auto"
+            aria-label="Filter runs"
+          >
+            <ListFilter className="mx-[5px] ml-0.5 flex-none" size={15} aria-hidden="true" />
             {FILTERS.map((item) => (
               <button
                 key={item.key}
-                className={filter === item.key ? "filter active" : "filter"}
+                className={classes(
+                  "min-h-7 cursor-pointer rounded-[7px] border border-transparent bg-transparent px-2 text-[0.69rem] font-bold text-text-dim hover:bg-[rgb(255_255_255_/_3%)] hover:text-text-soft",
+                  filter === item.key &&
+                    "border-[rgb(128_163_207_/_17%)] bg-accent-soft text-accent",
+                )}
                 type="button"
                 aria-pressed={filter === item.key}
                 onClick={() => setFilter(item.key)}
@@ -238,7 +254,7 @@ export function RunsWorkspace({
             ))}
           </div>
 
-          <div className="run-list">
+          <div className="flex min-h-0 flex-1 flex-col gap-[7px] overflow-auto p-0.5 [scrollbar-color:#344252_transparent] [scrollbar-width:thin] max-[880px]:grid max-[880px]:grid-flow-col max-[880px]:auto-cols-[minmax(270px,64vw)] max-[880px]:overflow-x-auto max-[880px]:pb-[5px] max-[460px]:auto-cols-[minmax(260px,86vw)]">
             {runsQuery.isPending && (
               <PanelMessage
                 icon={<LoaderCircle className="animate-spin" />}
@@ -276,12 +292,12 @@ export function RunsWorkspace({
               />
             ))}
             {olderRunsMutation.isError && (
-              <p className="run-pagination-error" role="status">
+              <p className="mx-2 mt-1 mb-0 text-[0.67rem] leading-[1.45] text-red" role="status">
                 {errorMessage(olderRunsMutation.error)}
               </p>
             )}
             {runsQuery.isSuccess && runHeadCursor !== undefined && nextRunCursor !== undefined && (
-              <div className="run-pagination">
+              <div className="flex justify-center pt-[7px] pb-[3px]">
                 <button
                   className={classes(secondaryButton, "w-full")}
                   type="button"
@@ -305,7 +321,10 @@ export function RunsWorkspace({
           </div>
         </aside>
 
-        <section className="run-detail" aria-label="Selected run details">
+        <section
+          className="min-h-[620px] min-w-0 bg-panel p-[clamp(18px,2vw,26px)] max-[880px]:min-h-[580px] max-[880px]:rounded-lg max-[880px]:border max-[880px]:border-line max-[680px]:px-3.5 max-[680px]:py-5"
+          aria-label="Selected run details"
+        >
           {daemonUnavailable ? (
             <DetailEmpty
               icon={<Unplug />}
@@ -371,10 +390,21 @@ function StatusItem({
   tone: "good" | "active" | "warning" | "muted";
 }) {
   return (
-    <article className={`status-item ${tone}`}>
-      <span className="status-label">{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
+    <article className="grid min-h-11 min-w-0 grid-cols-[auto_auto_minmax(0,1fr)] items-baseline gap-[9px] border-r border-line px-3 py-2 last:border-r-0 max-[680px]:grid-cols-[auto_auto] max-[680px]:[&>small]:col-span-full max-[460px]:border-r-0 max-[460px]:not-first:border-t max-[460px]:not-first:border-line">
+      <span className="text-[0.59rem] font-extrabold tracking-[0.1em] text-text-dim uppercase">
+        {label}
+      </span>
+      <strong
+        className={classes(
+          "overflow-hidden text-[0.74rem] font-[650] tracking-[-0.02em] text-ellipsis whitespace-nowrap",
+          statusTone[tone],
+        )}
+      >
+        {value}
+      </strong>
+      <small className="overflow-hidden text-[0.61rem] text-ellipsis whitespace-nowrap text-text-dim">
+        {detail}
+      </small>
     </article>
   );
 }
@@ -391,48 +421,106 @@ function RunListItem({
   return (
     <button
       type="button"
-      className={selected ? "run-item selected" : "run-item"}
+      className={classes(
+        "relative grid min-h-[76px] w-full cursor-pointer grid-cols-[9px_minmax(0,1fr)_16px] items-start gap-[9px] rounded-md border border-transparent bg-transparent p-[9px] text-left text-text transition-[border-color,background] duration-150 hover:border-line hover:bg-[rgb(255_255_255_/_2%)]",
+        selected && "border-line-strong bg-panel-strong",
+      )}
       onClick={onSelect}
       aria-current={selected ? "true" : undefined}
       title={`Inspect run ${run.runId}`}
     >
-      <span className={`status-indicator status-${run.status}`} aria-hidden />
-      <span className="run-item-copy">
-        <span className="run-item-topline">
-          <strong>{run.experimentId}</strong>
-          <time dateTime={run.updatedAt}>
+      <span
+        className={classes("mt-[5px] size-2 rounded-full", runStatusDot[run.status])}
+        aria-hidden
+      />
+      <span className="grid min-w-0">
+        <span className="flex min-w-0 items-baseline justify-between gap-2">
+          <strong className="overflow-hidden text-[0.8rem] font-[650] text-ellipsis whitespace-nowrap">
+            {run.experimentId}
+          </strong>
+          <time className="flex-none text-[0.62rem] text-text-dim" dateTime={run.updatedAt}>
             {run.updatedAt ? formatRelative(run.updatedAt) : "No timestamp"}
           </time>
         </span>
-        <span className="run-item-meta">
-          <code>{shorten(run.runId, 18)}</code>
+        <span className="mt-1.5 flex items-center gap-[5px] overflow-hidden text-[0.67rem] whitespace-nowrap text-text-dim">
+          <code className="overflow-hidden text-ellipsis text-text-soft">
+            {shorten(run.runId, 18)}
+          </code>
         </span>
-        <span className={`run-state status-${run.status}`}>{run.stateLabel}</span>
+        <span
+          className={classes(
+            "mt-2 justify-self-start rounded-[5px] border px-1.5 py-[3px] text-[0.6rem] leading-none font-extrabold tracking-[0.05em] uppercase",
+            runStatusBadge[run.status],
+          )}
+        >
+          {run.stateLabel}
+        </span>
       </span>
-      <ChevronRight size={16} className="run-chevron" aria-hidden="true" />
+      <ChevronRight
+        size={16}
+        className={classes("self-center text-text-dim", selected && "text-accent")}
+        aria-hidden="true"
+      />
     </button>
   );
 }
 
 function PanelMessage({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }) {
   return (
-    <div className="panel-message">
-      <span aria-hidden="true">{icon}</span>
-      <strong>{title}</strong>
-      <p>{detail}</p>
+    <div className="grid justify-items-center px-5 py-11 text-center text-text-dim max-[880px]:min-w-[280px] max-[880px]:px-[18px] max-[880px]:py-7">
+      <span
+        className="mb-3 grid size-[38px] place-items-center rounded-[10px] border border-line bg-panel text-text-soft [&>svg]:w-[18px]"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <strong className="text-[0.78rem] text-text-soft">{title}</strong>
+      <p className="mt-1.5 mb-0 max-w-[230px] text-[0.7rem] leading-normal">{detail}</p>
     </div>
   );
 }
 
 function DetailEmpty({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }) {
   return (
-    <div className="detail-empty">
-      <span aria-hidden="true">{icon}</span>
-      <h2>{title}</h2>
-      <p>{detail}</p>
+    <div className="grid min-h-[590px] place-content-center justify-items-center text-center max-[880px]:min-h-[500px]">
+      <span
+        className="mb-4 grid size-[55px] place-items-center rounded-[14px] border border-line bg-panel-soft text-text-soft [&>svg]:w-[23px]"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <h2 className="m-0 text-base">{title}</h2>
+      <p className="mt-2 mb-0 max-w-[410px] text-[0.73rem] leading-[1.55] text-text-dim">
+        {detail}
+      </p>
     </div>
   );
 }
+
+const statusTone: Record<"good" | "active" | "warning" | "muted", string> = {
+  good: "text-accent",
+  active: "text-blue",
+  warning: "text-yellow",
+  muted: "",
+};
+
+const runStatusDot: Record<ProjectRun["status"], string> = {
+  accepted: "bg-blue",
+  running: "bg-accent",
+  attention_required: "bg-yellow",
+  succeeded: "bg-accent",
+  failed: "bg-red",
+  cancelled: "bg-red",
+};
+
+const runStatusBadge: Record<ProjectRun["status"], string> = {
+  accepted: "border-[rgb(120_184_255_/_20%)] bg-blue-soft text-blue",
+  running: "border-[rgb(128_163_207_/_20%)] bg-accent-soft text-accent",
+  attention_required: "border-[rgb(237_201_111_/_20%)] bg-yellow-soft text-yellow",
+  succeeded: "border-[rgb(128_163_207_/_20%)] bg-accent-soft text-accent",
+  failed: "border-[rgb(255_140_136_/_20%)] bg-red-soft text-red",
+  cancelled: "border-[rgb(255_140_136_/_20%)] bg-red-soft text-red",
+};
 
 function mergeRunPages(pages: ProjectRunPage[]): ProjectRun[] {
   const runs = new Map<string, ProjectRun>();

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, X } from "lucide-react";
 import { ApiError } from "../../api";
-import { iconButton, primaryButton, secondaryButton } from "../../ui/styles";
+import { eyebrow, iconButton, primaryButton, secondaryButton } from "../../ui/styles";
 import { previewConfigDraft, setConfigDefault } from "./config-api";
 import { deriveConfigDraftUpdates } from "./config-draft";
 import { ConfigParameters } from "./ConfigParameters";
@@ -189,7 +189,7 @@ export function ConfigDraftEditor({
           <Pencil size={18} />
         </span>
         <div>
-          <p className="eyebrow">Transient browser draft</p>
+          <p className={eyebrow}>Transient browser draft</p>
           <h3 id="draft-editor-title">Edit default parameters</h3>
           <p>
             Based on the current default, {seed.entry.id}. Preview changes when you want to inspect

@@ -330,10 +330,17 @@ function navigationClass(active: boolean): string {
 
 function DetailEmpty({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }) {
   return (
-    <div className="detail-empty">
-      <span aria-hidden="true">{icon}</span>
-      <h2>{title}</h2>
-      <p>{detail}</p>
+    <div className="grid min-h-[590px] place-content-center justify-items-center text-center max-[880px]:min-h-[500px]">
+      <span
+        className="mb-4 grid size-[55px] place-items-center rounded-[14px] border border-line bg-panel-soft text-text-soft [&>svg]:w-[23px]"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <h2 className="m-0 text-base">{title}</h2>
+      <p className="mt-2 mb-0 max-w-[410px] text-[0.73rem] leading-[1.55] text-text-dim">
+        {detail}
+      </p>
     </div>
   );
 }
