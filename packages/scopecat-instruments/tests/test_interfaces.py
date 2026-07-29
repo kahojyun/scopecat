@@ -271,6 +271,24 @@ def test_dc_source_state_partitions_properties_by_source_mode() -> None:
             ],
         ),
     ]
+    assert [
+        (case.value, case.required_on_entry_property_ids) for case in state.cases
+    ] == [
+        (
+            "voltage",
+            [
+                DC_SOURCE_VOLTAGE_RANGE.property_id,
+                DC_SOURCE_VOLTAGE_LEVEL.property_id,
+            ],
+        ),
+        (
+            "current",
+            [
+                DC_SOURCE_CURRENT_RANGE.property_id,
+                DC_SOURCE_CURRENT_LEVEL.property_id,
+            ],
+        ),
+    ]
 
 
 def test_dc_monitor_results_follow_the_source_mode() -> None:

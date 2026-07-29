@@ -300,6 +300,9 @@ class _ModeProvider:
                                                 unit="V",
                                             ),
                                         ),
+                                        required_on_entry_property_ids=(
+                                            "voltage_level",
+                                        ),
                                     ),
                                     state_case(
                                         "current",
@@ -308,6 +311,9 @@ class _ModeProvider:
                                                 "current_level",
                                                 unit="A",
                                             ),
+                                        ),
+                                        required_on_entry_property_ids=(
+                                            "current_level",
                                         ),
                                     ),
                                 ),

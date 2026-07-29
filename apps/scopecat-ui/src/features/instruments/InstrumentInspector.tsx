@@ -1555,7 +1555,7 @@ function collectMissingDiscriminatedTransitionProperties(
       const properties = new Map(
         (member.properties ?? []).map((property) => [property.id, property]),
       );
-      for (const propertyId of targetCase.property_ids ?? []) {
+      for (const propertyId of targetCase.required_on_entry_property_ids ?? []) {
         const property = properties.get(propertyId);
         if (
           property &&

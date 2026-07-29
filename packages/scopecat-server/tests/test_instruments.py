@@ -377,10 +377,12 @@ class _VariantDriver(_TrackingDriver):
                                 state_case(
                                     "voltage",
                                     properties=(float_property("voltage_level"),),
+                                    required_on_entry_property_ids=("voltage_level",),
                                 ),
                                 state_case(
                                     "current",
                                     properties=(float_property("current_level"),),
+                                    required_on_entry_property_ids=("current_level",),
                                 ),
                             ),
                         ),
@@ -934,7 +936,7 @@ def test_interactive_apply_tracks_observed_discriminated_state(
             )
             assert incomplete_switch.status == "not_applied"
             assert any(
-                "requires all writable case properties" in item.message
+                "requires its entry properties" in item.message
                 for item in incomplete_switch.problems
             )
 

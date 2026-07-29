@@ -1463,6 +1463,48 @@ def test_discriminated_state_builder_owns_its_property_partition() -> None:
         )
 
 
+def test_state_case_entry_requirements_are_declared_members_and_writable() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="entry requirements reference unknown properties",
+    ):
+        interface(
+            "test.dc/v1",
+            state=discriminated_state(
+                enum_property("mode", choices=("voltage", "current")),
+                cases=(
+                    state_case(
+                        "voltage",
+                        properties=(float_property("voltage_level"),),
+                        required_on_entry_property_ids=("missing",),
+                    ),
+                    state_case("current"),
+                ),
+            ),
+        )
+
+    with pytest.raises(
+        ValidationError,
+        match="entry requirements must be writable",
+    ):
+        interface(
+            "test.dc/v1",
+            state=discriminated_state(
+                enum_property("mode", choices=("voltage", "current")),
+                cases=(
+                    state_case(
+                        "voltage",
+                        properties=(
+                            float_property("voltage_level", access="read_only"),
+                        ),
+                        required_on_entry_property_ids=("voltage_level",),
+                    ),
+                    state_case("current"),
+                ),
+            ),
+        )
+
+
 def test_state_command_uses_observed_discriminator_for_partial_patches() -> None:
     description = _variant_description()
     voltage = _variant_snapshot("voltage", "voltage_level", 0.1)
@@ -1546,6 +1588,46 @@ def test_state_command_allows_complete_switches_and_sparse_same_case_patches() -
         )
         == []
     )
+
+
+def test_state_command_only_requires_properties_declared_for_case_entry() -> None:
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.explicit_case_entry",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.dc/v1",
+                state=discriminated_state(
+                    enum_property("mode", choices=("voltage", "current")),
+                    cases=(
+                        state_case(
+                            "voltage",
+                            properties=(
+                                float_property("voltage_range"),
+                                float_property("voltage_level"),
+                            ),
+                            required_on_entry_property_ids=("voltage_level",),
+                        ),
+                        state_case(
+                            "current",
+                            properties=(
+                                float_property("current_range"),
+                                float_property("current_level"),
+                            ),
+                            required_on_entry_property_ids=("current_level",),
+                        ),
+                    ),
+                ),
+            )
+        ],
+    )
+    switch = _variant_command(
+        ("mode", "current"),
+        ("current_level", 0.02),
+    )
+
+    assert validate_state_command(command=switch, description=description) == []
 
 
 def test_state_command_uses_physical_discriminator_across_logical_targets() -> None:
@@ -2778,12 +2860,20 @@ def _variant_description() -> InstrumentDescription:
                                 float_property("voltage_range"),
                                 float_property("voltage_level"),
                             ),
+                            required_on_entry_property_ids=(
+                                "voltage_range",
+                                "voltage_level",
+                            ),
                         ),
                         state_case(
                             "current",
                             properties=(
                                 float_property("current_range"),
                                 float_property("current_level"),
+                            ),
+                            required_on_entry_property_ids=(
+                                "current_range",
+                                "current_level",
                             ),
                         ),
                     ),

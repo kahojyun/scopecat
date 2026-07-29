@@ -2470,6 +2470,8 @@ export interface components {
         StateCaseSpec: {
             /** Property Ids */
             property_ids?: components["schemas"]["_NonEmptyId"][];
+            /** Required On Entry Property Ids */
+            required_on_entry_property_ids?: components["schemas"]["_NonEmptyId"][];
             value: components["schemas"]["_NonEmptyId"];
         };
         /** StateDiscriminatedAcquisitionSpec */

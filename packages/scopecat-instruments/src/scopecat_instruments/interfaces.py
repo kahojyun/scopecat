@@ -112,6 +112,10 @@ def dc_source_interface() -> InterfaceSpec:
                             ),
                         ),
                     ),
+                    required_on_entry_property_ids=(
+                        member_refs.DC_SOURCE_VOLTAGE_RANGE.property_id,
+                        member_refs.DC_SOURCE_VOLTAGE_LEVEL.property_id,
+                    ),
                 ),
                 state_case(
                     "current",
@@ -132,6 +136,10 @@ def dc_source_interface() -> InterfaceSpec:
                                 "Current-source level, available in current mode."
                             ),
                         ),
+                    ),
+                    required_on_entry_property_ids=(
+                        member_refs.DC_SOURCE_CURRENT_RANGE.property_id,
+                        member_refs.DC_SOURCE_CURRENT_LEVEL.property_id,
                     ),
                 ),
             ),

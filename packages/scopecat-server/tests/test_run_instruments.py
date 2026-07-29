@@ -243,10 +243,12 @@ class _VariantDriver(_Driver):
                             state_case(
                                 "voltage",
                                 properties=(float_property("voltage_level"),),
+                                required_on_entry_property_ids=("voltage_level",),
                             ),
                             state_case(
                                 "current",
                                 properties=(float_property("current_level"),),
+                                required_on_entry_property_ids=("current_level",),
                             ),
                         ),
                     ),

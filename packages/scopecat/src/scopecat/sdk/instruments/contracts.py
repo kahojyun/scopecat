@@ -119,12 +119,23 @@ class StateCaseSpec(BaseModel):
 
     value: _NonEmptyId
     property_ids: list[_NonEmptyId] = Field(default_factory=list)
+    required_on_entry_property_ids: list[_NonEmptyId] = Field(default_factory=list)
 
-    @field_validator("property_ids")
+    @field_validator("property_ids", "required_on_entry_property_ids")
     @classmethod
     def validate_unique_properties(cls, value: list[str]) -> list[str]:
         _require_unique(value, "state case property ids")
         return value
+
+    @model_validator(mode="after")
+    def validate_entry_properties(self) -> StateCaseSpec:
+        unknown = set(self.required_on_entry_property_ids) - set(self.property_ids)
+        if unknown:
+            raise ValueError(
+                "state case entry requirements reference unknown properties: "
+                f"{sorted(unknown)!r}"
+            )
+        return self
 
 
 class DiscriminatedStateSpec(BaseModel):
@@ -163,6 +174,7 @@ class StateCase:
 
     value: str
     properties: tuple[PropertySpec, ...]
+    required_on_entry_property_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -807,10 +819,12 @@ def state_case(
     value: str,
     *,
     properties: list[PropertySpec] | tuple[PropertySpec, ...] = (),
+    required_on_entry_property_ids: list[str] | tuple[str, ...] = (),
 ) -> StateCase:
     return StateCase(
         value=value,
         properties=tuple(properties),
+        required_on_entry_property_ids=tuple(required_on_entry_property_ids),
     )
 
 
@@ -901,6 +915,9 @@ def _normalize_authored_state(
             StateCaseSpec(
                 value=case.value,
                 property_ids=[item.id for item in case.properties],
+                required_on_entry_property_ids=list(
+                    case.required_on_entry_property_ids
+                ),
             )
             for case in state.cases
         ],
@@ -2812,21 +2829,17 @@ def _incomplete_state_case_problems(
     )
     if selected_case is None:
         return []
-    property_specs = {
-        property_spec.id: property_spec for property_spec in component_spec.properties
-    }
     missing = [
         property_id
-        for property_id in selected_case.property_ids
-        if property_specs[property_id].access != "read_only"
-        and property_id not in by_property
+        for property_id in selected_case.required_on_entry_property_ids
+        if property_id not in by_property
     ]
     if not missing:
         return []
     return [
         _state_case_problem(
             "instrument_driver_state_case_incomplete",
-            f"state case {case_value!r} requires all writable case properties "
+            f"state case {case_value!r} requires its entry properties "
             f"without a matching baseline; missing {missing!r}",
             scope=scope,
             state=state,
@@ -3452,6 +3465,17 @@ def _validate_component_members(
         if unknown:
             issues.append(f"unknown properties: {unknown!r}")
         raise ValueError("state property partition is incomplete: " + "; ".join(issues))
+    read_only_entry_properties = sorted(
+        property_id
+        for case in state.cases
+        for property_id in case.required_on_entry_property_ids
+        if properties[property_id].access == "read_only"
+    )
+    if read_only_entry_properties:
+        raise ValueError(
+            "state case entry requirements must be writable properties: "
+            f"{read_only_entry_properties!r}"
+        )
 
 
 def _resolve_component(

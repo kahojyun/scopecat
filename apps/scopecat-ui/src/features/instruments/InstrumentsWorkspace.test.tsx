@@ -1472,8 +1472,16 @@ function instrumentWithDiscriminatedState(): InstrumentView {
       discriminator_property_id: "source_mode",
       common_property_ids: ["output_enabled"],
       cases: [
-        { value: "voltage", property_ids: ["voltage_range"] },
-        { value: "current", property_ids: ["current_range"] },
+        {
+          value: "voltage",
+          property_ids: ["voltage_range"],
+          required_on_entry_property_ids: ["voltage_range"],
+        },
+        {
+          value: "current",
+          property_ids: ["current_range"],
+          required_on_entry_property_ids: ["current_range"],
+        },
       ],
     },
     operations: [],

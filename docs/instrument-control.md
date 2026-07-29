@@ -193,13 +193,13 @@ model. The discriminator and common properties are valid in every case, while
 each case declares its own additional property set. A mode is mutable state, so
 routing never selects a different interface merely because the device changed
 mode. A patch within the observed case may remain sparse. A patch that changes
-case must set the discriminator and every writable property in the target case;
-otherwise hidden state from an earlier use of that mode would become active.
-Common properties may remain sparse. The current `scopecat.dc_source/v2`
-contract uses this model for voltage and current source modes. Named startup
-profiles likewise remain configuration that resolves to property assignments;
-omitted experiment properties preserve freshly observed device state unless an
-explicit profile policy says otherwise.
+case must set the discriminator and the target case's declared entry
+properties; otherwise safety-relevant hidden state from an earlier use of that
+mode could become active. Common and other case properties may remain sparse.
+The current `scopecat.dc_source/v2` contract uses this model for voltage and
+current source modes. Named startup profiles likewise remain configuration that
+resolves to property assignments; omitted experiment properties preserve
+freshly observed device state unless an explicit profile policy says otherwise.
 
 ## Connection configuration
 
@@ -248,9 +248,10 @@ explicitly.
 
 Applying default state is not a factory reset. Settings outside the public
 interface remain driver-owned connection or profile configuration; experiments
-neither guess nor overwrite them. For a discriminated interface, defaults that
-select a case must set its discriminator and every writable property in that
-case, so startup does not activate values left by an earlier use of that mode.
+neither guess nor overwrite them. A discriminated state case explicitly lists
+the properties required when entering it. Defaults that select a new case must
+provide those values, so startup does not activate safety-relevant settings left
+by an earlier use of that mode.
 
 A hardware reset or preset is an explicit `OperationSpec`, not a connection
 hook or session-open flag. It therefore participates in normal argument
@@ -384,8 +385,8 @@ component. Specs, compiler IR, and daemon requests lower them to physical ids.
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
 numbers remain valid only where the declared property type accepts them. A
 `scopecat.dc_source/v2` state belongs to either its voltage or current case.
-When switching cases, include `source_mode` and every writable target-case
-property; protection and output properties are common to both.
+When switching cases, include `source_mode` plus the target range and level;
+protection and output properties are common to both.
 
 A multi-instrument session is available when an operation must reserve a
 coherent set:
