@@ -23,15 +23,20 @@ from scopecat.sdk.instruments import (
     InstrumentDescription,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.scpi import (
+    ScpiIdentity,
+    ScpiTransport,
+    parse_bool,
+    parse_int,
+    query_float,
+    query_identity,
+    query_int,
+    query_text,
+)
 
 from scopecat_instruments._support import (
-    ScpiIdentity,
     apply_unknown,
     collect_unknown,
-    parse_bool,
-    parse_float,
-    parse_identity,
-    parse_int,
     state_property,
     unsupported_invoke,
 )
@@ -43,7 +48,6 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT_SCAN_CHANNEL,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
-from scopecat_instruments.transport import ScpiTransport
 
 _SETTLE_TIMEOUT_SECONDS = 10.0
 _SETTLE_POLL_SECONDS = 0.05
@@ -183,7 +187,7 @@ class LakeShore372:
             curve_number: int | None = None
             values: dict[AcquisitionResultRef, MeasurementValue] = {}
             if TEMPERATURE_READOUT_TEMPERATURE_RESULT in requested_results:
-                curve_number = parse_int(self.transport.query(f"INCRV? {channel}"))
+                curve_number = query_int(self.transport, f"INCRV? {channel}")
                 if curve_number == 0:
                     values[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
                         _unavailable_result(
@@ -201,7 +205,7 @@ class LakeShore372:
                         MeasurementScalar.create(
                             dtype="float64",
                             unit="K",
-                            value=parse_float(self.transport.query(f"KRDG? {channel}")),
+                            value=query_float(self.transport, f"KRDG? {channel}"),
                         )
                     )
             if TEMPERATURE_READOUT_RESISTANCE_RESULT in requested_results:
@@ -209,11 +213,11 @@ class LakeShore372:
                     MeasurementScalar.create(
                         dtype="float64",
                         unit="Ohm",
-                        value=parse_float(self.transport.query(f"SRDG? {channel}")),
+                        value=query_float(self.transport, f"SRDG? {channel}"),
                     )
                 )
 
-            reading_status = parse_int(self.transport.query(f"RDGST? {channel}"))
+            reading_status = query_int(self.transport, f"RDGST? {channel}")
             final_settle_status = self._active_settle_status()
             final_scan = self._scan_state()
             if final_scan != settled_scan or final_settle_status != 0:
@@ -238,10 +242,13 @@ class LakeShore372:
             )
 
     def _scan_state(self) -> tuple[int, bool]:
-        scan_response = self.transport.query("SCAN?").strip().split(",")
+        scan_response = query_text(self.transport, "SCAN?").split(",")
         if len(scan_response) != 2:
             raise ValueError("Lake Shore 372 returned malformed SCAN response")
-        return parse_int(scan_response[0]), parse_bool(scan_response[1])
+        return (
+            parse_int(scan_response[0], command="SCAN?"),
+            parse_bool(scan_response[1], command="SCAN?"),
+        )
 
     def _wait_for_settled_reading(self, deadline: float) -> None:
         while self._active_settle_status() != 0:
@@ -254,10 +261,10 @@ class LakeShore372:
             sleep(_SETTLE_POLL_SECONDS)
 
     def _active_settle_status(self) -> int:
-        response = self.transport.query("RDGSTL?").strip().split(",")
+        response = query_text(self.transport, "RDGSTL?").split(",")
         if len(response) != 2:
             raise ValueError("Lake Shore 372 returned malformed RDGSTL response")
-        return parse_int(response[1])
+        return parse_int(response[1], command="RDGSTL?")
 
     def _pause_before_scan_retry(self, deadline: float) -> None:
         remaining = deadline - monotonic()
@@ -270,7 +277,7 @@ class LakeShore372:
         sleep(min(_SETTLE_POLL_SECONDS, remaining))
 
     def identify(self) -> ScpiIdentity:
-        identity = parse_identity(self.transport.query("*IDN?"))
+        identity = query_identity(self.transport)
         manufacturer = identity.manufacturer.upper().replace(" ", "")
         model = identity.model.upper().replace(" ", "")
         if not (

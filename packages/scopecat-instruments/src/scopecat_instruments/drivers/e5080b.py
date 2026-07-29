@@ -19,24 +19,28 @@ from scopecat.sdk.instruments import (
     InstrumentDescription,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.scpi import (
+    ScpiIdentity,
+    ScpiTransport,
+    format_number,
+    query_bool,
+    query_csv_floats,
+    query_float,
+    query_identity,
+    query_int,
+    query_string,
+    query_text,
+)
 
 from scopecat_instruments._support import (
     LinearSweepSettings,
     NetworkTrace,
-    ScpiIdentity,
     apply_unknown,
     collect_unknown,
-    format_number,
     int_value,
-    parse_bool,
-    parse_csv_floats,
-    parse_float,
-    parse_identity,
-    parse_int,
     quantity_value,
     state_property,
     string_value,
-    strip_scpi_string,
     unsupported_invoke,
 )
 from scopecat_instruments.driver_ids import KEYSIGHT_E5080B
@@ -50,7 +54,6 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_START_FREQUENCY,
     NETWORK_SWEEP_STOP_FREQUENCY,
 )
-from scopecat_instruments.transport import ScpiTransport
 
 
 class KeysightE5080B:
@@ -90,6 +93,7 @@ class KeysightE5080B:
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
+        self._require_linear_sweep()
         settings = self.sweep_settings()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Keysight",
@@ -231,18 +235,22 @@ class KeysightE5080B:
 
     def sweep_settings(self) -> LinearSweepSettings:
         return LinearSweepSettings(
-            start_frequency_hz=parse_float(
-                self.transport.query(f"SENS{self.channel}:FREQ:STAR?")
+            start_frequency_hz=query_float(
+                self.transport,
+                f"SENS{self.channel}:FREQ:STAR?",
             ),
-            stop_frequency_hz=parse_float(
-                self.transport.query(f"SENS{self.channel}:FREQ:STOP?")
+            stop_frequency_hz=query_float(
+                self.transport,
+                f"SENS{self.channel}:FREQ:STOP?",
             ),
-            points=parse_int(self.transport.query(f"SENS{self.channel}:SWE:POIN?")),
-            if_bandwidth_hz=parse_float(
-                self.transport.query(f"SENS{self.channel}:BWID?")
+            points=query_int(self.transport, f"SENS{self.channel}:SWE:POIN?"),
+            if_bandwidth_hz=query_float(
+                self.transport,
+                f"SENS{self.channel}:BWID?",
             ),
-            source_power_dbm=parse_float(
-                self.transport.query(f"SOUR{self.channel}:POW?")
+            source_power_dbm=query_float(
+                self.transport,
+                f"SOUR{self.channel}:POW?",
             ),
             s_parameter=self.s_parameter(),
         )
@@ -276,8 +284,9 @@ class KeysightE5080B:
         )
 
     def s_parameter(self) -> str:
-        response = strip_scpi_string(
-            self.transport.query(f"CALC{self.channel}:MEAS{self.measurement}:PAR?")
+        response = query_string(
+            self.transport,
+            f"CALC{self.channel}:MEAS{self.measurement}:PAR?",
         )
         if response not in {"S11", "S21", "S12", "S22"}:
             raise ValueError(f"E5080B returned unsupported parameter {response!r}")
@@ -288,13 +297,13 @@ class KeysightE5080B:
 
     def read_trace_ascii(self) -> NetworkTrace:
         self.transport.write("FORM:DATA ASC,0")
-        frequencies = parse_csv_floats(
-            self.transport.query(f"CALC{self.channel}:MEAS{self.measurement}:X?")
+        frequencies = query_csv_floats(
+            self.transport,
+            f"CALC{self.channel}:MEAS{self.measurement}:X?",
         )
-        interleaved = parse_csv_floats(
-            self.transport.query(
-                f"CALC{self.channel}:MEAS{self.measurement}:DATA:SDAT?"
-            )
+        interleaved = query_csv_floats(
+            self.transport,
+            f"CALC{self.channel}:MEAS{self.measurement}:DATA:SDAT?",
         )
         if len(interleaved) % 2:
             raise ValueError("E5080B returned an odd number of complex components")
@@ -305,8 +314,7 @@ class KeysightE5080B:
         return NetworkTrace(frequencies_hz=frequencies, values=values)
 
     def acquire_trace(self) -> NetworkTrace:
-        # The interface promises a linear axis even after front-panel changes.
-        self._establish_linear_sweep()
+        self._require_linear_sweep()
         trigger_source = self._trigger_source()
         try:
             self._set_trigger_source("MAN")
@@ -326,8 +334,18 @@ class KeysightE5080B:
     def _establish_linear_sweep(self) -> None:
         self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
 
+    def _require_linear_sweep(self) -> None:
+        sweep_type = query_text(
+            self.transport,
+            f"SENS{self.channel}:SWE:TYPE?",
+        ).upper()
+        if sweep_type not in {"LIN", "LINEAR"}:
+            raise ValueError(
+                f"E5080B linear-sweep profile does not support {sweep_type!r}"
+            )
+
     def _trigger_source(self) -> str:
-        response = strip_scpi_string(self.transport.query("TRIG:SOUR?")).upper()
+        response = query_string(self.transport, "TRIG:SOUR?").upper()
         source = {
             "EXTERNAL": "EXT",
             "EXT": "EXT",
@@ -344,13 +362,13 @@ class KeysightE5080B:
         self.transport.write(f"TRIG:SOUR {source}")
 
     def _averaging_enabled(self) -> bool:
-        return parse_bool(self.transport.query(f"SENS{self.channel}:AVER?"))
+        return query_bool(self.transport, f"SENS{self.channel}:AVER?")
 
     def _set_averaging(self, enabled: bool) -> None:
         self.transport.write(f"SENS{self.channel}:AVER {'ON' if enabled else 'OFF'}")
 
     def identify(self) -> ScpiIdentity:
-        identity = parse_identity(self.transport.query("*IDN?"))
+        identity = query_identity(self.transport)
         if (
             "KEYSIGHT" not in identity.manufacturer.upper()
             or identity.model.upper() != "E5080B"

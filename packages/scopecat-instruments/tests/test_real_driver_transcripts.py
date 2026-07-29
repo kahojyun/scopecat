@@ -15,6 +15,7 @@ from scopecat.sdk.instruments import (
     DriverPropertyWrite,
     PropertyRef,
 )
+from scopecat.sdk.instruments.scpi import TransportError
 
 import scopecat_instruments.drivers.lakeshore372 as lakeshore372_driver
 from scopecat_instruments._support import (
@@ -54,7 +55,6 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
-from scopecat_instruments.transport import TransportError
 
 
 def _apply_request(
@@ -1188,7 +1188,7 @@ def test_e5080b_linear_sweep_and_ascii_trace_transcript() -> None:
             ScriptedExchange.write("SENS1:BWID 1000"),
             ScriptedExchange.write("SOUR1:POW -30"),
             ScriptedExchange.write('CALC1:MEAS1:PAR "S21"'),
-            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.query("SENS1:SWE:TYPE?", "LIN"),
             ScriptedExchange.query("TRIG:SOUR?", "IMM"),
             ScriptedExchange.write("TRIG:SOUR MAN"),
             ScriptedExchange.query("SENS1:AVER?", "ON"),
@@ -1227,10 +1227,20 @@ def test_e5080b_linear_sweep_and_ascii_trace_transcript() -> None:
     transport.assert_complete()
 
 
+def test_e5080b_state_sync_rejects_non_linear_front_panel_mode() -> None:
+    transport = ScriptedTransport([ScriptedExchange.query("SENS1:SWE:TYPE?", "LOG")])
+    driver = KeysightE5080B("vna", transport)
+
+    with pytest.raises(ValueError, match="linear-sweep profile"):
+        driver.read_state()
+
+    transport.assert_complete()
+
+
 def test_e5080b_collect_restores_external_trigger_source() -> None:
     transport = ScriptedTransport(
         [
-            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.query("SENS1:SWE:TYPE?", "LIN"),
             ScriptedExchange.query("TRIG:SOUR?", "EXT"),
             ScriptedExchange.write("TRIG:SOUR MAN"),
             ScriptedExchange.query("SENS1:AVER?", "OFF"),
@@ -1260,7 +1270,7 @@ def test_e5080b_collect_restores_external_trigger_source() -> None:
 def test_e5080b_collect_restores_averaging_and_trigger_after_parse_failure() -> None:
     transport = ScriptedTransport(
         [
-            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.query("SENS1:SWE:TYPE?", "LIN"),
             ScriptedExchange.query("TRIG:SOUR?", "IMM"),
             ScriptedExchange.write("TRIG:SOUR MAN"),
             ScriptedExchange.query("SENS1:AVER?", "ON"),
@@ -1292,7 +1302,7 @@ def test_e5080b_collect_restores_averaging_and_trigger_after_parse_failure() -> 
 def test_e5080b_collect_restores_trigger_when_averaging_read_fails() -> None:
     transport = ScriptedTransport(
         [
-            ScriptedExchange.write("SENS1:SWE:TYPE LIN"),
+            ScriptedExchange.query("SENS1:SWE:TYPE?", "LIN"),
             ScriptedExchange.query("TRIG:SOUR?", "EXT"),
             ScriptedExchange.write("TRIG:SOUR MAN"),
             ScriptedExchange.query("SENS1:AVER?", "invalid"),

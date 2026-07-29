@@ -21,21 +21,27 @@ from scopecat.sdk.instruments import (
     InvokeReceipt,
     PropertyRef,
 )
+from scopecat.sdk.instruments.scpi import (
+    ScpiIdentity,
+    ScpiTransport,
+    TransportError,
+    format_number,
+    parse_float,
+    query_bool,
+    query_float,
+    query_identity,
+    query_int,
+    query_text,
+)
 
 from scopecat_instruments._support import (
-    ScpiIdentity,
     apply_unknown,
     bool_value,
     collect_unknown,
     execution_problem,
-    format_number,
     int_value,
     not_applied,
     not_collected,
-    parse_bool,
-    parse_float,
-    parse_identity,
-    parse_int,
     quantity_value,
     state_properties_by_target,
     state_property,
@@ -61,7 +67,6 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
 )
-from scopecat_instruments.transport import ScpiTransport, TransportError
 
 _CONDITION_END_OF_MEASURE = 1 << 0
 _CONDITION_OVER_RANGE = 1 << 1
@@ -402,7 +407,7 @@ class YokogawaGS200:
                 if restore_trigger:
                     self.set_measurement_trigger("COMM")
                 raw_measurement = self.transport.query(":MEAS?")
-                condition = parse_int(self.transport.query(":STAT:COND?"))
+                condition = query_int(self.transport, ":STAT:COND?")
             finally:
                 if restore_trigger:
                     self.set_measurement_trigger(original_trigger)
@@ -430,7 +435,7 @@ class YokogawaGS200:
                 measured = MeasurementScalar.create(
                     dtype="float64",
                     unit=unit,
-                    value=parse_float(raw_measurement),
+                    value=parse_float(raw_measurement, command=":MEAS?"),
                 )
             return CollectReceipt(
                 readback=InstrumentReadback(
@@ -452,7 +457,7 @@ class YokogawaGS200:
         self.transport.write(f":SOUR:FUNC {command}")
 
     def source_mode(self) -> str:
-        response = self.transport.query(":SOUR:FUNC?").strip().upper()
+        response = query_text(self.transport, ":SOUR:FUNC?").upper()
         if response.startswith("VOLT"):
             return "voltage"
         if response.startswith("CURR"):
@@ -463,37 +468,37 @@ class YokogawaGS200:
         self.transport.write(f":SOUR:RANG {format_number(value)}")
 
     def source_range(self) -> float:
-        return parse_float(self.transport.query(":SOUR:RANG?"))
+        return query_float(self.transport, ":SOUR:RANG?")
 
     def set_source_level(self, value: float) -> None:
         self.transport.write(f":SOUR:LEV {format_number(value)}")
 
     def source_level(self) -> float:
-        return parse_float(self.transport.query(":SOUR:LEV?"))
+        return query_float(self.transport, ":SOUR:LEV?")
 
     def set_voltage_protection(self, value_v: float) -> None:
         self.transport.write(f":SOUR:PROT:VOLT {format_number(value_v)}")
 
     def voltage_protection(self) -> float:
-        return parse_float(self.transport.query(":SOUR:PROT:VOLT?"))
+        return query_float(self.transport, ":SOUR:PROT:VOLT?")
 
     def set_current_protection(self, value_a: float) -> None:
         self.transport.write(f":SOUR:PROT:CURR {format_number(value_a)}")
 
     def current_protection(self) -> float:
-        return parse_float(self.transport.query(":SOUR:PROT:CURR?"))
+        return query_float(self.transport, ":SOUR:PROT:CURR?")
 
     def set_output(self, enabled: bool) -> None:
         self.transport.write(f":OUTP {'ON' if enabled else 'OFF'}")
 
     def output_enabled(self) -> bool:
-        return parse_bool(self.transport.query(":OUTP?"))
+        return query_bool(self.transport, ":OUTP?")
 
     def set_measurement_enabled(self, enabled: bool) -> None:
         self.transport.write(f":SENS {'ON' if enabled else 'OFF'}")
 
     def measurement_enabled(self) -> bool:
-        return parse_bool(self.transport.query(":SENS?"))
+        return query_bool(self.transport, ":SENS?")
 
     def set_integration_cycles(self, cycles: int) -> None:
         if not 1 <= cycles <= 25:
@@ -501,7 +506,7 @@ class YokogawaGS200:
         self.transport.write(f":SENS:NPLC {cycles}")
 
     def integration_cycles(self) -> int:
-        value = parse_float(self.transport.query(":SENS:NPLC?"))
+        value = query_float(self.transport, ":SENS:NPLC?")
         cycles = int(value)
         if value != cycles or not 1 <= cycles <= 25:
             raise ValueError(f"GS200 returned invalid integration cycles {value!r}")
@@ -515,26 +520,26 @@ class YokogawaGS200:
         self.transport.write(f":SENS:DEL {format_number(delay_s)}")
 
     def measurement_delay(self) -> float:
-        delay_s = parse_float(self.transport.query(":SENS:DEL?"))
+        delay_s = query_float(self.transport, ":SENS:DEL?")
         if not 0.0 <= delay_s <= 999.999:
             raise ValueError(f"GS200 returned invalid measurement delay {delay_s!r}")
         return delay_s
 
     def measurement_null_enabled(self) -> bool:
-        return parse_bool(self.transport.query(":SENS:NULL?"))
+        return query_bool(self.transport, ":SENS:NULL?")
 
     def set_measurement_trigger(self, trigger: str) -> None:
         self.transport.write(f":SENS:TRIG {trigger}")
 
     def measurement_trigger(self) -> str:
-        trigger = self.transport.query(":SENS:TRIG?").strip().upper()
+        trigger = query_text(self.transport, ":SENS:TRIG?").upper()
         if not trigger:
             raise ValueError("GS200 returned an empty measurement trigger")
         return trigger
 
     def _validate_connection_profile(self) -> None:
-        remote_sense = parse_bool(self.transport.query(":SENS:REM?"))
-        guard_enabled = parse_bool(self.transport.query(":SENS:GUAR?"))
+        remote_sense = query_bool(self.transport, ":SENS:REM?")
+        guard_enabled = query_bool(self.transport, ":SENS:GUAR?")
         if remote_sense != self.remote_sense:
             raise ValueError(
                 "GS200 remote-sense state differs from the connection profile"
@@ -574,7 +579,7 @@ class YokogawaGS200:
         return self._source_profile_is_valid(target_mode, target_range)
 
     def identify(self) -> ScpiIdentity:
-        identity = parse_identity(self.transport.query("*IDN?"))
+        identity = query_identity(self.transport)
         manufacturer = identity.manufacturer.upper()
         model = identity.model.upper()
         if "YOKOGAWA" not in manufacturer or model not in {"GS200", "GS210"}:
@@ -582,7 +587,7 @@ class YokogawaGS200:
                 f"expected a Yokogawa GS200 family device, got {identity.raw!r}"
             )
         if self.monitor_option:
-            option_response = self.transport.query("*OPT?")
+            option_response = query_text(self.transport, "*OPT?")
             if "/MON" not in option_response.upper():
                 raise ValueError("GS200 connection profile requires the /MON option")
         self._validate_connection_profile()

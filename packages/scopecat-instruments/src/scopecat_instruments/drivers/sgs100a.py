@@ -14,15 +14,19 @@ from scopecat.sdk.instruments import (
     InstrumentDescription,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.scpi import (
+    ScpiIdentity,
+    ScpiTransport,
+    format_number,
+    query_bool,
+    query_float,
+    query_identity,
+    query_text,
+)
 
 from scopecat_instruments._support import (
-    ScpiIdentity,
     apply_unknown,
     bool_value,
-    format_number,
-    parse_bool,
-    parse_float,
-    parse_identity,
     quantity_value,
     state_property,
     string_value,
@@ -36,7 +40,6 @@ from scopecat_instruments.members import (
     RF_OUTPUT_POWER,
     RF_OUTPUT_REFERENCE_SOURCE,
 )
-from scopecat_instruments.transport import ScpiTransport
 
 
 class RohdeSchwarzSGS100A:
@@ -133,21 +136,21 @@ class RohdeSchwarzSGS100A:
 
     def frequency(self) -> float:
         # FREQ? includes the downstream display offset, which does not shift RF.
-        displayed = parse_float(self.transport.query(":SOUR:FREQ?"))
-        offset = parse_float(self.transport.query(":SOUR:FREQ:OFFS?"))
+        displayed = query_float(self.transport, ":SOUR:FREQ?")
+        offset = query_float(self.transport, ":SOUR:FREQ:OFFS?")
         return displayed - offset
 
     def set_power(self, power_dbm: float) -> None:
         self.transport.write(f":SOUR:POW:POW {format_number(power_dbm)}")
 
     def power(self) -> float:
-        return parse_float(self.transport.query(":SOUR:POW:POW?"))
+        return query_float(self.transport, ":SOUR:POW:POW?")
 
     def set_output(self, enabled: bool) -> None:
         self.transport.write(f":OUTP {'ON' if enabled else 'OFF'}")
 
     def output_enabled(self) -> bool:
-        return parse_bool(self.transport.query(":OUTP?"))
+        return query_bool(self.transport, ":OUTP?")
 
     def set_reference_source(self, source: str) -> None:
         command = {"internal": "INT", "external": "EXT"}.get(source)
@@ -156,7 +159,7 @@ class RohdeSchwarzSGS100A:
         self.transport.write(f":SOUR:ROSC:SOUR {command}")
 
     def reference_source(self) -> str:
-        response = self.transport.query(":SOUR:ROSC:SOUR?").strip().upper()
+        response = query_text(self.transport, ":SOUR:ROSC:SOUR?").upper()
         if response.startswith("INT"):
             return "internal"
         if response.startswith("EXT"):
@@ -169,9 +172,9 @@ class RohdeSchwarzSGS100A:
         self.transport.write(":SOUR:PULM:STAT OFF")
 
     def _require_cw_state(self) -> None:
-        operation_mode = self.transport.query(":SOUR:OPM?").strip().upper()
-        iq_modulation = parse_bool(self.transport.query(":SOUR:IQ:STAT?"))
-        pulse_modulation = parse_bool(self.transport.query(":SOUR:PULM:STAT?"))
+        operation_mode = query_text(self.transport, ":SOUR:OPM?").upper()
+        iq_modulation = query_bool(self.transport, ":SOUR:IQ:STAT?")
+        pulse_modulation = query_bool(self.transport, ":SOUR:PULM:STAT?")
         incompatible: list[str] = []
         if operation_mode not in {"NORM", "NORMAL"}:
             incompatible.append(f"mode={operation_mode}")
@@ -185,7 +188,7 @@ class RohdeSchwarzSGS100A:
             )
 
     def identify(self) -> ScpiIdentity:
-        identity = parse_identity(self.transport.query("*IDN?"))
+        identity = query_identity(self.transport)
         manufacturer = identity.manufacturer.upper().replace(" ", "")
         if "ROHDE&SCHWARZ" not in manufacturer or identity.model.upper() != "SGS100A":
             raise ValueError(f"expected an R&S SGS100A, got {identity.raw!r}")

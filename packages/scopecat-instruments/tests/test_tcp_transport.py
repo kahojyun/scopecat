@@ -6,8 +6,9 @@ from collections.abc import Callable
 from typing import cast
 
 import pytest
+from scopecat.sdk.instruments.scpi import TransportError
 
-from scopecat_instruments.transport import TcpScpiTransport, TransportError
+from scopecat_instruments.transport import TcpScpiTransport
 
 
 class _Socket:

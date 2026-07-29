@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from scopecat_instruments.transport import ScpiTransport
-
 
 @dataclass(frozen=True)
 class ScriptedExchange:
@@ -81,23 +79,3 @@ class ScriptedTransport:
         exchange = self._exchanges[self._index]
         self._index += 1
         return exchange
-
-
-class RecordingTransport:
-    """Decorator that records traffic while delegating transport behavior."""
-
-    def __init__(self, delegate: ScpiTransport) -> None:
-        self.delegate = delegate
-        self.transcript: list[TranscriptEntry] = []
-
-    def write(self, command: str) -> None:
-        self.delegate.write(command)
-        self.transcript.append(TranscriptEntry("write", command))
-
-    def query(self, command: str) -> str:
-        response = self.delegate.query(command)
-        self.transcript.append(TranscriptEntry("query", command, response))
-        return response
-
-    def close(self) -> None:
-        self.delegate.close()

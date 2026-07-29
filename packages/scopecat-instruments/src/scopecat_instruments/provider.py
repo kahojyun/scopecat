@@ -15,9 +15,10 @@ from scopecat.sdk.instruments import (
     TcpipSocketInstrumentConnection,
     VirtualInstrumentConnection,
 )
+from scopecat.sdk.instruments.scpi import ScpiIdentity, ScpiTransport
 from scopecat.sdk.problems import Problem
 
-from scopecat_instruments._support import ScpiIdentity, provider_problem
+from scopecat_instruments._support import provider_problem
 from scopecat_instruments.driver_ids import (
     KEYSIGHT_E5080B,
     LAKESHORE_372,
@@ -35,7 +36,7 @@ from scopecat_instruments.drivers import (
     RohdeSchwarzSGS100A,
     YokogawaGS200,
 )
-from scopecat_instruments.transport import ScpiTransport, TcpScpiTransport
+from scopecat_instruments.transport import TcpScpiTransport
 from scopecat_instruments.virtual import (
     VirtualDcSource,
     VirtualLabWorld,

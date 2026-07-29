@@ -5,21 +5,9 @@ from __future__ import annotations
 import socket
 from contextlib import suppress
 from threading import RLock
-from typing import Literal, Protocol
+from typing import Literal
 
-
-class ScpiTransport(Protocol):
-    """The text command boundary shared by all drivers in this package."""
-
-    def write(self, command: str) -> None: ...
-
-    def query(self, command: str) -> str: ...
-
-    def close(self) -> None: ...
-
-
-class TransportError(ConnectionError):
-    """A transport failure whose command may already have reached the device."""
+from scopecat.sdk.instruments.scpi import TransportError
 
 
 class TcpScpiTransport:

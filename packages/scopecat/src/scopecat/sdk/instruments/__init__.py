@@ -89,6 +89,24 @@ if TYPE_CHECKING:
         OperationRef,
         PropertyRef,
     )
+    from scopecat.sdk.instruments.scpi import (
+        ScpiIdentity,
+        ScpiProtocolError,
+        ScpiTransport,
+        TransportError,
+        format_number,
+        parse_bool,
+        parse_float,
+        parse_identity,
+        parse_int,
+        query_bool,
+        query_csv_floats,
+        query_float,
+        query_identity,
+        query_int,
+        query_string,
+        query_text,
+    )
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
@@ -219,6 +237,9 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "OperationSpec": ("scopecat.sdk.instruments.contracts", "OperationSpec"),
     "PropertyRef": ("scopecat.sdk.instruments.members", "PropertyRef"),
     "PropertySpec": ("scopecat.sdk.instruments.contracts", "PropertySpec"),
+    "ScpiIdentity": ("scopecat.sdk.instruments.scpi", "ScpiIdentity"),
+    "ScpiProtocolError": ("scopecat.sdk.instruments.scpi", "ScpiProtocolError"),
+    "ScpiTransport": ("scopecat.sdk.instruments.scpi", "ScpiTransport"),
     "StateCase": ("scopecat.sdk.instruments.contracts", "StateCase"),
     "StateDiscriminatedAcquisitionSpec": (
         "scopecat.sdk.instruments.contracts",
@@ -233,6 +254,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.records.config",
         "TcpipSocketInstrumentConnection",
     ),
+    "TransportError": ("scopecat.sdk.instruments.scpi", "TransportError"),
     "VirtualInstrumentConnection": (
         "scopecat.records.config",
         "VirtualInstrumentConnection",
@@ -266,6 +288,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "enum_property": ("scopecat.sdk.instruments.contracts", "enum_property"),
     "float_property": ("scopecat.sdk.instruments.contracts", "float_property"),
+    "format_number": ("scopecat.sdk.instruments.scpi", "format_number"),
     "int_property": ("scopecat.sdk.instruments.contracts", "int_property"),
     "interface": ("scopecat.sdk.instruments.contracts", "interface"),
     "operation": ("scopecat.sdk.instruments.contracts", "operation"),
@@ -273,10 +296,24 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "operation_argument",
     ),
+    "parse_bool": ("scopecat.sdk.instruments.scpi", "parse_bool"),
+    "parse_float": ("scopecat.sdk.instruments.scpi", "parse_float"),
+    "parse_identity": ("scopecat.sdk.instruments.scpi", "parse_identity"),
+    "parse_int": ("scopecat.sdk.instruments.scpi", "parse_int"),
     "quantity_property": (
         "scopecat.sdk.instruments.contracts",
         "quantity_property",
     ),
+    "query_bool": ("scopecat.sdk.instruments.scpi", "query_bool"),
+    "query_csv_floats": (
+        "scopecat.sdk.instruments.scpi",
+        "query_csv_floats",
+    ),
+    "query_float": ("scopecat.sdk.instruments.scpi", "query_float"),
+    "query_identity": ("scopecat.sdk.instruments.scpi", "query_identity"),
+    "query_int": ("scopecat.sdk.instruments.scpi", "query_int"),
+    "query_string": ("scopecat.sdk.instruments.scpi", "query_string"),
+    "query_text": ("scopecat.sdk.instruments.scpi", "query_text"),
     "state_case": ("scopecat.sdk.instruments.contracts", "state_case"),
     "state_discriminated_acquisition": (
         "scopecat.sdk.instruments.contracts",

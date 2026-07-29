@@ -13,6 +13,7 @@ from scopecat.sdk.instruments import (
     DriverPropertyWrite,
     PropertyRef,
 )
+from scopecat.sdk.instruments.scpi import TransportError
 
 from scopecat_instruments.drivers import (
     KeysightE5080B,
@@ -26,7 +27,6 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_START_FREQUENCY,
 )
 from scopecat_instruments.testing import ScriptedTransport
-from scopecat_instruments.transport import TransportError
 
 
 class _FailingTransport:

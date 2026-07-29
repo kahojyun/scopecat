@@ -155,6 +155,11 @@ The real-device implementations are deliberately minimal. Verify firmware,
 installed options, limits, cabling, and interlocks for the specific laboratory
 before enabling hardware outputs.
 
+SCPI drivers depend on the transport protocol and typed query helpers in
+`scopecat.sdk.instruments.scpi`; this package supplies the concrete TCP
+transport. Parsing failures therefore retain the command that produced the
+invalid response.
+
 ## Application composition
 
 Projects install one configured provider at their daemon composition root:
@@ -177,5 +182,5 @@ Transcript helpers live in the explicit testing module:
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 ```
 
-`ScriptedTransport` asserts an ordered command/response transcript, while
-`RecordingTransport` records traffic around another test transport.
+`ScriptedTransport` asserts an ordered command/response transcript and verifies
+that every expected exchange was consumed.

@@ -1,8 +1,7 @@
-"""Shared parsing and receipt helpers for concrete drivers."""
+"""Shared value and receipt helpers for concrete drivers."""
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -38,66 +37,6 @@ class LinearSweepSettings:
     if_bandwidth_hz: float
     source_power_dbm: float
     s_parameter: str
-
-
-@dataclass(frozen=True)
-class ScpiIdentity:
-    manufacturer: str
-    model: str
-    serial_number: str
-    firmware: str
-    raw: str
-
-
-def parse_identity(response: str) -> ScpiIdentity:
-    raw = response.strip()
-    parts = [part.strip() for part in raw.split(",")]
-    if len(parts) < 2 or not parts[0] or not parts[1]:
-        raise ValueError("instrument returned malformed *IDN? response")
-    return ScpiIdentity(
-        manufacturer=parts[0],
-        model=parts[1],
-        serial_number=parts[2] if len(parts) > 2 else "",
-        firmware=",".join(parts[3:]) if len(parts) > 3 else "",
-        raw=raw,
-    )
-
-
-def format_number(value: float) -> str:
-    if not math.isfinite(value):
-        raise ValueError("SCPI numeric values must be finite")
-    return format(value, ".15g")
-
-
-def parse_float(response: str) -> float:
-    value = float(response.strip())
-    if not math.isfinite(value):
-        raise ValueError("instrument returned a non-finite number")
-    return value
-
-
-def parse_int(response: str) -> int:
-    return int(response.strip())
-
-
-def parse_bool(response: str) -> bool:
-    selected = response.strip().upper()
-    if selected in {"1", "ON"}:
-        return True
-    if selected in {"0", "OFF"}:
-        return False
-    raise ValueError(f"instrument returned invalid boolean {response!r}")
-
-
-def parse_csv_floats(response: str) -> tuple[float, ...]:
-    return tuple(parse_float(value) for value in response.strip().split(",") if value)
-
-
-def strip_scpi_string(response: str) -> str:
-    selected = response.strip()
-    if len(selected) >= 2 and selected[0] == selected[-1] and selected[0] in {"'", '"'}:
-        return selected[1:-1]
-    return selected
 
 
 def quantity_value(value: StateValue, unit: str) -> float:
