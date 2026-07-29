@@ -21,10 +21,7 @@ from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.units import compatible_units
-from scopecat.kernel.value_identity import (
-    quantity_comparison_values,
-    scalar_identity,
-)
+from scopecat.kernel.value_identity import scalar_identity
 from scopecat.kernel.value_type_wire import (
     InstrumentOperationScalarWire,
     InstrumentPropertyScalarWire,
@@ -95,14 +92,6 @@ from scopecat.sdk.problems import (
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 _JSON_SAFE_INTEGER = (1 << 53) - 1
-type StateComparisonOperator = Literal[
-    "equal",
-    "not_equal",
-    "less_than",
-    "less_than_or_equal",
-    "greater_than",
-    "greater_than_or_equal",
-]
 
 
 class PropertySpec(BaseModel):
@@ -165,6 +154,23 @@ class DiscriminatedStateSpec(BaseModel):
         return self
 
 
+@dataclass(frozen=True, slots=True)
+class StateCase:
+    """Driver-authored properties available for one discriminator value."""
+
+    value: str
+    properties: tuple[PropertySpec, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DiscriminatedState:
+    """Driver-authored state normalized by ``interface`` or ``component``."""
+
+    discriminator: PropertySpec
+    common_properties: tuple[PropertySpec, ...]
+    cases: tuple[StateCase, ...]
+
+
 class StatePropertyRef(BaseModel):
     """One observable persistent property used by an acquisition contract."""
 
@@ -221,12 +227,11 @@ class AcquisitionResultSpec(BaseModel):
 
 
 class AcquisitionPreconditionSpec(BaseModel):
-    """One public state comparison required before an acquisition can start."""
+    """One public state value required before an acquisition can start."""
 
     model_config = ConfigDict(extra="forbid")
 
     property: StatePropertyRef
-    operator: StateComparisonOperator
     value: bool | int | float | str | Quantity
     unavailable_reason: _NonEmptyId
 
@@ -789,24 +794,24 @@ class InstrumentProvider(Protocol):
 def state_case(
     value: str,
     *,
-    property_ids: list[str] | tuple[str, ...] = (),
-) -> StateCaseSpec:
-    return StateCaseSpec(
+    properties: list[PropertySpec] | tuple[PropertySpec, ...] = (),
+) -> StateCase:
+    return StateCase(
         value=value,
-        property_ids=list(property_ids),
+        properties=tuple(properties),
     )
 
 
 def discriminated_state(
-    discriminator_property_id: str,
+    discriminator: PropertySpec,
     *,
-    common_property_ids: list[str] | tuple[str, ...] = (),
-    cases: list[StateCaseSpec] | tuple[StateCaseSpec, ...],
-) -> DiscriminatedStateSpec:
-    return DiscriminatedStateSpec(
-        discriminator_property_id=discriminator_property_id,
-        common_property_ids=list(common_property_ids),
-        cases=list(cases),
+    common_properties: list[PropertySpec] | tuple[PropertySpec, ...] = (),
+    cases: list[StateCase] | tuple[StateCase, ...],
+) -> DiscriminatedState:
+    return DiscriminatedState(
+        discriminator=discriminator,
+        common_properties=tuple(common_properties),
+        cases=tuple(cases),
     )
 
 
@@ -816,17 +821,21 @@ def interface(
     label: str | None = None,
     description: str | None = None,
     properties: list[PropertySpec] | tuple[PropertySpec, ...] = (),
-    state: DiscriminatedStateSpec | None = None,
+    state: DiscriminatedState | None = None,
     operations: list[OperationSpec] | tuple[OperationSpec, ...] = (),
     acquisitions: list[AcquisitionSpec] | tuple[AcquisitionSpec, ...] = (),
     components: list[ComponentSpec] | tuple[ComponentSpec, ...] = (),
 ) -> InterfaceSpec:
+    normalized_properties, normalized_state = _normalize_authored_state(
+        properties,
+        state,
+    )
     return InterfaceSpec(
         id=id,
         label=label,
         description=description,
-        properties=list(properties),
-        state=state,
+        properties=normalized_properties,
+        state=normalized_state,
         operations=list(operations),
         acquisitions=list(acquisitions),
         components=list(components),
@@ -839,20 +848,50 @@ def component(
     label: str | None = None,
     description: str | None = None,
     properties: list[PropertySpec] | tuple[PropertySpec, ...] = (),
-    state: DiscriminatedStateSpec | None = None,
+    state: DiscriminatedState | None = None,
     operations: list[OperationSpec] | tuple[OperationSpec, ...] = (),
     acquisitions: list[AcquisitionSpec] | tuple[AcquisitionSpec, ...] = (),
     components: list[ComponentSpec] | tuple[ComponentSpec, ...] = (),
 ) -> ComponentSpec:
+    normalized_properties, normalized_state = _normalize_authored_state(
+        properties,
+        state,
+    )
     return ComponentSpec(
         id=id,
         label=label,
         description=description,
-        properties=list(properties),
-        state=state,
+        properties=normalized_properties,
+        state=normalized_state,
         operations=list(operations),
         acquisitions=list(acquisitions),
         components=list(components),
+    )
+
+
+def _normalize_authored_state(
+    properties: list[PropertySpec] | tuple[PropertySpec, ...],
+    state: DiscriminatedState | None,
+) -> tuple[list[PropertySpec], DiscriminatedStateSpec | None]:
+    if state is None:
+        return list(properties), None
+    if properties:
+        raise ValueError("discriminated state properties must be declared by the state")
+    normalized_properties = [
+        state.discriminator,
+        *state.common_properties,
+        *(item for case in state.cases for item in case.properties),
+    ]
+    return normalized_properties, DiscriminatedStateSpec(
+        discriminator_property_id=state.discriminator.id,
+        common_property_ids=[item.id for item in state.common_properties],
+        cases=[
+            StateCaseSpec(
+                value=case.value,
+                property_ids=[item.id for item in case.properties],
+            )
+            for case in state.cases
+        ],
     )
 
 
@@ -924,13 +963,11 @@ def _state_property_ref(property: PropertyRef) -> StatePropertyRef:
 def acquisition_precondition(
     property: PropertyRef,
     *,
-    operator: StateComparisonOperator,
-    value: bool | float | str | Quantity,
+    value: bool | int | float | str | Quantity,  # noqa: PYI041
     unavailable_reason: str,
 ) -> AcquisitionPreconditionSpec:
     return AcquisitionPreconditionSpec(
         property=_state_property_ref(property),
-        operator=operator,
         value=value,
         unavailable_reason=unavailable_reason,
     )
@@ -1219,33 +1256,7 @@ def _precondition_matches(
 ) -> bool:
     left = coerce_literal(property_spec.value_type, observed.root)
     right = coerce_literal(property_spec.value_type, precondition.value)
-    operator = precondition.operator
-    if isinstance(left, Quantity) and isinstance(right, Quantity):
-        left_value, right_value = quantity_comparison_values(left, right)
-        if operator == "equal":
-            return left_value == right_value
-        if operator == "not_equal":
-            return left_value != right_value
-    else:
-        if operator == "equal":
-            return scalar_identity(left) == scalar_identity(right)
-        if operator == "not_equal":
-            return scalar_identity(left) != scalar_identity(right)
-        assert (
-            isinstance(left, int | float)
-            and not isinstance(left, bool)
-            and isinstance(right, int | float)
-            and not isinstance(right, bool)
-        )
-        left_value, right_value = left, right
-    if operator == "less_than":
-        return left_value < right_value
-    if operator == "less_than_or_equal":
-        return left_value <= right_value
-    if operator == "greater_than":
-        return left_value > right_value
-    assert operator == "greater_than_or_equal"
-    return left_value >= right_value
+    return scalar_identity(left) == scalar_identity(right)
 
 
 def operation_argument(
@@ -3211,14 +3222,6 @@ def _validate_acquisition_precondition(
             f"acquisition {acquisition.id!r} precondition property must be observable"
         )
     atom = property_spec.value_type.atom
-    if precondition.operator not in {"equal", "not_equal"} and not isinstance(
-        atom,
-        IntType | FloatType | QuantityType,
-    ):
-        raise ValueError(
-            f"acquisition {acquisition.id!r} ordered precondition requires "
-            "a numeric property"
-        )
     if isinstance(atom, QuantityType):
         literal = precondition.value
         if not isinstance(literal, Quantity):

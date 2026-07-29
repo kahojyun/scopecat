@@ -115,7 +115,7 @@ A state snapshot is complete public physical state for every advertised static
 component. Logical entity and channel bindings remain command provenance; they
 are resolved before a driver request and never become device-state identity.
 Quantity readback uses the unit declared by its `PropertySpec`; canonical units
-keep daemon validation and browser readiness comparisons identical.
+make daemon-side validation deterministic.
 
 An explicit state refresh is read-only. If it fails, or the driver returns an
 invalid snapshot, the daemon ends the whole multi-instrument ownership epoch
@@ -297,9 +297,9 @@ migration rather than ordinary undo.
 Instruments are a top-level workspace beside Runs and Configuration. The list
 shows:
 
-- friendly label, stable id, driver, and non-secret connection summary;
+- friendly label, stable id, and non-secret connection summary;
 - availability: `available`, `active`, `quarantined`, or `unavailable`;
-- current owner kind and actor or run id;
+- whether a run or interactive session currently owns the device;
 - provider or configuration problems.
 
 Opening the workspace does not acquire an instrument automatically. The
@@ -315,8 +315,8 @@ operator explicitly selects **Connect**, after which the detail view:
 6. submits all staged properties in one **Apply** operation;
 7. offers one-shot controls for declared operations whose arguments the GUI can
    encode;
-8. offers **Collect** for the active result case only when public acquisition
-   preconditions are satisfied;
+8. offers **Collect** for declared acquisitions; the daemon resolves the active
+   result case and validates its preconditions;
 9. releases session ownership on explicit disconnect or workspace teardown.
 
 **Refresh state** performs a new read when the operator wants to synchronize
@@ -354,7 +354,7 @@ from scopecat_instruments.members import (
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
-        print(item.instrument_id, item.availability, item.owner_actor)
+        print(item.instrument_id, item.availability)
 
     with lab.instruments.open("readout-vna") as vna:
         print(vna.describe())
@@ -415,22 +415,11 @@ with lab.instruments.open("flux-source", "readout-vna") as session:
     )
 ```
 
-The handle is synchronous to match the existing notebook API. It generates a
-new command id for every apply, invoke, or collect unless the caller supplies
-one, and closes or aborts through the daemon when leaving the context. If an
-HTTP response is lost, retry with the same `command_id`: the daemon returns the
-recorded receipt instead of touching the device again. The complete retry
-request must remain identical. For collect, that identity is the high-level
-target and optional result selection, not a client-built hardware command.
-Omitting result refs asks the daemon to select all active results from the first
-synchronized snapshot; replay keeps that frozen choice even if the device mode
-later changes. The daemon client automatically retries one transport failure
-with the same intent.
-
-Opening has a separate retry identity and replays the config resolution from
-its first successful attempt, even if the active config changes. Close and
-abort are naturally idempotent because the daemon records the session's
-terminal status.
+The handle is synchronous to match the existing notebook API and releases
+ownership when its context exits. Calls are replay-safe across a transient
+transport failure without requiring users to manage daemon command identities.
+Omitting result refs asks the daemon to select every active result from the
+fresh synchronized state.
 
 The Notebook API does not read state or resolve acquisition schema locally.
 The daemon performs one fresh synchronization after a replay miss, chooses
@@ -467,9 +456,8 @@ still means its consequence cannot be determined. NaN and infinity are never
 missing-value encodings. An unavailable array marks the whole result; element
 validity belongs in the future chunked-data representation.
 
-An operator can recover a session left by another notebook kernel with
-`lab.instruments.abort_session(session_id)`. This asks the daemon to run the
-driver's safe abort path before releasing the resource claim.
+A stale interactive owner remains visible in the Instruments workspace, where
+an operator can disconnect it through the daemon's safe abort path.
 
 ## Concurrency and failure semantics
 

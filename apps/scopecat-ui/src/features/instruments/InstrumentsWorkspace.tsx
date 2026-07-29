@@ -24,11 +24,11 @@ import {
 } from "./instrument-api";
 
 const EMPTY_INSTRUMENTS: InstrumentView[] = [];
+const LOCAL_OPERATOR = "local-operator";
 
 export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable: boolean }) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string>();
-  const [actor, setActor] = useState("local-operator");
   const [session, setSession] = useState<InstrumentSession>();
   const [sessionError, setSessionError] = useState<string>();
   const [configInstrumentId, setConfigInstrumentId] = useState<string>();
@@ -160,8 +160,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
     void queryClient.invalidateQueries({ queryKey: ["instruments"] });
   };
   const connectCurrent = (instrumentId: string) => {
-    const operator = actor.trim();
-    const key = `${instrumentId}\u0000${operator}`;
+    const key = instrumentId;
     if (openAttemptRef.current?.key !== key) {
       openAttemptRef.current = {
         key,
@@ -170,7 +169,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
     }
     connectMutation.mutate({
       instrumentId,
-      operator,
+      operator: LOCAL_OPERATOR,
       operationId: openAttemptRef.current.operationId,
     });
   };
@@ -207,17 +206,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
         <div>
           <span className="eyebrow">Direct hardware interaction</span>
           <h2 id="instruments-heading">Instruments</h2>
-          <p>
-            Inspect driver interfaces, then explicitly connect one device for direct interaction.
-          </p>
-        </div>
-        <div className="instrument-config-identity">
-          <span>Active configuration</span>
-          {instrumentsQuery.data ? (
-            <code>{instrumentsQuery.data.config_entry_id}</code>
-          ) : (
-            <small>Waiting for daemon</small>
-          )}
+          <p>Inspect device controls, then explicitly connect one device for direct interaction.</p>
         </div>
       </header>
 
@@ -296,7 +285,6 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             key={selected.instrument_id}
             instrument={selected}
             session={session}
-            actor={actor}
             sessionError={sessionError}
             connectPending={
               connectMutation.isPending &&
@@ -306,13 +294,6 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             editConnectionPending={
               configInstrumentId === selected.instrument_id && activeConfigQuery.isFetching
             }
-            onActorChange={(nextActor) => {
-              if (nextActor !== actor) {
-                openAttemptRef.current = undefined;
-                connectMutation.reset();
-              }
-              setActor(nextActor);
-            }}
             onConnect={() => connectCurrent(selected.instrument_id)}
             onClose={closeCurrent}
             onSessionLost={loseCurrent}
@@ -335,7 +316,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             <InstrumentListMessage
               icon={<Cable />}
               title="Nothing selected"
-              detail="Choose a configured instrument to inspect its driver contract."
+              detail="Choose a configured instrument to inspect its controls."
             />
           </div>
         )}
@@ -390,24 +371,13 @@ function InstrumentListItem({
       <code>{instrument.instrument_id}</code>
       <dl>
         <div>
-          <dt>Driver</dt>
-          <dd>{instrument.driver_id}</dd>
-        </div>
-        <div>
           <dt>Connection</dt>
           <dd>{connectionSummary(instrument.connection)}</dd>
         </div>
       </dl>
       {instrument.owner_id && (
         <span className="instrument-list-owner">
-          {instrument.owner_kind === "run" ? (
-            <>
-              Run <code>{instrument.owner_id}</code>
-            </>
-          ) : (
-            "Interactive session"
-          )}
-          {instrument.owner_actor ? ` · ${instrument.owner_actor}` : ""}
+          {instrument.owner_kind === "run" ? "Run in progress" : "Interactive session active"}
         </span>
       )}
     </button>

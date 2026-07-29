@@ -29,7 +29,6 @@ export function InstrumentConnectionDialog({
     <ConnectionEditor
       active={active}
       instrumentId={instrumentId}
-      driverId={spec.driver_id}
       initialConnection={spec.connection}
       onCancel={onCancel}
       onPublished={onPublished}
@@ -40,20 +39,17 @@ export function InstrumentConnectionDialog({
 function ConnectionEditor({
   active,
   instrumentId,
-  driverId,
   initialConnection,
   onCancel,
   onPublished,
 }: {
   active: ActiveConfig;
   instrumentId: string;
-  driverId: string;
   initialConnection: TcpipInstrumentConnection;
   onCancel: () => void;
   onPublished: () => void | Promise<void>;
 }) {
   const [connection, setConnection] = useState<TcpipInstrumentConnection>(initialConnection);
-  const [actor, setActor] = useState("local-operator");
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
@@ -61,10 +57,7 @@ function ConnectionEditor({
     () => JSON.stringify(connection) !== JSON.stringify(initialConnection),
     [connection, initialConnection],
   );
-  const valid = useMemo(
-    () => changed && connectionIsValid(connection) && actor.trim().length > 0,
-    [actor, changed, connection],
-  );
+  const valid = useMemo(() => changed && connectionIsValid(connection), [changed, connection]);
 
   const publish = async () => {
     if (!valid) return;
@@ -75,7 +68,7 @@ function ConnectionEditor({
         active,
         instrumentId,
         connection,
-        actor: actor.trim(),
+        actor: "local-operator",
         note: note.trim(),
       });
       await onPublished();
@@ -111,30 +104,12 @@ function ConnectionEditor({
               </Dialog.Close>
             </header>
             <div className="config-modal-body instrument-connection-form">
-              <div className="instrument-connection-identity">
-                <div>
-                  <span>Driver</span>
-                  <code>{driverId}</code>
-                </div>
-                <div>
-                  <span>Connection type</span>
-                  <strong>TCP/IP socket</strong>
-                </div>
-              </div>
               <p className="connection-scope-note">
-                Driver, connection type, and driver options come from the active configuration. This
-                editor only publishes endpoint and timeout changes.
+                This publishes endpoint and timeout changes. Connection type and driver options stay
+                unchanged.
               </p>
               <ConnectionFields connection={connection} onChange={setConnection} />
               <div className="instrument-config-audit">
-                <label>
-                  <span>Actor</span>
-                  <input
-                    value={actor}
-                    onChange={(event) => setActor(event.target.value)}
-                    aria-label="Configuration actor"
-                  />
-                </label>
                 <label>
                   <span>Note</span>
                   <input

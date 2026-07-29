@@ -103,7 +103,7 @@ describe("instrument workspace", () => {
     expect(screen.getByText("The optional vendor provider could not be loaded.")).toBeVisible();
   });
 
-  it("lists connection and ownership without connecting on selection", async () => {
+  it("lists connection and ownership without exposing internal identity", async () => {
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
       problems: [],
@@ -138,7 +138,10 @@ describe("instrument workspace", () => {
     expect(screen.getByText("Virtual · local simulator")).toBeVisible();
     expect(screen.getByText("Readout VNA")).toBeVisible();
     expect(screen.getByText("TCP/IP · 192.0.2.12:5025")).toBeVisible();
-    expect(screen.getByText(/Run/).closest(".instrument-list-owner")).toHaveTextContent("run-42");
+    expect(screen.getByText("Run in progress")).toBeVisible();
+    expect(screen.queryByText("run-42")).not.toBeInTheDocument();
+    expect(screen.queryByText("keysight.pna")).not.toBeInTheDocument();
+    expect(screen.queryByText("lab-default")).not.toBeInTheDocument();
     expect(openInstrumentSession).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTitle("Inspect instrument vna-1"));
@@ -173,15 +176,12 @@ describe("instrument workspace", () => {
 
     await screen.findByText("Drive source");
     expect(openInstrumentSession).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Instrument session actor"), {
-      target: { value: "Ada" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
     await waitFor(() =>
       expect(openInstrumentSession).toHaveBeenCalledWith(
         "drive-source",
-        "Ada",
+        "local-operator",
         expect.stringMatching(/^ui-open-/),
       ),
     );
@@ -811,12 +811,10 @@ describe("instrument workspace", () => {
 
     await screen.findByText("Configure trigger");
     expect(screen.getByRole("button", { name: "Invoke Configure trigger" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Invoke Upload waveform" })).toBeDisabled();
+    expect(screen.queryByText("Upload waveform")).not.toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Payload arguments require an encoded command payload and are not supported in the GUI.",
-      ),
-    ).toBeVisible();
+      screen.queryByRole("button", { name: "Invoke Upload waveform" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("payload_id")).not.toBeInTheDocument();
     expect(screen.queryByText("waveform/v1")).not.toBeInTheDocument();
 
@@ -941,6 +939,7 @@ describe("instrument workspace", () => {
     expect(summary).not.toHaveTextContent("private-overload-result");
     expect(summary).not.toHaveTextContent("private-missing-result");
     expect(screen.queryByRole("img", { name: /trace preview/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("JSON preview")).not.toBeInTheDocument();
   });
 
   it("reuses command ids while retrying mutations", async () => {
@@ -1030,7 +1029,6 @@ describe("instrument workspace", () => {
                     component_path: [],
                     property_id: "output_enabled",
                   },
-                  operator: "equal",
                   value: true,
                   unavailable_reason: "Enable RF output before collecting.",
                 },
@@ -1210,7 +1208,7 @@ describe("instrument workspace", () => {
     expect(await screen.findByRole("dialog")).toBeVisible();
   });
 
-  it("edits only endpoint fields while keeping driver and connection kind fixed", async () => {
+  it("edits only endpoint fields without exposing fixed driver details", async () => {
     const active = activeConfig();
     active.config.system.instrument_registry.instruments[0]!.driver_id = "keysight.pna";
     active.config.system.instrument_registry.instruments[0]!.connection = {
@@ -1238,9 +1236,11 @@ describe("instrument workspace", () => {
     await screen.findByText("Drive source");
     fireEvent.click(screen.getByRole("button", { name: "Edit connection" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("keysight.pna")).toBeVisible();
-    expect(within(dialog).getByText("TCP/IP socket")).toBeVisible();
+    expect(within(dialog).queryByText("keysight.pna")).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("textbox", { name: "Driver id" })).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("textbox", { name: "Configuration actor" }),
+    ).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText("Host"), {
       target: { value: "192.0.2.24" },
@@ -1293,7 +1293,7 @@ describe("instrument workspace", () => {
     renderWorkspace();
 
     expect(await screen.findByText("Operator resolution required")).toBeVisible();
-    expect(screen.getByText("Grace")).toBeVisible();
+    expect(screen.queryByText("Grace")).not.toBeInTheDocument();
     expect(screen.queryByText("session-stale")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Resolve quarantine" }));
     await waitFor(() => expect(resolveInstrumentAttention).toHaveBeenCalledWith("session-stale"));

@@ -286,24 +286,29 @@ class _ModeProvider:
                     interfaces=[
                         interface(
                             "test.mode/v1",
-                            properties=[
+                            state=discriminated_state(
                                 enum_property(
                                     "mode",
                                     choices=("voltage", "current"),
                                 ),
-                                quantity_property("voltage_level", unit="V"),
-                                quantity_property("current_level", unit="A"),
-                            ],
-                            state=discriminated_state(
-                                "mode",
                                 cases=(
                                     state_case(
                                         "voltage",
-                                        property_ids=("voltage_level",),
+                                        properties=(
+                                            quantity_property(
+                                                "voltage_level",
+                                                unit="V",
+                                            ),
+                                        ),
                                     ),
                                     state_case(
                                         "current",
-                                        property_ids=("current_level",),
+                                        properties=(
+                                            quantity_property(
+                                                "current_level",
+                                                unit="A",
+                                            ),
+                                        ),
                                     ),
                                 ),
                             ),

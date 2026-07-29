@@ -62,23 +62,15 @@ class LabInstrumentOperations:
     def get(self, instrument_id: str) -> InstrumentView:
         return self._client.get_instrument(instrument_id)
 
-    def abort_session(self, session_id: str) -> InstrumentSessionEndReceipt:
-        """Abort and release a daemon-owned session by id."""
-
-        return self._client.abort_instrument_session(session_id)
-
     def open(
         self,
         instrument_id: str,
         *additional_instrument_ids: str,
-        actor: str | None = None,
-        command_id: str | None = None,
     ) -> InstrumentSessionHandle:
         return InstrumentSessionHandle(
             client=self._client,
             instrument_ids=(instrument_id, *additional_instrument_ids),
-            actor=actor or self._operator,
-            open_command_id=command_id,
+            actor=self._operator,
         )
 
 
@@ -91,7 +83,6 @@ class InstrumentSessionHandle:
         client: DaemonClient,
         instrument_ids: tuple[str, ...],
         actor: str,
-        open_command_id: str | None = None,
     ) -> None:
         if not instrument_ids or any(not item for item in instrument_ids):
             raise ValueError("direct interaction requires non-empty instrument ids")
@@ -102,11 +93,7 @@ class InstrumentSessionHandle:
         self._client = client
         self._instrument_ids = instrument_ids
         self._actor = actor
-        self._open_command_id = _select_command_id(
-            open_command_id,
-            kind="open",
-            subject=instrument_ids[0],
-        )
+        self._open_operation_id = _new_command_id("open", instrument_ids[0])
         self._session: InstrumentSessionOpenReceipt | None = None
         self._ended = False
 
@@ -129,10 +116,6 @@ class InstrumentSessionHandle:
     @property
     def instrument_ids(self) -> tuple[str, ...]:
         return self._instrument_ids
-
-    @property
-    def session_id(self) -> str:
-        return self._require_session().session_id
 
     def describe(
         self,
@@ -175,7 +158,6 @@ class InstrumentSessionHandle:
         self,
         *,
         instrument_id: str | None = None,
-        operation_id: str | None = None,
     ) -> InstrumentConfiguredDefaultsApplyReceipt:
         """Apply sparse defaults pinned at session open without resetting hardware."""
 
@@ -185,11 +167,7 @@ class InstrumentSessionHandle:
             session.session_id,
             selected,
             InstrumentConfiguredDefaultsApplyCommand(
-                operation_id=_select_command_id(
-                    operation_id,
-                    kind="configured_defaults",
-                    subject=selected,
-                )
+                operation_id=_new_command_id("configured_defaults", selected)
             ),
         )
 
@@ -199,19 +177,13 @@ class InstrumentSessionHandle:
         /,
         *,
         instrument_id: str | None = None,
-        command_id: str | None = None,
     ) -> ApplyReceipt:
         if not values:
             raise ValueError("interactive apply requires at least one property")
         selected = self._selected_instrument_id(instrument_id)
         session = self._require_session()
-        selected_command_id = _select_command_id(
-            command_id,
-            kind="apply",
-            subject=selected,
-        )
         command = InstrumentStateCommand(
-            command_id=selected_command_id,
+            command_id=_new_command_id("apply", selected),
             instrument_id=selected,
             assignments=[
                 InstrumentStateAssignment(
@@ -239,7 +211,6 @@ class InstrumentSessionHandle:
         /,
         *,
         instrument_id: str | None = None,
-        command_id: str | None = None,
     ) -> InvokeReceipt:
         selected_arguments = dict(arguments or {})
         if any(target.operation != operation for target in selected_arguments):
@@ -258,11 +229,7 @@ class InstrumentSessionHandle:
                     f"operation payload id {value.id!r} has different content"
                 )
         command = InvokeCommand(
-            command_id=_select_command_id(
-                command_id,
-                kind="invoke",
-                subject=selected,
-            ),
+            command_id=_new_command_id("invoke", selected),
             instrument_id=selected,
             resource_id=selected,
             interface_id=operation.interface_id,
@@ -296,7 +263,6 @@ class InstrumentSessionHandle:
         acquisition: AcquisitionRef,
         *results: AcquisitionResultRef,
         instrument_id: str | None = None,
-        command_id: str | None = None,
     ) -> CollectReceipt:
         selected = self._selected_instrument_id(instrument_id)
         if any(result.acquisition != acquisition for result in results):
@@ -304,11 +270,7 @@ class InstrumentSessionHandle:
 
         session = self._require_session()
         intent = InteractiveCollectIntent(
-            command_id=_select_command_id(
-                command_id,
-                kind="collect",
-                subject=selected,
-            ),
+            command_id=_new_command_id("collect", selected),
             instrument_id=selected,
             interface_id=acquisition.interface_id,
             component_path=list(acquisition.component_path),
@@ -356,7 +318,7 @@ class InstrumentSessionHandle:
         if self._session is None:
             self._session = self._client.open_instrument_session(
                 InstrumentSessionOpenCommand(
-                    operation_id=self._open_command_id,
+                    operation_id=self._open_operation_id,
                     actor=self._actor,
                     instrument_ids=self._instrument_ids,
                 )
@@ -378,19 +340,6 @@ class InstrumentSessionHandle:
 
 def _new_command_id(kind: str, subject: str) -> str:
     return f"interactive.{kind}.{subject}.{uuid4().hex}"
-
-
-def _select_command_id(
-    requested: str | None,
-    *,
-    kind: str,
-    subject: str,
-) -> str:
-    if requested is None:
-        return _new_command_id(kind, subject)
-    if not requested:
-        raise ValueError("instrument command id must be non-empty")
-    return requested
 
 
 __all__ = [

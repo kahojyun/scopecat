@@ -38,39 +38,6 @@
   font-size: 0.66rem;
 }
 
-.instrument-config-identity {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 3px 10px;
-  align-items: baseline;
-  min-width: 230px;
-  padding-left: 18px;
-  border-left: 1px solid var(--line);
-  text-align: right;
-}
-
-.instrument-config-identity > span {
-  grid-column: 1 / -1;
-  color: var(--text-dim);
-  font-size: 0.55rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.instrument-config-identity code {
-  overflow: hidden;
-  color: var(--text-soft);
-  font-size: 0.64rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.instrument-config-identity small {
-  color: var(--text-dim);
-  font-size: 0.57rem;
-}
-
 .instruments-layout {
   display: grid;
   grid-template-columns: minmax(300px, 350px) minmax(0, 1fr);
@@ -215,10 +182,6 @@
   font-size: 0.57rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.instrument-list-owner code {
-  color: inherit;
 }
 
 .instrument-availability {
@@ -430,12 +393,6 @@
   justify-content: flex-end;
 }
 
-.instrument-actor-field {
-  display: grid;
-  gap: 4px;
-}
-
-.instrument-actor-field > span,
 .instrument-connection-form label > span,
 .instrument-config-audit label > span,
 .instrument-connection-fields label > span {
@@ -444,18 +401,6 @@
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-}
-
-.instrument-actor-field input {
-  width: 150px;
-  min-height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  outline: 0;
-  color: var(--text);
-  background: var(--bg);
-  font-size: 0.66rem;
 }
 
 .instrument-busy-panel,
@@ -492,27 +437,9 @@
 }
 
 .instrument-owner {
-  display: flex;
-  gap: 18px;
-  margin: 8px 0 0;
-}
-
-.instrument-owner > div {
-  display: flex;
-  gap: 5px;
-  align-items: baseline;
-}
-
-.instrument-owner dt {
+  display: block;
+  margin-top: 7px;
   color: var(--text-dim);
-  font-size: 0.52rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.instrument-owner dd {
-  margin: 0;
-  color: var(--text-soft);
   font-size: 0.59rem;
 }
 
@@ -854,16 +781,6 @@
   font-size: 0.49rem;
 }
 
-.operation-payload-warning {
-  display: block;
-  padding: 8px 12px 10px;
-  border-top: 1px solid var(--line);
-  color: var(--yellow);
-  background: var(--yellow-soft);
-  font-size: 0.54rem;
-  line-height: 1.45;
-}
-
 .operation-control > .instrument-receipt {
   border-width: 1px 0 0;
   border-radius: 0;
@@ -1005,28 +922,6 @@
   color: var(--yellow);
 }
 
-.collect-preview details {
-  color: var(--text-dim);
-  font-size: 0.56rem;
-}
-
-.collect-preview summary {
-  cursor: pointer;
-}
-
-.collect-preview pre {
-  overflow: auto;
-  max-height: 260px;
-  margin: 8px 0 0;
-  padding: 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--text-soft);
-  background: var(--panel-soft);
-  font-size: 0.55rem;
-  line-height: 1.45;
-}
-
 .instrument-trace {
   width: 100%;
   height: 110px;
@@ -1094,38 +989,6 @@
   line-height: 1.5;
 }
 
-.instrument-connection-identity {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.instrument-connection-identity > div {
-  display: grid;
-  gap: 5px;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel-soft);
-}
-
-.instrument-connection-identity span {
-  color: var(--text-dim);
-  font-size: 0.52rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.instrument-connection-identity code,
-.instrument-connection-identity strong {
-  overflow: hidden;
-  color: var(--text-soft);
-  font-size: 0.62rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .instrument-connection-form {
   gap: 12px;
 }
@@ -1153,7 +1016,7 @@
 }
 
 .instrument-config-audit {
-  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1.3fr);
+  grid-template-columns: minmax(0, 1fr);
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }

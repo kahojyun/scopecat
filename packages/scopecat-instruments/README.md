@@ -53,8 +53,8 @@ Specs and serialized IR lower them to raw ids.
 
 The context manager opens a durable daemon-owned session and closes it on exit.
 Runs and interactive sessions compete for the same exclusive resource claim.
-Consequential calls accept an explicit `command_id` when a caller needs to
-retry the same logical operation.
+Consequential calls retain their replay identity automatically while retrying a
+transient transport failure.
 
 ## Configuration
 

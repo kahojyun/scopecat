@@ -235,9 +235,20 @@ def test_temperature_readout_separates_scanner_state_from_samples() -> None:
 
 
 def test_dc_source_state_partitions_properties_by_source_mode() -> None:
-    state = dc_source_interface().state
+    interface = dc_source_interface()
+    state = interface.state
 
     assert state is not None
+    assert [item.id for item in interface.properties] == [
+        DC_SOURCE_MODE.property_id,
+        DC_SOURCE_VOLTAGE_PROTECTION.property_id,
+        DC_SOURCE_CURRENT_PROTECTION.property_id,
+        DC_SOURCE_OUTPUT_ENABLED.property_id,
+        DC_SOURCE_VOLTAGE_RANGE.property_id,
+        DC_SOURCE_VOLTAGE_LEVEL.property_id,
+        DC_SOURCE_CURRENT_RANGE.property_id,
+        DC_SOURCE_CURRENT_LEVEL.property_id,
+    ]
     assert state.discriminator_property_id == DC_SOURCE_MODE.property_id
     assert state.common_property_ids == [
         DC_SOURCE_VOLTAGE_PROTECTION.property_id,
@@ -292,7 +303,6 @@ def test_dc_monitor_results_follow_the_source_mode() -> None:
         (
             precondition.property.interface_id,
             precondition.property.property_id,
-            precondition.operator,
             precondition.value,
             precondition.unavailable_reason,
         )
@@ -301,14 +311,12 @@ def test_dc_monitor_results_follow_the_source_mode() -> None:
         (
             DC_SOURCE_OUTPUT_ENABLED.interface_id,
             DC_SOURCE_OUTPUT_ENABLED.property_id,
-            "equal",
             True,
             "DC source output is disabled.",
         ),
         (
             DC_MONITOR_MEASUREMENT_ENABLED.interface_id,
             DC_MONITOR_MEASUREMENT_ENABLED.property_id,
-            "equal",
             True,
             "DC monitor measurement is disabled.",
         ),

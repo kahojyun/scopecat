@@ -65,75 +65,73 @@ def dc_source_interface() -> InterfaceSpec:
             "DC voltage/current source controls with mode-specific level and range "
             "state."
         ),
-        properties=[
+        state=discriminated_state(
             enum_property(
                 member_refs.DC_SOURCE_MODE.property_id,
                 choices=("voltage", "current"),
                 label="Source mode",
                 description="Discriminator selecting voltage or current source state.",
             ),
-            quantity_property(
-                member_refs.DC_SOURCE_VOLTAGE_RANGE.property_id,
-                unit="V",
-                label="Voltage range",
-                description="Voltage-source range, available in voltage mode.",
-            ),
-            quantity_property(
-                member_refs.DC_SOURCE_CURRENT_RANGE.property_id,
-                unit="A",
-                label="Current range",
-                description="Current-source range, available in current mode.",
-            ),
-            quantity_property(
-                member_refs.DC_SOURCE_VOLTAGE_LEVEL.property_id,
-                unit="V",
-                label="Voltage level",
-                description="Voltage-source level, available in voltage mode.",
-            ),
-            quantity_property(
-                member_refs.DC_SOURCE_CURRENT_LEVEL.property_id,
-                unit="A",
-                label="Current level",
-                description="Current-source level, available in current mode.",
-            ),
-            quantity_property(
-                member_refs.DC_SOURCE_VOLTAGE_PROTECTION.property_id,
-                unit="V",
-                label="Voltage protection",
-                description="Absolute voltage limiter level.",
-            ),
-            quantity_property(
-                member_refs.DC_SOURCE_CURRENT_PROTECTION.property_id,
-                unit="A",
-                label="Current protection",
-                description="Absolute current limiter level.",
-            ),
-            bool_property(
-                member_refs.DC_SOURCE_OUTPUT_ENABLED.property_id,
-                label="DC output",
-                description="Whether the source output is enabled.",
-            ),
-        ],
-        state=discriminated_state(
-            member_refs.DC_SOURCE_MODE.property_id,
-            common_property_ids=(
-                member_refs.DC_SOURCE_VOLTAGE_PROTECTION.property_id,
-                member_refs.DC_SOURCE_CURRENT_PROTECTION.property_id,
-                member_refs.DC_SOURCE_OUTPUT_ENABLED.property_id,
+            common_properties=(
+                quantity_property(
+                    member_refs.DC_SOURCE_VOLTAGE_PROTECTION.property_id,
+                    unit="V",
+                    label="Voltage protection",
+                    description="Absolute voltage limiter level.",
+                ),
+                quantity_property(
+                    member_refs.DC_SOURCE_CURRENT_PROTECTION.property_id,
+                    unit="A",
+                    label="Current protection",
+                    description="Absolute current limiter level.",
+                ),
+                bool_property(
+                    member_refs.DC_SOURCE_OUTPUT_ENABLED.property_id,
+                    label="DC output",
+                    description="Whether the source output is enabled.",
+                ),
             ),
             cases=(
                 state_case(
                     "voltage",
-                    property_ids=(
-                        member_refs.DC_SOURCE_VOLTAGE_RANGE.property_id,
-                        member_refs.DC_SOURCE_VOLTAGE_LEVEL.property_id,
+                    properties=(
+                        quantity_property(
+                            member_refs.DC_SOURCE_VOLTAGE_RANGE.property_id,
+                            unit="V",
+                            label="Voltage range",
+                            description=(
+                                "Voltage-source range, available in voltage mode."
+                            ),
+                        ),
+                        quantity_property(
+                            member_refs.DC_SOURCE_VOLTAGE_LEVEL.property_id,
+                            unit="V",
+                            label="Voltage level",
+                            description=(
+                                "Voltage-source level, available in voltage mode."
+                            ),
+                        ),
                     ),
                 ),
                 state_case(
                     "current",
-                    property_ids=(
-                        member_refs.DC_SOURCE_CURRENT_RANGE.property_id,
-                        member_refs.DC_SOURCE_CURRENT_LEVEL.property_id,
+                    properties=(
+                        quantity_property(
+                            member_refs.DC_SOURCE_CURRENT_RANGE.property_id,
+                            unit="A",
+                            label="Current range",
+                            description=(
+                                "Current-source range, available in current mode."
+                            ),
+                        ),
+                        quantity_property(
+                            member_refs.DC_SOURCE_CURRENT_LEVEL.property_id,
+                            unit="A",
+                            label="Current level",
+                            description=(
+                                "Current-source level, available in current mode."
+                            ),
+                        ),
                     ),
                 ),
             ),
@@ -177,13 +175,11 @@ def dc_monitor_interface() -> InterfaceSpec:
                 preconditions=[
                     acquisition_precondition(
                         member_refs.DC_SOURCE_OUTPUT_ENABLED,
-                        operator="equal",
                         value=True,
                         unavailable_reason="DC source output is disabled.",
                     ),
                     acquisition_precondition(
                         member_refs.DC_MONITOR_MEASUREMENT_ENABLED,
-                        operator="equal",
                         value=True,
                         unavailable_reason="DC monitor measurement is disabled.",
                     ),

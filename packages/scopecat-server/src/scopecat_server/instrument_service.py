@@ -751,17 +751,8 @@ class InstrumentService:
                 operation_id=command.operation_id,
             )
         except _DefaultStateReconciliationRejected as error:
-            if error.changed_state:
-                _fault_ownership(runtime, abort=True)
-                self._mark_run_unknown(
-                    run_id,
-                    token=command.lease_id,
-                    reason="run_instrument_default_reconciliation_partial",
-                )
-                raise BackendConflict(
-                    "instrument default-state reconciliation at run start "
-                    "partially changed hardware"
-                ) from error
+            # A rejection is conclusive. Earlier confirmed changes stay
+            # observable, and the next owner refreshes them before acting.
             if _release_instruments(runtime.instruments.values()):
                 raise BackendConflict(
                     "instrument default-state reconciliation rejection "
@@ -819,7 +810,6 @@ class InstrumentService:
             instrument_id: state.model_copy(deep=True)
             for instrument_id, state in observed.items()
         }
-        changed_state = False
         for command in commands:
             instrument_id = command.instrument_id
             instrument = runtime.instruments[instrument_id]
@@ -832,9 +822,7 @@ class InstrumentService:
             if receipt.status != "applied":
                 raise _DefaultStateReconciliationRejected(
                     problems=receipt.problems,
-                    changed_state=changed_state,
                 )
-            changed_state = True
             try:
                 state = _confirmed_applied_state(
                     instrument,
@@ -1777,6 +1765,7 @@ class InstrumentService:
         instrument_id: str,
         command: InstrumentStateCommand,
     ) -> ApplyReceipt:
+        command = command.model_copy(deep=True)
         if command.instrument_id != instrument_id:
             raise BackendConflict("instrument apply command does not match its route")
         runtime = self._live_runtime(session_id)
@@ -1786,11 +1775,47 @@ class InstrumentService:
                 instrument_id,
             )
             command_id = command.command_id
-            return self._apply_live(
+            ledger = runtime.ledgers[instrument_id]
+            replay = ledger.operations.get(command_id)
+            if replay is not None:
+                if not isinstance(replay, _ApplyReplay):
+                    raise BackendConflict(
+                        "interactive command id was already used for another "
+                        "command kind"
+                    )
+                if replay.command != command:
+                    raise BackendConflict(
+                        "interactive command id has different apply content"
+                    )
+                return replay.receipt
+
+            # Replay precedes refresh so retries cannot be revalidated against
+            # later front-panel state.
+            state = self._synchronize_session_instrument(
+                session,
+                runtime,
+                instrument,
+            )
+            validation_problems = validate_state_command(
+                command=command,
+                description=instrument.description,
+                baseline=state,
+            )
+            if validation_problems:
+                receipt = ApplyReceipt(
+                    status="not_applied",
+                    problems=tuple(validation_problems),
+                )
+                ledger.operations[command_id] = _ApplyReplay(
+                    command=command,
+                    receipt=receipt,
+                )
+                return receipt
+
+            return self._execute_interactive_apply(
                 runtime,
                 instrument,
                 command=command,
-                conflict_scope="interactive",
                 on_started=lambda: self._record_operation_started(
                     session,
                     instrument_id=instrument_id,
@@ -2183,44 +2208,18 @@ class InstrumentService:
                 ),
             )
 
-    def _apply_live(
+    def _execute_interactive_apply(
         self,
         runtime: _OwnershipRuntime,
         instrument: OwnedInstrument,
         *,
         command: InstrumentStateCommand,
-        conflict_scope: str,
         on_started: Callable[[], None],
         on_finished: Callable[[str], None],
         on_unknown: Callable[[str], None],
     ) -> ApplyReceipt:
         command_id = command.command_id
         ledger = runtime.ledgers[instrument.instrument_id]
-        replay = ledger.operations.get(command_id)
-        if replay is not None:
-            if not isinstance(replay, _ApplyReplay):
-                raise BackendConflict(
-                    f"{conflict_scope} command id was already used for another "
-                    "command kind"
-                )
-            if replay.command != command:
-                raise BackendConflict(
-                    f"{conflict_scope} command id has different apply content"
-                )
-            return replay.receipt
-        description = instrument.description
-        current = instrument.assumed_state
-        if current is None:
-            raise BackendConflict("instrument state must be synchronized before apply")
-        validation_problems = validate_state_command(
-            command=command,
-            description=description,
-            baseline=current,
-        )
-        if validation_problems:
-            raise BackendConflict(
-                "; ".join(item.message for item in validation_problems)
-            )
         driver_request = lower_driver_apply_request(command)
         on_started()
         try:
@@ -3018,10 +3017,8 @@ class _DefaultStateReconciliationRejected(RuntimeError):
         self,
         *,
         problems: tuple[Problem, ...],
-        changed_state: bool,
     ) -> None:
         self.problems = problems
-        self.changed_state = changed_state
         super().__init__("instrument default-state reconciliation was rejected")
 
 
@@ -3238,7 +3235,6 @@ def _configured_default_assignments(
     if problems:
         raise _DefaultStateReconciliationRejected(
             problems=tuple(problems),
-            changed_state=False,
         )
     return assignments
 
@@ -3267,7 +3263,6 @@ def _pending_configured_defaults_command(
     if problems:
         raise _DefaultStateReconciliationRejected(
             problems=tuple(problems),
-            changed_state=False,
         )
     return InstrumentStateCommand(
         command_id=operation_id,

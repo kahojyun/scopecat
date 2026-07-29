@@ -36,28 +36,19 @@ from scopecat.records.measurement import (
 from scopecat.sdk.instruments import (
     AcquisitionCaseSpec,
     AcquisitionPreconditionSpec,
-    AcquisitionReadiness,
-    CollectAxisRequest,
-    CollectCommand,
     CollectReceipt,
-    CollectResultRequest,
+    DiscriminatedState,
     FixedAcquisitionSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
-    InstrumentOperationArgument,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentStateAssignment,
-    InstrumentStateCommand,
     InstrumentStateSnapshot,
-    InteractiveCollectIntent,
     InterfaceRef,
-    InvokeCommand,
     OperationArgumentSpec,
     PropertyRef,
     PropertySpec,
-    RejectedInteractiveCollect,
-    ResolvedInteractiveCollect,
+    StateCase,
     StateDiscriminatedAcquisitionSpec,
     StatePropertyRef,
     acquisition,
@@ -70,30 +61,40 @@ from scopecat.sdk.instruments import (
     component,
     discriminated_state,
     enum_property,
-    evaluate_acquisition_readiness,
     float_property,
     int_property,
     interface,
     operation,
     operation_argument,
     quantity_property,
-    resolve_acquisition_dimensions,
-    resolve_interactive_collect,
     state_case,
     state_discriminated_acquisition,
     string_property,
-    validate_collect_command,
-    validate_collect_plan,
-    validate_collect_receipt,
-    validate_invoke_command,
-    validate_state_command,
-    validate_state_snapshot,
 )
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import lower_driver_apply_request
 from scopecat.sdk.instruments.contracts import (
+    CollectAxisRequest,
+    CollectCommand,
+    CollectResultRequest,
+    InstrumentOperationArgument,
+    InstrumentStateAssignment,
+    InstrumentStateCommand,
+    InteractiveCollectIntent,
+    InvokeCommand,
+    RejectedInteractiveCollect,
+    ResolvedInteractiveCollect,
+    evaluate_acquisition_readiness,
     project_instrument_state,
+    resolve_acquisition_dimensions,
+    resolve_interactive_collect,
+    validate_collect_command,
+    validate_collect_plan,
+    validate_collect_receipt,
     validate_instrument_description_collection,
+    validate_invoke_command,
+    validate_state_command,
+    validate_state_snapshot,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import (
@@ -110,21 +111,28 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
     owners = {
         "AcquisitionCaseSpec": AcquisitionCaseSpec,
         "AcquisitionPreconditionSpec": AcquisitionPreconditionSpec,
-        "AcquisitionReadiness": AcquisitionReadiness,
         "CommandChannelBinding": RecordCommandChannelBinding,
+        "DiscriminatedState": DiscriminatedState,
         "FixedAcquisitionSpec": FixedAcquisitionSpec,
         "InstrumentReadback": RecordInstrumentReadback,
         "InstrumentPropertyState": RecordInstrumentPropertyState,
         "InstrumentStateSnapshot": RecordInstrumentStateSnapshot,
-        "InteractiveCollectIntent": InteractiveCollectIntent,
-        "RejectedInteractiveCollect": RejectedInteractiveCollect,
-        "ResolvedInteractiveCollect": ResolvedInteractiveCollect,
+        "StateCase": StateCase,
         "StateDiscriminatedAcquisitionSpec": StateDiscriminatedAcquisitionSpec,
         "StatePropertyRef": StatePropertyRef,
     }
 
     for name, owner in owners.items():
         assert getattr(instrument_sdk, name) is owner
+
+    for name in (
+        "AcquisitionReadiness",
+        "CollectCommand",
+        "InteractiveCollectIntent",
+        "ResolvedInteractiveCollect",
+        "validate_collect_plan",
+    ):
+        assert not hasattr(instrument_sdk, name)
 
 
 @pytest.mark.parametrize("dtype", ["bool", "string"])
@@ -948,7 +956,6 @@ def test_acquisition_readiness_uses_public_state_preconditions() -> None:
         preconditions=(
             acquisition_precondition(
                 output_enabled,
-                operator="equal",
                 value=True,
                 unavailable_reason="Source output is disabled.",
             ),
@@ -992,7 +999,6 @@ def test_collect_plan_checks_preconditions_but_structural_validation_does_not() 
                 InterfaceRef("test.source/v1")
                 .component("output")
                 .property("output_enabled"),
-                operator="equal",
                 value=True,
                 unavailable_reason="Source output is disabled.",
             ),
@@ -1037,7 +1043,6 @@ def test_known_common_precondition_blocks_with_an_unknown_result_case() -> None:
                 InterfaceRef("test.source/v1")
                 .component("output")
                 .property("output_enabled"),
-                operator="equal",
                 value=True,
                 unavailable_reason="Source output is disabled.",
             ),
@@ -1070,27 +1075,10 @@ def test_known_common_precondition_blocks_with_an_unknown_result_case() -> None:
 
 
 def test_acquisition_preconditions_validate_type_and_state_visibility() -> None:
-    output_enabled = (
-        InterfaceRef("test.source/v1").component("output").property("output_enabled")
-    )
     voltage_level = (
         InterfaceRef("test.source/v1").component("output").property("voltage_level")
     )
 
-    with pytest.raises(
-        ValidationError,
-        match="ordered precondition requires a numeric property",
-    ):
-        _state_discriminated_collect_description(
-            preconditions=(
-                acquisition_precondition(
-                    output_enabled,
-                    operator="greater_than",
-                    value=True,
-                    unavailable_reason="Source output is disabled.",
-                ),
-            )
-        )
     with pytest.raises(
         ValidationError,
         match="state that is not always observable",
@@ -1099,7 +1087,6 @@ def test_acquisition_preconditions_validate_type_and_state_visibility() -> None:
             preconditions=(
                 acquisition_precondition(
                     voltage_level,
-                    operator="equal",
                     value=0.1,
                     unavailable_reason="Voltage level is not configured.",
                 ),
@@ -1114,9 +1101,8 @@ def test_acquisition_preconditions_validate_type_and_state_visibility() -> None:
                 preconditions=(
                     acquisition_precondition(
                         voltage_level,
-                        operator="greater_than_or_equal",
                         value=0.1,
-                        unavailable_reason="Voltage level is too low.",
+                        unavailable_reason="Voltage level is not configured.",
                     ),
                 ),
             ),
@@ -1159,7 +1145,6 @@ def test_quantity_preconditions_require_a_canonical_property_unit() -> None:
                             preconditions=[
                                 acquisition_precondition(
                                     level,
-                                    operator="equal",
                                     value=Quantity(1.0, "V"),
                                     unavailable_reason="Level is not one volt.",
                                 )
@@ -1188,9 +1173,8 @@ def test_quantity_preconditions_compare_projected_compatible_units() -> None:
                         preconditions=[
                             acquisition_precondition(
                                 level,
-                                operator="greater_than_or_equal",
                                 value=Quantity(1.0, "V"),
-                                unavailable_reason="Level is below one volt.",
+                                unavailable_reason="Level is not one volt.",
                             )
                         ],
                     )
@@ -1272,9 +1256,8 @@ def test_precondition_literals_have_canonical_contract_fingerprints() -> None:
                             preconditions=[
                                 acquisition_precondition(
                                     level,
-                                    operator="greater_than_or_equal",
                                     value=value,
-                                    unavailable_reason="Level is too low.",
+                                    unavailable_reason="Level differs.",
                                 )
                             ],
                         )
@@ -1314,9 +1297,8 @@ def test_description_normalization_owns_shared_interface_models() -> None:
         preconditions=[
             acquisition_precondition(
                 level,
-                operator="greater_than_or_equal",
                 value=1,
-                unavailable_reason="Level is too low.",
+                unavailable_reason="Level differs.",
             )
         ],
     )
@@ -1403,7 +1385,6 @@ def test_instrument_ints_are_bounded_by_the_json_safe_range() -> None:
                             preconditions=[
                                 acquisition_precondition(
                                     count,
-                                    operator="equal",
                                     value=safe_limit + 1,
                                     unavailable_reason="Count differs.",
                                 )
@@ -1446,16 +1427,16 @@ def test_numeric_property_bounds_have_canonical_interface_wire() -> None:
     validate_instrument_description_collection((negative_zero, positive_zero))
 
 
-def test_discriminated_state_requires_an_exhaustive_property_partition() -> None:
-    with pytest.raises(ValidationError, match="unclassified properties"):
+def test_discriminated_state_builder_owns_its_property_partition() -> None:
+    with pytest.raises(
+        ValueError,
+        match="properties must be declared by the state",
+    ):
         interface(
             "test.dc/v1",
-            properties=[
-                enum_property("mode", choices=("voltage", "current")),
-                float_property("level"),
-            ],
+            properties=[float_property("level")],
             state=discriminated_state(
-                "mode",
+                enum_property("mode", choices=("voltage", "current")),
                 cases=(
                     state_case("voltage"),
                     state_case("current"),
@@ -1466,11 +1447,8 @@ def test_discriminated_state_requires_an_exhaustive_property_partition() -> None
     with pytest.raises(ValidationError, match="choices exactly match case values"):
         interface(
             "test.dc/v1",
-            properties=[
-                enum_property("mode", choices=("voltage", "current")),
-            ],
             state=discriminated_state(
-                "mode",
+                enum_property("mode", choices=("voltage", "current")),
                 cases=(
                     state_case("current"),
                     state_case("voltage"),
@@ -2095,7 +2073,6 @@ def test_interactive_collect_reports_inactive_results_and_blocked_state() -> Non
                 InterfaceRef("test.source/v1")
                 .component("output")
                 .property("output_enabled"),
-                operator="equal",
                 value=True,
                 unavailable_reason="Source output is disabled.",
             ),
@@ -2281,21 +2258,16 @@ def test_state_sized_axis_must_be_visible_in_its_acquisition_case() -> None:
             interfaces=[
                 interface(
                     trace.interface_id,
-                    properties=[
-                        enum_property("mode", choices=("voltage", "current")),
-                        int_property("voltage_points", minimum=1),
-                        int_property("current_points", minimum=1),
-                    ],
                     state=discriminated_state(
-                        "mode",
+                        enum_property("mode", choices=("voltage", "current")),
                         cases=(
                             state_case(
                                 "voltage",
-                                property_ids=("voltage_points",),
+                                properties=(int_property("voltage_points", minimum=1),),
                             ),
                             state_case(
                                 "current",
-                                property_ids=("current_points",),
+                                properties=(int_property("current_points", minimum=1),),
                             ),
                         ),
                     ),
@@ -2788,25 +2760,23 @@ def _variant_description() -> InstrumentDescription:
         interfaces=[
             interface(
                 "test.dc/v1",
-                properties=[
-                    enum_property("mode", choices=("voltage", "current")),
-                    float_property("voltage_range"),
-                    float_property("voltage_level"),
-                    float_property("current_range"),
-                    float_property("current_level"),
-                    bool_property("output_enabled"),
-                ],
                 state=discriminated_state(
-                    "mode",
-                    common_property_ids=("output_enabled",),
+                    enum_property("mode", choices=("voltage", "current")),
+                    common_properties=(bool_property("output_enabled"),),
                     cases=(
                         state_case(
                             "voltage",
-                            property_ids=("voltage_range", "voltage_level"),
+                            properties=(
+                                float_property("voltage_range"),
+                                float_property("voltage_level"),
+                            ),
                         ),
                         state_case(
                             "current",
-                            property_ids=("current_range", "current_level"),
+                            properties=(
+                                float_property("current_range"),
+                                float_property("current_level"),
+                            ),
                         ),
                     ),
                 ),
@@ -2993,26 +2963,20 @@ def _state_discriminated_collect_description(
                 components=[
                     component(
                         "output",
-                        properties=[
+                        state=discriminated_state(
                             enum_property(
                                 "mode",
                                 choices=("voltage", "current"),
                             ),
-                            bool_property("output_enabled"),
-                            float_property("voltage_level"),
-                            float_property("current_level"),
-                        ],
-                        state=discriminated_state(
-                            "mode",
-                            common_property_ids=("output_enabled",),
+                            common_properties=(bool_property("output_enabled"),),
                             cases=(
                                 state_case(
                                     "voltage",
-                                    property_ids=("voltage_level",),
+                                    properties=(float_property("voltage_level"),),
                                 ),
                                 state_case(
                                     "current",
-                                    property_ids=("current_level",),
+                                    properties=(float_property("current_level"),),
                                 ),
                             ),
                         ),

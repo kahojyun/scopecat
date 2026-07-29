@@ -294,10 +294,6 @@
     align-items: flex-start;
   }
 
-  .instrument-config-identity {
-    min-width: 190px;
-  }
-
   .instrument-inspector {
     padding: 16px 13px;
   }
@@ -313,14 +309,6 @@
   .instrument-attention-panel > div {
     width: 100%;
     flex-basis: 100%;
-  }
-
-  .instrument-actor-field {
-    flex: 1;
-  }
-
-  .instrument-actor-field input {
-    width: 100%;
   }
 
   .interface-property {
@@ -546,14 +534,6 @@
     display: grid;
   }
 
-  .instrument-config-identity {
-    width: 100%;
-    padding: 10px 0 0;
-    border-top: 1px solid var(--line);
-    border-left: 0;
-    text-align: left;
-  }
-
   .instrument-list {
     grid-auto-columns: minmax(260px, 86vw);
   }
@@ -572,11 +552,6 @@
 
   .session-actions > button {
     flex: 1;
-  }
-
-  .instrument-owner {
-    display: grid;
-    gap: 5px;
   }
 
   .interface-card > header,

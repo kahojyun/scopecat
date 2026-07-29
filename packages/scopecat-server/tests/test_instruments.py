@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from threading import Event, Thread
 from typing import Never, override
@@ -22,7 +22,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.kernel.problems import ProblemPhase, model_location, problem
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
+from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -52,12 +52,10 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentReadback,
-    InstrumentStateAssignment,
-    InstrumentStateCommand,
     InstrumentStateSnapshot,
-    InteractiveCollectIntent,
     InterfaceRef,
     InvokeReceipt,
+    PropertyRef,
     acquisition_case,
     acquisition_result,
     bool_property,
@@ -67,6 +65,11 @@ from scopecat.sdk.instruments import (
     interface,
     state_case,
     state_discriminated_acquisition,
+)
+from scopecat.sdk.instruments.contracts import (
+    InstrumentStateAssignment,
+    InstrumentStateCommand,
+    InteractiveCollectIntent,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -317,23 +320,20 @@ class _VariantDriver(_TrackingDriver):
                     *base.interfaces,
                     interface(
                         "test.dc/v1",
-                        properties=[
-                            enum_property("mode", choices=("voltage", "current")),
-                            float_property("voltage_level"),
-                            float_property("current_level"),
-                            bool_property("output_enabled"),
-                        ],
                         state=discriminated_state(
-                            "mode",
-                            common_property_ids=("output_enabled",),
+                            enum_property(
+                                "mode",
+                                choices=("voltage", "current"),
+                            ),
+                            common_properties=(bool_property("output_enabled"),),
                             cases=(
                                 state_case(
                                     "voltage",
-                                    property_ids=("voltage_level",),
+                                    properties=(float_property("voltage_level"),),
                                 ),
                                 state_case(
                                     "current",
-                                    property_ids=("current_level",),
+                                    properties=(float_property("current_level"),),
                                 ),
                             ),
                         ),
@@ -635,11 +635,10 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             [available] = lab.instruments.list().items
             assert available.availability == "available"
 
-            with lab.instruments.open("source-0", actor="alice") as instrument:
+            with lab.instruments.open("source-0") as instrument:
                 description = instrument.describe()
                 state_receipt = instrument.apply(
-                    {_SET_FREQUENCY: Quantity(value=5.1, unit="GHz")},
-                    command_id="notebook-apply-1",
+                    {_SET_FREQUENCY: Quantity(value=5.1, unit="GHz")}
                 )
                 payload = command_payload_from_bytes(
                     id="program-1",
@@ -652,12 +651,10 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
                 invoke_receipt = instrument.invoke(
                     _PLAY_PROGRAM,
                     {_PLAY_PROGRAM_ARGUMENT: payload},
-                    command_id="notebook-invoke-1",
                 )
                 collect_receipt = instrument.collect(
                     _SAMPLE_SIGNAL,
                     _SAMPLE_SIGNAL.result("signal"),
-                    command_id="notebook-collect-1",
                 )
                 [owned] = lab.instruments.list().items
 
@@ -668,7 +665,7 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
                 assert collect_receipt.status == "collected"
                 assert owned.availability == "active"
                 assert owned.owner_kind == "instrument_session"
-                assert owned.owner_actor == "alice"
+                assert owned.owner_actor == "default-operator"
 
             [released] = lab.instruments.list().items
             [driver] = provider.drivers
@@ -695,9 +692,8 @@ def test_invoke_without_reported_state_reads_back_before_returning(
         with TestClient(runtime.app()) as transport:
             handle = LabClient(_daemon_client(transport)).instruments.open(
                 "source-0",
-                actor="alice",
             )
-            _ = handle.session_id
+            handle.observed_state()
             [driver] = provider.drivers
             assert isinstance(driver, _InvokeReadbackDriver)
             reads_before_invoke = driver.read_count
@@ -733,7 +729,7 @@ def test_notebook_invoke_rejects_argument_from_another_operation(
         with TestClient(runtime.app()) as transport:
             lab = LabClient(_daemon_client(transport))
 
-            with lab.instruments.open("source-0", actor="alice") as instrument:
+            with lab.instruments.open("source-0") as instrument:
                 with pytest.raises(
                     ValueError,
                     match="arguments must belong to the selected operation",
@@ -755,7 +751,6 @@ def test_notebook_collect_rejects_a_result_from_another_acquisition(
         with TestClient(runtime.app()) as transport:
             handle = LabClient(_daemon_client(transport)).instruments.open(
                 "source-0",
-                actor="alice",
             )
             unrelated = (
                 InterfaceRef("test.other/v1").acquisition("sample").result("signal")
@@ -779,9 +774,8 @@ def test_apply_without_reported_state_reads_back_before_returning(
         with TestClient(runtime.app()) as transport:
             handle = LabClient(_daemon_client(transport)).instruments.open(
                 "source-0",
-                actor="alice",
             )
-            _ = handle.session_id
+            handle.observed_state()
             [driver] = provider.drivers
             assert isinstance(driver, _ResyncDriver)
             reads_before_apply = driver.read_count
@@ -793,7 +787,7 @@ def test_apply_without_reported_state_reads_back_before_returning(
 
             assert receipt.status == "applied"
             assert receipt.state is not None
-            assert driver.read_count == reads_before_apply + 1
+            assert driver.read_count == reads_before_apply + 2
 
 
 def test_apply_readback_must_confirm_the_requested_state(tmp_path: Path) -> None:
@@ -823,9 +817,32 @@ def test_apply_readback_must_confirm_the_requested_state(tmp_path: Path) -> None
             assert isinstance(driver, _NonConvergingApplyDriver)
             [instrument] = daemon.list_instruments().items
             assert len(driver.applied) == 1
-            assert driver.read_count == 2
+            assert driver.read_count == 3
             assert driver.disconnect_count == 1
             assert instrument.availability == "quarantined"
+
+
+def test_interactive_apply_validates_against_fresh_device_state(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            handle = LabClient(_daemon_client(transport)).instruments.open(
+                "source-0",
+            )
+            handle.observed_state()
+            [driver] = provider.drivers
+            assert isinstance(driver, _VariantDriver)
+            driver.mode = "current"
+
+            receipt = handle.apply({_DC_CURRENT_LEVEL: 0.03})
+            handle.close()
+
+            assert receipt.status == "applied"
+            assert receipt.state is not None
+            assert driver.current_level == 0.03
+            assert driver.read_count == 3
 
 
 def test_interactive_apply_tracks_observed_discriminated_state(
@@ -834,47 +851,96 @@ def test_interactive_apply_tracks_observed_discriminated_state(
     provider = _TrackingProvider(_VariantDriver)
     with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
-            handle = LabClient(_daemon_client(transport)).instruments.open(
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-observed-discriminated-state",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+
+            voltage = daemon.apply_instrument_state(
+                session.session_id,
                 "source-0",
-                actor="alice",
+                _state_command(
+                    command_id="voltage-before-switch",
+                    values={_DC_VOLTAGE_LEVEL: 0.2},
+                ),
             )
-            _ = handle.session_id
-
-            voltage = handle.apply(
-                {_DC_VOLTAGE_LEVEL: 0.2},
-                command_id="voltage-before-switch",
-            )
-            with pytest.raises(DaemonConflictError, match="set mode explicitly"):
-                handle.apply(
-                    {_DC_CURRENT_LEVEL: 0.02},
+            invalid_current = daemon.apply_instrument_state(
+                session.session_id,
+                "source-0",
+                _state_command(
                     command_id="invalid-current-patch",
-                )
-            with pytest.raises(
-                DaemonConflictError,
-                match="requires all writable case properties",
-            ):
-                handle.apply(
-                    {_DC_MODE: "current"},
+                    values={_DC_CURRENT_LEVEL: 0.02},
+                ),
+            )
+            incomplete_switch = daemon.apply_instrument_state(
+                session.session_id,
+                "source-0",
+                _state_command(
                     command_id="incomplete-current-switch",
-                )
+                    values={_DC_MODE: "current"},
+                ),
+            )
+            assert invalid_current.status == "not_applied"
+            assert any(
+                "set mode explicitly" in item.message
+                for item in invalid_current.problems
+            )
+            assert incomplete_switch.status == "not_applied"
+            assert any(
+                "requires all writable case properties" in item.message
+                for item in incomplete_switch.problems
+            )
 
-            switched = handle.apply(
-                {
-                    _DC_MODE: "current",
-                    _DC_CURRENT_LEVEL: 0.02,
-                },
-                command_id="switch-current",
+            switched = daemon.apply_instrument_state(
+                session.session_id,
+                "source-0",
+                _state_command(
+                    command_id="switch-current",
+                    values={
+                        _DC_MODE: "current",
+                        _DC_CURRENT_LEVEL: 0.02,
+                    },
+                ),
             )
-            replay = handle.apply(
-                {_DC_VOLTAGE_LEVEL: 0.2},
-                command_id="voltage-before-switch",
+            [driver] = provider.drivers
+            assert isinstance(driver, _VariantDriver)
+            reads_before_replay = driver.read_count
+            applies_before_replay = len(driver.applied)
+            replayed_rejection = daemon.apply_instrument_state(
+                session.session_id,
+                "source-0",
+                _state_command(
+                    command_id="invalid-current-patch",
+                    values={_DC_CURRENT_LEVEL: 0.02},
+                ),
             )
-            partial = handle.apply(
-                {_DC_CURRENT_LEVEL: 0.03},
-                command_id="adjust-current",
+            assert replayed_rejection == invalid_current
+            assert driver.read_count == reads_before_replay
+            assert len(driver.applied) == applies_before_replay
+            replay = daemon.apply_instrument_state(
+                session.session_id,
+                "source-0",
+                _state_command(
+                    command_id="voltage-before-switch",
+                    values={_DC_VOLTAGE_LEVEL: 0.2},
+                ),
             )
-            handle.close()
+            partial = daemon.apply_instrument_state(
+                session.session_id,
+                "source-0",
+                _state_command(
+                    command_id="adjust-current",
+                    values={_DC_CURRENT_LEVEL: 0.03},
+                ),
+            )
+            daemon.close_instrument_session(session.session_id)
 
+            assert driver.read_count == reads_before_replay + 2
+            assert len(driver.applied) == applies_before_replay + 1
             assert switched.state is not None
             switched_properties = {
                 item.property_id: item.value.root
@@ -888,7 +954,6 @@ def test_interactive_apply_tracks_observed_discriminated_state(
             }
             assert replay == voltage
             assert partial.status == "applied"
-            [driver] = provider.drivers
             assert len(driver.applied) == 3
 
 
@@ -983,7 +1048,7 @@ def test_collect_replay_precedes_validation_against_changed_state(
                 "source-0",
                 intent,
             )
-            assert driver.read_count == 3
+            assert driver.read_count == 4
             with pytest.raises(
                 DaemonConflictError,
                 match="different collect content",
@@ -998,7 +1063,7 @@ def test_collect_replay_precedes_validation_against_changed_state(
 
             assert replay == first
             assert len(driver.collect_requests) == 1
-            assert driver.read_count == 3
+            assert driver.read_count == 4
             daemon.close_instrument_session(session.session_id)
 
 
@@ -1210,7 +1275,7 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
 
             [driver] = provider.drivers
             assert isinstance(driver, _ResyncDriver)
-            assert driver.read_count == 2
+            assert driver.read_count == 3
             driver.change_from_front_panel(5.1)
 
             second = daemon.open_instrument_session(
@@ -1221,7 +1286,7 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
                 )
             )
             assert provider.drivers == [driver]
-            assert driver.read_count == 3
+            assert driver.read_count == 4
             second_apply = daemon.apply_instrument_state(
                 second.session_id,
                 "source-0",
@@ -1230,7 +1295,7 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
             daemon.close_instrument_session(second.session_id)
 
             assert second_apply.status == "applied"
-            assert driver.read_count == 4
+            assert driver.read_count == 6
             assert len(driver.applied) == 2
             assert [
                 request.assignments[0].value.root for request in driver.applied
@@ -1653,34 +1718,13 @@ def test_notebook_open_retry_reuses_operation_after_response_loss(
                 transport,
                 drop_response_suffix="/instrument-sessions",
             )
-            handle = LabClient(daemon).instruments.open(
-                "source-0",
-                actor="alice",
-                command_id="open-after-loss",
-            )
+            handle = LabClient(daemon).instruments.open("source-0")
 
             state = handle.read_state()
             handle.close()
 
             assert state.instrument_id == "source-0"
             assert len(provider.drivers) == 1
-
-
-def test_notebook_can_abort_a_daemon_owned_session_by_id(tmp_path: Path) -> None:
-    provider = _TrackingProvider()
-    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
-        with TestClient(runtime.app()) as transport:
-            lab = LabClient(_daemon_client(transport))
-            handle = lab.instruments.open("source-0", actor="alice")
-            handle.read_state()
-
-            receipt = lab.instruments.abort_session(handle.session_id)
-            replay = handle.abort()
-
-            assert receipt.status == "aborted"
-            assert replay == receipt
-            [driver] = provider.drivers
-            assert driver.abort_count == 1
 
 
 def test_abort_retry_replays_receipt_without_repeating_driver_calls(
@@ -1755,10 +1799,7 @@ def test_notebook_close_remains_retryable_after_both_transport_attempts_fail(
                 drop_response_suffix="/close",
                 drop_response_count=2,
             )
-            handle = LabClient(daemon).instruments.open(
-                "source-0",
-                actor="alice",
-            )
+            handle = LabClient(daemon).instruments.open("source-0")
             handle.read_state()
 
             with pytest.raises(httpx2.ReadError, match="response was lost"):
@@ -1781,10 +1822,7 @@ def test_notebook_default_apply_retries_with_same_operation_after_response_loss(
                 transport,
                 drop_response_suffix="/state/apply",
             )
-            handle = LabClient(daemon).instruments.open(
-                "source-0",
-                actor="alice",
-            )
+            handle = LabClient(daemon).instruments.open("source-0")
 
             receipt = handle.apply(
                 {_SET_FREQUENCY: Quantity(value=5.1, unit="GHz")},
@@ -1814,14 +1852,12 @@ def test_configured_defaults_replay_after_response_loss_avoids_hardware_io(
                     transport,
                     drop_response_suffix="/configured-defaults/apply",
                 )
-            ).instruments.open("source-0", actor="alice")
-            _ = handle.session_id
+            ).instruments.open("source-0")
+            handle.observed_state()
             [driver] = provider.drivers
             assert isinstance(driver, _ResyncDriver)
 
-            receipt = handle.apply_configured_defaults(
-                operation_id="apply-defaults-with-lost-response"
-            )
+            receipt = handle.apply_configured_defaults()
 
             assert receipt.status == "applied"
             assert driver.read_count == 3
@@ -1839,10 +1875,7 @@ def test_notebook_default_collect_retries_with_same_operation_after_response_los
                 transport,
                 drop_response_suffix="/collect",
             )
-            handle = LabClient(daemon).instruments.open(
-                "source-0",
-                actor="alice",
-            )
+            handle = LabClient(daemon).instruments.open("source-0")
 
             receipt = handle.collect(
                 _SAMPLE_SIGNAL,
@@ -2021,9 +2054,8 @@ def test_direct_session_observes_without_applying_default_state(
         with TestClient(runtime.app()) as transport:
             handle = LabClient(_daemon_client(transport)).instruments.open(
                 "source-0",
-                actor="alice",
             )
-            _ = handle.session_id
+            handle.observed_state()
 
             [driver] = provider.drivers
             assert driver.applied == []
@@ -2096,16 +2128,13 @@ def test_configured_defaults_read_fresh_state_and_write_only_pending_values(
         with TestClient(runtime.app()) as transport:
             handle = LabClient(_daemon_client(transport)).instruments.open(
                 "source-0",
-                actor="alice",
             )
-            _ = handle.session_id
+            handle.observed_state()
             [driver] = provider.drivers
             assert isinstance(driver, _ResyncDriver)
             driver.change_from_front_panel(5.1)
 
-            receipt = handle.apply_configured_defaults(
-                operation_id="apply-sparse-configured-defaults"
-            )
+            receipt = handle.apply_configured_defaults()
 
             assert receipt.status == "applied"
             assert driver.read_count == 3
@@ -2137,16 +2166,13 @@ def test_configured_defaults_skip_write_when_fresh_state_already_matches(
         with TestClient(runtime.app()) as transport:
             handle = LabClient(_daemon_client(transport)).instruments.open(
                 "source-0",
-                actor="alice",
             )
-            _ = handle.session_id
+            handle.observed_state()
             [driver] = provider.drivers
             assert isinstance(driver, _ResyncDriver)
             driver.change_from_front_panel(5.1)
 
-            receipt = handle.apply_configured_defaults(
-                operation_id="confirm-configured-defaults-unchanged"
-            )
+            receipt = handle.apply_configured_defaults()
 
             assert receipt.status == "unchanged"
             assert driver.read_count == 2
@@ -2171,9 +2197,8 @@ def test_explicit_defaults_use_session_pinned_preserve_config(
             active = runtime.application.config.get_active_config()
             handle = LabClient(_daemon_client(transport)).instruments.open(
                 "source-0",
-                actor="alice",
             )
-            _ = handle.session_id
+            handle.observed_state()
             later_config = _config_with_default_state(
                 InstrumentPropertyState(
                     interface_id="test.set_frequency/v1",
@@ -2190,9 +2215,7 @@ def test_explicit_defaults_use_session_pinned_preserve_config(
                 )
             )
 
-            receipt = handle.apply_configured_defaults(
-                operation_id="apply-pinned-preserve-defaults"
-            )
+            receipt = handle.apply_configured_defaults()
 
             assert receipt.status == "applied"
             assert receipt.config_entry_id == active.entry.id
@@ -2219,14 +2242,25 @@ def test_rejected_configured_defaults_remain_active_and_replayable(
     with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            handle = LabClient(daemon).instruments.open("source-0", actor="alice")
-            session_id = handle.session_id
-
-            first = handle.apply_configured_defaults(
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-rejected-configured-defaults",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            command = InstrumentConfiguredDefaultsApplyCommand(
                 operation_id="reject-configured-defaults"
             )
-            replay = handle.apply_configured_defaults(
-                operation_id="reject-configured-defaults"
+            first = daemon.apply_instrument_configured_defaults(
+                session.session_id,
+                "source-0",
+                command,
+            )
+            replay = daemon.apply_instrument_configured_defaults(
+                session.session_id,
+                "source-0",
+                command,
             )
 
             assert replay == first
@@ -2237,12 +2271,12 @@ def test_rejected_configured_defaults_remain_active_and_replayable(
             assert driver.read_count == 2
             assert len(driver.applied) == 1
             durable = runtime.application.executor._control.get_instrument_session(
-                session_id
+                session.session_id
             )
             assert durable.state == "active"
             [instrument] = daemon.list_instruments().items
             assert instrument.availability == "active"
-            handle.close()
+            daemon.close_instrument_session(session.session_id)
 
 
 @pytest.mark.parametrize(
@@ -2278,13 +2312,14 @@ def test_indeterminate_configured_defaults_quarantine_the_session(
     with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            handle = LabClient(daemon).instruments.open("source-0", actor="alice")
-            session_id = handle.session_id
+            handle = LabClient(daemon).instruments.open("source-0")
+            handle.observed_state()
+            [owned] = daemon.list_instruments().items
+            assert owned.owner_id is not None
+            session_id = owned.owner_id
 
             with pytest.raises(DaemonConflictError):
-                handle.apply_configured_defaults(
-                    operation_id="indeterminate-configured-defaults"
-                )
+                handle.apply_configured_defaults()
 
             durable = runtime.application.executor._control.get_instrument_session(
                 session_id
@@ -2315,8 +2350,11 @@ def test_configured_defaults_read_failure_cleanly_closes_the_session(
     with _runtime(tmp_path, provider, config=config) as runtime:  # noqa: SIM117
         with TestClient(runtime.app()) as transport:
             daemon = _daemon_client(transport)
-            handle = LabClient(daemon).instruments.open("source-0", actor="alice")
-            session_id = handle.session_id
+            handle = LabClient(daemon).instruments.open("source-0")
+            handle.observed_state()
+            [owned] = daemon.list_instruments().items
+            assert owned.owner_id is not None
+            session_id = owned.owner_id
             [driver] = provider.drivers
             assert isinstance(driver, _ResyncDriver)
             driver.fail_next_read = True
@@ -2325,9 +2363,7 @@ def test_configured_defaults_read_failure_cleanly_closes_the_session(
                 DaemonConflictError,
                 match="state read failed",
             ):
-                handle.apply_configured_defaults(
-                    operation_id="read-fails-before-configured-defaults"
-                )
+                handle.apply_configured_defaults()
 
             durable = runtime.application.executor._control.get_instrument_session(
                 session_id
@@ -2672,6 +2708,27 @@ def _apply_command(*, value: float) -> InstrumentStateCommand:
                 property_id="frequency",
                 value=StateValue(Quantity(value=value, unit="GHz")),
             )
+        ],
+    )
+
+
+def _state_command(
+    *,
+    command_id: str,
+    values: Mapping[PropertyRef, StateLiteral | StateValue],
+) -> InstrumentStateCommand:
+    return InstrumentStateCommand(
+        command_id=command_id,
+        instrument_id="source-0",
+        assignments=[
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id=target.interface_id,
+                component_path=list(target.component_path),
+                property_id=target.property_id,
+                value=value if isinstance(value, StateValue) else StateValue(value),
+            )
+            for target, value in values.items()
         ],
     )
 

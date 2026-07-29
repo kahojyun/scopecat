@@ -31,16 +31,18 @@ from scopecat.planning.provider_validation import instrument_contract_fingerprin
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
-    CollectResultRequest,
     DriverInvokeRequest,
     DriverPayloadArgument,
     InstrumentBackend,
     InstrumentConnectionContext,
-    InstrumentOperationArgument,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InvokeCommand,
     InvokeReceipt,
+)
+from scopecat.sdk.instruments.contracts import (
+    CollectResultRequest,
+    InstrumentOperationArgument,
+    InvokeCommand,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config

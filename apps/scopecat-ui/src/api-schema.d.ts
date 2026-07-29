@@ -671,10 +671,9 @@ export interface components {
         };
         /**
          * AcquisitionPreconditionSpec
-         * @description One public state comparison required before an acquisition can start.
+         * @description One public state value required before an acquisition can start.
          */
         AcquisitionPreconditionSpec: {
-            operator: components["schemas"]["StateComparisonOperator"];
             property: components["schemas"]["StatePropertyRef"];
             unavailable_reason: components["schemas"]["_NonEmptyId"];
             /** Value */
@@ -2431,8 +2430,6 @@ export interface components {
             property_ids?: components["schemas"]["_NonEmptyId"][];
             value: components["schemas"]["_NonEmptyId"];
         };
-        /** @enum {string} */
-        StateComparisonOperator: "equal" | "not_equal" | "less_than" | "less_than_or_equal" | "greater_than" | "greater_than_or_equal";
         /** StateDiscriminatedAcquisitionSpec */
         StateDiscriminatedAcquisitionSpec: {
             /** Cases */

@@ -61,9 +61,7 @@ from scopecat.records.run import (
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectAxisRequest,
     CollectReceipt,
-    CollectResultRequest,
     DriverApplyRequest,
     DriverCollectRequest,
     DriverInvokeRequest,
@@ -71,12 +69,10 @@ from scopecat.sdk.instruments import (
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
-    InstrumentOperationArgument,
     InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentReadback,
-    InstrumentStateAssignment,
     InstrumentStateSnapshot,
     InterfaceRef,
     InvokeReceipt,
@@ -94,6 +90,12 @@ from scopecat.sdk.instruments import (
     operation,
     state_case,
     state_discriminated_acquisition,
+)
+from scopecat.sdk.instruments.contracts import (
+    CollectAxisRequest,
+    CollectResultRequest,
+    InstrumentOperationArgument,
+    InstrumentStateAssignment,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
@@ -228,23 +230,17 @@ class _VariantDriver(_Driver):
             interfaces=[
                 interface(
                     "test.dc/v1",
-                    properties=[
-                        enum_property("mode", choices=("voltage", "current")),
-                        float_property("voltage_level"),
-                        float_property("current_level"),
-                        bool_property("output_enabled"),
-                    ],
                     state=discriminated_state(
-                        "mode",
-                        common_property_ids=("output_enabled",),
+                        enum_property("mode", choices=("voltage", "current")),
+                        common_properties=(bool_property("output_enabled"),),
                         cases=(
                             state_case(
                                 "voltage",
-                                property_ids=("voltage_level",),
+                                properties=(float_property("voltage_level"),),
                             ),
                             state_case(
                                 "current",
-                                property_ids=("current_level",),
+                                properties=(float_property("current_level"),),
                             ),
                         ),
                     ),
@@ -257,7 +253,6 @@ class _VariantDriver(_Driver):
                                 (
                                     acquisition_precondition(
                                         _DC_OUTPUT_ENABLED,
-                                        operator="equal",
                                         value=True,
                                         unavailable_reason="Output is disabled.",
                                     ),
@@ -784,7 +779,9 @@ def test_rejected_default_state_reconciliation_releases_without_quarantine(
         assert run_id not in instruments._run_runtimes
 
 
-def test_partial_default_state_reconciliation_is_unknown(tmp_path: Path) -> None:
+def test_partial_default_state_reconciliation_releases_confirmed_state(
+    tmp_path: Path,
+) -> None:
     provider = _SecondRejectingProvider()
     config = _two_instrument_config_with_default_state(
         InstrumentPropertyState(
@@ -800,22 +797,56 @@ def test_partial_default_state_reconciliation_is_unknown(tmp_path: Path) -> None
             host_instrument_order=("source-0", "source-1"),
         )
 
-        with pytest.raises(BackendConflict, match="partially changed hardware"):
-            runtime.application.instruments.provision_run(
-                run_id,
-                _provision(lease_id),
-            )
+        receipt = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
 
+        assert receipt.status == "rejected"
+        assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
         first, second = provider.drivers
         assert len(first.applied) == 1
         assert second.applied == []
-        assert [driver.abort_count for driver in provider.drivers] == [1, 1]
-        assert [driver.disconnect_count for driver in provider.drivers] == [1, 1]
+        assert [driver.abort_count for driver in provider.drivers] == [0, 0]
+        assert [driver.disconnect_count for driver in provider.drivers] == [0, 0]
         durable = runtime.application.executor._control.get_run(run_id)
-        assert durable.state == "attention_required"
-        assert (
-            durable.attention_reason == "run_instrument_default_reconciliation_partial"
+        assert durable.state != "attention_required"
+        assert run_id not in runtime.application.instruments._run_runtimes
+        runtime.application.executor.commit_terminal(
+            run_id,
+            TerminalRunCommitCommand(
+                lease_id=lease_id,
+                outcome=RunOutcome(
+                    run_id=run_id,
+                    result="failed",
+                    certainty="known",
+                    problems=receipt.problems,
+                ),
+            ),
         )
+
+        next_run_id, next_lease_id = _start_run(
+            runtime,
+            config,
+            host_instrument_order=("source-0",),
+            submission_id="reacquire-after-rejection",
+        )
+        reacquired = runtime.application.instruments.provision_run(
+            next_run_id,
+            _provision(next_lease_id),
+        )
+        assert reacquired.status == "ready"
+        [observed] = reacquired.observed_state
+        assert {
+            (item.interface_id, item.property_id): item.value.root
+            for item in observed.properties
+        }[("test.set_frequency/v1", "frequency")] == Quantity(
+            value=5.0,
+            unit="GHz",
+        )
+        assert provider.connect_count == 2
+        assert first.read_count == 3
+        assert len(first.applied) == 1
 
 
 def test_run_start_skips_default_state_matching_observed_state(

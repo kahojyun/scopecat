@@ -56,12 +56,10 @@ type DiscriminatedStateCase = DiscriminatedStateSpec["cases"][number];
 export function InstrumentInspector({
   instrument,
   session,
-  actor,
   sessionError,
   connectPending,
   closePending,
   editConnectionPending,
-  onActorChange,
   onConnect,
   onClose,
   onSessionLost,
@@ -70,12 +68,10 @@ export function InstrumentInspector({
 }: {
   instrument: InstrumentView;
   session?: InstrumentSession;
-  actor: string;
   sessionError?: string;
   connectPending: boolean;
   closePending: boolean;
   editConnectionPending: boolean;
-  onActorChange: (actor: string) => void;
   onConnect: () => void;
   onClose: () => void;
   onSessionLost: (message: string) => void;
@@ -472,7 +468,6 @@ export function InstrumentInspector({
         instrument={instrument}
         session={session}
         connected={connected}
-        actor={actor}
         connectPending={connectPending}
         closePending={closePending}
         interactionPending={interactionPending}
@@ -482,7 +477,6 @@ export function InstrumentInspector({
         configuredDefaultsDisabled={configuredDefaultsDisabled}
         configuredDefaultsDisabledReason={configuredDefaultsDisabledReason}
         resolvePending={resolveMutation.isPending}
-        onActorChange={onActorChange}
         onConnect={onConnect}
         onClose={onClose}
         onDisconnectOwner={onDisconnectOwner}
@@ -517,7 +511,7 @@ export function InstrumentInspector({
         <>
           <div className="interface-heading">
             <div>
-              <span className="eyebrow">Driver contract</span>
+              <span className="eyebrow">Device controls</span>
               <h3>Interfaces</h3>
             </div>
           </div>
@@ -561,7 +555,7 @@ export function InstrumentInspector({
             <InspectorEmpty
               icon={<CircleOff />}
               title="No interactive interfaces"
-              detail="This driver does not declare GUI-safe properties, operations, or acquisitions."
+              detail="This device does not declare interactive properties, operations, or acquisitions."
             />
           )}
 
@@ -621,8 +615,8 @@ export function InstrumentInspector({
       ) : (
         <InspectorEmpty
           icon={<CircleOff />}
-          title="Driver description unavailable"
-          detail="Review the listed provider problem or edit this instrument’s connection configuration."
+          title="Device controls unavailable"
+          detail="Review the listed problem or edit this instrument’s connection configuration."
         />
       )}
     </section>
@@ -633,7 +627,6 @@ function InstrumentSessionPanel({
   instrument,
   session,
   connected,
-  actor,
   connectPending,
   closePending,
   interactionPending,
@@ -643,7 +636,6 @@ function InstrumentSessionPanel({
   configuredDefaultsDisabled,
   configuredDefaultsDisabledReason,
   resolvePending,
-  onActorChange,
   onConnect,
   onClose,
   onDisconnectOwner,
@@ -654,7 +646,6 @@ function InstrumentSessionPanel({
   instrument: InstrumentView;
   session?: InstrumentSession;
   connected: boolean;
-  actor: string;
   connectPending: boolean;
   closePending: boolean;
   interactionPending: boolean;
@@ -664,7 +655,6 @@ function InstrumentSessionPanel({
   configuredDefaultsDisabled: boolean;
   configuredDefaultsDisabledReason?: string;
   resolvePending: boolean;
-  onActorChange: (actor: string) => void;
   onConnect: () => void;
   onClose: () => void;
   onDisconnectOwner: () => void;
@@ -681,9 +671,7 @@ function InstrumentSessionPanel({
           </span>
           <div>
             <strong>Interactive session connected</strong>
-            <small>
-              {session.actor} · opened {formatRelative(session.opened_at)}
-            </small>
+            <small>Opened {formatRelative(session.opened_at)}</small>
           </div>
         </div>
         <div className="session-actions">
@@ -813,19 +801,11 @@ function InstrumentSessionPanel({
           connects it.
         </small>
       </div>
-      <label className="instrument-actor-field">
-        <span>Actor</span>
-        <input
-          value={actor}
-          onChange={(event) => onActorChange(event.target.value)}
-          aria-label="Instrument session actor"
-        />
-      </label>
       <button
         type="button"
         className="primary-button"
         onClick={onConnect}
-        disabled={connectPending || !actor.trim()}
+        disabled={connectPending}
       >
         {connectPending ? <LoaderCircle className="spin" size={14} /> : <Cable size={14} />}
         Connect
@@ -836,28 +816,7 @@ function InstrumentSessionPanel({
 
 function OwnerDescription({ instrument }: { instrument: InstrumentView }) {
   const ownerKind = instrument.owner_kind === "run" ? "Run" : "Interactive session";
-  return (
-    <dl className="instrument-owner">
-      <div>
-        <dt>Owner</dt>
-        <dd>
-          {ownerKind}
-          {instrument.owner_kind === "run" && instrument.owner_id && (
-            <>
-              {" "}
-              <code>{instrument.owner_id}</code>
-            </>
-          )}
-        </dd>
-      </div>
-      {instrument.owner_actor && (
-        <div>
-          <dt>Actor</dt>
-          <dd>{instrument.owner_actor}</dd>
-        </div>
-      )}
-    </dl>
-  );
+  return <small className="instrument-owner">{ownerKind}</small>;
 }
 
 function InterfaceCard({
@@ -974,10 +933,9 @@ function InterfaceEndpoint({
   onOperationEdit: (target: InstrumentOperationTarget) => void;
 }) {
   const properties = visibleMemberProperties(member, interfaceId, componentPath, state, drafts);
+  const operations = guiSafeOperations(member.operations ?? []);
   const hasLocalControls =
-    properties.length > 0 ||
-    (member.operations ?? []).length > 0 ||
-    (member.acquisitions ?? []).length > 0;
+    properties.length > 0 || operations.length > 0 || (member.acquisitions ?? []).length > 0;
   return (
     <>
       {hasLocalControls && (
@@ -1010,9 +968,9 @@ function InterfaceEndpoint({
             </div>
           )}
 
-          {(member.operations ?? []).length > 0 && (
+          {operations.length > 0 && (
             <div className="operation-list">
-              {(member.operations ?? []).map((operation) => {
+              {operations.map((operation) => {
                 const target = { interfaceId, componentPath, operation };
                 const key = operationKey(target);
                 return (
@@ -1099,14 +1057,11 @@ function OperationControl({
   const operation = target.operation;
   const argumentSpecs = operation.arguments ?? [];
   const [drafts, setDrafts] = useState<Record<string, DraftValue>>({});
-  const payloadUnsupported = argumentSpecs.some(
-    (argument) => argument.value_type.type === "payload",
-  );
   const operationArguments = argumentSpecs.flatMap((argument) => {
     const value = drafts[argument.id]?.value;
     return value === undefined ? [] : [{ id: argument.id, value }];
   });
-  const invalid = payloadUnsupported || operationArguments.length !== argumentSpecs.length;
+  const invalid = operationArguments.length !== argumentSpecs.length;
   const label = operation.label ?? titleCase(operation.id);
 
   const edit = (argumentId: string, draft?: DraftValue) => {
@@ -1137,11 +1092,9 @@ function OperationControl({
               ? "Connect before invoking"
               : interactionDisabled
                 ? "Wait for the current instrument interaction to finish"
-                : payloadUnsupported
-                  ? "Payload arguments cannot be encoded in the GUI"
-                  : invalid
-                    ? "Fill every operation argument before invoking"
-                    : undefined
+                : invalid
+                  ? "Fill every operation argument before invoking"
+                  : undefined
           }
         >
           {invoking ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
@@ -1160,11 +1113,6 @@ function OperationControl({
             />
           ))}
         </div>
-      )}
-      {payloadUnsupported && (
-        <small className="operation-payload-warning">
-          Payload arguments require an encoded command payload and are not supported in the GUI.
-        </small>
       )}
       {result && (
         <p className={`instrument-receipt ${result.status}`}>
@@ -1187,6 +1135,7 @@ function OperationArgumentEditor({
   onChange: (draft?: DraftValue) => void;
 }) {
   const type = argument.value_type;
+  if (type.type === "payload") return null;
   const label = argument.label ?? titleCase(argument.id);
   const raw = draft?.raw ?? "";
   return (
@@ -1273,9 +1222,7 @@ function OperationArgumentEditor({
           disabled={!editable}
           onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
         />
-      ) : (
-        <input type="text" value="Payload encoding unavailable in GUI" disabled />
-      )}
+      ) : null}
       {argument.description && (
         <small className="property-description">{argument.description}</small>
       )}
@@ -1446,9 +1393,7 @@ function PropertyEditor({
           disabled={!editable}
           onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
         />
-      ) : (
-        <input type="text" value="Payload editing unavailable in GUI" disabled />
-      )}
+      ) : null}
       {property.description && (
         <small className="property-description">{property.description}</small>
       )}
@@ -1482,11 +1427,14 @@ function CollectPreview({ receipt }: { receipt: InstrumentCollectReceipt }) {
         </div>
       )}
       {trace && <TracePreview values={trace} />}
-      <details>
-        <summary>JSON preview</summary>
-        <pre>{JSON.stringify(receipt.readback ?? receipt, null, 2)}</pre>
-      </details>
     </div>
+  );
+}
+
+function guiSafeOperations(operations: InstrumentOperation[]): InstrumentOperation[] {
+  return operations.filter(
+    (operation) =>
+      !(operation.arguments ?? []).some((argument) => argument.value_type.type === "payload"),
   );
 }
 

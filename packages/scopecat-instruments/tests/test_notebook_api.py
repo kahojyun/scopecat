@@ -19,8 +19,8 @@ from scopecat.records.instrument import (
 from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentDescription,
-    InteractiveCollectIntent,
 )
+from scopecat.sdk.instruments.contracts import InteractiveCollectIntent
 
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
@@ -40,7 +40,6 @@ class _CollectingDaemon(DaemonClient):
         self.state = state
         self.state_reads = 0
         self.collect_intent: InteractiveCollectIntent | None = None
-        self.collect_intents: list[InteractiveCollectIntent] = []
 
     @override
     def open_instrument_session(
@@ -80,7 +79,6 @@ class _CollectingDaemon(DaemonClient):
         assert session_id == "session-1"
         assert instrument_id == self.description.instrument_id
         self.collect_intent = intent
-        self.collect_intents.append(intent)
         return CollectReceipt(readback=InstrumentReadback())
 
 
@@ -189,23 +187,6 @@ def test_session_handle_exposes_opening_observation_without_refresh() -> None:
         daemon.close()
 
 
-def test_apply_configured_defaults_preserves_explicit_operation_id() -> None:
-    daemon = _ConfiguredDefaultsDaemon()
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("source-a",),
-        actor="test",
-    )
-
-    try:
-        handle.apply_configured_defaults(operation_id="defaults.manual-1")
-
-        [(_, _, command)] = daemon.apply_calls
-        assert command.operation_id == "defaults.manual-1"
-    finally:
-        daemon.close()
-
-
 def test_apply_configured_defaults_requires_multi_instrument_selection() -> None:
     daemon = _ConfiguredDefaultsDaemon()
     handle = InstrumentSessionHandle(
@@ -250,17 +231,16 @@ def test_notebook_collect_sends_unspecified_results_without_reading_state() -> N
     )
 
     try:
-        receipt = handle.collect(
-            DC_MONITOR_ACQUISITION,
-            command_id="collect-1",
-        )
+        receipt = handle.collect(DC_MONITOR_ACQUISITION)
     finally:
         daemon.close()
 
     assert receipt.status == "collected"
     assert daemon.state_reads == 0
+    assert daemon.collect_intent is not None
+    assert daemon.collect_intent.command_id.startswith("interactive.collect.bias.")
     assert daemon.collect_intent == InteractiveCollectIntent(
-        command_id="collect-1",
+        command_id=daemon.collect_intent.command_id,
         instrument_id="bias",
         interface_id=DC_MONITOR_ACQUISITION.interface_id,
         component_path=list(DC_MONITOR_ACQUISITION.component_path),
@@ -296,39 +276,6 @@ def test_notebook_collect_sends_explicit_result_identity() -> None:
     assert daemon.state_reads == 0
     assert daemon.collect_intent is not None
     assert daemon.collect_intent.result_ids == [DC_MONITOR_CURRENT_RESULT.result_id]
-
-
-def test_notebook_retries_send_the_same_high_level_intent() -> None:
-    description = InstrumentDescription(
-        instrument_id="bias",
-        implementation_id="tests.source",
-        implementation_version="1",
-    )
-    daemon = _CollectingDaemon(
-        description,
-        InstrumentStateSnapshot(instrument_id="bias"),
-    )
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("bias",),
-        actor="test",
-    )
-
-    try:
-        handle.collect(
-            DC_MONITOR_ACQUISITION,
-            command_id="collect-replay",
-        )
-        handle.collect(
-            DC_MONITOR_ACQUISITION,
-            command_id="collect-replay",
-        )
-    finally:
-        daemon.close()
-
-    assert daemon.state_reads == 0
-    assert len(daemon.collect_intents) == 2
-    assert daemon.collect_intents[0] == daemon.collect_intents[1]
 
 
 def test_notebook_collect_rejects_a_result_from_another_acquisition() -> None:

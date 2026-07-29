@@ -62,7 +62,8 @@ from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
-from scopecat.sdk.instruments import InstrumentDescription, InstrumentStateAssignment
+from scopecat.sdk.instruments import InstrumentDescription
+from scopecat.sdk.instruments.contracts import InstrumentStateAssignment
 from tests.testkit.workflow_fixtures import load_config
 
 

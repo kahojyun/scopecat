@@ -30,13 +30,13 @@ from scopecat.sdk.instruments import (
     DriverCollectRequest,
     DriverCollectResult,
     DriverPropertyWrite,
-    InvokeCommand,
 )
 from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
 )
+from scopecat.sdk.instruments.contracts import InvokeCommand
 from tests.testkit.instrument_drivers import load_config
 
 from scopecat_server.errors import BackendConflict
