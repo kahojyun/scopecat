@@ -578,10 +578,7 @@ export interface components {
              */
             type: "bool";
         };
-        _Choices: [
-            string,
-            ...string[]
-        ];
+        _Choices: string[];
         /** _EntityWire */
         _EntityWire: {
             entity_kind?: components["schemas"]["_NonEmptyString"] | null;
@@ -714,10 +711,7 @@ export interface components {
             /** Preconditions */
             preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
             /** Results */
-            results: [
-                components["schemas"]["AcquisitionResultSpec"],
-                ...components["schemas"]["AcquisitionResultSpec"][]
-            ];
+            results: components["schemas"]["AcquisitionResultSpec"][];
             value: components["schemas"]["_NonEmptyId"];
         };
         /**
@@ -991,10 +985,7 @@ export interface components {
             base_generation: number;
             candidate_id: components["schemas"]["NonEmptyText"];
             /** Updates */
-            updates: [
-                components["schemas"]["ParameterUpdate"],
-                ...components["schemas"]["ParameterUpdate"][]
-            ];
+            updates: components["schemas"]["ParameterUpdate"][];
         };
         /**
          * ConfigDraftPreview
@@ -1241,11 +1232,7 @@ export interface components {
          */
         DiscriminatedStateSpec: {
             /** Cases */
-            cases: [
-                components["schemas"]["StateCaseSpec"],
-                components["schemas"]["StateCaseSpec"],
-                ...components["schemas"]["StateCaseSpec"][]
-            ];
+            cases: components["schemas"]["StateCaseSpec"][];
             /** Common Property Ids */
             common_property_ids?: components["schemas"]["_NonEmptyId"][];
             discriminator_property_id: components["schemas"]["_NonEmptyId"];
@@ -1282,10 +1269,7 @@ export interface components {
         /** DriverSpec */
         DriverSpec: {
             /** Connections */
-            connections: [
-                components["schemas"]["DriverConnectionSpec"],
-                ...components["schemas"]["DriverConnectionSpec"][]
-            ];
+            connections: components["schemas"]["DriverConnectionSpec"][];
             driver_id: components["schemas"]["_NonEmptyText"];
             implementation_version: components["schemas"]["_NonEmptyText"];
             label: components["schemas"]["_NonEmptyText"];
@@ -1382,10 +1366,7 @@ export interface components {
             /** Preconditions */
             preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
             /** Results */
-            results: [
-                components["schemas"]["AcquisitionResultSpec"],
-                ...components["schemas"]["AcquisitionResultSpec"][]
-            ];
+            results: components["schemas"]["AcquisitionResultSpec"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1417,14 +1398,9 @@ export interface components {
             kind: "insert_parameter_rows";
             parameter_id: components["schemas"]["_ParameterId"];
             /** Rows */
-            rows: [
-                {
-                    [key: string]: components["schemas"]["ParameterAtomValue-Input"];
-                },
-                ...{
-                    [key: string]: components["schemas"]["ParameterAtomValue-Input"];
-                }[]
-            ];
+            rows: {
+                [key: string]: components["schemas"]["ParameterAtomValue-Input"];
+            }[];
         };
         /**
          * InstrumentBindingSpec
@@ -1592,10 +1568,7 @@ export interface components {
         InstrumentSessionOpenCommand: {
             actor: components["schemas"]["NonEmptyText"];
             /** Instrument Ids */
-            instrument_ids: [
-                components["schemas"]["NonEmptyText"],
-                ...components["schemas"]["NonEmptyText"][]
-            ];
+            instrument_ids: components["schemas"]["NonEmptyText"][];
             operation_id: components["schemas"]["NonEmptyText"];
         };
         /**
@@ -1616,10 +1589,7 @@ export interface components {
              */
             expires_at: string;
             /** Instrument Ids */
-            instrument_ids: [
-                components["schemas"]["NonEmptyText"],
-                ...components["schemas"]["NonEmptyText"][]
-            ];
+            instrument_ids: components["schemas"]["NonEmptyText"][];
             /** Observed State */
             observed_state: components["schemas"]["InstrumentStateSnapshot"][];
             /**
@@ -1687,10 +1657,7 @@ export interface components {
         /** InstrumentStateCommand */
         InstrumentStateCommand: {
             /** Assignments */
-            assignments: [
-                components["schemas"]["InstrumentStateAssignment"],
-                ...components["schemas"]["InstrumentStateAssignment"][]
-            ];
+            assignments: components["schemas"]["InstrumentStateAssignment"][];
             command_id: components["schemas"]["_NonEmptyId"];
             instrument_id: components["schemas"]["_NonEmptyId"];
         };
@@ -1852,10 +1819,7 @@ export interface components {
             kind: "array";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Shape */
-            shape: [
-                number,
-                ...number[]
-            ];
+            shape: number[];
             /** Unit */
             unit?: string | null;
             /** Values */
@@ -1975,10 +1939,7 @@ export interface components {
          */
         MeasurementVariable: {
             /** Dims */
-            dims: [
-                string,
-                ...string[]
-            ];
+            dims: string[];
             /**
              * Dtype
              * @enum {string}
@@ -2083,10 +2044,7 @@ export interface components {
             /** Confidence */
             confidence?: number | null;
             /** Deltas */
-            deltas: [
-                components["schemas"]["ParameterValueDelta-Output"],
-                ...components["schemas"]["ParameterValueDelta-Output"][]
-            ];
+            deltas: components["schemas"]["ParameterValueDelta-Output"][];
             /** Id */
             id: string;
             /**
@@ -2575,11 +2533,7 @@ export interface components {
         /** StateDiscriminatedAcquisitionSpec */
         StateDiscriminatedAcquisitionSpec: {
             /** Cases */
-            cases: [
-                components["schemas"]["AcquisitionCaseSpec"],
-                components["schemas"]["AcquisitionCaseSpec"],
-                ...components["schemas"]["AcquisitionCaseSpec"][]
-            ];
+            cases: components["schemas"]["AcquisitionCaseSpec"][];
             /** Description */
             description?: string | null;
             discriminator: components["schemas"]["StatePropertyRef"];

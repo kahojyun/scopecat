@@ -6,6 +6,7 @@ import type {
   InstrumentOperation,
   InstrumentSession,
 } from "../../api-contract";
+import { requestJson, requestMethod, requestPath } from "../../test/http";
 import { setConfigDefault } from "../config/config-api";
 import {
   applyInstrumentConfiguredDefaults,
@@ -199,9 +200,11 @@ describe("instrument driver catalog", () => {
       }),
     ).resolves.toMatchObject({ status: "connected" });
 
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/instrument-drivers");
-    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("/api/v1/instrument-drivers/probe");
-    expect(requestBody(fetchMock.mock.calls[1]?.[1])).toEqual({
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/instrument-drivers");
+    expect(requestPath(fetchMock.mock.calls[1]?.[0])).toBe("/api/v1/instrument-drivers/probe");
+    await expect(
+      requestJson(fetchMock.mock.calls[1]?.[0], fetchMock.mock.calls[1]?.[1]),
+    ).resolves.toEqual({
       binding: {
         id: "source-1",
         driver_id: "virtual.rf_source",
@@ -229,11 +232,13 @@ describe("instrument session lease", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(renewInstrumentSession("session-1")).resolves.toEqual(renewed);
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
       "/api/v1/instrument-sessions/session-1/heartbeat",
-      expect.objectContaining({ method: "POST" }),
     );
-    expect(fetchMock.mock.calls[0]?.[1]?.body).toBeUndefined();
+    expect(requestMethod(fetchMock.mock.calls[0]?.[0], fetchMock.mock.calls[0]?.[1])).toBe("POST");
+    const request = fetchMock.mock.calls[0]?.[0];
+    if (!(request instanceof Request)) throw new Error("Expected a Request.");
+    expect(request.body).toBeNull();
   });
 });
 
@@ -259,12 +264,12 @@ describe("interactive collection request shaping", () => {
 
     await applyInstrumentConfiguredDefaults(session(), "vna-1", "defaults-retry");
 
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
       "/api/v1/instrument-sessions/session-1/instruments/vna-1/configured-defaults/apply",
     );
-    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
-      operation_id: "defaults-retry",
-    });
+    await expect(
+      requestJson(fetchMock.mock.calls[0]?.[0], fetchMock.mock.calls[0]?.[1]),
+    ).resolves.toEqual({ operation_id: "defaults-retry" });
   });
 
   it("shapes GUI operation arguments without exposing a payload map", async () => {
@@ -304,10 +309,12 @@ describe("interactive collection request shaping", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
       "/api/v1/instrument-sessions/session-1/instruments/vna-1/invoke",
     );
-    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
+    await expect(
+      requestJson(fetchMock.mock.calls[0]?.[0], fetchMock.mock.calls[0]?.[1]),
+    ).resolves.toEqual({
       command_id: "invoke-retry",
       instrument_id: "vna-1",
       resource_id: "vna-1",
@@ -362,10 +369,12 @@ describe("interactive collection request shaping", () => {
     await sendInstrumentAcquisition(session(), "vna-1", target, "collect-retry");
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
       "/api/v1/instrument-sessions/session-1/instruments/vna-1/collect",
     );
-    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
+    await expect(
+      requestJson(fetchMock.mock.calls[0]?.[0], fetchMock.mock.calls[0]?.[1]),
+    ).resolves.toEqual({
       command_id: "collect-retry",
       instrument_id: "vna-1",
       interface_id: "scopecat.network_sweep/v1",
@@ -419,7 +428,13 @@ describe("interactive collection request shaping", () => {
     await closeInstrumentSession("session-1");
     await closeInstrumentSession("session-1");
 
-    const bodies = fetchMock.mock.calls.slice(0, 8).map(([, init]) => requestBody(init));
+    const bodies = await Promise.all(
+      fetchMock.mock.calls
+        .slice(0, 8)
+        .map(([input, init]) =>
+          requestJson<{ command_id?: string; operation_id?: string }>(input, init),
+        ),
+    );
     expect(bodies.slice(0, 2).map((body) => body.operation_id)).toEqual([
       "open-retry",
       "open-retry",
@@ -440,7 +455,7 @@ describe("interactive collection request shaping", () => {
       "collect-retry",
       "collect-retry",
     ]);
-    expect(fetchMock.mock.calls.slice(8, 10).map(([input]) => String(input))).toEqual([
+    expect(fetchMock.mock.calls.slice(8, 10).map(([input]) => requestPath(input))).toEqual([
       "/api/v1/instrument-sessions/session-1/close",
       "/api/v1/instrument-sessions/session-1/close",
     ]);
@@ -537,20 +552,5 @@ function session(): InstrumentSession {
     opened_at: "2026-07-27T08:00:00Z",
     renewed_at: "2026-07-27T08:00:00Z",
     expires_at: "2026-07-27T08:01:00Z",
-  };
-}
-
-function requestBody(init: RequestInit | undefined): {
-  command_id?: string;
-  operation_id?: string;
-  [key: string]: unknown;
-  requests?: Array<{ dimensions: unknown[]; result_id?: string }>;
-} {
-  if (typeof init?.body !== "string") throw new Error("Expected a JSON request body.");
-  return JSON.parse(init.body) as {
-    command_id?: string;
-    operation_id?: string;
-    [key: string]: unknown;
-    requests?: Array<{ dimensions: unknown[]; result_id?: string }>;
   };
 }

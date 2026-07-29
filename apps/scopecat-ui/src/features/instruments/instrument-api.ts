@@ -1,7 +1,8 @@
-import { ApiError, request } from "../../api";
+import { ApiError } from "../../api";
+import { apiClient, apiData } from "../../api-client";
 import type {
+  ActiveConfig,
   ConfigProfileSnapshot,
-  DaemonUiApi,
   DriverCatalog,
   InstrumentAcquisition,
   InstrumentAcquisitionResult,
@@ -11,6 +12,8 @@ import type {
   InstrumentDriverProbeCommand,
   InstrumentDriverProbeReceipt,
   InstrumentInvokeReceipt,
+  InstrumentInvokeCommand,
+  InstrumentList,
   InstrumentOperation,
   InstrumentSession,
   InstrumentSessionLease,
@@ -22,12 +25,7 @@ import type {
 import { setConfigDefault } from "../config/config-api";
 import { safeConfigEntryId } from "../config/config-utils";
 
-const INSTRUMENT_API = "/api/v1/instruments";
-const DRIVER_API = "/api/v1/instrument-drivers";
-const SESSION_API = "/api/v1/instrument-sessions";
-
-export type ActiveConfig = DaemonUiApi["activeConfig"];
-export type InstrumentList = DaemonUiApi["instrumentList"];
+export type { ActiveConfig, InstrumentList } from "../../api-contract";
 
 export interface StagedInstrumentProperty {
   interfaceId: string;
@@ -48,37 +46,40 @@ export interface InstrumentOperationTarget {
   operation: InstrumentOperation;
 }
 
-export type InstrumentOperationArgument = NonNullable<
-  DaemonUiApi["instrumentInvokeCommand"]["arguments"]
->[number];
+export type InstrumentOperationArgument = NonNullable<InstrumentInvokeCommand["arguments"]>[number];
 
 export async function getInstruments(signal?: AbortSignal): Promise<InstrumentList> {
-  return request<InstrumentList>(INSTRUMENT_API, signal);
+  return apiData(apiClient.GET("/api/v1/instruments", { signal }));
 }
 
 export async function getInstrument(
   instrumentId: string,
   signal?: AbortSignal,
 ): Promise<InstrumentView> {
-  return request<InstrumentView>(`${INSTRUMENT_API}/${encodeURIComponent(instrumentId)}`, signal);
+  return apiData(
+    apiClient.GET("/api/v1/instruments/{instrument_id}", {
+      params: { path: { instrument_id: instrumentId } },
+      signal,
+    }),
+  );
 }
 
 export async function getDriverCatalog(signal?: AbortSignal): Promise<DriverCatalog> {
-  return request<DriverCatalog>(DRIVER_API, signal);
+  return apiData(apiClient.GET("/api/v1/instrument-drivers", { signal }));
 }
 
 export async function probeInstrumentDriver(
   command: InstrumentDriverProbeCommand,
 ): Promise<InstrumentDriverProbeReceipt> {
-  return request<InstrumentDriverProbeReceipt>(
-    `${DRIVER_API}/probe`,
-    undefined,
-    jsonRequest(command),
+  return apiData(
+    apiClient.POST("/api/v1/instrument-drivers/probe", {
+      body: command,
+    }),
   );
 }
 
 export async function getActiveConfig(signal?: AbortSignal): Promise<ActiveConfig> {
-  return request<ActiveConfig>("/api/v1/config-registry/active", signal);
+  return apiData(apiClient.GET("/api/v1/config-registry/active", { signal }));
 }
 
 export async function openInstrumentSession(
@@ -86,22 +87,22 @@ export async function openInstrumentSession(
   actor: string,
   operationId = createInstrumentCommandId("open"),
 ): Promise<InstrumentSession> {
-  return request<InstrumentSession>(
-    SESSION_API,
-    undefined,
-    jsonRequest({
-      operation_id: operationId,
-      actor,
-      instrument_ids: [instrumentId],
-    } satisfies DaemonUiApi["instrumentSessionOpenCommand"]),
+  return apiData(
+    apiClient.POST("/api/v1/instrument-sessions", {
+      body: {
+        operation_id: operationId,
+        actor,
+        instrument_ids: [instrumentId],
+      },
+    }),
   );
 }
 
 export async function renewInstrumentSession(sessionId: string): Promise<InstrumentSessionLease> {
-  return request<InstrumentSessionLease>(
-    `${SESSION_API}/${encodeURIComponent(sessionId)}/heartbeat`,
-    undefined,
-    { method: "POST" },
+  return apiData(
+    apiClient.POST("/api/v1/instrument-sessions/{session_id}/heartbeat", {
+      params: { path: { session_id: sessionId } },
+    }),
   );
 }
 
@@ -109,7 +110,16 @@ export async function readInstrumentState(
   session: InstrumentSession,
   instrumentId: string,
 ): Promise<InstrumentState> {
-  return request<InstrumentState>(instrumentSessionPath(session.session_id, instrumentId, "state"));
+  return apiData(
+    apiClient.GET("/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state", {
+      params: {
+        path: {
+          session_id: session.session_id,
+          instrument_id: instrumentId,
+        },
+      },
+    }),
+  );
 }
 
 export async function applyInstrumentState(
@@ -127,14 +137,23 @@ export async function applyInstrumentState(
     property_id: property.propertyId,
     value: property.value,
   });
-  return request<InstrumentApplyReceipt>(
-    instrumentSessionPath(session.session_id, instrumentId, "state/apply"),
-    undefined,
-    jsonRequest({
-      command_id: commandId,
-      instrument_id: instrumentId,
-      assignments: [assignment(first), ...remaining.map(assignment)],
-    } satisfies DaemonUiApi["instrumentApplyCommand"]),
+  return apiData(
+    apiClient.POST(
+      "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/apply",
+      {
+        params: {
+          path: {
+            session_id: session.session_id,
+            instrument_id: instrumentId,
+          },
+        },
+        body: {
+          command_id: commandId,
+          instrument_id: instrumentId,
+          assignments: [assignment(first), ...remaining.map(assignment)],
+        },
+      },
+    ),
   );
 }
 
@@ -143,12 +162,19 @@ export async function applyInstrumentConfiguredDefaults(
   instrumentId: string,
   operationId = createInstrumentCommandId("configured-defaults"),
 ): Promise<InstrumentConfiguredDefaultsApplyReceipt> {
-  return request<InstrumentConfiguredDefaultsApplyReceipt>(
-    instrumentSessionPath(session.session_id, instrumentId, "configured-defaults/apply"),
-    undefined,
-    jsonRequest({
-      operation_id: operationId,
-    } satisfies DaemonUiApi["instrumentConfiguredDefaultsApplyCommand"]),
+  return apiData(
+    apiClient.POST(
+      "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply",
+      {
+        params: {
+          path: {
+            session_id: session.session_id,
+            instrument_id: instrumentId,
+          },
+        },
+        body: { operation_id: operationId },
+      },
+    ),
   );
 }
 
@@ -158,17 +184,23 @@ export async function collectInstrumentAcquisition(
   target: InstrumentAcquisitionTarget,
   commandId = createInstrumentCommandId("collect"),
 ): Promise<InstrumentCollectReceipt> {
-  return request<InstrumentCollectReceipt>(
-    instrumentSessionPath(session.session_id, instrumentId, "collect"),
-    undefined,
-    jsonRequest({
-      command_id: commandId,
-      instrument_id: instrumentId,
-      interface_id: target.interfaceId,
-      component_path: target.componentPath,
-      acquisition_id: target.acquisition.id,
-      result_ids: [],
-    } satisfies DaemonUiApi["interactiveCollectIntent"]),
+  return apiData(
+    apiClient.POST("/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect", {
+      params: {
+        path: {
+          session_id: session.session_id,
+          instrument_id: instrumentId,
+        },
+      },
+      body: {
+        command_id: commandId,
+        instrument_id: instrumentId,
+        interface_id: target.interfaceId,
+        component_path: target.componentPath,
+        acquisition_id: target.acquisition.id,
+        result_ids: [],
+      },
+    }),
   );
 }
 
@@ -179,18 +211,24 @@ export async function invokeInstrumentOperation(
   arguments_: InstrumentOperationArgument[],
   commandId = createInstrumentCommandId("invoke"),
 ): Promise<InstrumentInvokeReceipt> {
-  return request<InstrumentInvokeReceipt>(
-    instrumentSessionPath(session.session_id, instrumentId, "invoke"),
-    undefined,
-    jsonRequest({
-      command_id: commandId,
-      instrument_id: instrumentId,
-      resource_id: instrumentId,
-      interface_id: target.interfaceId,
-      component_path: target.componentPath,
-      operation_id: target.operation.id,
-      arguments: arguments_,
-    } satisfies DaemonUiApi["instrumentInvokeCommand"]),
+  return apiData(
+    apiClient.POST("/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke", {
+      params: {
+        path: {
+          session_id: session.session_id,
+          instrument_id: instrumentId,
+        },
+      },
+      body: {
+        command_id: commandId,
+        instrument_id: instrumentId,
+        resource_id: instrumentId,
+        interface_id: target.interfaceId,
+        component_path: target.componentPath,
+        operation_id: target.operation.id,
+        arguments: arguments_,
+      },
+    }),
   );
 }
 
@@ -207,18 +245,29 @@ async function endInstrumentSession(
   action: "close" | "abort",
   keepalive = false,
 ): Promise<void> {
-  await request<DaemonUiApi["instrumentSessionEndReceipt"]>(
-    `${SESSION_API}/${encodeURIComponent(sessionId)}/${action}`,
-    undefined,
-    { method: "POST", keepalive },
+  const params = { path: { session_id: sessionId } };
+  if (action === "close") {
+    await apiData(
+      apiClient.POST("/api/v1/instrument-sessions/{session_id}/close", {
+        params,
+        keepalive,
+      }),
+    );
+    return;
+  }
+  await apiData(
+    apiClient.POST("/api/v1/instrument-sessions/{session_id}/abort", {
+      params,
+      keepalive,
+    }),
   );
 }
 
 export async function resolveInstrumentAttention(sessionId: string): Promise<void> {
-  await request<DaemonUiApi["instrumentSessionEndReceipt"]>(
-    `${SESSION_API}/${encodeURIComponent(sessionId)}/attention`,
-    undefined,
-    { method: "POST" },
+  await apiData(
+    apiClient.POST("/api/v1/instrument-sessions/{session_id}/attention", {
+      params: { path: { session_id: sessionId } },
+    }),
   );
 }
 
@@ -285,17 +334,6 @@ export function retryTransientInstrumentMutation(failureCount: number, error: un
   return failureCount < 1 && error instanceof ApiError && error.status === undefined;
 }
 
-function instrumentSessionPath(
-  sessionId: string,
-  instrumentId: string,
-  operation: "state" | "state/apply" | "configured-defaults/apply" | "invoke" | "collect",
-): string {
-  return (
-    `${SESSION_API}/${encodeURIComponent(sessionId)}/instruments/` +
-    `${encodeURIComponent(instrumentId)}/${operation}`
-  );
-}
-
 export function declaredAcquisitionResults(
   acquisition: InstrumentAcquisition,
 ): InstrumentAcquisitionResult[] {
@@ -306,12 +344,4 @@ export function declaredAcquisitionResults(
 
 function cloneConfig(source: ActiveConfig["config"]): ConfigProfileSnapshot {
   return JSON.parse(JSON.stringify(source)) as ConfigProfileSnapshot;
-}
-
-function jsonRequest(body: object): RequestInit {
-  return {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  };
 }

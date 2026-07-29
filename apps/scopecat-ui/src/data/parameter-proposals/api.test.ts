@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { requestHeaders, requestJson, requestMethod, requestPath } from "../../test/http";
 import { acceptProposal, getRunParameterProposals } from "./api";
 
 afterEach(() => {
@@ -46,7 +47,9 @@ describe("parameter proposal reads", () => {
 
     const result = await getRunParameterProposals("run/a");
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/runs/run%2Fa/parameter-proposals");
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/runs/run%2Fa/parameter-proposals",
+    );
     expect(result).toEqual({
       runId: "run/a",
       items: [
@@ -90,7 +93,7 @@ describe("parameter proposal commands", () => {
       note: "Promote calibrated frequency",
     });
 
-    expectRequest(fetchMock, "/api/v1/config-registry/default", {
+    await expectRequest(fetchMock, "/api/v1/config-registry/default", {
       source: {
         kind: "candidate_config",
         run_id: "run-a",
@@ -135,16 +138,16 @@ function scalarValue(value: number) {
   };
 }
 
-function expectRequest(
+async function expectRequest(
   fetchMock: ReturnType<typeof vi.fn>,
   path: string,
   body: Record<string, unknown>,
 ) {
   const call = fetchMock.mock.calls[0];
-  expect(call?.[0]).toBe(path);
-  expect(call?.[1]?.method).toBe("POST");
-  const headers = new Headers(call?.[1]?.headers);
+  expect(requestPath(call?.[0])).toBe(path);
+  expect(requestMethod(call?.[0], call?.[1])).toBe("POST");
+  const headers = requestHeaders(call?.[0], call?.[1]);
   expect(headers.get("Accept")).toBe("application/json");
   expect(headers.get("Content-Type")).toBe("application/json");
-  expect(JSON.parse(String(call?.[1]?.body))).toEqual(body);
+  await expect(requestJson(call?.[0], call?.[1])).resolves.toEqual(body);
 }
