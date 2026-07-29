@@ -241,11 +241,13 @@ class SubprocessInstrumentBackendEndpoint:
         instrument_backend_spec: str,
         *,
         startup_timeout: float = 10.0,
+        operation_timeout: float = 30.0,
         shutdown_timeout: float = 2.0,
     ) -> None:
-        if startup_timeout <= 0 or shutdown_timeout <= 0:
+        if startup_timeout <= 0 or operation_timeout <= 0 or shutdown_timeout <= 0:
             raise ValueError("instrument worker timeouts must be positive")
         self._project_root = Path(project_root).resolve()
+        self._operation_timeout = operation_timeout
         self._shutdown_timeout = shutdown_timeout
         self._endpoint_id = uuid4().hex
         self._handles: dict[str, _ChildHandle] = {}
@@ -439,27 +441,10 @@ class SubprocessInstrumentBackendEndpoint:
                 if self._cleanup_complete:
                     return
                 self._closed = True
-                self._available = False
-                self._handles.clear()
-                error = InstrumentBackendUnavailable("instrument worker is shut down")
-                for item in self._pending.values():
-                    item.error = error
-                    item.event.set()
-                self._pending.clear()
-            self._close_connection()
-            deadline = monotonic() + self._shutdown_timeout
-            try:
-                _stop_process_until(self._process, deadline)
-                self._receiver.join(max(0.0, deadline - monotonic()))
-                if self._receiver.is_alive():
-                    raise InstrumentBackendUnavailable(
-                        "instrument worker receiver did not stop"
-                    )
-            finally:
-                with self._state_lock:
-                    self._cleanup_complete = (
-                        not self._process.is_alive() and not self._receiver.is_alive()
-                    )
+                self._fence_generation_locked(
+                    InstrumentBackendUnavailable("instrument worker is shut down")
+                )
+            self._stop_generation()
 
     def _rpc(
         self,
@@ -498,7 +483,14 @@ class SubprocessInstrumentBackendEndpoint:
                 "instrument worker is unavailable"
             ) from error
 
-        pending.event.wait()
+        if not pending.event.wait(self._operation_timeout):
+            timed_out = self._stop_timed_out_generation(
+                request.request_id,
+                pending,
+                operation=operation,
+            )
+            if not timed_out:
+                pending.event.wait()
         if pending.error is not None:
             raise pending.error
         received = pending.received
@@ -604,14 +596,59 @@ class SubprocessInstrumentBackendEndpoint:
         with self._state_lock:
             if not self._available and not self._pending:
                 return
-            self._available = False
-            self._handles.clear()
-            error = InstrumentBackendUnavailable("instrument worker is unavailable")
-            for item in self._pending.values():
-                item.error = error
-                item.event.set()
-            self._pending.clear()
+            self._fence_generation_locked(
+                InstrumentBackendUnavailable("instrument worker is unavailable")
+            )
         self._close_connection()
+
+    def _stop_timed_out_generation(
+        self,
+        request_id: int,
+        pending: _PendingResponse,
+        *,
+        operation: _Operation,
+    ) -> bool:
+        """Terminate a generation whose running driver call cannot be cancelled."""
+
+        with self._shutdown_lock:
+            with self._state_lock:
+                if self._pending.get(request_id) is not pending:
+                    return False
+                self._closed = True
+                self._fence_generation_locked(
+                    InstrumentBackendUnavailable(
+                        f"instrument worker {operation} timed out"
+                    )
+                )
+            self._stop_generation()
+            return True
+
+    def _fence_generation_locked(
+        self,
+        error: InstrumentBackendUnavailable,
+    ) -> None:
+        self._available = False
+        self._handles.clear()
+        for item in self._pending.values():
+            item.error = error
+            item.event.set()
+        self._pending.clear()
+
+    def _stop_generation(self) -> None:
+        self._close_connection()
+        deadline = monotonic() + self._shutdown_timeout
+        try:
+            _stop_process_until(self._process, deadline)
+            self._receiver.join(max(0.0, deadline - monotonic()))
+            if self._receiver.is_alive():
+                raise InstrumentBackendUnavailable(
+                    "instrument worker receiver did not stop"
+                )
+        finally:
+            with self._state_lock:
+                self._cleanup_complete = (
+                    not self._process.is_alive() and not self._receiver.is_alive()
+                )
 
     def _close_connection(self) -> None:
         with self._state_lock:

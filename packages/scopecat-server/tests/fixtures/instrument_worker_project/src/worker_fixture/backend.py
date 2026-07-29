@@ -7,6 +7,8 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 from scopecat.kernel.state import StateValue
+from scopecat.kernel.value_types import Payload as PayloadType
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.instrument import (
     InstrumentPropertyState,
     InstrumentReadback,
@@ -37,6 +39,7 @@ from scopecat.sdk.instruments import (
     float_property,
     interface,
     operation,
+    operation_argument,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 
@@ -66,7 +69,20 @@ class _Driver:
                 interface(
                     "tests.control/v1",
                     properties=[float_property("gain")],
-                    operations=[operation("play"), operation("block")],
+                    operations=[
+                        operation(
+                            "play",
+                            arguments=[
+                                operation_argument(
+                                    "program",
+                                    value_type=Scalar(
+                                        PayloadType(schema_id="pulse_program")
+                                    ),
+                                )
+                            ],
+                        ),
+                        operation("block"),
+                    ],
                     acquisitions=[
                         acquisition(
                             "sample",
@@ -115,6 +131,7 @@ class _Driver:
             status="invoked",
             metadata={
                 "payload_hex": content.hex(),
+                "payload_types": [type(program).__name__ for program in programs],
                 "worker_pid": os.getpid(),
             },
         )

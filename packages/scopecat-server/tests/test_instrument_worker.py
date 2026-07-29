@@ -141,6 +141,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
     )
     assert invoke.metadata == {
         "payload_hex": content.hex(),
+        "payload_types": ["_DecodedProgram"],
         "worker_pid": endpoint.worker_pid,
     }
     assert "worker_fixture.backend" not in sys.modules
@@ -246,6 +247,15 @@ def test_worker_start_failure_leaves_no_process(tmp_path: Path) -> None:
 
     failed_pid = int((project / "failed-worker.pid").read_text(encoding="utf-8"))
     assert not psutil.pid_exists(failed_pid)
+
+
+def test_worker_operation_timeout_must_be_positive(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="timeouts must be positive"):
+        SubprocessInstrumentBackendEndpoint(
+            tmp_path,
+            _BACKEND,
+            operation_timeout=0,
+        )
 
 
 def test_runtime_releases_project_lock_after_worker_start_failure(
@@ -413,6 +423,78 @@ def test_large_collect_response_uses_binary_frames_without_fencing_worker(
     assert len(text) == 2 * 1024 * 1024
     assert endpoint.healthy
     endpoint.shutdown()
+
+
+def test_operation_timeout_fences_generation_and_wakes_pending_calls(
+    tmp_path: Path,
+) -> None:
+    project = _copy_project(tmp_path)
+    endpoint = SubprocessInstrumentBackendEndpoint(
+        project,
+        _BACKEND,
+        operation_timeout=1.0,
+        shutdown_timeout=0.2,
+    )
+    config = _two_instrument_config()
+    bindings = instrument_bindings(config)
+    expected = {
+        item.instrument_id: item for item in endpoint.describe(bindings).instruments
+    }
+    bindings_by_id = {binding.id: binding for binding in bindings}
+    connections = tuple(
+        endpoint.connect(
+            binding=bindings_by_id[instrument_id],
+            expected=expected[instrument_id],
+        )
+        for instrument_id in ("source-0", "source-1")
+    )
+    errors: list[BaseException] = []
+
+    def invoke_blocking_operation(connection_index: int) -> None:
+        try:
+            endpoint.invoke(
+                connections[connection_index].handle,
+                BackendInvokeRequest(
+                    interface_id="tests.control/v1",
+                    operation_id="block",
+                ),
+            )
+        except BaseException as error:
+            errors.append(error)
+
+    invocations = tuple(
+        Thread(
+            target=invoke_blocking_operation,
+            args=(index,),
+            daemon=True,
+        )
+        for index in range(2)
+    )
+    release_paths = tuple(
+        project / f"driver-release-source-{index}" for index in range(2)
+    )
+    try:
+        for invocation in invocations:
+            invocation.start()
+        for index in range(2):
+            _wait_for_marker(project / f"driver-blocked-source-{index}")
+        for invocation in invocations:
+            invocation.join(timeout=3)
+
+        assert all(not invocation.is_alive() for invocation in invocations)
+        assert len(errors) == 2
+        assert all(isinstance(error, InstrumentBackendUnavailable) for error in errors)
+        assert all("timed out" in str(error) for error in errors)
+        assert not endpoint.healthy
+        assert not psutil.pid_exists(endpoint.worker_pid)
+        endpoint.shutdown()
+        endpoint.shutdown()
+    finally:
+        for release in release_paths:
+            release.touch()
+        endpoint.shutdown()
+        for invocation in invocations:
+            invocation.join(timeout=3)
 
 
 def test_shutdown_interrupts_a_blocked_driver_call(tmp_path: Path) -> None:

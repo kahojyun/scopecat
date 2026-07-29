@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
+import sys
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Literal, override
@@ -49,6 +52,7 @@ from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
+from scopecat_server.instrument_worker import SubprocessInstrumentBackendEndpoint
 from scopecat_server.payload_service import (
     DEFAULT_MAX_PAYLOAD_OBJECT_BYTES,
     CommandPayloadService,
@@ -59,6 +63,10 @@ _PAYLOAD_BYTES = b"\x00\xff\x80SCPI\x00program\n"
 _MEDIA_TYPE = "application/octet-stream"
 _CODEC_ID = "tests.raw-bytes"
 _CODEC_VERSION = 1
+_WORKER_BACKEND = "worker_fixture.backend:create_backend"
+_WORKER_FIXTURE = Path(__file__).parent / "fixtures" / "instrument_worker_project"
+_WORKER_MODULE = "worker_fixture.backend"
+_WORKER_PAYLOAD_CODEC_ID = "tests.raw"
 
 
 class _PayloadConsumerDriver(SignalInstrumentDriver):
@@ -100,6 +108,62 @@ class _PayloadProvider:
         driver = _PayloadConsumerDriver(context.binding.id)
         self.drivers.append(driver)
         return driver
+
+
+def test_opaque_payload_crosses_http_and_spawned_worker_boundary(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    shutil.copytree(_WORKER_FIXTURE, project)
+    assert _WORKER_MODULE not in sys.modules
+    endpoint = SubprocessInstrumentBackendEndpoint(project, _WORKER_BACKEND)
+
+    try:
+        with (
+            LocalDaemonRuntime(
+                project,
+                bootstrap_config=load_config(),
+                instrument_endpoint=endpoint,
+            ) as runtime,
+            TestClient(runtime.app()) as transport,
+        ):
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-spawned-payload-session",
+                    actor="payload-test",
+                    instrument_ids=("source-0",),
+                )
+            )
+            payload = _payload_with_contract(
+                "spawned-program",
+                _PAYLOAD_BYTES,
+                codec_id=_WORKER_PAYLOAD_CODEC_ID,
+            )
+
+            receipt = daemon.invoke_instrument(
+                session.session_id,
+                "source-0",
+                _direct_payload_command(
+                    "spawned-payload-invoke",
+                    payload,
+                    interface_id="tests.control/v1",
+                ),
+            )
+
+            assert receipt.status == "invoked"
+            assert endpoint.worker_pid != os.getpid()
+            assert receipt.metadata == {
+                "payload_hex": _PAYLOAD_BYTES.hex(),
+                "payload_types": ["_DecodedProgram"],
+                "worker_pid": endpoint.worker_pid,
+            }
+            assert receipt.state is not None
+            assert receipt.state.metadata["worker_pid"] == endpoint.worker_pid
+            assert _WORKER_MODULE not in sys.modules
+            daemon.close_instrument_session(session.session_id)
+    finally:
+        endpoint.shutdown()
 
 
 def test_binary_command_payload_crosses_real_json_http_boundary(
@@ -866,12 +930,14 @@ def _payload_with_contract(
 def _direct_payload_command(
     command_id: str,
     payload: CommandPayload,
+    *,
+    interface_id: str = "test.play_program/v1",
 ) -> InvokeCommand:
     return InvokeCommand(
         command_id=command_id,
         instrument_id="source-0",
         resource_id="source-0",
-        interface_id="test.play_program/v1",
+        interface_id=interface_id,
         operation_id="play",
         arguments=[
             InstrumentOperationArgument(

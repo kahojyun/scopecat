@@ -101,6 +101,9 @@ from scopecat.sdk.instruments.contracts import (
 )
 
 _API_PREFIX = "/api/v1"
+# The daemon owns operation deadlines; a read timeout would make a completed
+# hardware command ambiguous to its caller.
+_DEFAULT_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
 
 
 class DaemonClientError(RuntimeError):
@@ -127,7 +130,7 @@ class DaemonClient:
         self,
         base_url: str,
         *,
-        timeout: float | httpx2.Timeout | None = 10.0,
+        timeout: float | httpx2.Timeout | None = _DEFAULT_TIMEOUT,
         transport: httpx2.BaseTransport | None = None,
     ) -> None:
         self._http = httpx2.Client(
