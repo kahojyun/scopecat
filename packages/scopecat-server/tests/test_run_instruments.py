@@ -868,7 +868,7 @@ def test_batch_collect_requires_the_active_acquisition_state(
         assert len(driver.collect_requests) == 1
 
 
-def test_batch_projects_mode_only_apply_for_conditional_collect(
+def test_batch_projects_complete_mode_change_for_conditional_collect(
     tmp_path: Path,
 ) -> None:
     provider = _Provider(driver_type=_VariantDriver)
@@ -890,6 +890,7 @@ def test_batch_projects_mode_only_apply_for_conditional_collect(
                 _variant_apply_action(
                     effect_id="select-current-for-voltage",
                     mode="current",
+                    current_level=0.02,
                 ),
                 _variant_collect_action(
                     effect_id="collect-projected-voltage",
@@ -912,6 +913,7 @@ def test_batch_projects_mode_only_apply_for_conditional_collect(
                 _variant_apply_action(
                     effect_id="select-current-for-current",
                     mode="current",
+                    current_level=0.02,
                 ),
                 _variant_collect_action(
                     effect_id="collect-projected-current",
