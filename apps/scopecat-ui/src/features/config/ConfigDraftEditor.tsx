@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, X } from "lucide-react";
 import { ApiError } from "../../api";
+import { classes, eyebrow, iconButton, primaryButton, secondaryButton } from "../../ui/styles";
 import { previewConfigDraft, setConfigDefault } from "./config-api";
 import { deriveConfigDraftUpdates } from "./config-draft";
 import { ConfigParameters } from "./ConfigParameters";
@@ -182,21 +183,29 @@ export function ConfigDraftEditor({
   };
 
   return (
-    <section className="config-draft-editor" aria-labelledby="draft-editor-title">
-      <header className="config-draft-heading">
-        <span aria-hidden="true">
+    <section
+      className="overflow-hidden rounded-lg border border-line bg-panel"
+      aria-labelledby="draft-editor-title"
+    >
+      <header className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-start gap-[11px] border-b border-line px-[19px] py-[17px]">
+        <span
+          className="grid size-[34px] place-items-center rounded-[8px] border border-[rgb(128_163_207_/_22%)] bg-accent-soft text-accent"
+          aria-hidden="true"
+        >
           <Pencil size={18} />
         </span>
         <div>
-          <p className="eyebrow">Transient browser draft</p>
-          <h3 id="draft-editor-title">Edit default parameters</h3>
-          <p>
+          <p className={eyebrow}>Transient browser draft</p>
+          <h3 className="m-0 text-[0.9rem]" id="draft-editor-title">
+            Edit default parameters
+          </h3>
+          <p className="mt-1 mb-0 text-[0.61rem] leading-[1.45] text-text-dim">
             Based on the current default, {seed.entry.id}. Preview changes when you want to inspect
             the complete candidate before saving it.
           </p>
         </div>
         <button
-          className="icon-button"
+          className={iconButton}
           type="button"
           onClick={onCancel}
           aria-label="Discard parameter draft"
@@ -206,50 +215,66 @@ export function ConfigDraftEditor({
       </header>
 
       {stale && (
-        <div className="config-error" role="alert">
-          <AlertTriangle size={17} aria-hidden="true" />
-          <span>
+        <div className={classes(configError, "mx-3.5 mt-3")} role="alert">
+          <AlertTriangle className="flex-none text-red" size={17} aria-hidden="true" />
+          <span className="flex-1">
             The default configuration changed. Discard this stale draft and start again from the new
             default.
           </span>
         </div>
       )}
 
-      <div className="config-draft-layout">
-        <aside className="config-draft-index" aria-label="Editable parameters">
+      <div className="grid min-h-[330px] grid-cols-[minmax(190px,230px)_minmax(0,1fr)] border-b border-line max-[680px]:block">
+        <aside
+          className="grid max-h-[440px] content-start gap-1 overflow-auto border-r border-line bg-[rgb(255_255_255_/_1%)] px-[9px] py-2.5 max-[680px]:max-h-none max-[680px]:grid-flow-col max-[680px]:auto-cols-[minmax(165px,60vw)] max-[680px]:overflow-x-auto max-[680px]:border-r-0 max-[680px]:border-b"
+          aria-label="Editable parameters"
+        >
           {definitions.map((definition) => (
             <button
               key={definition.id}
               type="button"
-              className={selectedDefinition?.id === definition.id ? "selected" : undefined}
+              className={classes(
+                "flex min-h-12 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-[7px] border border-transparent bg-transparent p-2 text-left text-text hover:border-line hover:bg-panel-strong",
+                selectedDefinition?.id === definition.id &&
+                  "border-[rgb(128_163_207_/_22%)] bg-panel-strong",
+              )}
               onClick={() => {
                 if (definition.id === selectedDefinition?.id) return;
                 setSelectedId(definition.id);
                 setInvalidFields(new Set());
               }}
             >
-              <span>
-                <strong>{definition.id}</strong>
-                <small>{definition.value_type.shape}</small>
+              <span className="grid min-w-0 gap-[3px]">
+                <strong className="overflow-hidden text-[0.64rem] text-ellipsis whitespace-nowrap">
+                  {definition.id}
+                </strong>
+                <small className="overflow-hidden text-[0.52rem] text-ellipsis whitespace-nowrap text-text-dim">
+                  {definition.value_type.shape}
+                </small>
               </span>
               {editedValues[definition.id] && (
-                <span className="draft-edited-dot" aria-label="Edited" />
+                <span
+                  className="size-[7px] flex-none rounded-full bg-accent shadow-[0_0_8px_rgb(128_163_207_/_45%)]"
+                  aria-label="Edited"
+                />
               )}
             </button>
           ))}
         </aside>
-        <div className="config-draft-detail">
+        <div className="min-w-0 p-4">
           {selectedDefinition && selectedValue ? (
             <>
-              <header>
+              <header className="mb-[13px] flex items-start justify-between gap-3 border-b border-line pb-3">
                 <div>
-                  <span className="parameter-shape">{selectedDefinition.value_type.shape}</span>
-                  <h4>{selectedDefinition.id}</h4>
-                  <p>{selectedDefinition.description ?? "No parameter description."}</p>
+                  <span className={parameterShape}>{selectedDefinition.value_type.shape}</span>
+                  <h4 className="mt-[7px] mb-0 text-[0.85rem]">{selectedDefinition.id}</h4>
+                  <p className="mt-1 mb-0 text-[0.61rem] leading-[1.45] text-text-dim">
+                    {selectedDefinition.description ?? "No parameter description."}
+                  </p>
                 </div>
                 {editedValues[selectedDefinition.id] && (
                   <button
-                    className="secondary-button"
+                    className={secondaryButton}
                     type="button"
                     onClick={() => resetParameter(selectedDefinition.id)}
                   >
@@ -275,29 +300,32 @@ export function ConfigDraftEditor({
               />
             </>
           ) : (
-            <p className="config-draft-empty">No parameter is available.</p>
+            <p className={draftEmpty}>No parameter is available.</p>
           )}
         </div>
       </div>
 
-      <div className="config-draft-review-form">
-        <label className="action-note">
-          <span>Audit note</span>
+      <div className="grid gap-[13px] px-[18px] py-[15px]">
+        <label className="grid content-start gap-1.5">
+          <span className="text-[0.54rem] font-extrabold tracking-[0.07em] text-text-dim uppercase">
+            Audit note
+          </span>
           <textarea
+            className="min-h-[58px] w-full resize-y rounded-[8px] border border-line bg-bg px-2.5 py-[9px] text-[0.68rem] text-text outline-0 focus:border-[rgb(128_163_207_/_45%)]"
             rows={2}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="Why are these parameters changing?"
           />
         </label>
-        <div className="config-draft-actions">
-          <span>
+        <div className="col-span-full flex items-center justify-end gap-2 border-t border-line pt-[11px] max-[680px]:flex-wrap">
+          <span className="mr-auto text-[0.59rem] text-text-dim max-[680px]:m-0 max-[680px]:w-full">
             {updates.length === 0
               ? "No changes"
               : `${updates.length} typed operation${updates.length === 1 ? "" : "s"}`}
           </span>
           <button
-            className="secondary-button"
+            className={secondaryButton}
             type="button"
             disabled={
               stale ||
@@ -309,14 +337,14 @@ export function ConfigDraftEditor({
             onClick={runPreview}
           >
             {previewMutation.isPending ? (
-              <LoaderCircle className="spin" size={15} />
+              <LoaderCircle className="animate-spin" size={15} />
             ) : (
               <Eye size={15} />
             )}
             Preview changes
           </button>
           <button
-            className="primary-button"
+            className={primaryButton}
             type="button"
             disabled={
               stale ||
@@ -329,7 +357,7 @@ export function ConfigDraftEditor({
             onClick={runSetDefault}
           >
             {defaultMutation.isPending ? (
-              <LoaderCircle className="spin" size={15} />
+              <LoaderCircle className="animate-spin" size={15} />
             ) : (
               <CheckCircle2 size={15} />
             )}
@@ -339,9 +367,11 @@ export function ConfigDraftEditor({
       </div>
 
       {(previewMutation.error || defaultMutation.error) && (
-        <div className="config-error" role="alert">
-          <AlertTriangle size={17} aria-hidden="true" />
-          <span>{draftErrorMessage(defaultMutation.error ?? previewMutation.error)}</span>
+        <div className={classes(configError, "mx-3.5 mb-3")} role="alert">
+          <AlertTriangle className="flex-none text-red" size={17} aria-hidden="true" />
+          <span className="flex-1">
+            {draftErrorMessage(defaultMutation.error ?? previewMutation.error)}
+          </span>
         </div>
       )}
 
@@ -370,16 +400,25 @@ function DraftPreview({
   base: ConfigProfileSnapshot;
 }) {
   return (
-    <section className="config-draft-preview" aria-labelledby="draft-preview-title">
-      <header>
-        <span className={preview.valid ? "preview-valid" : "preview-invalid"} aria-hidden="true">
+    <section
+      className="mx-[18px] mb-[18px] border-t border-line pt-[15px]"
+      aria-labelledby="draft-preview-title"
+    >
+      <header className="flex items-start gap-[9px]">
+        <span
+          className={classes(
+            "grid size-[29px] flex-none place-items-center rounded-[7px]",
+            preview.valid ? "bg-accent-soft text-accent" : "bg-red-soft text-red",
+          )}
+          aria-hidden="true"
+        >
           {preview.valid ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
         </span>
         <div>
-          <h4 id="draft-preview-title">
+          <h4 className="m-0" id="draft-preview-title">
             {preview.valid ? "Candidate is valid" : "Candidate needs changes"}
           </h4>
-          <p>
+          <p className="mt-1 mb-0 text-[0.61rem] leading-[1.45] text-text-dim">
             {preview.valid
               ? `${preview.deltas.length} parameter delta${
                   preview.deltas.length === 1 ? "" : "s"
@@ -389,11 +428,14 @@ function DraftPreview({
         </div>
       </header>
       {preview.problems.length > 0 && (
-        <ul className="config-draft-problems">
+        <ul className="mt-3 grid list-none gap-1.5 p-0">
           {preview.problems.map((problem, index) => (
-            <li key={`${problem.code}-${index}`}>
-              <strong>{problem.message}</strong>
-              <small>
+            <li
+              className="grid gap-[3px] rounded-[7px] border border-[rgb(255_140_136_/_18%)] bg-red-soft px-2.5 py-[9px]"
+              key={`${problem.code}-${index}`}
+            >
+              <strong className="text-[0.62rem] text-[#edb5b2]">{problem.message}</strong>
+              <small className="text-[0.5rem] text-text-dim">
                 {problem.code}
                 {problem.location ? ` · ${problemLocationLabel(problem.location)}` : ""}
               </small>
@@ -411,6 +453,13 @@ function DraftPreview({
     </section>
   );
 }
+
+const configError =
+  "flex min-h-[42px] items-center gap-[9px] rounded-[9px] border border-[rgb(255_140_136_/_25%)] bg-red-soft px-3 text-[0.7rem] text-[#edb5b2]";
+const parameterShape =
+  "inline-flex rounded-[5px] border border-[rgb(120_184_255_/_18%)] bg-blue-soft px-[5px] py-[3px] text-[0.5rem] font-extrabold text-blue uppercase";
+const draftEmpty =
+  "rounded-[8px] border border-dashed border-line-strong bg-bg p-3.5 text-[0.64rem] leading-normal text-text-dim";
 
 function draftCommand(draft: PendingConfigDraft): ConfigDraftCommand {
   const [first, ...rest] = draft.updates;

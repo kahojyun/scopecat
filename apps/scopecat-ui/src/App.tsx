@@ -12,6 +12,7 @@ import {
 import { getEvents, getHealth } from "./api";
 import { RunsWorkspace } from "./features/runs/RunsWorkspace";
 import { titleCase } from "./lib/presentation";
+import { classes, iconButton } from "./ui/styles";
 
 type ProjectView = "runs" | "instruments" | "configuration";
 
@@ -129,21 +130,31 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Scopecat project console">
-          <span className="brand-mark" aria-hidden="true">
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-20 flex h-12 items-center justify-between border-b border-line bg-bg-raised px-5 max-[680px]:h-auto max-[680px]:min-h-[60px] max-[680px]:flex-wrap max-[680px]:gap-2 max-[680px]:px-[15px] max-[680px]:py-[9px]">
+        <a
+          className="inline-flex items-center gap-2 text-inherit no-underline"
+          href="/"
+          aria-label="Scopecat project console"
+        >
+          <span
+            className="grid size-7 place-items-center rounded-sm border border-line-strong bg-panel text-accent"
+            aria-hidden="true"
+          >
             <Atom size={20} strokeWidth={1.8} />
           </span>
-          <span>
-            <strong>Scopecat</strong>
-            <small>Project console</small>
+          <span className="grid gap-px">
+            <strong className="text-[0.82rem] tracking-[0.02em]">Scopecat</strong>
+            <small className="hidden">Project console</small>
           </span>
         </a>
-        <nav className="workspace-nav" aria-label="Project sections">
+        <nav
+          className="absolute left-1/2 flex -translate-x-1/2 gap-4 max-[880px]:static max-[880px]:ml-auto max-[880px]:translate-x-0 max-[680px]:order-3 max-[680px]:w-full"
+          aria-label="Project sections"
+        >
           <button
             type="button"
-            className={view === "runs" ? "active" : undefined}
+            className={navigationClass(view === "runs")}
             aria-current={view === "runs" ? "page" : undefined}
             onClick={() => selectView("runs")}
           >
@@ -152,7 +163,7 @@ export default function App() {
           </button>
           <button
             type="button"
-            className={view === "instruments" ? "active" : undefined}
+            className={navigationClass(view === "instruments")}
             aria-current={view === "instruments" ? "page" : undefined}
             onClick={() => selectView("instruments")}
           >
@@ -161,7 +172,7 @@ export default function App() {
           </button>
           <button
             type="button"
-            className={view === "configuration" ? "active" : undefined}
+            className={navigationClass(view === "configuration")}
             aria-current={view === "configuration" ? "page" : undefined}
             onClick={() => selectView("configuration")}
           >
@@ -169,14 +180,14 @@ export default function App() {
             Configuration
           </button>
         </nav>
-        <div className="topbar-actions">
+        <div className="flex items-center gap-2.5">
           <ConnectionState
             reachable={daemonReachable}
             pending={healthQuery.isPending}
             status={healthQuery.data?.status}
           />
           <button
-            className="icon-button"
+            className={iconButton}
             type="button"
             onClick={refresh}
             aria-label="Refresh project data"
@@ -184,22 +195,35 @@ export default function App() {
           >
             <RefreshCw
               size={17}
-              className={activeQueries > 0 ? "spin" : undefined}
+              className={activeQueries > 0 ? "animate-spin" : undefined}
               aria-hidden="true"
             />
           </button>
         </div>
       </header>
 
-      <main>
-        <section className="workspace-context" aria-labelledby="workspace-title">
-          <div className="workspace-identity">
-            <h1 id="workspace-title">{healthQuery.data?.projectName ?? "Scopecat project"}</h1>
+      <main className="mx-auto w-[min(1680px,calc(100%-32px))] py-[14px] pb-8 max-[1100px]:w-[min(100%-28px,1200px)] max-[680px]:w-[calc(100%-20px)] max-[680px]:py-3 max-[680px]:pb-8">
+        <section
+          className="mb-2.5 flex min-h-[34px] items-center justify-between gap-5 px-0.5 max-[680px]:items-start"
+          aria-labelledby="workspace-title"
+        >
+          <div className="flex min-w-0 items-baseline gap-3 max-[680px]:grid max-[680px]:gap-[3px]">
+            <h1
+              className="m-0 flex-none text-base font-[650] tracking-[-0.015em]"
+              id="workspace-title"
+            >
+              {healthQuery.data?.projectName ?? "Scopecat project"}
+            </h1>
             {healthQuery.data?.projectRoot && (
-              <code className="project-root">{healthQuery.data.projectRoot}</code>
+              <code className="max-w-[min(60vw,900px)] overflow-hidden text-[0.64rem] text-ellipsis whitespace-nowrap text-text-dim max-[680px]:max-w-[65vw]">
+                {healthQuery.data.projectRoot}
+              </code>
             )}
           </div>
-          <div className="sync-note" aria-live="polite">
+          <div
+            className="inline-flex flex-none items-center gap-[7px] text-[0.64rem] font-semibold text-text-dim"
+            aria-live="polite"
+          >
             {lastUpdated > 0
               ? `Updated ${formatClock(new Date(lastUpdated).toISOString())}`
               : "Waiting for daemon"}
@@ -207,11 +231,14 @@ export default function App() {
         </section>
 
         {daemonUnavailable && (
-          <div className="connection-banner" role="status">
-            <Unplug size={18} aria-hidden="true" />
+          <div
+            className="mb-[18px] flex items-center gap-[11px] rounded-md border border-[rgb(255_140_136_/_27%)] bg-red-soft px-[15px] py-[13px] text-[0.82rem] leading-6 text-[#efc3c0]"
+            role="status"
+          >
+            <Unplug className="flex-none text-red" size={18} aria-hidden="true" />
             <span>
-              <strong>Daemon unavailable.</strong> Start the local Scopecat daemon, then refresh
-              this page. No cached project data is shown.
+              <strong className="text-[#ffe6e4]">Daemon unavailable.</strong> Start the local
+              Scopecat daemon, then refresh this page. No cached project data is shown.
             </span>
           </div>
         )}
@@ -229,7 +256,7 @@ export default function App() {
           <Suspense
             fallback={
               <DetailEmpty
-                icon={<LoaderCircle className="spin" />}
+                icon={<LoaderCircle className="animate-spin" />}
                 title="Loading instruments"
                 detail="The instrument workspace is being prepared."
               />
@@ -241,7 +268,7 @@ export default function App() {
           <Suspense
             fallback={
               <DetailEmpty
-                icon={<LoaderCircle className="spin" />}
+                icon={<LoaderCircle className="animate-spin" />}
                 title="Loading configuration"
                 detail="The configuration workspace is being prepared."
               />
@@ -273,19 +300,47 @@ function ConnectionState({
       ? titleCase(status ?? "connected")
       : "Disconnected";
   return (
-    <span className={`connection-state ${reachable ? "connected" : "disconnected"}`} role="status">
-      <span className="connection-dot" aria-hidden="true" />
+    <span
+      className={classes(
+        "inline-flex min-h-7 items-center gap-2 rounded-sm border-0 bg-transparent px-2 text-[0.69rem] font-bold max-[680px]:min-h-[30px] max-[680px]:px-[9px] max-[680px]:text-[0.68rem] max-[460px]:max-w-[120px] max-[460px]:overflow-hidden max-[460px]:text-ellipsis max-[460px]:whitespace-nowrap",
+        reachable ? "text-text-soft" : "text-[#eab5b2]",
+      )}
+      role="status"
+    >
+      <span
+        className={classes(
+          "size-[7px] flex-none rounded-full",
+          reachable
+            ? "bg-accent shadow-[0_0_0_3px_var(--color-accent-soft)]"
+            : "bg-red shadow-[0_0_0_3px_rgb(116_131_146_/_12%)]",
+        )}
+        aria-hidden="true"
+      />
       {label}
     </span>
   );
 }
 
+function navigationClass(active: boolean): string {
+  return classes(
+    "inline-flex min-h-[47px] cursor-pointer items-center gap-[7px] border-0 border-b-2 border-transparent bg-transparent px-px text-[0.69rem] font-[750] text-text-dim hover:text-text-soft max-[880px]:px-2 max-[680px]:flex-1",
+    active && "border-b-accent text-text",
+  );
+}
+
 function DetailEmpty({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }) {
   return (
-    <div className="detail-empty">
-      <span aria-hidden="true">{icon}</span>
-      <h2>{title}</h2>
-      <p>{detail}</p>
+    <div className="grid min-h-[590px] place-content-center justify-items-center text-center max-[880px]:min-h-[500px]">
+      <span
+        className="mb-4 grid size-[55px] place-items-center rounded-[14px] border border-line bg-panel-soft text-text-soft [&>svg]:w-[23px]"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <h2 className="m-0 text-base">{title}</h2>
+      <p className="mt-2 mb-0 max-w-[410px] text-[0.73rem] leading-[1.55] text-text-dim">
+        {detail}
+      </p>
     </div>
   );
 }

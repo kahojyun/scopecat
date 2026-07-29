@@ -139,7 +139,7 @@ test("handles naturally expired executors from the GUI", async ({ daemon, page }
     state: "closed",
     released_resource_count: 1,
   });
-  await expect(page.locator(".detail-header .status-pill")).toHaveText("Failed");
+  await expect(page.getByTestId("run-status")).toHaveText("Failed");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await assertSelectedResourceStatus(page, run.resourceId, "Released");
 
@@ -230,12 +230,12 @@ async function startAbandonedRun(
 async function selectAttentionRun(page: Page, run: AbandonedRun): Promise<void> {
   await page.getByTitle(`Inspect run ${run.runId}`).click();
   await expect(
-    page.locator(".detail-header").getByRole("heading", {
+    page.getByTestId("run-detail-header").getByRole("heading", {
       name: run.experimentId,
       exact: true,
     }),
   ).toBeVisible();
-  await expect(page.locator(".detail-header .status-pill")).toHaveText("Needs attention");
+  await expect(page.getByTestId("run-status")).toHaveText("Needs attention");
   await expect(page.getByRole("alert")).toContainText("Operator attention required");
   await expect(page.getByRole("alert")).toContainText("executor_lease_expired");
 }
@@ -250,7 +250,7 @@ async function assertSelectedResourceStatus(
   resourceId: string,
   status: string,
 ): Promise<void> {
-  const resource = page.locator(".resource-card li").filter({ hasText: resourceId });
+  const resource = page.getByTestId(`resource-${resourceId}`);
   await expect(resource).toContainText(status);
 }
 

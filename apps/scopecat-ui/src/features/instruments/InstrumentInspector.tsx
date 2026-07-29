@@ -26,6 +26,7 @@ import type {
   InstrumentStateValue,
   InstrumentView,
 } from "../../api-contract";
+import { classes, eyebrow, primaryButton, secondaryButton } from "../../ui/styles";
 import { ApiError } from "../../api";
 import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
 import { InstrumentPropertyInput, type InstrumentPropertyDraft } from "./InstrumentPropertyInput";
@@ -422,19 +423,28 @@ export function InstrumentInspector({
         : undefined;
 
   return (
-    <section className="instrument-inspector" aria-live="polite">
-      <header className="instrument-inspector-header">
+    <section
+      className="relative grid min-h-[640px] min-w-0 content-start gap-3.5 p-5 max-[880px]:min-h-[560px] max-[880px]:rounded-lg max-[880px]:border max-[880px]:border-line max-[680px]:px-[13px] max-[680px]:py-4"
+      aria-live="polite"
+    >
+      <header className="flex items-start justify-between gap-[18px] border-b border-line pb-3.5 max-[460px]:grid">
         <div>
-          <div className="instrument-title-row">
-            <h2>{description?.label ?? instrumentId}</h2>
+          <div className="flex items-center gap-2.5">
+            <h2 className="m-0 text-[1.1rem] font-[650] tracking-[-0.025em]">
+              {description?.label ?? instrumentId}
+            </h2>
             <AvailabilityBadge availability={instrument.availability} connected={connected} />
           </div>
-          <code>{instrumentId}</code>
-          {description?.description && <p>{description.description}</p>}
+          <code className="mt-1 block text-[0.61rem] text-text-dim">{instrumentId}</code>
+          {description?.description && (
+            <p className="mt-[9px] mb-0 max-w-[760px] text-[0.68rem] leading-[1.55] text-text-dim">
+              {description.description}
+            </p>
+          )}
         </div>
         <button
           type="button"
-          className="secondary-button"
+          className={classes(secondaryButton, "max-[460px]:justify-self-start")}
           onClick={onConfigure}
           disabled={
             connected ||
@@ -454,7 +464,7 @@ export function InstrumentInspector({
           }
         >
           {configurationPending ? (
-            <LoaderCircle className="spin" size={14} />
+            <LoaderCircle className="animate-spin" size={14} />
           ) : (
             <Pencil size={14} />
           )}
@@ -484,38 +494,46 @@ export function InstrumentInspector({
       />
 
       {interactionError && (
-        <div className="instrument-inline-error" role="alert">
+        <div className={inlineError} role="alert">
           <AlertTriangle size={15} />
           {interactionError}
         </div>
       )}
 
       {configuredDefaultsResult && (
-        <p className={`instrument-receipt ${configuredDefaultsResult.status}`} role="status">
+        <p
+          className={classes(receiptStyle, receiptTone(configuredDefaultsResult.status))}
+          role="status"
+        >
           {configuredDefaultsReceiptMessage(configuredDefaultsResult)}
         </p>
       )}
 
       {(instrument.problems ?? []).length > 0 && (
-        <div className="instrument-problems" role="status">
-          <strong>Driver is unavailable</strong>
+        <div className={problems} role="status">
+          <strong className="mb-1 block">Driver is unavailable</strong>
           {instrument.problems.map((problem, index) => (
-            <p key={`${problem.code}-${index}`}>{problem.message}</p>
+            <p className="my-0.5" key={`${problem.code}-${index}`}>
+              {problem.message}
+            </p>
           ))}
         </div>
       )}
 
       {description ? (
         <>
-          <div className="interface-heading">
+          <div
+            className="mt-[3px] flex items-end justify-between max-[460px]:flex-col max-[460px]:items-start"
+            data-testid="interface-heading"
+          >
             <div>
-              <span className="eyebrow">Device controls</span>
-              <h3>Interfaces</h3>
+              <span className={eyebrow}>Device controls</span>
+              <h3 className="m-0 text-[0.9rem] font-[650]">Interfaces</h3>
             </div>
           </div>
 
           {(description.interfaces ?? []).length > 0 ? (
-            <div className="interface-list">
+            <div className="grid gap-2.5">
               {(description.interfaces ?? []).map((instrumentInterface) => (
                 <InterfaceCard
                   key={instrumentInterface.id}
@@ -558,19 +576,19 @@ export function InstrumentInspector({
           )}
 
           {connected && stagedCount > 0 && (
-            <div className="staged-apply-bar">
-              <div>
-                <strong>
+            <div className="sticky bottom-2.5 z-[5] grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-md border border-[rgb(128_163_207_/_35%)] bg-[color-mix(in_srgb,var(--color-panel-strong)_94%,transparent)] px-[11px] py-2.5 shadow-[0_10px_30px_rgb(0_0_0_/_28%)] backdrop-blur-[12px] max-[460px]:grid-cols-2">
+              <div className="grid gap-0.5 max-[460px]:col-span-full">
+                <strong className="text-[0.67rem]">
                   {stagedCount} staged {stagedCount === 1 ? "property" : "properties"}
                 </strong>
-                <small>
+                <small className="text-[0.54rem] text-text-dim">
                   {incompleteTransitionReason ??
                     "Values remain local until you apply the complete staged change once."}
                 </small>
               </div>
               <button
                 type="button"
-                className="secondary-button"
+                className={secondaryButton}
                 onClick={resetStaged}
                 disabled={applyMutation.isPending}
               >
@@ -579,7 +597,7 @@ export function InstrumentInspector({
               </button>
               <button
                 type="button"
-                className="primary-button"
+                className={primaryButton}
                 onClick={applyStaged}
                 disabled={
                   interactionDisabled ||
@@ -596,7 +614,7 @@ export function InstrumentInspector({
                 }
               >
                 {applyMutation.isPending ? (
-                  <LoaderCircle className="spin" size={14} />
+                  <LoaderCircle className="animate-spin" size={14} />
                 ) : (
                   <Check size={14} />
                 )}
@@ -605,7 +623,7 @@ export function InstrumentInspector({
             </div>
           )}
           {applyResult && (
-            <p className={`instrument-receipt ${applyResult}`}>
+            <p className={classes(receiptStyle, receiptTone(applyResult))}>
               Apply receipt: {titleCase(applyResult)}
             </p>
           )}
@@ -662,27 +680,32 @@ function InstrumentSessionPanel({
 }) {
   if (connected && session) {
     return (
-      <div className="instrument-session-panel connected">
-        <div className="session-summary">
-          <span aria-hidden="true">
+      <div className={classes(sessionPanel, "border-[rgb(128_163_207_/_24%)] bg-accent-soft")}>
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 max-[680px]:w-full max-[680px]:basis-full">
+          <span
+            className="grid size-8 place-items-center rounded-sm bg-[rgb(128_163_207_/_10%)] text-accent"
+            aria-hidden="true"
+          >
             <Cable size={16} />
           </span>
-          <div>
-            <strong>Interactive session connected</strong>
-            <small>Opened {formatRelative(session.opened_at)}</small>
+          <div className="grid gap-1">
+            <strong className="text-[0.7rem] text-text-soft">Interactive session connected</strong>
+            <small className="overflow-hidden text-[0.58rem] leading-[1.4] text-ellipsis text-text-dim">
+              Opened {formatRelative(session.opened_at)}
+            </small>
           </div>
         </div>
-        <div className="session-actions">
+        <div className="flex flex-wrap justify-end gap-[7px] max-[460px]:w-full max-[460px]:[&>button]:flex-1">
           {configuredDefaultsVisible && (
             <button
               type="button"
-              className="secondary-button"
+              className={secondaryButton}
               onClick={onApplyConfiguredDefaults}
               disabled={configuredDefaultsDisabled}
               title={configuredDefaultsDisabledReason}
             >
               {configuredDefaultsPending ? (
-                <LoaderCircle className="spin" size={14} />
+                <LoaderCircle className="animate-spin" size={14} />
               ) : (
                 <RotateCcw size={14} />
               )}
@@ -691,7 +714,7 @@ function InstrumentSessionPanel({
           )}
           <button
             type="button"
-            className="secondary-button"
+            className={secondaryButton}
             onClick={onRefresh}
             disabled={interactionPending || closePending}
             title={
@@ -700,12 +723,12 @@ function InstrumentSessionPanel({
                 : undefined
             }
           >
-            <RefreshCw className={refreshPending ? "spin" : undefined} size={14} />
+            <RefreshCw className={refreshPending ? "animate-spin" : undefined} size={14} />
             Refresh state
           </button>
           <button
             type="button"
-            className="secondary-button"
+            className={secondaryButton}
             onClick={onClose}
             disabled={closePending || interactionPending}
             title={
@@ -714,7 +737,11 @@ function InstrumentSessionPanel({
                 : undefined
             }
           >
-            {closePending ? <LoaderCircle className="spin" size={14} /> : <Unplug size={14} />}
+            {closePending ? (
+              <LoaderCircle className="animate-spin" size={14} />
+            ) : (
+              <Unplug size={14} />
+            )}
             Disconnect
           </button>
         </div>
@@ -726,16 +753,18 @@ function InstrumentSessionPanel({
     const canResolve =
       instrument.owner_kind === "instrument_session" && Boolean(instrument.owner_id);
     return (
-      <div className="instrument-attention-panel">
-        <ShieldAlert size={19} aria-hidden="true" />
-        <div>
-          <strong>Operator resolution required</strong>
-          <p>The previous operation left hardware state uncertain. Automatic reuse is blocked.</p>
+      <div className={attentionPanel}>
+        <ShieldAlert className="mt-0.5 flex-none" size={19} aria-hidden="true" />
+        <div className="flex-1 max-[680px]:w-full max-[680px]:basis-full">
+          <strong className="text-[0.7rem] text-text-soft">Operator resolution required</strong>
+          <p className={attentionCopy}>
+            The previous operation left hardware state uncertain. Automatic reuse is blocked.
+          </p>
           <OwnerDescription instrument={instrument} />
         </div>
         <button
           type="button"
-          className="secondary-button"
+          className={secondaryButton}
           onClick={onResolve}
           disabled={!canResolve || resolvePending}
           title={
@@ -744,7 +773,11 @@ function InstrumentSessionPanel({
               : "Resolve this owner from its run workflow"
           }
         >
-          {resolvePending ? <LoaderCircle className="spin" size={14} /> : <ShieldAlert size={14} />}
+          {resolvePending ? (
+            <LoaderCircle className="animate-spin" size={14} />
+          ) : (
+            <ShieldAlert size={14} />
+          )}
           Resolve quarantine
         </button>
       </div>
@@ -755,22 +788,26 @@ function InstrumentSessionPanel({
     const canDisconnectSession =
       instrument.owner_kind === "instrument_session" && Boolean(instrument.owner_id);
     return (
-      <div className="instrument-busy-panel">
-        <Database size={18} aria-hidden="true" />
-        <div>
-          <strong>Read-only while owned</strong>
-          <p>Another run or interactive session owns this instrument.</p>
+      <div className={attentionPanel}>
+        <Database className="mt-0.5 flex-none" size={18} aria-hidden="true" />
+        <div className="flex-1 max-[680px]:w-full max-[680px]:basis-full">
+          <strong className="text-[0.7rem] text-text-soft">Read-only while owned</strong>
+          <p className={attentionCopy}>Another run or interactive session owns this instrument.</p>
           <OwnerDescription instrument={instrument} />
         </div>
         {canDisconnectSession && (
           <button
             type="button"
-            className="secondary-button"
+            className={secondaryButton}
             onClick={onDisconnectOwner}
             disabled={closePending}
             title="Disconnect this daemon-owned interactive session"
           >
-            {closePending ? <LoaderCircle className="spin" size={14} /> : <Unplug size={14} />}
+            {closePending ? (
+              <LoaderCircle className="animate-spin" size={14} />
+            ) : (
+              <Unplug size={14} />
+            )}
             Disconnect session
           </button>
         )}
@@ -780,32 +817,33 @@ function InstrumentSessionPanel({
 
   if (instrument.availability === "unavailable") {
     return (
-      <div className="instrument-busy-panel unavailable">
-        <CircleOff size={18} aria-hidden="true" />
-        <div>
-          <strong>Connection unavailable</strong>
-          <p>Fix the provider or connection configuration before opening a session.</p>
+      <div
+        className={classes(attentionPanel, "border-[rgb(215_126_121_/_24%)] bg-red-soft text-red")}
+      >
+        <CircleOff className="mt-0.5 flex-none" size={18} aria-hidden="true" />
+        <div className="flex-1">
+          <strong className="text-[0.7rem] text-text-soft">Connection unavailable</strong>
+          <p className={attentionCopy}>
+            Fix the provider or connection configuration before opening a session.
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="instrument-session-panel">
-      <div className="connect-prompt">
-        <strong>Connect only when you are ready to interact</strong>
-        <small>
+    <div className={sessionPanel}>
+      <div className="grid min-w-0 flex-1 gap-1 max-[680px]:w-full max-[680px]:basis-full">
+        <strong className="text-[0.7rem] text-text-soft">
+          Connect only when you are ready to interact
+        </strong>
+        <small className="overflow-hidden text-[0.58rem] leading-[1.4] text-ellipsis text-text-dim">
           Opening a session gives the daemon exclusive ownership. Selecting this instrument never
           connects it.
         </small>
       </div>
-      <button
-        type="button"
-        className="primary-button"
-        onClick={onConnect}
-        disabled={connectPending}
-      >
-        {connectPending ? <LoaderCircle className="spin" size={14} /> : <Cable size={14} />}
+      <button type="button" className={primaryButton} onClick={onConnect} disabled={connectPending}>
+        {connectPending ? <LoaderCircle className="animate-spin" size={14} /> : <Cable size={14} />}
         Connect
       </button>
     </div>
@@ -814,7 +852,7 @@ function InstrumentSessionPanel({
 
 function OwnerDescription({ instrument }: { instrument: InstrumentView }) {
   const ownerKind = instrument.owner_kind === "run" ? "Run" : "Interactive session";
-  return <small className="instrument-owner">{ownerKind}</small>;
+  return <small className="mt-[7px] block text-[0.59rem] text-text-dim">{ownerKind}</small>;
 }
 
 function InterfaceCard({
@@ -855,11 +893,20 @@ function InterfaceCard({
   onOperationEdit: (target: InstrumentOperationTarget) => void;
 }) {
   return (
-    <article className="interface-card">
-      <header>
+    <article
+      className="overflow-hidden rounded-md border border-line bg-panel-soft"
+      data-testid={`interface-card-${instrumentInterface.id}`}
+    >
+      <header className="flex items-start justify-between gap-3.5 border-b border-line bg-[rgb(255_255_255_/_1%)] px-[13px] py-3 max-[460px]:flex-col">
         <div>
-          <h4>{instrumentInterface.label ?? interfaceFallbackLabel(instrumentInterface.id)}</h4>
-          {instrumentInterface.description && <p>{instrumentInterface.description}</p>}
+          <h4 className="m-0 text-[0.77rem] font-[680]">
+            {instrumentInterface.label ?? interfaceFallbackLabel(instrumentInterface.id)}
+          </h4>
+          {instrumentInterface.description && (
+            <p className="mt-1.5 mb-0 max-w-[760px] text-[0.6rem] leading-[1.45] text-text-dim">
+              {instrumentInterface.description}
+            </p>
+          )}
         </div>
       </header>
 
@@ -937,17 +984,21 @@ function InterfaceEndpoint({
   return (
     <>
       {hasLocalControls && (
-        <section className={componentPath.length > 0 ? "interface-component" : undefined}>
+        <section className={componentPath.length > 0 ? "border-t border-line" : undefined}>
           {componentPath.length > 0 && (
-            <header>
-              <h5>{member.label ?? titleCase(componentPath.at(-1) ?? "")}</h5>
-              <small>{componentPath.map(titleCase).join(" / ")}</small>
+            <header className="bg-panel-strong px-[13px] py-2.5">
+              <h5 className="m-0 text-[0.67rem] text-text-soft">
+                {member.label ?? titleCase(componentPath.at(-1) ?? "")}
+              </h5>
+              <small className="mt-[3px] block text-[0.51rem] text-text-dim">
+                {componentPath.map(titleCase).join(" / ")}
+              </small>
               {member.description && <p>{member.description}</p>}
             </header>
           )}
 
           {properties.length > 0 && (
-            <div className="interface-properties">
+            <div className={controlGrid}>
               {properties.map((property) => {
                 const key = propertyKey(interfaceId, componentPath, property.id);
                 return (
@@ -967,7 +1018,7 @@ function InterfaceEndpoint({
           )}
 
           {operations.length > 0 && (
-            <div className="operation-list">
+            <div className="grid">
               {operations.map((operation) => {
                 const target = { interfaceId, componentPath, operation };
                 const key = operationKey(target);
@@ -988,7 +1039,7 @@ function InterfaceEndpoint({
           )}
 
           {(member.acquisitions ?? []).length > 0 && (
-            <div className="acquisition-list">
+            <div className="grid">
               {(member.acquisitions ?? []).map((acquisition) => {
                 const target = { interfaceId, componentPath, acquisition };
                 const key = acquisitionKey(target);
@@ -1073,15 +1124,15 @@ function OperationControl({
   };
 
   return (
-    <section className="operation-control">
-      <header>
+    <section className="border-t border-line">
+      <header className={controlHeader}>
         <div>
-          <strong>{label}</strong>
-          {operation.description && <p>{operation.description}</p>}
+          <strong className="text-[0.66rem] text-text-soft">{label}</strong>
+          {operation.description && <p className={controlDescription}>{operation.description}</p>}
         </div>
         <button
           type="button"
-          className="secondary-button"
+          className={classes(secondaryButton, "flex-none")}
           aria-label={`Invoke ${label}`}
           onClick={() => onInvoke(operationArguments)}
           disabled={!connected || interactionDisabled || invalid}
@@ -1095,12 +1146,12 @@ function OperationControl({
                   : undefined
           }
         >
-          {invoking ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+          {invoking ? <LoaderCircle className="animate-spin" size={14} /> : <Play size={14} />}
           Invoke
         </button>
       </header>
       {argumentSpecs.length > 0 && (
-        <div className="operation-arguments">
+        <div className={controlGrid}>
           {argumentSpecs.map((argument) => (
             <OperationArgumentEditor
               key={argument.id}
@@ -1113,7 +1164,13 @@ function OperationControl({
         </div>
       )}
       {result && (
-        <p className={`instrument-receipt ${result.status}`}>
+        <p
+          className={classes(
+            receiptStyle,
+            "rounded-none border-x-0 border-b-0",
+            receiptTone(result.status),
+          )}
+        >
           Invoke receipt: {titleCase(result.status)}
         </p>
       )}
@@ -1137,15 +1194,20 @@ function OperationArgumentEditor({
   const label = argument.label ?? titleCase(argument.id);
   const raw = draft?.raw ?? "";
   return (
-    <label className="operation-argument">
-      <span className="property-label">
-        <span>
-          <strong>{label}</strong>
+    <label className={editorRow}>
+      <span className={propertyLabel}>
+        <span className="grid min-w-0">
+          <strong className="overflow-hidden text-[0.66rem] font-[670] text-ellipsis whitespace-nowrap">
+            {label}
+          </strong>
         </span>
-        <small>Argument</small>
+        <small className="flex-none text-[0.49rem] font-extrabold tracking-[0.04em] text-text-dim uppercase">
+          Argument
+        </small>
       </span>
       {type.type === "bool" ? (
         <select
+          className={controlInput}
           value={typeof raw === "boolean" ? String(raw) : ""}
           disabled={!editable}
           onChange={(event) => {
@@ -1161,6 +1223,7 @@ function OperationArgumentEditor({
         </select>
       ) : type.type === "string" && type.choices ? (
         <select
+          className={controlInput}
           value={typeof raw === "string" ? raw : ""}
           disabled={!editable}
           onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
@@ -1175,8 +1238,16 @@ function OperationArgumentEditor({
           ))}
         </select>
       ) : type.type === "int" || type.type === "float" || type.type === "quantity" ? (
-        <span className={`number-unit-editor ${type.type === "quantity" ? "" : "number-only"}`}>
+        <span
+          className={classes(
+            "grid items-stretch",
+            type.type === "quantity"
+              ? "grid-cols-[minmax(0,1fr)_auto]"
+              : "grid-cols-[minmax(0,1fr)]",
+          )}
+        >
           <input
+            className={classes(controlInput, type.type === "quantity" && "rounded-r-none")}
             type="number"
             step={type.type === "int" ? 1 : "any"}
             min={type.minimum ?? undefined}
@@ -1191,10 +1262,10 @@ function OperationArgumentEditor({
           />
           {type.type === "quantity" &&
             (type.unit ? (
-              <span>{type.unit}</span>
+              <span className={unitAddon}>{type.unit}</span>
             ) : (
               <input
-                className="operation-unit-input"
+                className={classes(controlInput, "min-w-16 rounded-l-none border-l-0")}
                 type="text"
                 aria-label={`${label} unit`}
                 value={draft?.unit ?? ""}
@@ -1214,6 +1285,7 @@ function OperationArgumentEditor({
         </span>
       ) : type.type === "string" ? (
         <input
+          className={controlInput}
           type="text"
           value={typeof raw === "string" ? raw : ""}
           placeholder={editable ? "Enter value" : "—"}
@@ -1222,10 +1294,10 @@ function OperationArgumentEditor({
         />
       ) : null}
       {argument.description && (
-        <small className="property-description">{argument.description}</small>
+        <small className={propertyDescription}>{argument.description}</small>
       )}
       {draft && (
-        <button type="button" className="property-reset" onClick={() => onChange()}>
+        <button type="button" className={propertyReset} onClick={() => onChange()}>
           Clear argument
         </button>
       )}
@@ -1251,17 +1323,21 @@ function AcquisitionControl({
   const acquisition = target.acquisition;
   const results = declaredAcquisitionResults(acquisition);
   return (
-    <section className="acquisition-control">
-      <header>
+    <section className="border-t border-line">
+      <header className={controlHeader}>
         <div>
-          <strong>{acquisition.label ?? titleCase(acquisition.id)}</strong>
-          {acquisition.description && <p>{acquisition.description}</p>}
+          <strong className="text-[0.66rem] text-text-soft">
+            {acquisition.label ?? titleCase(acquisition.id)}
+          </strong>
+          {acquisition.description && (
+            <p className={controlDescription}>{acquisition.description}</p>
+          )}
         </div>
         {results.length > 0 && (
-          <div className="acquisition-collect-action">
+          <div className="grid max-w-80 flex-none justify-items-end gap-1.5">
             <button
               type="button"
-              className="secondary-button"
+              className={secondaryButton}
               onClick={onCollect}
               disabled={!connected || interactionDisabled}
               title={
@@ -1272,19 +1348,28 @@ function AcquisitionControl({
                     : undefined
               }
             >
-              {collecting ? <LoaderCircle className="spin" size={14} /> : <Database size={14} />}
+              {collecting ? (
+                <LoaderCircle className="animate-spin" size={14} />
+              ) : (
+                <Database size={14} />
+              )}
               Collect
             </button>
           </div>
         )}
       </header>
       {results.length > 0 && (
-        <div className="acquisition-results">
-          <span>Results</span>
+        <div className="flex flex-wrap items-center gap-[7px] border-t border-line px-3 py-[9px]">
+          <span className="mr-[3px] text-[0.51rem] font-extrabold tracking-[0.05em] text-text-dim uppercase">
+            Results
+          </span>
           {results.map((acquisitionResult) => (
-            <span key={acquisitionResult.id} className="result-chip">
+            <span
+              className="inline-flex items-baseline gap-[7px] rounded-full border border-line px-[7px] py-1 text-[0.56rem] text-text-soft"
+              key={acquisitionResult.id}
+            >
               {acquisitionResult.label ?? titleCase(acquisitionResult.id)}
-              <small>
+              <small className="text-[0.5rem] text-text-dim">
                 {acquisitionResult.dtype}
                 {acquisitionResult.unit ? ` · ${acquisitionResult.unit}` : ""}
               </small>
@@ -1312,12 +1397,25 @@ function PropertyEditor({
 }) {
   const dirty = draft !== undefined;
   return (
-    <label className={`interface-property ${dirty ? "staged" : ""}`}>
-      <span className="property-label">
-        <span>
-          <strong>{property.label ?? titleCase(property.id)}</strong>
+    <label
+      className={classes(
+        editorRow,
+        dirty && "bg-accent-soft shadow-[inset_2px_0_var(--color-accent)]",
+      )}
+      data-testid={`interface-property-${property.id}`}
+    >
+      <span className={propertyLabel}>
+        <span className="grid min-w-0">
+          <strong
+            className="overflow-hidden text-[0.66rem] font-[670] text-ellipsis whitespace-nowrap"
+            data-testid="property-label"
+          >
+            {property.label ?? titleCase(property.id)}
+          </strong>
         </span>
-        <small>{accessLabel(property.access)}</small>
+        <small className="flex-none text-[0.49rem] font-extrabold tracking-[0.04em] text-text-dim uppercase">
+          {accessLabel(property.access)}
+        </small>
       </span>
       <InstrumentPropertyInput
         property={property}
@@ -1327,10 +1425,10 @@ function PropertyEditor({
         onChange={onChange}
       />
       {property.description && (
-        <small className="property-description">{property.description}</small>
+        <small className={propertyDescription}>{property.description}</small>
       )}
       {dirty && (
-        <button type="button" className="property-reset" onClick={() => onChange()}>
+        <button type="button" className={propertyReset} onClick={() => onChange()}>
           Reset staged value
         </button>
       )}
@@ -1342,20 +1440,31 @@ function CollectPreview({ receipt }: { receipt: InstrumentCollectReceipt }) {
   const trace = traceValues(receipt);
   const unavailable = unavailableResults(receipt);
   return (
-    <div className={`collect-preview ${receipt.status}`}>
-      <div>
-        <strong>Collect receipt: {titleCase(receipt.status)}</strong>
+    <div className="grid gap-[9px] border-t border-line bg-bg px-3 py-[11px]">
+      <div className="flex items-baseline gap-[9px]">
+        <strong
+          className={classes(
+            "text-[0.62rem] text-accent",
+            (receipt.status === "not_collected" || receipt.status === "unknown") && "text-yellow",
+          )}
+        >
+          Collect receipt: {titleCase(receipt.status)}
+        </strong>
         {receipt.readback && (
-          <small>{Object.keys(receipt.readback.values ?? {}).length} results returned</small>
+          <small className="text-[0.54rem] text-text-dim">
+            {Object.keys(receipt.readback.values ?? {}).length} results returned
+          </small>
         )}
       </div>
       {unavailable.count > 0 && (
-        <div className="collect-unavailable-summary" role="status">
+        <div className="flex items-center gap-[7px] text-yellow" role="status">
           <AlertTriangle size={13} aria-hidden="true" />
-          <span>
+          <span className="text-[0.58rem] font-[650]">
             {unavailable.count} {unavailable.count === 1 ? "result" : "results"} unavailable
           </span>
-          <small>Reasons: {unavailable.reasons.map(titleCase).join(", ")}</small>
+          <small className="text-inherit">
+            Reasons: {unavailable.reasons.map(titleCase).join(", ")}
+          </small>
         </div>
       )}
       {trace && <TracePreview values={trace} />}
@@ -1386,7 +1495,7 @@ function TracePreview({ values }: { values: number[] }) {
     .join(" ");
   return (
     <svg
-      className="instrument-trace"
+      className="h-[110px] w-full rounded-sm border border-line p-[5px] [background-image:linear-gradient(var(--color-line)_1px,transparent_1px),linear-gradient(90deg,var(--color-line)_1px,transparent_1px)] [background-size:25%_50%] [&_polyline]:fill-none [&_polyline]:stroke-accent [&_polyline]:[stroke-width:1.5] [&_polyline]:[vector-effect:non-scaling-stroke]"
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label={`${values.length}-point trace preview`}
@@ -1407,10 +1516,15 @@ function InspectorEmpty({
   detail: string;
 }) {
   return (
-    <div className="instrument-inspector-empty">
-      <span aria-hidden="true">{icon}</span>
-      <h3>{title}</h3>
-      <p>{detail}</p>
+    <div className="grid min-h-[230px] place-content-center justify-items-center px-5 py-[35px] text-center text-text-dim">
+      <span
+        className="mb-[11px] grid size-[42px] place-items-center rounded-full bg-panel-strong"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <h3 className="m-0 text-[0.76rem] text-text-soft">{title}</h3>
+      <p className="mt-1.5 mb-0 max-w-[370px] text-[0.62rem] leading-normal">{detail}</p>
     </div>
   );
 }
@@ -1423,12 +1537,57 @@ export function AvailabilityBadge({
   connected?: boolean;
 }) {
   const label = connected ? "Connected" : titleCase(availability);
+  const tone = connected ? availabilityTone.connected : availabilityTone[availability];
   return (
-    <span className={`instrument-availability ${connected ? "connected" : availability}`}>
-      <span aria-hidden="true" />
+    <span
+      className={classes(
+        "inline-flex min-h-[21px] flex-none items-center gap-[5px] rounded-full border border-line px-1.5 text-[0.52rem] font-extrabold tracking-[0.04em] text-text-dim uppercase",
+        tone,
+      )}
+    >
+      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
       {label}
     </span>
   );
+}
+
+const sessionPanel =
+  "flex min-h-16 items-center gap-3.5 rounded-md border border-line bg-panel-soft px-[13px] py-[11px] max-[680px]:flex-wrap max-[680px]:items-stretch";
+const attentionPanel =
+  "flex min-h-16 items-start gap-3.5 rounded-md border border-[rgb(207_173_104_/_24%)] bg-yellow-soft px-[13px] py-[11px] text-yellow max-[680px]:flex-wrap max-[680px]:items-stretch";
+const attentionCopy = "mt-1 mb-0 text-[0.62rem] leading-normal text-text-dim";
+const inlineError =
+  "flex items-center gap-2 rounded-md border border-[rgb(215_126_121_/_25%)] bg-red-soft px-3 py-2.5 text-[0.66rem] leading-normal text-[#edb5b2]";
+const problems =
+  "rounded-md border border-[rgb(215_126_121_/_25%)] bg-red-soft px-3 py-2.5 text-[0.66rem] leading-normal text-[#edb5b2]";
+const receiptStyle =
+  "m-0 rounded-sm border border-line bg-panel-soft px-2.5 py-2 text-[0.61rem] text-text-soft";
+const controlGrid =
+  "grid grid-cols-[repeat(2,minmax(230px,1fr))] max-[1100px]:grid-cols-[minmax(0,1fr)]";
+const controlHeader = "flex items-start justify-between gap-3.5 px-3 py-2.5 max-[460px]:flex-col";
+const controlDescription = "mt-1.5 mb-0 max-w-[760px] text-[0.6rem] leading-[1.45] text-text-dim";
+const editorRow =
+  "relative grid min-h-[78px] grid-cols-[minmax(130px,1fr)_minmax(140px,0.85fr)] items-center gap-x-3.5 gap-y-[9px] border-r border-b border-line bg-transparent px-[13px] py-2.5 even:border-r-0 max-[1100px]:border-r-0 max-[680px]:grid-cols-[minmax(120px,1fr)_minmax(125px,0.9fr)] max-[460px]:grid-cols-[minmax(0,1fr)]";
+const propertyLabel = "flex min-w-0 items-start justify-between gap-2";
+const controlInput =
+  "min-h-[34px] w-full min-w-0 rounded-sm border border-line bg-bg px-[9px] text-[0.64rem] text-text outline-0 focus:border-accent disabled:cursor-not-allowed disabled:text-text-dim disabled:opacity-70 aria-invalid:border-red";
+const unitAddon =
+  "grid min-w-[42px] place-items-center rounded-r-sm border border-l-0 border-line bg-panel-strong px-2 text-[0.57rem] text-text-dim";
+const propertyDescription = "col-span-full text-[0.53rem] leading-[1.4] text-text-dim";
+const propertyReset =
+  "absolute right-3 bottom-[3px] cursor-pointer border-0 bg-transparent p-0 text-[0.49rem] text-accent";
+const positiveReceipt = "border-[rgb(128_163_207_/_24%)] bg-accent-soft text-accent";
+const warningReceipt = "border-[rgb(207_173_104_/_25%)] bg-yellow-soft text-yellow";
+const availabilityTone = {
+  available: positiveReceipt,
+  connected: positiveReceipt,
+  active: positiveReceipt,
+  quarantined: warningReceipt,
+  unavailable: "border-[rgb(215_126_121_/_25%)] bg-red-soft text-red",
+} satisfies Record<InstrumentView["availability"] | "connected", string>;
+
+function receiptTone(status: string): string {
+  return ["applied", "unchanged", "invoked"].includes(status) ? positiveReceipt : warningReceipt;
 }
 
 function instrumentVisiblePropertyKeys(

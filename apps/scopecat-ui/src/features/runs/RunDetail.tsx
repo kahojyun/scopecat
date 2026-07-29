@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { canPreviewRunContent, getRunContent } from "../../api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
+import { classes, countBadge, detailCard, secondaryButton } from "../../ui/styles";
 import type {
   ContentEntry,
   MeasurementPreview,
@@ -64,21 +65,39 @@ export function RunDetail({
 }) {
   return (
     <>
-      <header className="detail-header">
-        <div className="detail-title">
-          <div className="detail-kicker">
-            <span className={`status-pill status-${run.status}`}>
-              <span aria-hidden="true" />
+      <header
+        className="flex items-start justify-between gap-7 border-b border-line px-0.5 pb-[17px] max-[680px]:block"
+        data-testid="run-detail-header"
+      >
+        <div className="min-w-0">
+          <div className="mb-2.5 flex items-center gap-2.5 text-[0.68rem] font-bold text-text-dim">
+            <span
+              className={classes(
+                "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[0.62rem] font-extrabold tracking-[0.04em] uppercase",
+                runStatusBadge[run.status],
+              )}
+              data-testid="run-status"
+            >
+              <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
               {run.stateLabel}
             </span>
           </div>
-          <h2>{run.experimentId}</h2>
-          <code title={run.runId}>{run.runId}</code>
+          <h2 className="mb-[7px] text-[clamp(1.2rem,1.8vw,1.55rem)] font-[650] tracking-[-0.035em] [overflow-wrap:anywhere]">
+            {run.experimentId}
+          </h2>
+          <code
+            className="block max-w-[min(60vw,620px)] overflow-hidden text-[0.68rem] text-ellipsis whitespace-nowrap text-text-dim max-[680px]:max-w-full"
+            title={run.runId}
+          >
+            {run.runId}
+          </code>
         </div>
-        <dl className="detail-meta">
-          <div>
-            <dt>Accepted</dt>
-            <dd>
+        <dl className="mt-1 flex flex-none gap-7 max-[1100px]:gap-[18px] max-[680px]:mt-5 max-[680px]:grid max-[680px]:grid-cols-2 max-[460px]:grid-cols-1">
+          <div className="grid gap-1.5">
+            <dt className="text-[0.6rem] font-extrabold tracking-[0.09em] text-text-dim uppercase">
+              Accepted
+            </dt>
+            <dd className="m-0 text-[0.69rem] text-text-soft">
               {run.createdAt ? (
                 <time dateTime={run.createdAt}>{formatDateTime(run.createdAt)}</time>
               ) : (
@@ -86,9 +105,11 @@ export function RunDetail({
               )}
             </dd>
           </div>
-          <div>
-            <dt>Config</dt>
-            <dd>
+          <div className="grid gap-1.5">
+            <dt className="text-[0.6rem] font-extrabold tracking-[0.09em] text-text-dim uppercase">
+              Config
+            </dt>
+            <dd className="m-0 text-[0.69rem] text-text-soft">
               <code title={run.configHash}>
                 {run.configHash ? shorten(run.configHash, 15) : "Not reported"}
               </code>
@@ -98,18 +119,23 @@ export function RunDetail({
       </header>
 
       {run.status === "attention_required" && (
-        <div className="attention-callout" role="alert">
-          <AlertTriangle size={19} aria-hidden="true" />
-          <div>
-            <strong>Operator attention required</strong>
-            <p>{run.attentionReason ?? "The daemon has not reported a reconciliation reason."}</p>
-            <p>
+        <div
+          className="mt-[18px] flex items-start gap-[11px] rounded-md border border-[rgb(237_201_111_/_23%)] bg-yellow-soft px-3.5 py-[13px]"
+          role="alert"
+        >
+          <AlertTriangle className="flex-none text-yellow" size={19} aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <strong className="text-[0.77rem] text-[#fae4ad]">Operator attention required</strong>
+            <p className="mt-1 mb-0 text-[0.71rem] leading-normal text-[#c4b994]">
+              {run.attentionReason ?? "The daemon has not reported a reconciliation reason."}
+            </p>
+            <p className="mt-1 mb-0 text-[0.71rem] leading-normal text-[#c4b994]">
               This run cannot be resumed safely. Reconcile its external state, then submit a new
               run.
             </p>
-            <div className="attention-actions">
+            <div className="mt-[11px] flex flex-wrap gap-[7px]">
               <button
-                className="danger"
+                className="inline-flex min-h-[31px] cursor-pointer items-center gap-1.5 rounded-[7px] border border-[rgb(255_140_136_/_35%)] bg-red-soft px-2.5 text-red hover:not-disabled:bg-panel-strong hover:not-disabled:text-text disabled:cursor-wait disabled:opacity-55"
                 type="button"
                 onClick={onResolveAttention}
                 disabled={attentionPending}
@@ -119,7 +145,7 @@ export function RunDetail({
               </button>
             </div>
             {attentionError && (
-              <p className="attention-error" role="status">
+              <p className="mt-1 mb-0 text-[0.71rem] leading-normal text-red" role="status">
                 {errorMessage(attentionError)}
               </p>
             )}
@@ -127,7 +153,7 @@ export function RunDetail({
         </div>
       )}
 
-      <div className="detail-grid">
+      <div className="mt-[18px] grid grid-cols-[minmax(0,1.55fr)_minmax(250px,0.85fr)] gap-3 max-[1100px]:grid-cols-[minmax(0,1.25fr)_minmax(230px,0.9fr)] max-[680px]:grid-cols-[minmax(0,1fr)]">
         <ProgressCard run={run} events={events} />
         <RunProposals key={run.runId} runId={run.runId} />
         <AnalysisCard analyses={analyses} error={analysesError} pending={analysesPending} />
@@ -163,26 +189,27 @@ function ProgressCard({ run, events }: { run: ProjectRun; events: ProjectEvent[]
       : undefined;
 
   return (
-    <article className="detail-card progress-card">
+    <article className={classes(detailCard, "col-span-full max-[680px]:col-auto")}>
       <CardHeading
         icon={<Gauge size={17} />}
         title="Execution progress"
         accessory={
           percentage !== undefined ? (
-            <strong className="progress-percentage">{percentage}%</strong>
+            <strong className="font-mono text-[0.78rem] text-accent">{percentage}%</strong>
           ) : (
-            <span className="quiet-label">{run.stateLabel}</span>
+            <span className={countBadge}>{run.stateLabel}</span>
           )
         }
       />
       {hasProgress ? (
         <>
           <progress
+            className="h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-panel-strong [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-accent [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-panel-strong [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-accent"
             max={expected}
             value={progressValue}
             aria-label={`${progressValue ?? 0} of ${expected} points complete`}
           />
-          <div className="progress-copy">
+          <div className="mt-[7px] flex justify-between text-[0.65rem] text-text-dim max-[460px]:flex-wrap max-[460px]:gap-2 [&_strong]:text-text-soft">
             <span>
               <strong>{progressValue ?? 0}</strong> / {expected} points
             </span>
@@ -190,13 +217,13 @@ function ProgressCard({ run, events }: { run: ProjectRun; events: ProjectEvent[]
           </div>
         </>
       ) : (
-        <div className="progress-empty">
-          <Activity size={23} aria-hidden="true" />
+        <div className="flex min-h-[54px] items-center gap-3 rounded-[9px] border border-dashed border-line bg-[rgb(255_255_255_/_1%)] p-3 text-text-dim">
+          <Activity className="flex-none text-blue" size={23} aria-hidden="true" />
           <div>
-            <strong>
+            <strong className="text-[0.75rem] text-text-soft">
               {run.status === "running" ? "Execution is active" : "No point total reported"}
             </strong>
-            <p>
+            <p className="mt-1 mb-0 text-[0.67rem] leading-[1.45]">
               {events.length > 0
                 ? `${events.length} durable events received from this run.`
                 : "Progress will appear when the daemon publishes plan or execution events."}
@@ -204,7 +231,7 @@ function ProgressCard({ run, events }: { run: ProjectRun; events: ProjectEvent[]
           </div>
         </div>
       )}
-      <div className="progress-facts">
+      <div className="mt-[13px] grid grid-cols-3 gap-2 max-[460px]:grid-cols-1">
         <Fact
           label="Last update"
           value={run.updatedAt ? formatRelative(run.updatedAt) : "Not reported"}
@@ -226,11 +253,11 @@ function AnalysisCard({
   pending: boolean;
 }) {
   return (
-    <article className="detail-card analysis-card">
+    <article className={detailCard} data-testid="resource-card">
       <CardHeading
         icon={<Atom size={17} />}
         title="Analyses"
-        accessory={<span className="count-badge">{analyses?.length ?? 0}</span>}
+        accessory={<span className={countBadge}>{analyses?.length ?? 0}</span>}
       />
       {error ? (
         <InlineEmpty title="Analyses unavailable" detail={errorMessage(error)} warning />
@@ -245,27 +272,39 @@ function AnalysisCard({
           detail="Notebook and automated analysis outputs will appear here."
         />
       ) : (
-        <div className="analysis-list">
+        <div className="grid gap-2">
           {analyses.map((analysis) => (
-            <details key={analysis.id}>
-              <summary>
-                <span>
-                  <strong>{analysis.title}</strong>
-                  <small>
+            <details
+              className="overflow-hidden rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]"
+              key={analysis.id}
+            >
+              <summary className="flex cursor-pointer items-center justify-between gap-2.5 p-2.5">
+                <span className="grid min-w-0 gap-[3px]">
+                  <strong className="overflow-hidden text-[0.7rem] text-ellipsis whitespace-nowrap">
+                    {analysis.title}
+                  </strong>
+                  <small className="text-[0.6rem] text-text-dim">
                     {analysis.key ?? analysis.id}
                     {analysis.stepId ? ` · ${analysis.stepId}` : ""}
                   </small>
                 </span>
-                <span className="count-badge">{analysis.outputs.length}</span>
+                <span className={countBadge}>{analysis.outputs.length}</span>
               </summary>
-              <div className="analysis-outputs">
+              <div className="grid gap-2 px-2.5 pb-2.5">
                 {analysis.outputs.map((output, index) => (
-                  <section key={`${output.kind}:${output.title}:${index}`}>
-                    <header>
-                      <strong>{output.title}</strong>
-                      <span>{titleCase(output.kind)}</span>
+                  <section
+                    className="overflow-hidden rounded-[7px] border border-line bg-panel"
+                    key={`${output.kind}:${output.title}:${index}`}
+                  >
+                    <header className="flex items-center justify-between gap-2.5 border-b border-line px-[9px] py-[7px]">
+                      <strong className="text-[0.65rem]">{output.title}</strong>
+                      <span className="text-[0.56rem] font-[750] text-text-dim uppercase">
+                        {titleCase(output.kind)}
+                      </span>
                     </header>
-                    <pre>{formatPreviewContent(output.content)}</pre>
+                    <pre className="m-0 max-h-60 overflow-auto p-[9px] text-[0.6rem] leading-normal text-[#aebfd0]">
+                      {formatPreviewContent(output.content)}
+                    </pre>
                   </section>
                 ))}
               </div>
@@ -279,24 +318,40 @@ function AnalysisCard({
 
 function ResourceCard({ run }: { run: ProjectRun }) {
   return (
-    <article className="detail-card resource-card">
+    <article className={detailCard}>
       <CardHeading
         icon={<Cpu size={17} />}
         title="Resources"
-        accessory={<span className="count-badge">{run.resources.length}</span>}
+        accessory={<span className={countBadge}>{run.resources.length}</span>}
       />
       {run.resources.length > 0 ? (
-        <ul className="resource-list">
+        <ul className="m-0 grid list-none gap-[7px] p-0">
           {run.resources.map((resource) => (
-            <li key={`${resource.kind}:${resource.id}`}>
-              <span className="resource-icon" aria-hidden="true">
+            <li
+              className="flex min-w-0 items-center gap-[9px] rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)] p-[9px]"
+              data-testid={`resource-${resource.id}`}
+              key={`${resource.kind}:${resource.id}`}
+            >
+              <span
+                className="grid size-7 flex-none place-items-center rounded-[7px] bg-blue-soft text-blue"
+                aria-hidden="true"
+              >
                 <Box size={15} />
               </span>
-              <span>
-                <strong>{resource.id}</strong>
-                <small>{titleCase(resource.kind)}</small>
+              <span className="grid min-w-0 flex-1 gap-0.5">
+                <strong className="overflow-hidden text-[0.7rem] font-[650] text-ellipsis whitespace-nowrap">
+                  {resource.id}
+                </strong>
+                <small className="overflow-hidden text-[0.6rem] text-ellipsis whitespace-nowrap text-text-dim">
+                  {titleCase(resource.kind)}
+                </small>
               </span>
-              <span className={`lease-state ${resource.status ?? "claimed"}`}>
+              <span
+                className={classes(
+                  "flex-none rounded-[5px] border px-[5px] py-[3px] text-[0.56rem] font-extrabold uppercase",
+                  leaseStatusClass(resource.status),
+                )}
+              >
                 {titleCase(resource.status ?? "claimed")}
               </span>
             </li>
@@ -322,11 +377,14 @@ function TimelineCard({
   pending: boolean;
 }) {
   return (
-    <article className="detail-card timeline-card">
+    <article
+      className={classes(detailCard, "row-span-2 max-[680px]:row-auto")}
+      data-testid="timeline-card"
+    >
       <CardHeading
         icon={<Activity size={17} />}
         title="Recent events"
-        accessory={<span className="count-badge">{events.length}</span>}
+        accessory={<span className={countBadge}>{events.length}</span>}
       />
       {error ? (
         <InlineEmpty title="Events unavailable" detail={errorMessage(error)} warning />
@@ -343,23 +401,33 @@ function TimelineCard({
       ) : (
         <>
           {events.length === 500 && (
-            <p className="timeline-limit-note">
+            <p className="mt-0 mb-3 text-[0.64rem] leading-[1.45] text-text-dim">
               Showing the latest 500 events; older events are not loaded.
             </p>
           )}
-          <ol className="timeline">
+          <ol className="m-0 grid max-h-[540px] list-none overflow-auto p-0 pr-[3px] [scrollbar-color:#344252_transparent] [scrollbar-width:thin] max-[680px]:max-h-[430px]">
             {events.map((event) => (
-              <li key={event.id}>
-                <span className="timeline-marker" aria-hidden="true">
+              <li
+                className="relative grid grid-cols-[29px_minmax(0,1fr)] gap-2.5 pb-[17px] not-last:before:absolute not-last:before:top-[27px] not-last:before:bottom-[-1px] not-last:before:left-[13px] not-last:before:w-px not-last:before:bg-line not-last:before:content-['']"
+                key={event.id}
+              >
+                <span
+                  className="z-[1] grid size-[27px] place-items-center rounded-[8px] border border-line bg-panel text-accent"
+                  aria-hidden="true"
+                >
                   {eventIcon(event.kind)}
                 </span>
                 <div>
-                  <div className="event-heading">
-                    <strong>{humanizeEvent(event.kind)}</strong>
-                    <span>#{event.id}</span>
+                  <div className="flex items-baseline justify-between gap-2.5 pt-0.5">
+                    <strong className="text-[0.71rem] font-[650]">
+                      {humanizeEvent(event.kind)}
+                    </strong>
+                    <span className="font-mono text-[0.57rem] text-text-dim">#{event.id}</span>
                   </div>
-                  <p>{eventDescription(event)}</p>
-                  <time dateTime={event.occurredAt}>
+                  <p className="my-1 text-[0.64rem] leading-[1.45] text-text-dim">
+                    {eventDescription(event)}
+                  </p>
+                  <time className="text-[0.58rem] text-[#5f6d7a]" dateTime={event.occurredAt}>
                     {event.occurredAt ? formatDateTime(event.occurredAt) : "Timestamp not reported"}
                   </time>
                 </div>
@@ -416,14 +484,17 @@ function DataCard({
     run.plan.coordinateIds.length > 0 ||
     run.plan.recordIds.length > 0;
   return (
-    <article className="detail-card data-card">
+    <article
+      className={classes(detailCard, "[&>.run-inline-empty]:mt-2.5")}
+      data-testid="data-card"
+    >
       <CardHeading
         icon={<Database size={17} />}
         title="Data contents"
-        accessory={<span className="count-badge">{run.contents.length}</span>}
+        accessory={<span className={countBadge}>{run.contents.length}</span>}
       />
       {hasPlanMetadata && (
-        <div className="data-metrics">
+        <div className="mb-[13px] grid grid-cols-3 gap-2 rounded-[8px] border border-line bg-[rgb(255_255_255_/_1%)] p-2.5 max-[460px]:grid-cols-1">
           <Fact
             label="Planned points"
             value={run.plan.pointCount !== undefined ? run.plan.pointCount.toLocaleString() : "—"}
@@ -439,23 +510,33 @@ function DataCard({
         <TagGroup label="Record types" values={run.plan.recordIds} />
       )}
       {run.contents.length > 0 ? (
-        <ul className="content-list">
+        <ul className="mt-2.5 grid list-none gap-[7px] p-0">
           {run.contents.map((content) => (
             <li
               key={contentKey(content)}
-              className={contentKey(content) === selectedContentKey ? "selected" : undefined}
+              className={classes(
+                "flex min-w-0 items-center gap-[9px] rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)]",
+                contentKey(content) === selectedContentKey &&
+                  "border-[rgb(128_163_207_/_25%)] bg-accent-soft",
+              )}
             >
               <button
+                className="flex w-full cursor-pointer items-center gap-[9px] border-0 bg-transparent p-[9px] text-left text-inherit [&>svg]:flex-none [&>svg]:text-text-dim"
                 type="button"
                 onClick={() => setSelectedContentKey(contentKey(content))}
                 aria-current={contentKey(content) === selectedContentKey ? "true" : undefined}
               >
-                <span className="content-role" aria-hidden="true">
+                <span
+                  className="grid size-7 flex-none place-items-center rounded-[7px] bg-blue-soft text-blue"
+                  aria-hidden="true"
+                >
                   {content.role === "dataset" ? <Database size={15} /> : <SquareStack size={15} />}
                 </span>
-                <span>
-                  <strong>{content.label}</strong>
-                  <small>
+                <span className="grid min-w-0 flex-1 gap-0.5">
+                  <strong className="overflow-hidden text-[0.7rem] font-[650] text-ellipsis whitespace-nowrap">
+                    {content.label}
+                  </strong>
+                  <small className="overflow-hidden text-[0.6rem] text-ellipsis whitespace-nowrap text-text-dim">
                     {titleCase(content.role)}
                     {content.detail ? ` · ${content.detail}` : ""}
                   </small>
@@ -538,12 +619,12 @@ function RunContentPanel({
     );
   }
   return (
-    <div className="content-preview">
-      <div className="measurement-preview-heading">
-        <strong>{entry.label}</strong>
+    <div className={previewPanel}>
+      <div className={previewHeading}>
+        <strong className="text-[0.65rem] text-text-soft">{entry.label}</strong>
         <span>{format === "text" ? "Text" : "JSON"}</span>
       </div>
-      <pre>{formatPreviewContent(content)}</pre>
+      <pre className={previewContent}>{formatPreviewContent(content)}</pre>
     </div>
   );
 }
@@ -585,24 +666,26 @@ function MeasurementRecords({
     );
   }
   return (
-    <div className="measurement-preview">
-      <div className="measurement-preview-heading">
-        <strong>Measurement preview</strong>
+    <div className={previewPanel}>
+      <div className={previewHeading}>
+        <strong className="text-[0.65rem] text-text-soft">Measurement preview</strong>
         <span>
           {preview.items.length}
           {preview.nextOffset !== undefined ? "+" : ""} records
         </span>
       </div>
-      <pre>{JSON.stringify(preview.items, null, 2)}</pre>
+      <pre className={previewContent} data-testid="measurement-preview">
+        {JSON.stringify(preview.items, null, 2)}
+      </pre>
       {hasMore && (
-        <div className="measurement-pagination">
+        <div className="flex justify-center border-t border-line px-2.5 py-[9px]">
           <button
-            className="secondary-button"
+            className={classes(secondaryButton, "w-full")}
             type="button"
             disabled={loadingMore}
             onClick={onLoadMore}
           >
-            {loadingMore && <LoaderCircle className="spin" size={14} aria-hidden="true" />}
+            {loadingMore && <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />}
             {loadingMore ? "Loading measurements…" : "Load more measurements"}
           </button>
         </div>
@@ -621,30 +704,46 @@ function CardHeading({
   accessory?: ReactNode;
 }) {
   return (
-    <div className="card-heading">
-      <span aria-hidden="true">{icon}</span>
-      <h3>{title}</h3>
-      {accessory && <div className="card-accessory">{accessory}</div>}
+    <div className="mb-[15px] grid min-h-[26px] grid-cols-[26px_minmax(0,1fr)_auto] items-center gap-[7px]">
+      <span
+        className="grid size-[26px] place-items-center rounded-[7px] border border-line bg-panel text-accent"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <h3 className="m-0 text-[0.78rem] font-bold">{title}</h3>
+      {accessory && <div className="text-[0.68rem] text-text-dim">{accessory}</div>}
     </div>
   );
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="fact">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="grid min-w-0 gap-1">
+      <span className="text-[0.6rem] font-bold tracking-[0.05em] text-text-dim uppercase">
+        {label}
+      </span>
+      <strong className="overflow-hidden text-[0.72rem] font-[650] text-ellipsis whitespace-nowrap text-text-soft">
+        {value}
+      </strong>
     </div>
   );
 }
 
 function TagGroup({ label, values }: { label: string; values: string[] }) {
   return (
-    <div className="tag-group">
-      <span>{label}</span>
-      <div>
+    <div className="mb-3">
+      <span className="mb-1.5 block text-[0.58rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
+        {label}
+      </span>
+      <div className="flex flex-wrap gap-[5px]">
         {values.map((value) => (
-          <code key={value}>{value}</code>
+          <code
+            className="rounded-[5px] border border-line bg-[rgb(182_156_255_/_7%)] px-1.5 py-1 text-[0.59rem] text-purple"
+            key={value}
+          >
+            {value}
+          </code>
         ))}
       </div>
     </div>
@@ -661,18 +760,51 @@ function InlineEmpty({
   warning?: boolean;
 }) {
   return (
-    <div className={warning ? "inline-empty warning" : "inline-empty"}>
+    <div
+      className={classes(
+        "run-inline-empty flex items-start gap-[9px] rounded-[8px] border border-dashed border-line p-3 text-text-dim [&>svg]:mt-px [&>svg]:flex-none",
+        warning && "border-[rgb(255_140_136_/_20%)] bg-red-soft [&>svg]:text-red",
+      )}
+    >
       {warning ? (
         <XCircle size={17} aria-hidden="true" />
       ) : (
         <CircleDot size={17} aria-hidden="true" />
       )}
       <div>
-        <strong>{title}</strong>
-        <p>{detail}</p>
+        <strong className="block text-[0.69rem] text-text-soft">{title}</strong>
+        <p className="mt-1 mb-0 text-[0.62rem] leading-[1.45]">{detail}</p>
       </div>
     </div>
   );
+}
+
+const runStatusBadge: Record<ProjectRun["status"], string> = {
+  accepted: "border-[rgb(120_184_255_/_20%)] bg-blue-soft text-blue",
+  running: "border-[rgb(128_163_207_/_20%)] bg-accent-soft text-accent",
+  attention_required: "border-[rgb(237_201_111_/_20%)] bg-yellow-soft text-yellow",
+  succeeded: "border-[rgb(128_163_207_/_20%)] bg-accent-soft text-accent",
+  failed: "border-[rgb(255_140_136_/_20%)] bg-red-soft text-red",
+  cancelled: "border-[rgb(255_140_136_/_20%)] bg-red-soft text-red",
+};
+
+const previewPanel = "mt-3 overflow-hidden rounded-[8px] border border-line bg-panel";
+const previewHeading =
+  "flex items-center justify-between border-b border-line px-2.5 py-2 text-[0.6rem] text-text-dim";
+const previewContent =
+  "m-0 max-h-[260px] overflow-auto p-2.5 text-[0.6rem] leading-normal text-[#aebfd0] [scrollbar-color:#344252_transparent] [scrollbar-width:thin]";
+
+function leaseStatusClass(status?: string): string {
+  if (status === "quarantined") {
+    return "border-[rgb(237_201_111_/_20%)] bg-yellow-soft text-yellow";
+  }
+  if (status === "required") {
+    return "border-[rgb(120_184_255_/_20%)] bg-blue-soft text-blue";
+  }
+  if (status === "released") {
+    return "border-line bg-panel text-text-dim";
+  }
+  return "border-[rgb(128_163_207_/_18%)] bg-accent-soft text-accent";
 }
 
 function completedPoints(run: ProjectRun, events: ProjectEvent[]): number {

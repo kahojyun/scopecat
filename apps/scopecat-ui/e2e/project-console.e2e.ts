@@ -248,7 +248,7 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   await expectResponseOk(await setDefaultResponse, "POST");
 
   await expect(page.getByText("Runtime-derived default")).toBeVisible();
-  await expect(page.locator(".parameter-atom")).toHaveText("256");
+  await expect(page.getByTestId("parameter-atom")).toHaveText("256");
   const editedRegistry = await readRegistry(page, daemon.baseUrl);
   const editedHistory = await readActivationHistory(page, daemon.baseUrl);
   expect(editedRegistry.activation.entry_id).not.toBe(initialEntryId);
@@ -284,7 +284,7 @@ test("accepts a notebook candidate in the GUI and preserves its provenance", asy
   const initialRegistry = await readRegistry(page, daemon.baseUrl);
 
   await page.goto(`${daemon.baseUrl}/?run=${encodeURIComponent(candidate.runId)}`);
-  const proposals = page.locator(".run-proposals-card");
+  const proposals = page.getByTestId("run-proposals-card");
   await expect(proposals.getByText(candidate.proposalId, { exact: true })).toBeVisible();
   await expect(proposals.getByText("98% confidence", { exact: true })).toBeVisible();
   await proposals.getByPlaceholder("Evidence or rationale").fill("fit accepted from the GUI");
@@ -359,13 +359,13 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
   const experiment = await startControlledExperiment(daemon.projectRoot);
   try {
     const runId = await waitForMarker(experiment.acceptedReady, experiment);
-    const runItem = page.locator("button.run-item").filter({ hasText: LIVE_EXPERIMENT_ID });
+    const runItem = page.getByTestId("run-list-item").filter({ hasText: LIVE_EXPERIMENT_ID });
     await expect(runItem).toContainText("Accepted");
     await runItem.click();
 
-    const detail = page.locator(".run-detail");
-    const state = detail.locator(".status-pill");
-    const timeline = detail.locator(".timeline-card");
+    const detail = page.getByRole("region", { name: "Selected run details" });
+    const state = detail.getByTestId("run-status");
+    const timeline = detail.getByTestId("timeline-card");
     await expect(detail.getByText(runId, { exact: true })).toBeVisible();
     await expect(state).toHaveText("Accepted");
     await expect(timeline.getByText("Run admitted", { exact: true })).toBeVisible();
@@ -378,10 +378,10 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     await writeFile(experiment.releaseRunning, "", "utf8");
     await waitForMarker(experiment.measurementReady, experiment);
     await expect(state).toHaveText("Running");
-    const dataCard = detail.locator(".data-card");
+    const dataCard = detail.getByTestId("data-card");
     await expect(dataCard.getByText("Measurement preview", { exact: true })).toBeVisible();
     await expect(dataCard.getByText("1 records", { exact: true })).toBeVisible();
-    await expect(dataCard.locator(".measurement-preview pre")).toContainText('"point_index": 0');
+    await expect(dataCard.getByTestId("measurement-preview")).toContainText('"point_index": 0');
     // The point closes only after the held append call returns its durable receipt.
     await expect(
       detail.getByRole("progressbar", {

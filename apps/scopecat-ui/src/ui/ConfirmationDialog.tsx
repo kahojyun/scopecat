@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { AlertTriangle } from "lucide-react";
+import {
+  classes,
+  dialogBackdrop,
+  dialogDescription,
+  dialogPopup,
+  dialogTitle,
+  dialogViewport,
+  primaryButton,
+  secondaryButton,
+} from "./styles";
 
 export interface ConfirmationRequest {
   title: string;
@@ -36,29 +46,35 @@ function ConfirmationDialog({
   return (
     <AlertDialog.Root open onOpenChange={(open) => !open && onClose()}>
       <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="dialog-backdrop" />
-        <AlertDialog.Viewport className="dialog-viewport">
-          <AlertDialog.Popup className="dialog-popup confirmation-dialog">
-            <header className="dialog-heading">
+        <AlertDialog.Backdrop className={dialogBackdrop} />
+        <AlertDialog.Viewport className={dialogViewport}>
+          <AlertDialog.Popup className={classes(dialogPopup, "w-[min(440px,100%)]")}>
+            <header className="grid grid-cols-[34px_minmax(0,1fr)] items-start gap-[11px] p-[18px]">
               <span
-                className={request.intent === "danger" ? "danger" : undefined}
+                className={classes(
+                  "grid size-8 place-items-center rounded-md",
+                  request.intent === "danger"
+                    ? "bg-red-soft text-red"
+                    : "bg-accent-soft text-accent",
+                )}
                 aria-hidden="true"
               >
                 <AlertTriangle size={18} />
               </span>
               <div>
-                <AlertDialog.Title className="dialog-title">{request.title}</AlertDialog.Title>
-                <AlertDialog.Description className="dialog-description">
+                <AlertDialog.Title className={dialogTitle}>{request.title}</AlertDialog.Title>
+                <AlertDialog.Description className={dialogDescription}>
                   {request.description}
                 </AlertDialog.Description>
               </div>
             </header>
-            <footer className="dialog-actions">
-              <AlertDialog.Close className="secondary-button">Cancel</AlertDialog.Close>
+            <footer className="flex justify-end gap-2 border-t border-line bg-panel-soft px-[18px] py-3">
+              <AlertDialog.Close className={secondaryButton}>Cancel</AlertDialog.Close>
               <AlertDialog.Close
-                className={
-                  request.intent === "danger" ? "primary-button danger-button" : "primary-button"
-                }
+                className={classes(
+                  primaryButton,
+                  request.intent === "danger" && "border-red bg-red text-[#170d0c]",
+                )}
                 onClick={confirm}
               >
                 {request.confirmLabel}

@@ -15,6 +15,7 @@ import type {
   TableParameterType,
   TableParameterValue,
 } from "../../api-contract";
+import { classes } from "../../ui/styles";
 
 export function ConfigParameters({
   config,
@@ -53,22 +54,35 @@ export function ConfigParameters({
   }, [selected, selectedId]);
 
   return (
-    <section className="config-parameters" aria-labelledby={headingId}>
-      <header className="parameter-browser-heading">
-        <div>
-          <span className="parameter-heading-icon" aria-hidden="true">
+    <section
+      className="mt-[13px] overflow-hidden rounded-[10px] border border-line bg-panel-soft"
+      aria-labelledby={headingId}
+    >
+      <header className="flex min-h-[63px] items-center justify-between border-b border-line px-3.5 py-3">
+        <div className="flex min-w-0 items-center gap-[9px]">
+          <span
+            className="grid size-[31px] flex-none place-items-center rounded-[8px] border border-[rgb(120_184_255_/_20%)] bg-blue-soft text-blue"
+            aria-hidden="true"
+          >
             <Table2 size={17} />
           </span>
-          <span>
-            <h4 id={headingId}>Parameters</h4>
-            <small>{config.system.parameter_catalog.id}</small>
+          <span className="grid min-w-0">
+            <h4 className="m-0 text-[0.75rem]" id={headingId}>
+              Parameters
+            </h4>
+            <small className="overflow-hidden text-[0.56rem] text-ellipsis whitespace-nowrap text-text-dim">
+              {config.system.parameter_catalog.id}
+            </small>
           </span>
         </div>
         {activeConfig && (
           <span
-            className={
-              changedCount === 0 ? "parameter-compare-badge" : "parameter-compare-badge changed"
-            }
+            className={classes(
+              "inline-flex flex-none items-center gap-[5px] rounded-md border px-[7px] py-1 text-[0.55rem] font-[750]",
+              changedCount === 0
+                ? "border-[rgb(128_163_207_/_18%)] bg-accent-soft text-accent"
+                : "border-[rgb(237_201_111_/_20%)] bg-yellow-soft text-yellow",
+            )}
           >
             <GitCompareArrows size={13} aria-hidden="true" />
             {changedCount === 0 ? "Matches default" : `${changedCount} changed`}
@@ -76,19 +90,23 @@ export function ConfigParameters({
         )}
       </header>
 
-      <div className="parameter-browser-layout">
-        <aside className="parameter-index" aria-label="Parameters">
-          <label className="parameter-search">
+      <div className="grid min-h-[365px] grid-cols-[minmax(180px,220px)_minmax(0,1fr)] max-[1100px]:grid-cols-[minmax(165px,190px)_minmax(0,1fr)] max-[880px]:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] max-[680px]:block">
+        <aside
+          className="min-w-0 border-r border-line bg-[rgb(255_255_255_/_1%)] px-[9px] py-2.5 max-[680px]:border-r-0 max-[680px]:border-b"
+          aria-label="Parameters"
+        >
+          <label className="flex min-h-[34px] items-center gap-[7px] rounded-[7px] border border-line bg-bg px-[9px] text-text-dim focus-within:border-[rgb(128_163_207_/_45%)]">
             <Search size={14} aria-hidden="true" />
-            <span className="visually-hidden">Find parameter</span>
+            <span className="sr-only">Find parameter</span>
             <input
+              className="w-full min-w-0 border-0 bg-transparent p-0 text-[0.64rem] text-text outline-0"
               type="search"
               value={search}
               placeholder="Find parameter"
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <div className="parameter-index-list">
+          <div className="mt-2 grid max-h-[330px] gap-1 overflow-auto [scrollbar-color:#344252_transparent] [scrollbar-width:thin] max-[680px]:max-h-none max-[680px]:grid-flow-col max-[680px]:auto-cols-[minmax(165px,60vw)] max-[680px]:overflow-x-auto">
             {filtered.length === 0 ? (
               <ParameterEmpty
                 title="No matching parameters"
@@ -101,17 +119,21 @@ export function ConfigParameters({
                   <button
                     key={diff.parameterId}
                     type="button"
-                    className={
-                      diff.parameterId === selected?.parameterId
-                        ? "parameter-index-item selected"
-                        : "parameter-index-item"
-                    }
+                    className={classes(
+                      "flex min-h-[51px] min-w-0 cursor-pointer items-center justify-between gap-[7px] rounded-[7px] border border-transparent bg-transparent p-2 text-left text-text hover:border-line hover:bg-panel-strong",
+                      diff.parameterId === selected?.parameterId &&
+                        "border-[rgb(128_163_207_/_22%)] bg-panel-strong",
+                    )}
                     onClick={() => setSelectedId(diff.parameterId)}
                     aria-current={diff.parameterId === selected?.parameterId ? "true" : undefined}
                   >
-                    <span>
-                      <strong>{diff.parameterId}</strong>
-                      <small>{parameterTypeLabel(definition)}</small>
+                    <span className="grid min-w-0 gap-[3px]">
+                      <strong className="overflow-hidden text-[0.65rem] text-ellipsis whitespace-nowrap">
+                        {diff.parameterId}
+                      </strong>
+                      <small className="overflow-hidden text-[0.53rem] text-ellipsis whitespace-nowrap text-text-dim">
+                        {parameterTypeLabel(definition)}
+                      </small>
                     </span>
                     {diff.status !== "unchanged" && <DiffBadge status={diff.status} />}
                   </button>
@@ -121,7 +143,7 @@ export function ConfigParameters({
           </div>
         </aside>
 
-        <div className="parameter-detail">
+        <div className="min-w-0 p-4 max-[680px]:p-[13px]">
           {selected ? (
             <ParameterDetail diff={selected} comparing={activeConfig !== undefined} />
           ) : (
@@ -133,12 +155,14 @@ export function ConfigParameters({
         </div>
       </div>
 
-      <details className="raw-config">
-        <summary>
+      <details className="border-t border-line">
+        <summary className="flex min-h-[39px] cursor-pointer list-none items-center gap-[7px] px-3.5 text-[0.58rem] font-bold text-text-dim [&::-webkit-details-marker]:hidden">
           <Braces size={15} aria-hidden="true" />
           Advanced · raw snapshot
         </summary>
-        <pre>{JSON.stringify(config, null, 2)}</pre>
+        <pre className="m-0 max-h-[360px] overflow-auto border-t border-line bg-bg p-[13px] text-[0.55rem] leading-normal text-text-soft">
+          {JSON.stringify(config, null, 2)}
+        </pre>
       </details>
     </section>
   );
@@ -157,15 +181,19 @@ function ParameterDetail({ diff, comparing }: { diff: ParameterDiff; comparing: 
   }
   return (
     <>
-      <header className="parameter-detail-heading">
+      <header className="flex items-start justify-between gap-3 border-b border-line pb-[13px]">
         <div>
-          <span className="parameter-shape">{value.shape}</span>
-          <h5>{diff.parameterId}</h5>
-          <p>{definition.description ?? "No parameter description."}</p>
+          <span className="inline-flex rounded-[5px] border border-[rgb(120_184_255_/_18%)] bg-blue-soft px-[5px] py-[3px] text-[0.5rem] font-extrabold text-blue uppercase">
+            {value.shape}
+          </span>
+          <h5 className="mt-[7px] mb-[3px] text-[0.9rem]">{diff.parameterId}</h5>
+          <p className="m-0 text-[0.6rem] leading-[1.45] text-text-dim">
+            {definition.description ?? "No parameter description."}
+          </p>
         </div>
         {comparing && <DiffBadge status={diff.status} />}
       </header>
-      <div className="parameter-type-facts">
+      <div className="flex flex-wrap gap-[22px] py-[11px]">
         <ParameterFact label="Type" value={parameterTypeLabel(definition)} />
         {definition.value_type.shape === "table" && (
           <>
@@ -181,7 +209,7 @@ function ParameterDetail({ diff, comparing }: { diff: ParameterDiff; comparing: 
         )}
       </div>
       {diff.status === "schema-changed" && (
-        <div className="parameter-diff-note warning">
+        <div className="mb-[9px] rounded-[7px] border border-[rgb(255_140_136_/_18%)] bg-red-soft px-[9px] py-2 text-[0.58rem] leading-[1.45] text-red">
           The parameter schema changed. Values are shown without a cell-level comparison.
         </div>
       )}
@@ -203,11 +231,11 @@ function ParameterValueView({
     const before = diff.before?.shape === "scalar" ? diff.before.value : undefined;
     const after = diff.after?.shape === "scalar" ? diff.after.value : undefined;
     return (
-      <div className="scalar-parameter-view">
+      <div className="grid min-h-[118px] place-items-center rounded-[8px] border border-line bg-bg">
         {diff.status !== "unchanged" && before !== undefined && after !== undefined ? (
           <ValueComparison before={before} after={after} />
         ) : (
-          <ParameterAtomView value={value.value} />
+          <ParameterAtomView value={value.value} prominent />
         )}
       </div>
     );
@@ -226,14 +254,17 @@ function ParameterValueView({
 
 function ValueComparison({ before, after }: { before: ParameterAtom; after: ParameterAtom }) {
   return (
-    <div className="value-comparison" aria-label="Default to selected value">
-      <span>
-        <small>Default</small>
+    <div
+      className="grid w-[min(100%,440px)] grid-cols-[minmax(90px,1fr)_auto_minmax(90px,1fr)] items-center gap-3.5 max-[680px]:gap-2"
+      aria-label="Default to selected value"
+    >
+      <span className="grid min-w-0 gap-[5px] text-center">
+        <small className="text-[0.52rem] font-extrabold text-text-dim uppercase">Default</small>
         <ParameterAtomView value={before} />
       </span>
-      <GitCompareArrows size={16} aria-hidden="true" />
-      <span>
-        <small>Selected</small>
+      <GitCompareArrows className="text-yellow" size={16} aria-hidden="true" />
+      <span className="grid min-w-0 gap-[5px] text-center">
+        <small className="text-[0.52rem] font-extrabold text-text-dim uppercase">Selected</small>
         <ParameterAtomView value={after} />
       </span>
     </div>
@@ -266,20 +297,23 @@ function TableValueView({
       }),
     );
   return (
-    <div className="table-parameter-view">
+    <div>
       {diff.status === "changed" && diff.table?.mode === "complete-replacement" && (
-        <div className="parameter-diff-note">
+        <div className="mb-[9px] rounded-[7px] border border-[rgb(237_201_111_/_18%)] bg-yellow-soft px-[9px] py-2 text-[0.58rem] leading-[1.45] text-[#d9c48c]">
           This table has no primary key, so it is compared as one complete replacement.
         </div>
       )}
-      <div className="parameter-table-scroll">
-        <table>
+      <div className="max-w-full overflow-auto rounded-[8px] border border-line [scrollbar-color:#344252_transparent] [scrollbar-width:thin]">
+        <table className="w-full min-w-max border-collapse bg-bg [&_th]:min-w-[110px] [&_th]:border-r [&_th]:border-b [&_th]:border-line [&_th]:px-2.5 [&_th]:py-2 [&_th]:text-left [&_th]:align-top [&_td]:min-w-[110px] [&_td]:border-r [&_td]:border-b [&_td]:border-line [&_td]:px-2.5 [&_td]:py-2 [&_td]:text-left [&_td]:align-top [&_tr:last-child>*]:border-b-0 [&_tr>*:last-child]:border-r-0">
           <thead>
             <tr>
               {valueType.columns.map((column) => (
-                <th key={column.id}>
+                <th
+                  className="sticky top-0 z-[1] bg-panel-strong text-[0.56rem] text-text-soft"
+                  key={column.id}
+                >
                   <span>{column.id}</span>
-                  <small>
+                  <small className="mt-0.5 block text-[0.48rem] font-medium text-text-dim">
                     {column.value_type.type}
                     {(valueType.primary_key ?? []).includes(column.id) ? " · key" : ""}
                   </small>
@@ -290,20 +324,15 @@ function TableValueView({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.identity} className={row.status}>
+              <tr key={row.identity} className={tableRowTone(row.status)}>
                 {valueType.columns.map((column) => {
                   const cell = row.cells.find((candidate) => candidate.columnId === column.id);
                   const displayed = row.after?.[column.id] ?? row.before?.[column.id];
                   return (
-                    <td
-                      key={column.id}
-                      className={
-                        cell && cell.status !== "unchanged" ? `cell-${cell.status}` : undefined
-                      }
-                    >
+                    <td key={column.id} className={cell ? tableCellTone(cell.status) : undefined}>
                       <ParameterAtomView value={displayed!} />
                       {cell?.status === "changed" && (
-                        <small className="previous-cell-value">
+                        <small className="mt-1 block max-w-40 overflow-hidden text-[0.48rem] text-ellipsis whitespace-nowrap text-yellow">
                           was {parameterAtomLabel(cell.before)}
                         </small>
                       )}
@@ -324,32 +353,81 @@ function TableValueView({
   );
 }
 
-function ParameterAtomView({ value }: { value: ParameterAtom }) {
-  return <code className="parameter-atom">{parameterAtomLabel(value)}</code>;
+function ParameterAtomView({
+  value,
+  prominent = false,
+}: {
+  value: ParameterAtom;
+  prominent?: boolean;
+}) {
+  return (
+    <code
+      className={classes(
+        "text-[0.64rem] whitespace-nowrap text-text",
+        prominent && "text-[1.02rem] text-accent",
+      )}
+      data-testid="parameter-atom"
+    >
+      {parameterAtomLabel(value)}
+    </code>
+  );
 }
 
 function ParameterFact({ label, value }: { label: string; value: string }) {
   return (
-    <span className="parameter-fact">
-      <small>{label}</small>
-      <strong>{value}</strong>
+    <span className="grid gap-[3px]">
+      <small className="text-[0.5rem] font-extrabold tracking-[0.06em] text-text-dim uppercase">
+        {label}
+      </small>
+      <strong className="text-[0.62rem] text-text-soft">{value}</strong>
     </span>
   );
 }
 
 function DiffBadge({ status }: { status: ParameterDiff["status"] | TableRowDiff["status"] }) {
   const label = status.replace("-", " ");
-  return <span className={`parameter-diff-badge ${status}`}>{label}</span>;
+  return (
+    <span
+      className={classes(
+        "inline-flex w-max flex-none rounded-[5px] border px-[5px] py-[3px] text-[0.49rem] font-extrabold capitalize",
+        diffTone[status],
+      )}
+    >
+      {label}
+    </span>
+  );
 }
 
 function ParameterEmpty({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className="parameter-empty">
-      <CircleDot size={16} aria-hidden="true" />
-      <span>
-        <strong>{title}</strong>
-        <p>{detail}</p>
+    <div className="flex items-start gap-2 p-3 text-text-dim">
+      <CircleDot className="mt-px flex-none" size={16} aria-hidden="true" />
+      <span className="grid gap-[3px]">
+        <strong className="text-[0.63rem] text-text-soft">{title}</strong>
+        <p className="m-0 text-[0.56rem] leading-[1.4]">{detail}</p>
       </span>
     </div>
   );
+}
+
+const diffTone: Record<ParameterDiff["status"] | TableRowDiff["status"], string> = {
+  unchanged: "border-line bg-panel text-text-dim",
+  changed: "border-[rgb(237_201_111_/_22%)] bg-yellow-soft text-yellow",
+  "schema-changed": "border-[rgb(237_201_111_/_22%)] bg-yellow-soft text-yellow",
+  added: "border-[rgb(128_163_207_/_22%)] bg-accent-soft text-accent",
+  removed: "border-[rgb(255_140_136_/_22%)] bg-red-soft text-red",
+};
+
+function tableRowTone(status: TableRowDiff["status"]): string | undefined {
+  if (status === "added") return "[&_td]:bg-[rgb(128_163_207_/_6%)]";
+  if (status === "removed") return "[&_td]:bg-[rgb(255_140_136_/_6%)]";
+  if (status === "changed") return "bg-[rgb(237_201_111_/_5%)]";
+  return undefined;
+}
+
+function tableCellTone(status: TableRowDiff["status"]): string | undefined {
+  if (status === "added") return "bg-[rgb(128_163_207_/_6%)]";
+  if (status === "removed") return "bg-[rgb(255_140_136_/_6%)]";
+  if (status === "changed") return "bg-[rgb(237_201_111_/_5%)]";
+  return undefined;
 }
