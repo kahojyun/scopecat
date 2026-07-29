@@ -11,7 +11,6 @@ from scopecat.sdk.instruments import (
     bool_property,
     discriminated_state,
     enum_property,
-    float_property,
     int_property,
     interface,
     quantity_property,
@@ -193,8 +192,8 @@ def temperature_readout_interface() -> InterfaceSpec:
         member_refs.TEMPERATURE_READOUT.interface_id,
         label="Temperature readout",
         description=(
-            "Read-only sensor, scanner, and sample-heater telemetry. No heater "
-            "control commands are exposed by the first driver version."
+            "Read-only scanner state and settled temperature or resistance "
+            "acquisition. Heater control belongs to a separate interface."
         ),
         properties=[
             int_property(
@@ -211,56 +210,12 @@ def temperature_readout_interface() -> InterfaceSpec:
                 description="Whether the input scanner is advancing automatically.",
                 access="read_only",
             ),
-            quantity_property(
-                member_refs.TEMPERATURE_READOUT_TEMPERATURE.property_id,
-                unit="K",
-                label="Temperature",
-                description="Temperature reading for the active scan channel.",
-                access="read_only",
-            ),
-            quantity_property(
-                member_refs.TEMPERATURE_READOUT_RESISTANCE.property_id,
-                unit="Ohm",
-                label="Sensor resistance",
-                description="Resistance reading for the active scan channel.",
-                access="read_only",
-            ),
-            int_property(
-                member_refs.TEMPERATURE_READOUT_READING_STATUS.property_id,
-                minimum=0,
-                maximum=255,
-                label="Reading status bits",
-                description="Lake Shore RDGST bit-weighted status value.",
-                access="read_only",
-            ),
-            float_property(
-                member_refs.TEMPERATURE_READOUT_HEATER_OUTPUT.property_id,
-                label="Sample heater output",
-                description="Instrument-reported sample-heater telemetry value.",
-                access="read_only",
-            ),
-            int_property(
-                member_refs.TEMPERATURE_READOUT_HEATER_RANGE.property_id,
-                minimum=0,
-                maximum=8,
-                label="Sample heater range",
-                description="Instrument-reported sample-heater range code.",
-                access="read_only",
-            ),
-            int_property(
-                member_refs.TEMPERATURE_READOUT_HEATER_STATUS.property_id,
-                minimum=0,
-                maximum=3,
-                label="Sample heater status",
-                description="0 OK, 1 open, 2 short, 3 voltage compliance.",
-                access="read_only",
-            ),
         ],
         acquisitions=[
             acquisition(
                 member_refs.TEMPERATURE_READOUT_SAMPLE.acquisition_id,
-                label="Sample telemetry",
-                description="Read telemetry for the active scan channel.",
+                label="Sample sensor",
+                description="Read a settled sample from one coherent scan channel.",
                 results=[
                     acquisition_result(
                         member_refs.TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id,

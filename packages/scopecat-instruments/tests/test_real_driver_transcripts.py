@@ -41,6 +41,11 @@ from scopecat_instruments.members import (
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
     RF_OUTPUT_REFERENCE_SOURCE,
+    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+    TEMPERATURE_READOUT_RESISTANCE_RESULT,
+    TEMPERATURE_READOUT_SAMPLE,
+    TEMPERATURE_READOUT_SCAN_CHANNEL,
+    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 
@@ -404,7 +409,7 @@ def test_sgs100a_read_state_rejects_non_cw_hardware_without_writing(
     transport.assert_complete()
 
 
-def test_lakeshore_372_read_only_telemetry_transcript() -> None:
+def test_lakeshore_372_state_contains_only_persistent_scanner_state() -> None:
     transport = ScriptedTransport(
         [
             ScriptedExchange.query(
@@ -412,24 +417,169 @@ def test_lakeshore_372_read_only_telemetry_transcript() -> None:
                 "LSCI,MODEL372,LSA1234,1.4",
             ),
             ScriptedExchange.query("SCAN?", "5,1"),
-            ScriptedExchange.query("KRDG? 5", "+2.050000E-02"),
-            ScriptedExchange.query("SRDG? 5", "+6.720000E+03"),
-            ScriptedExchange.query("RDGST? 5", "0"),
-            ScriptedExchange.query("HTR?", "+1.250000E+00"),
-            ScriptedExchange.query("RANGE? 0", "3"),
-            ScriptedExchange.query("HTRST? 0", "0"),
         ]
     )
     driver = LakeShore372("fridge", transport)
 
     driver.identify()
-    telemetry = driver.read_telemetry()
+    state = driver.read_state()
 
-    assert telemetry.scan_channel == 5
-    assert telemetry.autoscan_enabled is True
-    assert telemetry.temperature_k == pytest.approx(0.0205)
-    assert telemetry.resistance_ohm == pytest.approx(6720.0)
-    assert telemetry.heater_output == pytest.approx(1.25)
+    properties = state_properties_by_target(state)
+    assert set(properties) == {
+        TEMPERATURE_READOUT_SCAN_CHANNEL,
+        TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+    }
+    assert properties[TEMPERATURE_READOUT_SCAN_CHANNEL].value.root == 5
+    assert properties[TEMPERATURE_READOUT_AUTOSCAN_ENABLED].value.root is True
+    transport.assert_complete()
+
+
+def test_lakeshore_372_collect_waits_for_one_coherent_valid_sample() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "5,1"),
+            ScriptedExchange.query("RDGSTL?", "2,1"),
+            ScriptedExchange.query("RDGSTL?", "2,0"),
+            ScriptedExchange.query("SCAN?", "5,1"),
+            ScriptedExchange.query("INCRV? 5", "21"),
+            ScriptedExchange.query("KRDG? 5", "+2.050000E-02"),
+            ScriptedExchange.query("SRDG? 5", "+6.720000E+03"),
+            ScriptedExchange.query("RDGST? 5", "0"),
+            ScriptedExchange.query("RDGSTL?", "2,0"),
+            ScriptedExchange.query("SCAN?", "5,1"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+            TEMPERATURE_READOUT_RESISTANCE_RESULT,
+        )
+    )
+
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    temperature = receipt.readback.values[
+        TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id
+    ]
+    resistance = receipt.readback.values[
+        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id
+    ]
+    assert isinstance(temperature, MeasurementScalar)
+    assert isinstance(resistance, MeasurementScalar)
+    assert temperature.value == pytest.approx(0.0205)
+    assert resistance.value == pytest.approx(6720.0)
+    assert receipt.readback.metadata["curve_number"] == 21
+    transport.assert_complete()
+
+
+def test_lakeshore_372_resistance_does_not_require_a_temperature_curve() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("SRDG? 5", "+6.720000E+03"),
+            ScriptedExchange.query("RDGST? 5", "0"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,0"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_RESISTANCE_RESULT,
+        )
+    )
+
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    assert "curve_number" not in receipt.readback.metadata
+    transport.assert_complete()
+
+
+def test_lakeshore_372_retries_when_autoscan_changes_channel() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "4,1"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,1"),
+            ScriptedExchange.query("SCAN?", "5,1"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,1"),
+            ScriptedExchange.query("SRDG? 5", "+6.720000E+03"),
+            ScriptedExchange.query("RDGST? 5", "0"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,1"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_RESISTANCE_RESULT,
+        )
+    )
+
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    assert receipt.readback.metadata["scan_channel"] == 5
+    transport.assert_complete()
+
+
+def test_lakeshore_372_temperature_without_curve_is_not_collected() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("INCRV? 5", "0"),
+            ScriptedExchange.query("SCAN?", "5,0"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+        )
+    )
+
+    assert receipt.status == "not_collected"
+    assert receipt.problems[0].code == "lakeshore_temperature_curve_required"
+    transport.assert_complete()
+
+
+def test_lakeshore_372_invalid_reading_is_not_collected() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("SRDG? 5", "+1.000000E+08"),
+            ScriptedExchange.query("RDGST? 5", "64"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,0"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_RESISTANCE_RESULT,
+        )
+    )
+
+    assert receipt.status == "not_collected"
+    assert receipt.problems[0].code == "lakeshore_reading_invalid"
+    assert receipt.problems[0].details["reading_status"] == "64"
     transport.assert_complete()
 
 

@@ -1,14 +1,15 @@
-"""Safe read-only Lake Shore Model 372 telemetry driver."""
+"""Safe read-only Lake Shore Model 372 sensor driver."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import monotonic, sleep
 
 from pydantic import JsonValue
-from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementScalar, MeasurementValue
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
+    AcquisitionResultRef,
     ApplyReceipt,
     CollectReceipt,
     DriverApplyRequest,
@@ -22,6 +23,8 @@ from scopecat_instruments._support import (
     ScpiIdentity,
     apply_unknown,
     collect_unknown,
+    execution_problem,
+    not_collected,
     parse_bool,
     parse_float,
     parse_identity,
@@ -33,32 +36,26 @@ from scopecat_instruments.driver_ids import LAKESHORE_372
 from scopecat_instruments.interfaces import temperature_readout_interface
 from scopecat_instruments.members import (
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
-    TEMPERATURE_READOUT_HEATER_OUTPUT,
-    TEMPERATURE_READOUT_HEATER_RANGE,
-    TEMPERATURE_READOUT_HEATER_STATUS,
-    TEMPERATURE_READOUT_READING_STATUS,
-    TEMPERATURE_READOUT_RESISTANCE,
+    TEMPERATURE_READOUT_RESISTANCE_RESULT,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
-    TEMPERATURE_READOUT_TEMPERATURE,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.transport import ScpiTransport
 
+_SETTLE_TIMEOUT_SECONDS = 10.0
+_SETTLE_POLL_SECONDS = 0.05
+
 
 @dataclass(frozen=True)
-class LakeShore372Telemetry:
+class _LakeShore372Sample:
     scan_channel: int
     autoscan_enabled: bool
-    temperature_k: float
-    resistance_ohm: float
-    reading_status: int
-    heater_output: float
-    heater_range: int
-    heater_status: int
+    values: dict[AcquisitionResultRef, MeasurementScalar]
+    curve_number: int | None
 
 
 class LakeShore372:
-    """Read K/R/status/scanner/sample-heater telemetry without control writes."""
+    """Observe scanner state and collect settled K/Ω samples without writes."""
 
     implementation_id = LAKESHORE_372
     implementation_version = "v1"
@@ -75,14 +72,14 @@ class LakeShore372:
             implementation_version=self.implementation_version,
             label="Lake Shore 372",
             description=(
-                "Safety-first read-only telemetry driver. Heater setpoint, range, "
-                "output mode, PID, and scanner writes are intentionally unsupported."
+                "Safety-first read-only sensor driver. Heater, input, curve, and "
+                "scanner configuration writes are intentionally unsupported."
             ),
             interfaces=[temperature_readout_interface()],
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
-        telemetry = self.read_telemetry()
+        scan_channel, autoscan_enabled = self._scan_state()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Lake Shore Cryotronics",
             "model": "372",
@@ -95,35 +92,11 @@ class LakeShore372:
             properties=[
                 state_property(
                     TEMPERATURE_READOUT_SCAN_CHANNEL,
-                    telemetry.scan_channel,
+                    scan_channel,
                 ),
                 state_property(
                     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
-                    telemetry.autoscan_enabled,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_TEMPERATURE,
-                    Quantity(telemetry.temperature_k, "K"),
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_RESISTANCE,
-                    Quantity(telemetry.resistance_ohm, "Ohm"),
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_READING_STATUS,
-                    telemetry.reading_status,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_HEATER_OUTPUT,
-                    telemetry.heater_output,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_HEATER_RANGE,
-                    telemetry.heater_range,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_HEATER_STATUS,
-                    telemetry.heater_status,
+                    autoscan_enabled,
                 ),
             ],
             metadata=metadata,
@@ -141,58 +114,137 @@ class LakeShore372:
 
     def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         try:
-            telemetry = self.read_telemetry()
-            values: dict[str, MeasurementValue] = {
-                result.request_id: (
-                    MeasurementScalar.create(
-                        dtype="float64",
-                        unit="K",
-                        value=telemetry.temperature_k,
-                    )
-                    if request.result_target(result)
-                    == TEMPERATURE_READOUT_TEMPERATURE_RESULT
-                    else MeasurementScalar.create(
-                        dtype="float64",
-                        unit="Ohm",
-                        value=telemetry.resistance_ohm,
-                    )
-                )
-                for result in request.results
+            requested_results = {
+                request.result_target(result) for result in request.results
             }
+            sample = self._read_sample(requested_results)
+            metadata: dict[str, JsonValue] = {
+                "manufacturer": "Lake Shore Cryotronics",
+                "model": "372",
+                "scan_channel": sample.scan_channel,
+                "autoscan_enabled": sample.autoscan_enabled,
+                "reading_status": 0,
+            }
+            if sample.curve_number is not None:
+                metadata["curve_number"] = sample.curve_number
             return CollectReceipt(
                 readback=InstrumentReadback(
-                    values=values,
-                    metadata={
-                        "manufacturer": "Lake Shore Cryotronics",
-                        "model": "372",
-                        "scan_channel": telemetry.scan_channel,
-                        "reading_status": telemetry.reading_status,
-                        "heater_output": telemetry.heater_output,
-                        "heater_range": telemetry.heater_range,
-                        "heater_status": telemetry.heater_status,
+                    values={
+                        result.request_id: sample.values[request.result_target(result)]
+                        for result in request.results
                     },
+                    metadata=metadata,
                 )
+            )
+        except _SampleUnavailable as error:
+            return not_collected(
+                [
+                    execution_problem(
+                        error.code,
+                        str(error),
+                        "driver_collect_request",
+                        details=error.details,
+                    )
+                ]
             )
         except Exception as error:
             return collect_unknown(self.instrument_id, error)
 
-    def read_telemetry(self) -> LakeShore372Telemetry:
+    def _read_sample(
+        self,
+        requested_results: set[AcquisitionResultRef],
+    ) -> _LakeShore372Sample:
+        deadline = monotonic() + _SETTLE_TIMEOUT_SECONDS
+        while True:
+            initial_scan = self._scan_state()
+            self._wait_for_settled_reading(deadline)
+            settled_scan = self._scan_state()
+            if settled_scan != initial_scan:
+                self._pause_before_scan_retry(deadline)
+                continue
+
+            channel = settled_scan[0]
+            curve_number: int | None = None
+            values: dict[AcquisitionResultRef, MeasurementScalar] = {}
+            if TEMPERATURE_READOUT_TEMPERATURE_RESULT in requested_results:
+                curve_number = parse_int(self.transport.query(f"INCRV? {channel}"))
+                if curve_number == 0:
+                    if self._scan_state() != settled_scan:
+                        self._pause_before_scan_retry(deadline)
+                        continue
+                    raise _SampleUnavailable(
+                        "lakeshore_temperature_curve_required",
+                        f"Lake Shore 372 channel {channel} has no temperature curve",
+                        details={"scan_channel": str(channel)},
+                    )
+                values[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
+                    MeasurementScalar.create(
+                        dtype="float64",
+                        unit="K",
+                        value=parse_float(self.transport.query(f"KRDG? {channel}")),
+                    )
+                )
+            if TEMPERATURE_READOUT_RESISTANCE_RESULT in requested_results:
+                values[TEMPERATURE_READOUT_RESISTANCE_RESULT] = (
+                    MeasurementScalar.create(
+                        dtype="float64",
+                        unit="Ohm",
+                        value=parse_float(self.transport.query(f"SRDG? {channel}")),
+                    )
+                )
+
+            reading_status = parse_int(self.transport.query(f"RDGST? {channel}"))
+            final_settle_status = self._active_settle_status()
+            final_scan = self._scan_state()
+            if final_scan != settled_scan or final_settle_status != 0:
+                self._pause_before_scan_retry(deadline)
+                continue
+            if reading_status != 0:
+                raise _SampleUnavailable(
+                    "lakeshore_reading_invalid",
+                    f"Lake Shore 372 channel {channel} reported invalid reading "
+                    f"status {reading_status}",
+                    details={
+                        "scan_channel": str(channel),
+                        "reading_status": str(reading_status),
+                    },
+                )
+            return _LakeShore372Sample(
+                scan_channel=channel,
+                autoscan_enabled=settled_scan[1],
+                values=values,
+                curve_number=curve_number,
+            )
+
+    def _scan_state(self) -> tuple[int, bool]:
         scan_response = self.transport.query("SCAN?").strip().split(",")
         if len(scan_response) != 2:
             raise ValueError("Lake Shore 372 returned malformed SCAN response")
-        scan_channel = int(scan_response[0])
-        autoscan_enabled = parse_bool(scan_response[1])
-        channel = str(scan_channel)
-        return LakeShore372Telemetry(
-            scan_channel=scan_channel,
-            autoscan_enabled=autoscan_enabled,
-            temperature_k=parse_float(self.transport.query(f"KRDG? {channel}")),
-            resistance_ohm=parse_float(self.transport.query(f"SRDG? {channel}")),
-            reading_status=parse_int(self.transport.query(f"RDGST? {channel}")),
-            heater_output=parse_float(self.transport.query("HTR?")),
-            heater_range=parse_int(self.transport.query("RANGE? 0")),
-            heater_status=parse_int(self.transport.query("HTRST? 0")),
-        )
+        return parse_int(scan_response[0]), parse_bool(scan_response[1])
+
+    def _wait_for_settled_reading(self, deadline: float) -> None:
+        while self._active_settle_status() != 0:
+            if monotonic() >= deadline:
+                raise _SampleUnavailable(
+                    "lakeshore_reading_settle_timeout",
+                    "Lake Shore 372 active scan channel did not settle",
+                )
+            sleep(_SETTLE_POLL_SECONDS)
+
+    def _active_settle_status(self) -> int:
+        response = self.transport.query("RDGSTL?").strip().split(",")
+        if len(response) != 2:
+            raise ValueError("Lake Shore 372 returned malformed RDGSTL response")
+        return parse_int(response[1])
+
+    def _pause_before_scan_retry(self, deadline: float) -> None:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise _SampleUnavailable(
+                "lakeshore_scan_coherence_timeout",
+                "Lake Shore 372 scanner changed before a coherent sample was read",
+            )
+        sleep(min(_SETTLE_POLL_SECONDS, remaining))
 
     def identify(self) -> ScpiIdentity:
         identity = parse_identity(self.transport.query("*IDN?"))
@@ -210,7 +262,20 @@ class LakeShore372:
         self.transport.close()
 
     def abort(self) -> None:
-        """Read-only telemetry has no long-running operation to abort."""
+        """Read-only sampling has no hardware operation to abort."""
 
 
-__all__ = ["LakeShore372", "LakeShore372Telemetry"]
+class _SampleUnavailable(Exception):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        details: dict[str, str] | None = None,
+    ) -> None:
+        self.code = code
+        self.details = {} if details is None else details
+        super().__init__(message)
+
+
+__all__ = ["LakeShore372"]

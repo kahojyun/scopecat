@@ -71,13 +71,7 @@ from scopecat_instruments.members import (
     RF_OUTPUT_POWER,
     RF_OUTPUT_REFERENCE_SOURCE,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
-    TEMPERATURE_READOUT_HEATER_OUTPUT,
-    TEMPERATURE_READOUT_HEATER_RANGE,
-    TEMPERATURE_READOUT_HEATER_STATUS,
-    TEMPERATURE_READOUT_READING_STATUS,
-    TEMPERATURE_READOUT_RESISTANCE,
     TEMPERATURE_READOUT_SCAN_CHANNEL,
-    TEMPERATURE_READOUT_TEMPERATURE,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.virtual.world import VirtualLabWorld
@@ -427,15 +421,11 @@ class VirtualDcSource:
 
 
 @dataclass(frozen=True)
-class VirtualTemperatureTelemetry:
+class _VirtualTemperatureSample:
     scan_channel: int
     autoscan_enabled: bool
     temperature_k: float
     resistance_ohm: float
-    reading_status: int
-    heater_output: float
-    heater_range: int
-    heater_status: int
 
 
 class VirtualTemperatureMonitor:
@@ -458,45 +448,22 @@ class VirtualTemperatureMonitor:
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
-        telemetry = self.read_telemetry()
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            properties=[
-                state_property(
-                    TEMPERATURE_READOUT_SCAN_CHANNEL,
-                    telemetry.scan_channel,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
-                    telemetry.autoscan_enabled,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_TEMPERATURE,
-                    Quantity(telemetry.temperature_k, "K"),
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_RESISTANCE,
-                    Quantity(telemetry.resistance_ohm, "Ohm"),
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_READING_STATUS,
-                    telemetry.reading_status,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_HEATER_OUTPUT,
-                    telemetry.heater_output,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_HEATER_RANGE,
-                    telemetry.heater_range,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_HEATER_STATUS,
-                    telemetry.heater_status,
-                ),
-            ],
-            metadata={"mode": "virtual", "world_seed": self.world.seed},
-        )
+        with self.world.lock:
+            state = self.world.temperature_monitor(self.instrument_id)
+            return InstrumentStateSnapshot(
+                instrument_id=self.instrument_id,
+                properties=[
+                    state_property(
+                        TEMPERATURE_READOUT_SCAN_CHANNEL,
+                        state.scan_channel,
+                    ),
+                    state_property(
+                        TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+                        state.autoscan_enabled,
+                    ),
+                ],
+                metadata={"mode": "virtual", "world_seed": self.world.seed},
+            )
 
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         del request
@@ -506,7 +473,7 @@ class VirtualTemperatureMonitor:
         return unsupported_invoke(request, self.instrument_id)
 
     def collect(self, request: DriverCollectRequest) -> CollectReceipt:
-        telemetry = self.read_telemetry()
+        sample = self.read_sample()
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
@@ -514,14 +481,14 @@ class VirtualTemperatureMonitor:
                         MeasurementScalar.create(
                             dtype="float64",
                             unit="K",
-                            value=telemetry.temperature_k,
+                            value=sample.temperature_k,
                         )
                         if request.result_target(result)
                         == TEMPERATURE_READOUT_TEMPERATURE_RESULT
                         else MeasurementScalar.create(
                             dtype="float64",
                             unit="Ohm",
-                            value=telemetry.resistance_ohm,
+                            value=sample.resistance_ohm,
                         )
                     )
                     for result in request.results
@@ -529,24 +496,21 @@ class VirtualTemperatureMonitor:
                 metadata={
                     "mode": "virtual",
                     "world_seed": self.world.seed,
-                    "scan_channel": telemetry.scan_channel,
-                    "reading_status": telemetry.reading_status,
+                    "scan_channel": sample.scan_channel,
+                    "autoscan_enabled": sample.autoscan_enabled,
+                    "reading_status": 0,
                 },
             )
         )
 
-    def read_telemetry(self) -> VirtualTemperatureTelemetry:
+    def read_sample(self) -> _VirtualTemperatureSample:
         with self.world.lock:
             state = self.world.temperature_monitor(self.instrument_id)
-            return VirtualTemperatureTelemetry(
+            return _VirtualTemperatureSample(
                 scan_channel=state.scan_channel,
                 autoscan_enabled=state.autoscan_enabled,
                 temperature_k=self.world.temperature_k(),
                 resistance_ohm=self.world.sensor_resistance_ohm(),
-                reading_status=state.reading_status,
-                heater_output=state.heater_output,
-                heater_range=state.heater_range,
-                heater_status=state.heater_status,
             )
 
     def disconnect(self) -> None:
@@ -724,5 +688,4 @@ __all__ = [
     "VirtualNetworkAnalyzer",
     "VirtualRfSource",
     "VirtualTemperatureMonitor",
-    "VirtualTemperatureTelemetry",
 ]

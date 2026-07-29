@@ -47,6 +47,10 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
+    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+    TEMPERATURE_READOUT_RESISTANCE_RESULT,
+    TEMPERATURE_READOUT_SCAN_CHANNEL,
+    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.testing import ScriptedTransport
 from scopecat_instruments.virtual import VirtualDcSource, VirtualLabWorld
@@ -195,6 +199,20 @@ def test_virtual_dc_source_exposes_source_and_monitor_interfaces() -> None:
         DC_SOURCE.interface_id,
         DC_MONITOR.interface_id,
     ]
+
+
+def test_temperature_readout_separates_scanner_state_from_samples() -> None:
+    interface = temperature_readout_interface()
+
+    assert {item.id for item in interface.properties} == {
+        TEMPERATURE_READOUT_SCAN_CHANNEL.property_id,
+        TEMPERATURE_READOUT_AUTOSCAN_ENABLED.property_id,
+    }
+    assert len(interface.acquisitions) == 1
+    assert {item.id for item in acquisition_results(interface.acquisitions[0])} == {
+        TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id,
+        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id,
+    }
 
 
 def test_dc_source_state_partitions_properties_by_source_mode() -> None:

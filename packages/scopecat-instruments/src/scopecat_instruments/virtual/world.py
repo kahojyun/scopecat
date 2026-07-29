@@ -35,10 +35,8 @@ class VirtualDcSourceState:
 class VirtualTemperatureState:
     scan_channel: int = 1
     autoscan_enabled: bool = False
-    reading_status: int = 0
     heater_output: float = 0.0
     heater_range: int = 0
-    heater_status: int = 0
 
 
 @dataclass
