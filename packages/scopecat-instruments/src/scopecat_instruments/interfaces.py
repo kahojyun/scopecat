@@ -146,6 +146,28 @@ def dc_monitor_interface() -> InterfaceSpec:
         member_refs.DC_MONITOR.interface_id,
         label="DC monitor",
         description="Single-value voltage or current monitoring for a DC source.",
+        properties=[
+            bool_property(
+                member_refs.DC_MONITOR_MEASUREMENT_ENABLED.property_id,
+                label="Measurement",
+                description="Whether monitor measurements are enabled.",
+            ),
+            int_property(
+                member_refs.DC_MONITOR_INTEGRATION_CYCLES.property_id,
+                minimum=1,
+                maximum=25,
+                label="Integration cycles",
+                description="Power-line cycles integrated for each measurement.",
+            ),
+            quantity_property(
+                member_refs.DC_MONITOR_MEASUREMENT_DELAY.property_id,
+                unit="s",
+                minimum=0.0,
+                maximum=999.999,
+                label="Measurement delay",
+                description="Delay between measurement trigger and sampling.",
+            ),
+        ],
         acquisitions=[
             state_discriminated_acquisition(
                 member_refs.DC_MONITOR_ACQUISITION.acquisition_id,

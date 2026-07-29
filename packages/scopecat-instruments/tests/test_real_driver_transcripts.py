@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import override
+
 import pytest
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
@@ -28,6 +30,9 @@ from scopecat_instruments.drivers import (
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
     DC_SOURCE_CURRENT_LEVEL,
     DC_SOURCE_CURRENT_PROTECTION,
@@ -49,10 +54,11 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
+from scopecat_instruments.transport import TransportError
 
 
 def _apply_request(
-    properties: list[tuple[PropertyRef, bool | str | Quantity]],
+    properties: list[tuple[PropertyRef, bool | int | str | Quantity]],
 ) -> DriverApplyRequest:
     return DriverApplyRequest(
         assignments=tuple(
@@ -93,8 +99,15 @@ def _gs200_state_readback(
     output_enabled: bool,
     voltage_protection: str = "10",
     current_protection: str = "0.01",
+    monitor_enabled: bool | None = None,
+    integration_cycles: str = "1",
+    measurement_delay: str = "0",
+    remote_sense: bool = False,
+    guard_enabled: bool = False,
 ) -> list[ScriptedExchange]:
-    return [
+    exchanges = [
+        ScriptedExchange.query(":SENS:REM?", "1" if remote_sense else "0"),
+        ScriptedExchange.query(":SENS:GUAR?", "1" if guard_enabled else "0"),
         ScriptedExchange.query(":SOUR:FUNC?", mode),
         ScriptedExchange.query(":SOUR:RANG?", source_range),
         ScriptedExchange.query(":SOUR:LEV?", source_level),
@@ -102,6 +115,18 @@ def _gs200_state_readback(
         ScriptedExchange.query(":SOUR:PROT:CURR?", current_protection),
         ScriptedExchange.query(":OUTP?", "1" if output_enabled else "0"),
     ]
+    if monitor_enabled is not None:
+        exchanges.extend(
+            [
+                ScriptedExchange.query(
+                    ":SENS?",
+                    "1" if monitor_enabled else "0",
+                ),
+                ScriptedExchange.query(":SENS:NPLC?", integration_cycles),
+                ScriptedExchange.query(":SENS:DEL?", measurement_delay),
+            ]
+        )
+    return exchanges
 
 
 def _sgs100a_state_readback(
@@ -131,20 +156,34 @@ def test_gs200_source_and_monitor_transcript() -> None:
                 "*IDN?",
                 "YOKOGAWA,GS210,91X000001,2.03",
             ),
+            ScriptedExchange.query("*OPT?", "/MON"),
+            ScriptedExchange.query(":SENS:REM?", "0"),
+            ScriptedExchange.query(":SENS:GUAR?", "0"),
             ScriptedExchange.write(":SOUR:FUNC VOLT"),
             ScriptedExchange.write(":SOUR:RANG 1"),
             ScriptedExchange.write(":SOUR:LEV 0.125"),
             ScriptedExchange.write(":SOUR:PROT:VOLT 12"),
             ScriptedExchange.write(":SOUR:PROT:CURR 0.01"),
             ScriptedExchange.write(":OUTP ON"),
+            *_gs200_state_readback(
+                mode="VOLT",
+                source_range="+1.000000E+00",
+                source_level="+1.250000E-01",
+                voltage_protection="+1.200000E+01",
+                current_protection="+1.000000E-02",
+                output_enabled=True,
+                monitor_enabled=True,
+                integration_cycles="5",
+                measurement_delay="0.01",
+            ),
             ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
-            ScriptedExchange.query(":SOUR:RANG?", "+1.000000E+00"),
-            ScriptedExchange.query(":SOUR:LEV?", "+1.250000E-01"),
-            ScriptedExchange.query(":SOUR:PROT:VOLT?", "+1.200000E+01"),
-            ScriptedExchange.query(":SOUR:PROT:CURR?", "+1.000000E-02"),
             ScriptedExchange.query(":OUTP?", "1"),
-            ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
+            ScriptedExchange.query(":SENS?", "1"),
+            ScriptedExchange.query(":SOUR:RANG?", "1"),
+            ScriptedExchange.query(":SENS:NULL?", "0"),
+            ScriptedExchange.query(":SENS:TRIG?", "COMM"),
             ScriptedExchange.query(":MEAS?", "+1.250000E-04"),
+            ScriptedExchange.query(":STAT:COND?", "17"),
         ]
     )
     driver = YokogawaGS200("bias", transport, monitor_option=True)
@@ -166,6 +205,14 @@ def test_gs200_source_and_monitor_transcript() -> None:
 
     assert identity.model == "GS210"
     assert state.metadata["identity"] == identity.raw
+    assert set(state.metadata) == {"manufacturer", "model", "identity"}
+    state_properties = state_properties_by_target(state)
+    assert state_properties[DC_MONITOR_MEASUREMENT_ENABLED].value.root is True
+    assert state_properties[DC_MONITOR_INTEGRATION_CYCLES].value.root == 5
+    assert state_properties[DC_MONITOR_MEASUREMENT_DELAY].value.root == Quantity(
+        0.01,
+        "s",
+    )
     assert receipt.status == "collected"
     assert receipt.readback is not None
     measured = receipt.readback.values[DC_MONITOR_CURRENT_RESULT.result_id]
@@ -232,6 +279,7 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
                 source_range="1",
                 source_level="0",
                 output_enabled=False,
+                monitor_enabled=True,
             ),
             ScriptedExchange.write(":SOUR:FUNC CURR"),
             ScriptedExchange.write(":SOUR:RANG 0.01"),
@@ -242,9 +290,15 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
                 source_range="0.01",
                 source_level="0.001",
                 output_enabled=True,
+                monitor_enabled=True,
             ),
             ScriptedExchange.query(":SOUR:FUNC?", "CURR"),
+            ScriptedExchange.query(":OUTP?", "1"),
+            ScriptedExchange.query(":SENS?", "1"),
+            ScriptedExchange.query(":SENS:NULL?", "0"),
+            ScriptedExchange.query(":SENS:TRIG?", "COMM"),
             ScriptedExchange.query(":MEAS?", "1"),
+            ScriptedExchange.query(":STAT:COND?", "17"),
         ]
     )
     driver = YokogawaGS200("bias", transport, monitor_option=True)
@@ -307,6 +361,402 @@ def test_gs200_adjusts_compliance_without_interrupting_live_output() -> None:
     )
 
     assert receipt.status == "applied"
+    transport.assert_complete()
+
+
+def test_gs200_identify_rejects_missing_monitor_option() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(
+                "*IDN?",
+                "YOKOGAWA,GS200,91X000001,2.03",
+            ),
+            ScriptedExchange.query("*OPT?", "0"),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport, monitor_option=True)
+
+    with pytest.raises(ValueError, match="/MON option"):
+        driver.identify()
+
+    transport.assert_complete()
+
+
+def test_gs200_identify_skips_unrequested_monitor_option_probe() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(
+                "*IDN?",
+                "YOKOGAWA,GS200,91X000001,2.03",
+            ),
+            ScriptedExchange.query(":SENS:REM?", "0"),
+            ScriptedExchange.query(":SENS:GUAR?", "0"),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport)
+
+    identity = driver.identify()
+
+    assert identity.model == "GS200"
+    transport.assert_complete()
+
+
+@pytest.mark.parametrize(
+    ("remote_sense", "guard_enabled", "actual_remote", "actual_guard", "message"),
+    [
+        (True, False, False, False, "remote-sense"),
+        (False, True, False, False, "guard state"),
+    ],
+)
+def test_gs200_identify_rejects_connection_profile_drift(
+    remote_sense: bool,
+    guard_enabled: bool,
+    actual_remote: bool,
+    actual_guard: bool,
+    message: str,
+) -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(
+                "*IDN?",
+                "YOKOGAWA,GS200,91X000001,2.03",
+            ),
+            ScriptedExchange.query("*OPT?", "/MON"),
+            ScriptedExchange.query(
+                ":SENS:REM?",
+                "1" if actual_remote else "0",
+            ),
+            ScriptedExchange.query(
+                ":SENS:GUAR?",
+                "1" if actual_guard else "0",
+            ),
+        ]
+    )
+    driver = YokogawaGS200(
+        "bias",
+        transport,
+        monitor_option=True,
+        remote_sense=remote_sense,
+        guard_enabled=guard_enabled,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        driver.identify()
+
+    transport.assert_complete()
+
+
+def test_gs200_read_state_rejects_connection_profile_drift() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(":SENS:REM?", "0"),
+            ScriptedExchange.query(":SENS:GUAR?", "1"),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport)
+
+    with pytest.raises(ValueError, match="guard state"):
+        driver.read_state()
+
+    transport.assert_complete()
+
+
+def test_gs200_read_state_rejects_remote_sense_on_a_millivolt_range() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(":SENS:REM?", "1"),
+            ScriptedExchange.query(":SENS:GUAR?", "0"),
+            ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
+            ScriptedExchange.query(":SOUR:RANG?", "0.1"),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport, remote_sense=True)
+
+    with pytest.raises(ValueError, match="at least 1 V"):
+        driver.read_state()
+
+    transport.assert_complete()
+
+
+def test_gs200_rejects_a_millivolt_range_before_mutating_remote_sense_source() -> None:
+    transport = ScriptedTransport(
+        _gs200_state_readback(
+            mode="CURR",
+            source_range="0.01",
+            source_level="0.001",
+            output_enabled=True,
+            remote_sense=True,
+        )
+    )
+    driver = YokogawaGS200("bias", transport, remote_sense=True)
+
+    receipt = driver.apply_state(
+        _apply_request(
+            [
+                (DC_SOURCE_MODE, "voltage"),
+                (DC_SOURCE_VOLTAGE_RANGE, Quantity(0.1, "V")),
+                (DC_SOURCE_VOLTAGE_LEVEL, Quantity(0.0, "V")),
+            ]
+        )
+    )
+
+    assert receipt.status == "not_applied"
+    assert receipt.problems[0].code == "gs200_remote_sense_voltage_range_incompatible"
+    assert all(entry.operation == "query" for entry in transport.transcript)
+    transport.assert_complete()
+
+
+def test_gs200_applies_monitor_settings_while_measurement_is_disabled() -> None:
+    transport = ScriptedTransport(
+        [
+            *_gs200_state_readback(
+                mode="VOLT",
+                source_range="1",
+                source_level="0.125",
+                output_enabled=True,
+                monitor_enabled=True,
+                integration_cycles="1",
+                measurement_delay="0",
+            ),
+            ScriptedExchange.write(":SENS OFF"),
+            ScriptedExchange.write(":SENS:NPLC 10"),
+            ScriptedExchange.write(":SENS:DEL 0.25"),
+            ScriptedExchange.write(":SENS ON"),
+            *_gs200_state_readback(
+                mode="VOLT",
+                source_range="1",
+                source_level="0.125",
+                output_enabled=True,
+                monitor_enabled=True,
+                integration_cycles="10",
+                measurement_delay="0.25",
+            ),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport, monitor_option=True)
+
+    receipt = driver.apply_state(
+        _apply_request(
+            [
+                (DC_MONITOR_INTEGRATION_CYCLES, 10),
+                (DC_MONITOR_MEASUREMENT_DELAY, Quantity(0.25, "s")),
+            ]
+        )
+    )
+
+    assert receipt.status == "applied"
+    assert receipt.state is not None
+    properties = state_properties_by_target(receipt.state)
+    assert properties[DC_MONITOR_MEASUREMENT_ENABLED].value.root is True
+    assert properties[DC_MONITOR_INTEGRATION_CYCLES].value.root == 10
+    assert properties[DC_MONITOR_MEASUREMENT_DELAY].value.root == Quantity(
+        0.25,
+        "s",
+    )
+    transport.assert_complete()
+
+
+@pytest.mark.parametrize(
+    ("exchanges", "result", "problem_code"),
+    [
+        (
+            [ScriptedExchange.query(":SOUR:FUNC?", "VOLT")],
+            DC_MONITOR_VOLTAGE_RESULT,
+            "gs200_monitor_result_inactive",
+        ),
+        (
+            [
+                ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
+                ScriptedExchange.query(":OUTP?", "0"),
+            ],
+            DC_MONITOR_CURRENT_RESULT,
+            "gs200_output_disabled",
+        ),
+        (
+            [
+                ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
+                ScriptedExchange.query(":OUTP?", "1"),
+                ScriptedExchange.query(":SENS?", "0"),
+            ],
+            DC_MONITOR_CURRENT_RESULT,
+            "gs200_monitor_disabled",
+        ),
+        (
+            [
+                ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
+                ScriptedExchange.query(":OUTP?", "1"),
+                ScriptedExchange.query(":SENS?", "1"),
+                ScriptedExchange.query(":SOUR:RANG?", "0.1"),
+            ],
+            DC_MONITOR_CURRENT_RESULT,
+            "gs200_monitor_voltage_range_too_low",
+        ),
+        (
+            [
+                ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
+                ScriptedExchange.query(":OUTP?", "1"),
+                ScriptedExchange.query(":SENS?", "1"),
+                ScriptedExchange.query(":SOUR:RANG?", "1"),
+                ScriptedExchange.query(":SENS:NULL?", "1"),
+            ],
+            DC_MONITOR_CURRENT_RESULT,
+            "gs200_monitor_null_enabled",
+        ),
+    ],
+    ids=[
+        "inactive-result",
+        "output-off",
+        "measurement-off",
+        "voltage-range",
+        "null-on",
+    ],
+)
+def test_gs200_collect_guards_do_not_trigger_measurement(
+    exchanges: list[ScriptedExchange],
+    result: AcquisitionResultRef,
+    problem_code: str,
+) -> None:
+    transport = ScriptedTransport(exchanges)
+    driver = YokogawaGS200("bias", transport, monitor_option=True)
+
+    receipt = driver.collect(_collect_request(DC_MONITOR_ACQUISITION, result))
+
+    assert receipt.status == "not_collected"
+    assert receipt.problems[0].code == problem_code
+    assert all(entry.operation == "query" for entry in transport.transcript)
+    transport.assert_complete()
+
+
+def test_gs200_collect_uses_communication_trigger_then_restores_it() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
+            ScriptedExchange.query(":OUTP?", "1"),
+            ScriptedExchange.query(":SENS?", "1"),
+            ScriptedExchange.query(":SOUR:RANG?", "1"),
+            ScriptedExchange.query(":SENS:NULL?", "0"),
+            ScriptedExchange.query(":SENS:TRIG?", "IMM"),
+            ScriptedExchange.write(":SENS:TRIG COMM"),
+            ScriptedExchange.query(":MEAS?", "0.000125"),
+            ScriptedExchange.query(":STAT:COND?", "17"),
+            ScriptedExchange.write(":SENS:TRIG IMM"),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport, monitor_option=True)
+
+    receipt = driver.collect(
+        _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_CURRENT_RESULT)
+    )
+
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    assert receipt.readback.values[
+        DC_MONITOR_CURRENT_RESULT.result_id
+    ] == MeasurementScalar.create(
+        dtype="float64",
+        unit="A",
+        value=0.000125,
+    )
+    transport.assert_complete()
+
+
+def test_gs200_collect_reports_monitor_overload_as_unavailable() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(":SOUR:FUNC?", "CURR"),
+            ScriptedExchange.query(":OUTP?", "1"),
+            ScriptedExchange.query(":SENS?", "1"),
+            ScriptedExchange.query(":SENS:NULL?", "0"),
+            ScriptedExchange.query(":SENS:TRIG?", "TIM"),
+            ScriptedExchange.write(":SENS:TRIG COMM"),
+            ScriptedExchange.query(":MEAS?", "9.91E+37"),
+            ScriptedExchange.query(":STAT:COND?", "19"),
+            ScriptedExchange.write(":SENS:TRIG TIM"),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport, monitor_option=True)
+
+    receipt = driver.collect(
+        _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_VOLTAGE_RESULT)
+    )
+
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    assert receipt.readback.values[
+        DC_MONITOR_VOLTAGE_RESULT.result_id
+    ] == MeasurementUnavailable.create(
+        reason="overload",
+        dtype="float64",
+        unit="V",
+        shape=(),
+        metadata={"status_condition": 19},
+    )
+    transport.assert_complete()
+
+
+@pytest.mark.parametrize("condition", [1, 16], ids=["sampling-error", "incomplete"])
+def test_gs200_collect_reports_invalid_measurement_status(condition: int) -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query(":SOUR:FUNC?", "CURR"),
+            ScriptedExchange.query(":OUTP?", "1"),
+            ScriptedExchange.query(":SENS?", "1"),
+            ScriptedExchange.query(":SENS:NULL?", "0"),
+            ScriptedExchange.query(":SENS:TRIG?", "COMM"),
+            ScriptedExchange.query(":MEAS?", "0.125"),
+            ScriptedExchange.query(":STAT:COND?", str(condition)),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport, monitor_option=True)
+
+    receipt = driver.collect(
+        _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_VOLTAGE_RESULT)
+    )
+
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    assert receipt.readback.values[
+        DC_MONITOR_VOLTAGE_RESULT.result_id
+    ] == MeasurementUnavailable.create(
+        reason="invalid",
+        dtype="float64",
+        unit="V",
+        shape=(),
+        metadata={"status_condition": condition},
+    )
+    transport.assert_complete()
+
+
+class _RestoreFailingTransport(ScriptedTransport):
+    @override
+    def write(self, command: str) -> None:
+        if command == ":SENS:TRIG IMM":
+            raise TransportError("trigger restore failed")
+        super().write(command)
+
+
+def test_gs200_trigger_restore_failure_reports_unknown() -> None:
+    transport = _RestoreFailingTransport(
+        [
+            ScriptedExchange.query(":SOUR:FUNC?", "VOLT"),
+            ScriptedExchange.query(":OUTP?", "1"),
+            ScriptedExchange.query(":SENS?", "1"),
+            ScriptedExchange.query(":SOUR:RANG?", "1"),
+            ScriptedExchange.query(":SENS:NULL?", "0"),
+            ScriptedExchange.query(":SENS:TRIG?", "IMM"),
+            ScriptedExchange.write(":SENS:TRIG COMM"),
+            ScriptedExchange.query(":MEAS?", "0.000125"),
+            ScriptedExchange.query(":STAT:COND?", "17"),
+        ]
+    )
+    driver = YokogawaGS200("bias", transport, monitor_option=True)
+
+    receipt = driver.collect(
+        _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_CURRENT_RESULT)
+    )
+
+    assert receipt.status == "unknown"
+    assert receipt.problems[0].code == "instrument_collect_outcome_unknown"
     transport.assert_complete()
 
 

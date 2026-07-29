@@ -25,9 +25,11 @@ from scopecat.sdk.instruments import (
     InstrumentProviderContext,
 )
 
+from scopecat_instruments.drivers import YokogawaGS200
 from scopecat_instruments.provider import (
     ROHDE_SCHWARZ_SGS100A,
     VIRTUAL_DC_SOURCE,
+    YOKOGAWA_GS200,
     ConfiguredInstrumentProvider,
 )
 from scopecat_instruments.virtual import VirtualDcSource
@@ -52,8 +54,16 @@ def test_driver_id_catalog_does_not_import_driver_implementations() -> None:
 
 
 class _IdnServer:
-    def __init__(self, response: str) -> None:
-        self.response = response
+    def __init__(
+        self,
+        response: str,
+        *,
+        query_responses: dict[str, str] | None = None,
+    ) -> None:
+        self.query_responses = {
+            "*IDN?": response,
+            **({} if query_responses is None else query_responses),
+        }
         self.commands: list[str] = []
         self._server = socket.socket()
         self._server.bind(("127.0.0.1", 0))
@@ -80,8 +90,9 @@ class _IdnServer:
                     buffer = bytearray(remainder)
                     command = line.decode("ascii")
                     self.commands.append(command)
-                    if command == "*IDN?":
-                        connection.sendall(self.response.encode("ascii") + b"\n")
+                    response = self.query_responses.get(command)
+                    if response is not None:
+                        connection.sendall(response.encode("ascii") + b"\n")
         self._server.close()
 
 
@@ -146,6 +157,105 @@ def test_provider_rejects_wrong_device_identity() -> None:
 
     assert caught.value.problem.code == "instrument_connection_failed"
     assert server.commands == ["*IDN?"]
+
+
+def test_provider_connects_gs200_with_verified_monitor_profile() -> None:
+    server = _IdnServer(
+        "YOKOGAWA,GS200,91X000001,2.03",
+        query_responses={
+            "*OPT?": "/MON",
+            ":SENS:REM?": "1",
+            ":SENS:GUAR?": "0",
+        },
+    )
+    config = _config(
+        InstrumentSpec(
+            id="bias",
+            exclusivity_key="bias",
+            driver_id=YOKOGAWA_GS200,
+            connection=TcpipSocketInstrumentConnection(
+                host="127.0.0.1",
+                port=server.port,
+                options={
+                    "monitor_option": True,
+                    "remote_sense": True,
+                    "guard_enabled": False,
+                },
+            ),
+            run_start="preserve",
+        )
+    )
+
+    driver = ConfiguredInstrumentProvider().connect(
+        InstrumentConnectionContext(binding=instrument_bindings(config)[0])
+    )
+
+    assert isinstance(driver, YokogawaGS200)
+    assert driver.monitor_option is True
+    assert driver.remote_sense is True
+    assert driver.guard_enabled is False
+    assert server.commands == [
+        "*IDN?",
+        "*OPT?",
+        ":SENS:REM?",
+        ":SENS:GUAR?",
+    ]
+    driver.disconnect()
+
+
+def test_provider_rejects_gs200_without_requested_monitor_option() -> None:
+    server = _IdnServer(
+        "YOKOGAWA,GS200,91X000001,2.03",
+        query_responses={"*OPT?": "0"},
+    )
+    config = _config(
+        InstrumentSpec(
+            id="bias",
+            exclusivity_key="bias",
+            driver_id=YOKOGAWA_GS200,
+            connection=TcpipSocketInstrumentConnection(
+                host="127.0.0.1",
+                port=server.port,
+                options={"monitor_option": True},
+            ),
+            run_start="preserve",
+        )
+    )
+
+    with pytest.raises(DriverFault) as caught:
+        ConfiguredInstrumentProvider().connect(
+            InstrumentConnectionContext(binding=instrument_bindings(config)[0])
+        )
+
+    assert caught.value.problem.code == "instrument_connection_failed"
+    assert server.commands == ["*IDN?", "*OPT?"]
+
+
+@pytest.mark.parametrize(
+    "option",
+    ["monitor_option", "remote_sense", "guard_enabled"],
+)
+def test_provider_requires_boolean_gs200_profile_options(option: str) -> None:
+    config = _config(
+        InstrumentSpec(
+            id="bias",
+            exclusivity_key="bias",
+            driver_id=YOKOGAWA_GS200,
+            connection=TcpipSocketInstrumentConnection(
+                host="127.0.0.1",
+                port=7655,
+                options={option: "yes"},
+            ),
+            run_start="preserve",
+        )
+    )
+
+    description = ConfiguredInstrumentProvider().describe(
+        InstrumentProviderContext(bindings=instrument_bindings(config))
+    )
+
+    assert description.instruments == ()
+    assert description.problems[0].code == "instrument_driver_configuration_invalid"
 
 
 def test_virtual_state_survives_driver_recreation() -> None:

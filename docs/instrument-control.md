@@ -218,6 +218,7 @@ Example:
 `default_state` is a reusable partial public physical-state profile. It may be
 saved independently of how runs start, so interactive tools can apply it
 explicitly.
+
 `run_start` is required for every instrument:
 
 - `preserve` reads the device after the run acquires exclusive ownership and
@@ -493,13 +494,26 @@ presented as fresh physical observation. Drivers for devices whose properties
 drift independently can later require explicit readback without changing the
 batch boundary.
 
+The GS200 `/MON` interface treats `measurement_enabled`,
+`integration_cycles` (NPLC), and `measurement_delay` as public persistent
+state. `remote_sense` and `guard_enabled` instead describe the expected
+physical wiring profile: the driver verifies them but never changes them.
+Four-wire remote sense with a voltage range below 1 V is rejected before any
+state mutation because those ranges require two-terminal wiring.
+Collection is refused while NULL is enabled because disabling it discards the
+reference and cannot restore the prior state. Each collection temporarily
+establishes a one-shot trigger setup and restores the previous trigger
+settings. The condition register maps an incomplete or failed sample to
+`invalid` and an over-range sample to `overload`. Internal GS200 program state
+is outside this direct source-monitor interface.
+
 ## Initial superconducting-lab driver set
 
 The first package deliberately implements narrow, documented subsets:
 
 | Device | Interface | Initial boundary |
 |---|---|---|
-| Yokogawa GS200/GS210 | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v2` | discriminated voltage/current state, protection, output, and optional `/MON` acquisition |
+| Yokogawa GS200/GS210 | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v3` | discriminated voltage/current state, protection, output, and optional `/MON` acquisition |
 | R&S SGS100A | `scopecat.rf_output/v1` | CW frequency, power, RF output, internal/external reference |
 | Lake Shore 372 | `scopecat.temperature_readout/v1` | read-only scanner state and settled, status-checked temperature or resistance samples |
 | Keysight E5080B | `scopecat.network_sweep/v1` | one linear two-port S-parameter sweep and complex trace |

@@ -4,6 +4,8 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
     DriverApplyRequest,
+    DriverCollectRequest,
+    DriverCollectResult,
     DriverPropertyWrite,
 )
 
@@ -12,6 +14,11 @@ from scopecat_instruments._support import (
     state_properties_by_target,
 )
 from scopecat_instruments.members import (
+    DC_MONITOR_ACQUISITION,
+    DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
     DC_SOURCE_CURRENT_LEVEL,
     DC_SOURCE_CURRENT_RANGE,
     DC_SOURCE_MODE,
@@ -108,6 +115,75 @@ def test_virtual_dc_case_local_setters_do_not_switch_mode() -> None:
     driver.set_current_level(0.001)
 
     assert driver.source_mode() == "voltage"
+
+
+def test_virtual_dc_monitor_configuration_round_trips_through_state() -> None:
+    driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
+
+    receipt = driver.apply_state(
+        DriverApplyRequest(
+            assignments=(
+                DriverPropertyWrite(
+                    interface_id=DC_MONITOR_MEASUREMENT_ENABLED.interface_id,
+                    component_path=DC_MONITOR_MEASUREMENT_ENABLED.component_path,
+                    property_id=DC_MONITOR_MEASUREMENT_ENABLED.property_id,
+                    value=StateValue(False),
+                ),
+                DriverPropertyWrite(
+                    interface_id=DC_MONITOR_INTEGRATION_CYCLES.interface_id,
+                    component_path=DC_MONITOR_INTEGRATION_CYCLES.component_path,
+                    property_id=DC_MONITOR_INTEGRATION_CYCLES.property_id,
+                    value=StateValue(5),
+                ),
+                DriverPropertyWrite(
+                    interface_id=DC_MONITOR_MEASUREMENT_DELAY.interface_id,
+                    component_path=DC_MONITOR_MEASUREMENT_DELAY.component_path,
+                    property_id=DC_MONITOR_MEASUREMENT_DELAY.property_id,
+                    value=StateValue(Quantity(0.25, "s")),
+                ),
+            )
+        )
+    )
+
+    assert receipt.status == "applied"
+    assert receipt.state is not None
+    properties = state_properties_by_target(receipt.state)
+    assert properties[DC_MONITOR_MEASUREMENT_ENABLED].value.root is False
+    assert properties[DC_MONITOR_INTEGRATION_CYCLES].value.root == 5
+    delay = properties[DC_MONITOR_MEASUREMENT_DELAY].value.root
+    assert isinstance(delay, Quantity)
+    assert delay == Quantity(0.25, "s")
+
+
+def test_virtual_dc_monitor_requires_source_output_and_measurement_enabled() -> None:
+    driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
+    request = DriverCollectRequest(
+        interface_id=DC_MONITOR_ACQUISITION.interface_id,
+        component_path=DC_MONITOR_ACQUISITION.component_path,
+        acquisition_id=DC_MONITOR_ACQUISITION.acquisition_id,
+        results=(
+            DriverCollectResult(
+                request_id="current",
+                result_id=DC_MONITOR_CURRENT_RESULT.result_id,
+            ),
+        ),
+    )
+
+    driver.set_output(True)
+    assert driver.collect(request).status == "collected"
+
+    driver.set_output(False)
+    receipt = driver.collect(request)
+
+    assert receipt.status == "not_collected"
+    assert receipt.problems[0].code == "virtual_dc_monitor_output_disabled"
+
+    driver.set_output(True)
+    driver.set_measurement_enabled(False)
+    receipt = driver.collect(request)
+
+    assert receipt.status == "not_collected"
+    assert receipt.problems[0].code == "virtual_dc_monitor_disabled"
 
 
 def test_virtual_network_noise_is_deterministic_for_seed() -> None:

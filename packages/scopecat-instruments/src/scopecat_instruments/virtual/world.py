@@ -29,6 +29,9 @@ class VirtualDcSourceState:
     voltage_protection_v: float = 10.0
     current_protection_a: float = 0.01
     output_enabled: bool = False
+    measurement_enabled: bool = True
+    integration_cycles: int = 1
+    measurement_delay_s: float = 0.0
 
 
 @dataclass

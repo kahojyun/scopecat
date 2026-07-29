@@ -885,6 +885,8 @@ def quantity_property(
     id: str,
     *,
     unit: str,
+    minimum: float | None = None,
+    maximum: float | None = None,
     label: str | None = None,
     description: str | None = None,
     access: Literal["read_only", "write_only", "read_write"] = "read_write",
@@ -894,7 +896,13 @@ def quantity_property(
         label=label,
         description=description,
         access=access,
-        value_type=Scalar(QuantityType(unit=unit)),
+        value_type=Scalar(
+            QuantityType(
+                unit=unit,
+                minimum=minimum,
+                maximum=maximum,
+            )
+        ),
     )
 
 

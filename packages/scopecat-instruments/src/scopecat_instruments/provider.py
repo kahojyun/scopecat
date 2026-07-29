@@ -140,13 +140,26 @@ class ConfiguredInstrumentProvider:
     ) -> _ConfiguredDriver:
         driver_id = binding.driver_id
         if driver_id == YOKOGAWA_GS200:
-            _check_options(binding, {"monitor_option"})
+            _check_options(
+                binding,
+                {"monitor_option", "remote_sense", "guard_enabled"},
+            )
             return YokogawaGS200(
                 binding.id,
                 transport,
                 monitor_option=_bool_option(
                     binding,
                     "monitor_option",
+                    default=False,
+                ),
+                remote_sense=_bool_option(
+                    binding,
+                    "remote_sense",
+                    default=False,
+                ),
+                guard_enabled=_bool_option(
+                    binding,
+                    "guard_enabled",
                     default=False,
                 ),
             )

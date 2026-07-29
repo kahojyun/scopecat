@@ -33,6 +33,9 @@ from scopecat_instruments.driver_ids import (
 )
 from scopecat_instruments.members import (
     DC_MONITOR,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
     DC_SOURCE,
     DC_SOURCE_CURRENT_PROTECTION,
     DC_SOURCE_MODE,
@@ -168,6 +171,18 @@ def _virtual_instrument(
                 StateValue(Quantity(0.01, "A")),
             ),
             _property_state(DC_SOURCE_OUTPUT_ENABLED, StateValue(False)),
+            _property_state(
+                DC_MONITOR_MEASUREMENT_ENABLED,
+                StateValue(True),
+            ),
+            _property_state(
+                DC_MONITOR_INTEGRATION_CYCLES,
+                StateValue(1),
+            ),
+            _property_state(
+                DC_MONITOR_MEASUREMENT_DELAY,
+                StateValue(Quantity(0.0, "s")),
+            ),
         ]
     else:
         default_state = []

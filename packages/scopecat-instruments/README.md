@@ -129,7 +129,12 @@ returns monitored current, while current-source mode returns monitored voltage.
 
 Connection `options` are intentionally narrow:
 
-- Yokogawa GS200: `monitor_option` (`bool`, default `false`);
+- Yokogawa GS200: `monitor_option` requests `/MON` support (`bool`, default
+  `false`) and is verified with `*OPT?` when the connection opens;
+- Yokogawa GS200: `remote_sense` and `guard_enabled` (`bool`, both default
+  `false`) declare the expected physical wiring profile. The driver verifies
+  them and never switches either setting automatically. Remote sense rejects
+  voltage ranges below 1 V;
 - Keysight E5080B: `channel` and `measurement` (positive integers, default `1`);
 - the other included drivers accept no options.
 
@@ -137,12 +142,12 @@ The package supports these driver IDs:
 
 | Driver ID | Interface |
 | --- | --- |
-| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v2` |
+| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v3` |
 | `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v1` |
 | `scopecat.lakeshore.372` | `scopecat.temperature_readout/v1` |
 | `scopecat.keysight.e5080b` | `scopecat.network_sweep/v1` |
 | `scopecat.virtual.rf_source` | `scopecat.rf_output/v1` |
-| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v2` |
+| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v3` |
 | `scopecat.virtual.temperature_monitor` | `scopecat.temperature_readout/v1` |
 | `scopecat.virtual.vna` | `scopecat.network_sweep/v1` |
 

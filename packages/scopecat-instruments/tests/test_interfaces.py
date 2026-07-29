@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
+from scopecat.kernel.value_types import Bool, Int, Quantity, Scalar
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -34,6 +35,9 @@ from scopecat_instruments.members import (
     DC_MONITOR,
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
     DC_SOURCE,
     DC_SOURCE_CURRENT_LEVEL,
@@ -244,8 +248,26 @@ def test_dc_source_state_partitions_properties_by_source_mode() -> None:
 
 
 def test_dc_monitor_results_follow_the_source_mode() -> None:
-    [monitor] = dc_monitor_interface().acquisitions
+    monitor_interface = dc_monitor_interface()
+    [monitor] = monitor_interface.acquisitions
 
+    assert monitor_interface.id == "scopecat.dc_monitor/v3"
+    properties = {item.id: item for item in monitor_interface.properties}
+    assert set(properties) == {
+        DC_MONITOR_MEASUREMENT_ENABLED.property_id,
+        DC_MONITOR_INTEGRATION_CYCLES.property_id,
+        DC_MONITOR_MEASUREMENT_DELAY.property_id,
+    }
+    assert properties[DC_MONITOR_MEASUREMENT_ENABLED.property_id].value_type == Scalar(
+        Bool()
+    )
+    assert properties[DC_MONITOR_INTEGRATION_CYCLES.property_id].value_type == Scalar(
+        Int(minimum=1, maximum=25)
+    )
+    assert properties[DC_MONITOR_MEASUREMENT_DELAY.property_id].value_type == Scalar(
+        Quantity(unit="s", minimum=0.0, maximum=999.999)
+    )
+    assert {item.access for item in properties.values()} == {"read_write"}
     assert monitor.kind == "state_discriminated"
     assert monitor.id == DC_MONITOR_ACQUISITION.acquisition_id
     assert monitor.discriminator.interface_id == DC_SOURCE_MODE.interface_id

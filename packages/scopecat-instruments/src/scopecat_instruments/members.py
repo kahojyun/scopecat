@@ -20,7 +20,10 @@ DC_SOURCE_VOLTAGE_PROTECTION = DC_SOURCE.property("voltage_protection")
 DC_SOURCE_CURRENT_PROTECTION = DC_SOURCE.property("current_protection")
 DC_SOURCE_OUTPUT_ENABLED = DC_SOURCE.property("output_enabled")
 
-DC_MONITOR = InterfaceRef("scopecat.dc_monitor/v2")
+DC_MONITOR = InterfaceRef("scopecat.dc_monitor/v3")
+DC_MONITOR_MEASUREMENT_ENABLED = DC_MONITOR.property("measurement_enabled")
+DC_MONITOR_INTEGRATION_CYCLES = DC_MONITOR.property("integration_cycles")
+DC_MONITOR_MEASUREMENT_DELAY = DC_MONITOR.property("measurement_delay")
 DC_MONITOR_ACQUISITION = DC_MONITOR.acquisition("monitor")
 DC_MONITOR_CURRENT_RESULT = DC_MONITOR_ACQUISITION.result("monitored_current")
 DC_MONITOR_VOLTAGE_RESULT = DC_MONITOR_ACQUISITION.result("monitored_voltage")
@@ -49,6 +52,9 @@ __all__ = [
     "DC_MONITOR",
     "DC_MONITOR_ACQUISITION",
     "DC_MONITOR_CURRENT_RESULT",
+    "DC_MONITOR_INTEGRATION_CYCLES",
+    "DC_MONITOR_MEASUREMENT_DELAY",
+    "DC_MONITOR_MEASUREMENT_ENABLED",
     "DC_MONITOR_VOLTAGE_RESULT",
     "DC_SOURCE",
     "DC_SOURCE_CURRENT_LEVEL",

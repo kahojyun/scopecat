@@ -166,6 +166,23 @@ def test_projected_state_stays_internal_to_instrument_preflight() -> None:
                 "value_type": {"type": "quantity", "unit": "GHz"},
             },
         ),
+        (
+            quantity_property(
+                "delay",
+                unit="s",
+                minimum=0.0,
+                maximum=999.999,
+            ),
+            {
+                "id": "delay",
+                "value_type": {
+                    "type": "quantity",
+                    "unit": "s",
+                    "minimum": 0.0,
+                    "maximum": 999.999,
+                },
+            },
+        ),
     ],
 )
 def test_property_spec_has_stable_scalar_wire_format(

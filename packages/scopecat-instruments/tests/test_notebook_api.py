@@ -250,12 +250,17 @@ def test_apply_configured_defaults_requires_multi_instrument_selection() -> None
 def test_gs200_notebook_monitor_defaults_to_the_current_mode_result() -> None:
     transport = ScriptedTransport(
         [
+            ScriptedExchange.query(":SENS:REM?", "0"),
+            ScriptedExchange.query(":SENS:GUAR?", "0"),
             ScriptedExchange.query(":SOUR:FUNC?", "CURR"),
             ScriptedExchange.query(":SOUR:RANG?", "0.01"),
             ScriptedExchange.query(":SOUR:LEV?", "0.001"),
             ScriptedExchange.query(":SOUR:PROT:VOLT?", "10"),
             ScriptedExchange.query(":SOUR:PROT:CURR?", "0.01"),
             ScriptedExchange.query(":OUTP?", "1"),
+            ScriptedExchange.query(":SENS?", "1"),
+            ScriptedExchange.query(":SENS:NPLC?", "1"),
+            ScriptedExchange.query(":SENS:DEL?", "0"),
         ]
     )
     driver = YokogawaGS200("bias", transport, monitor_option=True)

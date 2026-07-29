@@ -50,6 +50,9 @@ from scopecat_instruments.interfaces import (
 )
 from scopecat_instruments.members import (
     DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
     DC_SOURCE_CURRENT_LEVEL,
     DC_SOURCE_CURRENT_PROTECTION,
@@ -247,6 +250,18 @@ class VirtualDcSource:
                     Quantity(source.current_protection_a, "A"),
                 ),
                 state_property(DC_SOURCE_OUTPUT_ENABLED, source.output_enabled),
+                state_property(
+                    DC_MONITOR_MEASUREMENT_ENABLED,
+                    source.measurement_enabled,
+                ),
+                state_property(
+                    DC_MONITOR_INTEGRATION_CYCLES,
+                    source.integration_cycles,
+                ),
+                state_property(
+                    DC_MONITOR_MEASUREMENT_DELAY,
+                    Quantity(source.measurement_delay_s, "s"),
+                ),
             ]
         return InstrumentStateSnapshot(
             instrument_id=self.instrument_id,
@@ -320,6 +335,18 @@ class VirtualDcSource:
             self.set_current_level(
                 quantity_value(properties[DC_SOURCE_CURRENT_LEVEL].value, "A")
             )
+        if DC_MONITOR_MEASUREMENT_ENABLED in properties:
+            self.set_measurement_enabled(
+                bool_value(properties[DC_MONITOR_MEASUREMENT_ENABLED].value)
+            )
+        if DC_MONITOR_INTEGRATION_CYCLES in properties:
+            self.set_integration_cycles(
+                int_value(properties[DC_MONITOR_INTEGRATION_CYCLES].value)
+            )
+        if DC_MONITOR_MEASUREMENT_DELAY in properties:
+            self.set_measurement_delay(
+                quantity_value(properties[DC_MONITOR_MEASUREMENT_DELAY].value, "s")
+            )
         effective_output = False if disabled_for_update else current_output
         if target_output != effective_output:
             self.set_output(target_output)
@@ -331,6 +358,28 @@ class VirtualDcSource:
     def collect(self, request: DriverCollectRequest) -> CollectReceipt:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
+            if not source.output_enabled:
+                return not_collected(
+                    [
+                        execution_problem(
+                            "virtual_dc_monitor_output_disabled",
+                            "DC source output is disabled",
+                            "instrument_state",
+                            DC_SOURCE_OUTPUT_ENABLED.property_id,
+                        )
+                    ]
+                )
+            if not source.measurement_enabled:
+                return not_collected(
+                    [
+                        execution_problem(
+                            "virtual_dc_monitor_disabled",
+                            "DC monitor measurement is disabled",
+                            "instrument_state",
+                            DC_MONITOR_MEASUREMENT_ENABLED.property_id,
+                        )
+                    ]
+                )
             active_result = (
                 DC_MONITOR_CURRENT_RESULT
                 if source.source_mode == "voltage"
@@ -412,6 +461,18 @@ class VirtualDcSource:
     def output_enabled(self) -> bool:
         with self.world.lock:
             return self.world.dc_source(self.instrument_id).output_enabled
+
+    def set_measurement_enabled(self, enabled: bool) -> None:
+        with self.world.lock:
+            self.world.dc_source(self.instrument_id).measurement_enabled = enabled
+
+    def set_integration_cycles(self, cycles: int) -> None:
+        with self.world.lock:
+            self.world.dc_source(self.instrument_id).integration_cycles = cycles
+
+    def set_measurement_delay(self, delay_s: float) -> None:
+        with self.world.lock:
+            self.world.dc_source(self.instrument_id).measurement_delay_s = delay_s
 
     def disconnect(self) -> None:
         pass

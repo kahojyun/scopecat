@@ -297,7 +297,7 @@ describe("interactive collection request shaping", () => {
       ],
     };
     const target = {
-      interfaceId: "scopecat.dc_monitor/v2",
+      interfaceId: "scopecat.dc_monitor/v3",
       componentPath: [],
       acquisition,
     };
