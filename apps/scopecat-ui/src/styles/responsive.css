@@ -163,14 +163,6 @@
   .parameter-browser-layout {
     grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
   }
-
-  .proposal-actions {
-    grid-template-columns: minmax(190px, 1fr) repeat(2, auto);
-  }
-
-  .proposal-actions .proposal-activate {
-    grid-column: 2 / -1;
-  }
 }
 
 @media (max-width: 680px) {
@@ -210,7 +202,6 @@
   }
 
   .progress-card,
-  .run-proposals-card,
   .timeline-card {
     grid-column: auto;
     grid-row: auto;
@@ -331,52 +322,6 @@
 
   .value-comparison {
     gap: 8px;
-  }
-
-  .proposals-heading {
-    grid-template-columns: 30px minmax(0, 1fr) auto;
-  }
-
-  .proposal-reviewer {
-    grid-column: 1 / -1;
-  }
-
-  .proposal-reviewer input {
-    width: 100%;
-  }
-
-  .proposal > header {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .proposal-meta {
-    grid-template-columns: auto minmax(0, 1fr);
-    justify-items: start;
-  }
-
-  .proposal-approval {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .proposal-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .proposal-actions label {
-    grid-column: 1 / -1;
-  }
-
-  .proposal-actions .proposal-activate {
-    grid-column: 1 / -1;
-  }
-
-  .proposal-diff {
-    overflow-x: auto;
-  }
-
-  .proposal-diff-header,
-  .proposal-diff-row {
-    min-width: 650px;
   }
 
   .activation-history li {

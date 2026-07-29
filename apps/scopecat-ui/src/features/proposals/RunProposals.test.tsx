@@ -53,7 +53,7 @@ describe("RunProposals", () => {
     const setDefault = await screen.findAllByRole("button", {
       name: "Accept as default",
     });
-    expect(screen.getAllByText("Approved", { selector: ".proposal-state" })).toHaveLength(2);
+    expect(screen.getAllByTestId("proposal-state")).toHaveLength(2);
     expect(setDefault).toHaveLength(2);
     await waitFor(() => expect(setDefault[1]).toBeEnabled());
     fireEvent.click(setDefault[1]!);
