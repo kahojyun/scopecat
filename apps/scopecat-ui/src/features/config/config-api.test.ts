@@ -4,6 +4,7 @@ import type {
   ConfigProfileSnapshot,
   ConfigRegistryEntry,
 } from "../../api-contract";
+import { requestJson, requestMethod, requestPath } from "../../test/http";
 import {
   activateConfigEntry,
   getConfigRegistry,
@@ -25,7 +26,7 @@ describe("config registry reads", () => {
   it("keeps the generated wire model and only sorts registry projections", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) =>
       Promise.resolve(
-        String(input).endsWith("/activations")
+        requestPath(input).endsWith("/activations")
           ? jsonResponse({
               items: [activation(1, "config-a", HASH_A), activation(2, "config-b", HASH_B)],
             })
@@ -39,8 +40,8 @@ describe("config registry reads", () => {
 
     const overview = await getConfigRegistry();
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/config-registry");
-    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/config-registry/activations");
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/config-registry");
+    expect(requestPath(fetchMock.mock.calls[1]?.[0])).toBe("/api/v1/config-registry/activations");
     expect(overview.entries.map((entry) => entry.id)).toEqual(["config-b", "config-a"]);
     expect(overview.activation).toMatchObject({
       entry_id: "config-b",
@@ -55,7 +56,7 @@ describe("config registry reads", () => {
       "fetch",
       vi.fn((input: string | URL | Request) =>
         Promise.resolve(
-          String(input).endsWith("/activations")
+          requestPath(input).endsWith("/activations")
             ? jsonResponse({ items: [] })
             : jsonResponse({ entries: [], activation: null }),
         ),
@@ -83,7 +84,9 @@ describe("config registry reads", () => {
 
     const detail = await getConfigRegistryEntry("config a");
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/config-registry/entries/config%20a");
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/config-registry/entries/config%20a",
+    );
     expect(detail.config).toEqual(config);
     expect(detail.config).not.toHaveProperty("raw");
     expect(detail.summary).toEqual({
@@ -113,8 +116,8 @@ describe("config registry commands", () => {
     await activateConfigEntry(activationCommand);
     await undoConfig(undo);
 
-    expectRequest(fetchMock, 0, "/api/v1/config-registry/active", activationCommand);
-    expectRequest(fetchMock, 1, "/api/v1/config-registry/undo", undo);
+    await expectRequest(fetchMock, 0, "/api/v1/config-registry/active", activationCommand);
+    await expectRequest(fetchMock, 1, "/api/v1/config-registry/undo", undo);
   });
 });
 
@@ -157,7 +160,7 @@ describe("typed config drafts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(previewConfigDraft(draft)).resolves.toEqual(response);
-    expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/preview", draft);
+    await expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/preview", draft);
   });
 
   it("sends one publish command unchanged", async () => {
@@ -187,7 +190,7 @@ describe("typed config drafts", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(setConfigDefault(publishCommand)).resolves.toEqual(publishReceipt);
-    expectRequest(fetchMock, 0, "/api/v1/config-registry/default", publishCommand);
+    await expectRequest(fetchMock, 0, "/api/v1/config-registry/default", publishCommand);
   });
 });
 
@@ -298,14 +301,14 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function expectRequest(
+async function expectRequest(
   fetchMock: ReturnType<typeof vi.fn>,
   index: number,
   path: string,
   body: object,
 ) {
   const call = fetchMock.mock.calls[index];
-  expect(call?.[0]).toBe(path);
-  expect(call?.[1]?.method).toBe("POST");
-  expect(JSON.parse(String(call?.[1]?.body))).toEqual(body);
+  expect(requestPath(call?.[0])).toBe(path);
+  expect(requestMethod(call?.[0], call?.[1])).toBe("POST");
+  await expect(requestJson(call?.[0], call?.[1])).resolves.toEqual(body);
 }

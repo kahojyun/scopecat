@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "generate:api": "uv run --project ../.. python scripts/export-openapi.py && openapi-typescript .generated/ui-api.openapi.json --output src/api-schema.d.ts --alphabetize --array-length --empty-objects-unknown",
+    "generate:api": "uv run --project ../.. python scripts/export-openapi.py && openapi-typescript .generated/ui-api.openapi.json --output src/api-schema.d.ts --alphabetize --empty-objects-unknown",
     "check:api": "pnpm run generate:api && git diff --exit-code -- src/api-schema.d.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
@@ -23,6 +23,7 @@
     "@base-ui/react": "1.6.0",
     "@tanstack/react-query": "5.101.2",
     "lucide-react": "1.24.0",
+    "openapi-fetch": "0.17.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "tailwind-merge": "3.6.0"

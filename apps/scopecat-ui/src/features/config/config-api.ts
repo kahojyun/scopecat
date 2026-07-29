@@ -1,4 +1,4 @@
-import { request } from "../../api";
+import { apiClient, apiData } from "../../api-client";
 import type {
   ConfigDraftCommand,
   ConfigDraftPreview,
@@ -7,10 +7,8 @@ import type {
   ConfigRegistryOverview,
   ConfigPublishCommand,
   ConfigPublishReceipt,
-  DaemonUiApi,
 } from "../../api-contract";
-
-const CONFIG_API = "/api/v1/config-registry";
+import type { components } from "../../api-schema";
 
 export interface ConfigSnapshotSummary {
   id: string;
@@ -27,8 +25,8 @@ export interface ConfigRegistryEntryDetail {
 
 export async function getConfigRegistry(signal?: AbortSignal): Promise<ConfigRegistryOverview> {
   const [registry, activations] = await Promise.all([
-    request<DaemonUiApi["configRegistry"]>(CONFIG_API, signal),
-    request<DaemonUiApi["configActivations"]>(`${CONFIG_API}/activations`, signal),
+    apiData(apiClient.GET("/api/v1/config-registry", { signal })),
+    apiData(apiClient.GET("/api/v1/config-registry/activations", { signal })),
   ]);
   return {
     ...registry,
@@ -45,9 +43,11 @@ export async function getConfigRegistryEntry(
   entryId: string,
   signal?: AbortSignal,
 ): Promise<ConfigRegistryEntryDetail> {
-  const response = await request<DaemonUiApi["configEntry"]>(
-    `${CONFIG_API}/entries/${encodeURIComponent(entryId)}`,
-    signal,
+  const response = await apiData(
+    apiClient.GET("/api/v1/config-registry/entries/{entry_id}", {
+      params: { path: { entry_id: entryId } },
+      signal,
+    }),
   );
   const config = configSnapshot(response.config);
   return {
@@ -58,28 +58,22 @@ export async function getConfigRegistryEntry(
 }
 
 export async function activateConfigEntry(
-  command: DaemonUiApi["configActivationCommand"],
+  command: components["schemas"]["ConfigEntryActivationCommand"],
 ): Promise<void> {
-  await request<DaemonUiApi["configActivationReceipt"]>(
-    `${CONFIG_API}/active`,
-    undefined,
-    jsonRequest(command),
-  );
+  await apiData(apiClient.POST("/api/v1/config-registry/active", { body: command }));
 }
 
-export async function undoConfig(command: DaemonUiApi["configUndoCommand"]): Promise<void> {
-  await request<DaemonUiApi["configUndoReceipt"]>(
-    `${CONFIG_API}/undo`,
-    undefined,
-    jsonRequest(command),
-  );
+export async function undoConfig(
+  command: components["schemas"]["ConfigUndoCommand"],
+): Promise<void> {
+  await apiData(apiClient.POST("/api/v1/config-registry/undo", { body: command }));
 }
 
 export async function previewConfigDraft(command: ConfigDraftCommand): Promise<ConfigDraftPreview> {
-  const response = await request<DaemonUiApi["configDraftPreview"]>(
-    `${CONFIG_API}/drafts/preview`,
-    undefined,
-    jsonRequest(command),
+  const response = await apiData(
+    apiClient.POST("/api/v1/config-registry/drafts/preview", {
+      body: command,
+    }),
   );
   return response as ConfigDraftPreview;
 }
@@ -87,10 +81,10 @@ export async function previewConfigDraft(command: ConfigDraftCommand): Promise<C
 export async function setConfigDefault(
   command: ConfigPublishCommand,
 ): Promise<ConfigPublishReceipt> {
-  const response = await request<DaemonUiApi["configPublishReceipt"]>(
-    `${CONFIG_API}/default`,
-    undefined,
-    jsonRequest(command),
+  const response = await apiData(
+    apiClient.POST("/api/v1/config-registry/default", {
+      body: command,
+    }),
   );
   return response as ConfigPublishReceipt;
 }
@@ -132,17 +126,9 @@ export function parseConfigProfileJson(textValue: string): ConfigProfileSnapshot
   return snapshot as ConfigProfileSnapshot;
 }
 
-function configSnapshot(source: DaemonUiApi["configEntry"]["config"]): ConfigProfileSnapshot {
+function configSnapshot(source: unknown): ConfigProfileSnapshot {
   // OpenAPI emits separate input/output aliases for the same JSON snapshot.
   return source as ConfigProfileSnapshot;
-}
-
-function jsonRequest(body: object): RequestInit {
-  return {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -8,8 +8,8 @@ import {
   getRunContent,
   getRunEvents,
   getRuns,
-  request,
 } from "./api";
+import { requestPath } from "./test/http";
 import type { ContentEntry } from "./types";
 
 afterEach(() => {
@@ -17,24 +17,6 @@ afterEach(() => {
 });
 
 describe("project daemon reads", () => {
-  it("merges every HeadersInit form without replacing caller headers", async () => {
-    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
-      Promise.resolve(jsonResponse({ ok: true })),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await request("/api/test", undefined, {
-      headers: new Headers([
-        ["Accept", "application/problem+json"],
-        ["X-Scopecat-Test", "present"],
-      ]),
-    });
-
-    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
-    expect(headers.get("Accept")).toBe("application/problem+json");
-    expect(headers.get("X-Scopecat-Test")).toBe("present");
-  });
-
   it("uses the daemon's one project identity", async () => {
     vi.stubGlobal(
       "fetch",
@@ -191,7 +173,7 @@ describe("project daemon reads", () => {
 
   it("reads persisted analyses and typed run content", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) => {
-      const path = String(input);
+      const path = requestPath(input);
       if (path.endsWith("/analyses")) {
         return Promise.resolve(
           jsonResponse({
@@ -277,7 +259,7 @@ describe("project daemon reads", () => {
       format: "json",
       content: { title: "Fit review" },
     });
-    expect(fetchMock.mock.calls.map(([path]) => String(path))).toEqual([
+    expect(fetchMock.mock.calls.map(([path]) => requestPath(path))).toEqual([
       "/api/v1/runs/run%2F1/analyses",
       "/api/v1/runs/run%2F1/artifacts/fit-notes/text?expected_kind=attachment",
       "/api/v1/runs/run%2F1/artifacts/fit-result/json?expected_kind=result",
@@ -287,7 +269,7 @@ describe("project daemon reads", () => {
 
   it("uses the daemon's backward run cursor and run-scoped event query", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) => {
-      const path = String(input);
+      const path = requestPath(input);
       if (path.includes("/events?")) {
         return Promise.resolve(
           jsonResponse({
@@ -341,7 +323,7 @@ describe("project daemon reads", () => {
     await expect(getRunEvents("run/1")).resolves.toMatchObject([
       { id: 12, runId: "run/1", kind: "run_state_changed" },
     ]);
-    expect(fetchMock.mock.calls.map(([path]) => String(path))).toEqual([
+    expect(fetchMock.mock.calls.map(([path]) => requestPath(path))).toEqual([
       "/api/v1/runs?limit=100",
       "/api/v1/runs?limit=100&before=2",
       "/api/v1/events?limit=500&latest=true&run_id=run%2F1",
@@ -349,7 +331,7 @@ describe("project daemon reads", () => {
   });
 
   it("requests measurement pages by their returned offset", async () => {
-    const fetchMock = vi.fn(() =>
+    const fetchMock = vi.fn((_input: RequestInfo | URL) =>
       Promise.resolve(
         jsonResponse({
           items: [{ run_id: "run/1", point_index: 100 }],
@@ -363,9 +345,8 @@ describe("project daemon reads", () => {
       items: [{ run_id: "run/1", point_index: 100 }],
       nextOffset: 200,
     });
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(requestPath(fetchMock.mock.calls[0]?.[0])).toBe(
       "/api/v1/runs/run%2F1/measurements?limit=100&offset=100",
-      expect.objectContaining({ signal: undefined }),
     );
   });
 });

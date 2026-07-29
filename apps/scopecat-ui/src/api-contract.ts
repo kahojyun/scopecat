@@ -1,115 +1,41 @@
-import type { components, paths } from "./api-schema";
+import type { components } from "./api-schema";
+import type { ClientPathsWithMethod, MethodResponse } from "openapi-fetch";
+import type { apiClient } from "./api-client";
 
-type JsonResponse<Operation, Status extends PropertyKey> = Operation extends {
-  responses: infer Responses;
-}
-  ? Status extends keyof Responses
-    ? Responses[Status] extends {
-        content: { "application/json": infer Payload };
-      }
-      ? Payload
-      : never
-    : never
-  : never;
-
-type JsonRequest<Operation> = Operation extends {
-  requestBody: {
-    content: { "application/json": infer Payload };
-  };
-}
-  ? Payload
-  : never;
-
-export interface DaemonUiApi {
-  health: JsonResponse<paths["/api/v1/health"]["get"], 200>;
-  configRegistry: JsonResponse<paths["/api/v1/config-registry"]["get"], 200>;
-  configActivations: JsonResponse<paths["/api/v1/config-registry/activations"]["get"], 200>;
-  activeConfig: JsonResponse<paths["/api/v1/config-registry/active"]["get"], 200>;
-  configEntry: JsonResponse<paths["/api/v1/config-registry/entries/{entry_id}"]["get"], 200>;
-  configPublishReceipt: JsonResponse<paths["/api/v1/config-registry/default"]["post"], 200>;
-  configDraftPreview: JsonResponse<paths["/api/v1/config-registry/drafts/preview"]["post"], 200>;
-  configActivationReceipt: JsonResponse<paths["/api/v1/config-registry/active"]["post"], 200>;
-  configUndoReceipt: JsonResponse<paths["/api/v1/config-registry/undo"]["post"], 200>;
-  runPage: JsonResponse<paths["/api/v1/runs"]["get"], 200>;
-  runDetail: JsonResponse<paths["/api/v1/runs/{run_id}"]["get"], 200>;
-  runAnalyses: JsonResponse<paths["/api/v1/runs/{run_id}/analyses"]["get"], 200>;
-  parameterProposals: JsonResponse<paths["/api/v1/runs/{run_id}/parameter-proposals"]["get"], 200>;
-  artifactText: JsonResponse<paths["/api/v1/runs/{run_id}/artifacts/{selector}/text"]["get"], 200>;
-  artifactJson: JsonResponse<paths["/api/v1/runs/{run_id}/artifacts/{selector}/json"]["get"], 200>;
-  recordJson: JsonResponse<paths["/api/v1/runs/{run_id}/records/{selector}/json"]["get"], 200>;
-  datasetContent: JsonResponse<paths["/api/v1/runs/{run_id}/datasets/{selector}"]["get"], 200>;
-  measurements: JsonResponse<paths["/api/v1/runs/{run_id}/measurements"]["get"], 200>;
-  eventPage: JsonResponse<paths["/api/v1/events"]["get"], 200>;
-  driverCatalog: JsonResponse<paths["/api/v1/instrument-drivers"]["get"], 200>;
-  driverProbeReceipt: JsonResponse<paths["/api/v1/instrument-drivers/probe"]["post"], 200>;
-  instrumentList: JsonResponse<paths["/api/v1/instruments"]["get"], 200>;
-  instrument: JsonResponse<paths["/api/v1/instruments/{instrument_id}"]["get"], 200>;
-  instrumentSession: JsonResponse<paths["/api/v1/instrument-sessions"]["post"], 201>;
-  instrumentState: JsonResponse<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state"]["get"],
-    200
-  >;
-  instrumentApplyReceipt: JsonResponse<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/apply"]["post"],
-    200
-  >;
-  instrumentConfiguredDefaultsApplyReceipt: JsonResponse<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply"]["post"],
-    200
-  >;
-  instrumentCollectReceipt: JsonResponse<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect"]["post"],
-    200
-  >;
-  instrumentInvokeReceipt: JsonResponse<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke"]["post"],
-    200
-  >;
-  instrumentSessionEndReceipt: JsonResponse<
-    paths["/api/v1/instrument-sessions/{session_id}/close"]["post"],
-    200
-  >;
-  instrumentSessionLease: JsonResponse<
-    paths["/api/v1/instrument-sessions/{session_id}/heartbeat"]["post"],
-    200
-  >;
-  configPublishCommand: JsonRequest<paths["/api/v1/config-registry/default"]["post"]>;
-  configDraftCommand: JsonRequest<paths["/api/v1/config-registry/drafts/preview"]["post"]>;
-  configActivationCommand: JsonRequest<paths["/api/v1/config-registry/active"]["post"]>;
-  configUndoCommand: JsonRequest<paths["/api/v1/config-registry/undo"]["post"]>;
-  driverProbeCommand: JsonRequest<paths["/api/v1/instrument-drivers/probe"]["post"]>;
-  instrumentSessionOpenCommand: JsonRequest<paths["/api/v1/instrument-sessions"]["post"]>;
-  instrumentApplyCommand: JsonRequest<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/apply"]["post"]
-  >;
-  instrumentConfiguredDefaultsApplyCommand: JsonRequest<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply"]["post"]
-  >;
-  interactiveCollectIntent: JsonRequest<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect"]["post"]
-  >;
-  instrumentInvokeCommand: JsonRequest<
-    paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke"]["post"]
-  >;
-}
+type GetResponse<Path extends ClientPathsWithMethod<typeof apiClient, "get">> = MethodResponse<
+  typeof apiClient,
+  "get",
+  Path
+>;
+type PostResponse<Path extends ClientPathsWithMethod<typeof apiClient, "post">> = MethodResponse<
+  typeof apiClient,
+  "post",
+  Path
+>;
 
 export type RunControlView = components["schemas"]["RunControlView"];
 export type ConfigActivationRecord = components["schemas"]["ConfigRegistryActivationRecord"];
-export type ConfigDraftCommand = DaemonUiApi["configDraftCommand"];
-export type ConfigPublishCommand = DaemonUiApi["configPublishCommand"];
-export type ConfigPublishReceipt = Omit<DaemonUiApi["configPublishReceipt"], "deltas"> & {
+export type ConfigDraftCommand = components["schemas"]["ConfigDraftCommand"];
+export type ConfigPublishCommand = components["schemas"]["ConfigPublishCommand"];
+export type ConfigPublishReceipt = Omit<
+  PostResponse<"/api/v1/config-registry/default">,
+  "deltas"
+> & {
   deltas: ParameterValueDelta[];
 };
-export type ConfigDraftPreview = Omit<DaemonUiApi["configDraftPreview"], "config" | "deltas"> & {
+export type ConfigDraftPreview = Omit<
+  PostResponse<"/api/v1/config-registry/drafts/preview">,
+  "config" | "deltas"
+> & {
   config?: ConfigProfileSnapshot | null;
   deltas: ParameterValueDelta[];
 };
 export type ConfigProfileSnapshot = components["schemas"]["ConfigProfileSnapshot-Input"];
 export type ConfigRegistryEntry = components["schemas"]["ConfigRegistryEntry"];
-export type ConfigRegistryOverview = DaemonUiApi["configRegistry"] & {
+export type ConfigRegistryOverview = GetResponse<"/api/v1/config-registry"> & {
   activation_history: ConfigActivationRecord[];
 };
-export type DriverCatalog = DaemonUiApi["driverCatalog"];
+export type DriverCatalog = GetResponse<"/api/v1/instrument-drivers">;
 export type DriverConnectionSpec = components["schemas"]["DriverConnectionSpec"];
 export type DriverSpec = components["schemas"]["DriverSpec"];
 export type DurableEvent = components["schemas"]["DurableEvent"];
@@ -117,27 +43,37 @@ export type EntityRef = components["schemas"]["EntityRef-Input"];
 export type ExternalLocation = components["schemas"]["ExternalLocation"];
 export type InstrumentAcquisition = components["schemas"]["AcquisitionSpec"];
 export type InstrumentAcquisitionResult = components["schemas"]["AcquisitionResultSpec"];
-export type InstrumentApplyReceipt = DaemonUiApi["instrumentApplyReceipt"];
+export type InstrumentApplyReceipt =
+  PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/apply">;
 export type InstrumentConfiguredDefaultsApplyReceipt =
-  DaemonUiApi["instrumentConfiguredDefaultsApplyReceipt"];
+  PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply">;
 export type InstrumentComponent = components["schemas"]["ComponentSpec"];
-export type InstrumentCollectReceipt = DaemonUiApi["instrumentCollectReceipt"];
+export type InstrumentCollectReceipt =
+  PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect">;
 export type InstrumentConnection = components["schemas"]["InstrumentConnection-Input"];
 export type InstrumentDescription = components["schemas"]["InstrumentDescription"];
-export type InstrumentDriverProbeCommand = DaemonUiApi["driverProbeCommand"];
-export type InstrumentDriverProbeReceipt = DaemonUiApi["driverProbeReceipt"];
+export type InstrumentDriverProbeCommand = components["schemas"]["InstrumentDriverProbeCommand"];
+export type InstrumentDriverProbeReceipt = PostResponse<"/api/v1/instrument-drivers/probe">;
 export type InstrumentInterface = components["schemas"]["InterfaceSpec"];
-export type InstrumentInvokeCommand = DaemonUiApi["instrumentInvokeCommand"];
-export type InstrumentInvokeReceipt = DaemonUiApi["instrumentInvokeReceipt"];
+export type InstrumentInvokeCommand = components["schemas"]["InvokeCommand"];
+export type InstrumentInvokeReceipt =
+  PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke">;
 export type InstrumentOperation = components["schemas"]["OperationSpec"];
 export type InstrumentProperty = components["schemas"]["PropertySpec"];
 export type InstrumentPropertyState = components["schemas"]["InstrumentPropertyState"];
-export type InstrumentSession = DaemonUiApi["instrumentSession"];
-export type InstrumentSessionLease = DaemonUiApi["instrumentSessionLease"];
+export type InstrumentSession = PostResponse<"/api/v1/instrument-sessions">;
+export type InstrumentSessionLease =
+  PostResponse<"/api/v1/instrument-sessions/{session_id}/heartbeat">;
 export type InstrumentSpec = components["schemas"]["InstrumentSpec-Input"];
-export type InstrumentState = DaemonUiApi["instrumentState"];
+export type InstrumentState =
+  GetResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state">;
 export type InstrumentStateValue = components["schemas"]["StateValue"];
-export type InstrumentView = DaemonUiApi["instrument"];
+export type InstrumentView = GetResponse<"/api/v1/instruments/{instrument_id}">;
+export type ActiveConfig = GetResponse<"/api/v1/config-registry/active">;
+export type InstrumentList = GetResponse<"/api/v1/instruments">;
+export type ParameterProposalList = GetResponse<"/api/v1/runs/{run_id}/parameter-proposals">;
+export type RunSummaryPage = GetResponse<"/api/v1/runs">;
+export type EventPage = GetResponse<"/api/v1/events">;
 export type ParameterAtom = components["schemas"]["ParameterAtomValue-Input"];
 export type ParameterDefinition = components["schemas"]["ParameterDefinition"];
 export type ParameterEntity = components["schemas"]["EntityRef-Input"];

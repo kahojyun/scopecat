@@ -1,5 +1,5 @@
-import { request } from "../../api";
-import type { DaemonUiApi } from "../../api-contract";
+import { apiClient, apiData } from "../../api-client";
+import type { ConfigPublishCommand, ParameterProposalList } from "../../api-contract";
 import type {
   AcceptProposalCommand,
   ParameterProposal,
@@ -8,7 +8,7 @@ import type {
   RunParameterProposals,
 } from "./types";
 
-type WireProposalView = NonNullable<DaemonUiApi["parameterProposals"]["items"]>[number];
+type WireProposalView = NonNullable<ParameterProposalList["items"]>[number];
 type WireProposalDelta = WireProposalView["proposal"]["deltas"][number];
 type WireProposalApproval = NonNullable<WireProposalView["approval"]>;
 
@@ -16,9 +16,11 @@ export async function getRunParameterProposals(
   runId: string,
   signal?: AbortSignal,
 ): Promise<RunParameterProposals> {
-  const response = await request<DaemonUiApi["parameterProposals"]>(
-    `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals`,
-    signal,
+  const response = await apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/parameter-proposals", {
+      params: { path: { run_id: runId } },
+      signal,
+    }),
   );
   return {
     runId: response.run_id,
@@ -27,7 +29,7 @@ export async function getRunParameterProposals(
 }
 
 export async function acceptProposal(command: AcceptProposalCommand): Promise<void> {
-  const payload: DaemonUiApi["configPublishCommand"] = {
+  const payload: ConfigPublishCommand = {
     source: {
       kind: "candidate_config",
       run_id: command.runId,
@@ -37,11 +39,7 @@ export async function acceptProposal(command: AcceptProposalCommand): Promise<vo
     expected_generation: command.expectedGeneration,
     note: command.note ?? "",
   };
-  await request<DaemonUiApi["configPublishReceipt"]>(
-    "/api/v1/config-registry/default",
-    undefined,
-    jsonRequest(payload),
-  );
+  await apiData(apiClient.POST("/api/v1/config-registry/default", { body: payload }));
 }
 
 function normalizeProposalView(source: WireProposalView): ParameterProposal {
@@ -84,12 +82,4 @@ function parameterValue(value: WireProposalDelta["before"]): unknown {
     case undefined:
       throw new Error("The daemon returned a proposal value without its shape.");
   }
-}
-
-function jsonRequest(body: object): RequestInit {
-  return {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  };
 }
