@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from scopecat.measurements.results import MeasurementDatasetSchema
+from scopecat.measurements.results import MeasurementDatasetSchema, Trace
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import list_payload_entries, require_artifact, require_dataset
@@ -112,6 +112,18 @@ class Data:
 
     def schema(self, selector: str = "raw-measurements") -> MeasurementDatasetSchema:
         return self.measurements(selector).dataset.dataset_schema
+
+    def traces(
+        self,
+        *,
+        coordinate: str,
+        observable: str,
+        selector: str = "raw-measurements",
+    ) -> tuple[Trace, ...]:
+        return self.measurements(selector).traces(
+            coordinate=coordinate,
+            observable=observable,
+        )
 
     def metadata(self, selector: str = "raw-measurements") -> dict[str, object]:
         return dict(self.measurements(selector).dataset.metadata)

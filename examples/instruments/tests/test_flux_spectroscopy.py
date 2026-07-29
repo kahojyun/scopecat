@@ -115,7 +115,17 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     )
     assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
 
-    fits = fit_flux_spectroscopy(records)
+    traces = run.data().traces(
+        coordinate="frequency",
+        observable="s_parameter",
+    )
+    assert len(traces) == BIAS_POINTS
+    assert traces[0].coordinate_unit == "Hz"
+    assert traces[0].observable_unit == "ratio"
+    assert len(traces[0].x) == TRACE_POINTS
+    assert all(isinstance(sample, complex) for sample in traces[0].y)
+
+    fits = fit_flux_spectroscopy(run.data().measurements().dataset)
     sweet_spot = max(
         fits,
         key=lambda fit: float(fit.resonance_frequency.to("Hz").value),
