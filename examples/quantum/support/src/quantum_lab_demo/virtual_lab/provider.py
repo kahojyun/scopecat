@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
@@ -14,6 +14,7 @@ from scopecat.sdk.instruments import (
     DriverCollectRequest,
     DriverFault,
     DriverInvokeRequest,
+    DriverPayloadArgument,
     InstrumentBindingSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -39,6 +40,7 @@ from quantum_lab_demo.interfaces import (
     play_pulse_program_interface,
     readout_pulse_interface,
 )
+from quantum_lab_demo.payloads import DecodedPulseProgram
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile
 from quantum_lab_demo.virtual_lab.profiles import load_virtual_lab_profile
 
@@ -98,11 +100,17 @@ class _VirtualInstrumentDriver:
         return ApplyReceipt(status="applied")
 
     def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+        programs = tuple(
+            cast("DecodedPulseProgram", argument.value)
+            for argument in request.arguments
+            if isinstance(argument, DriverPayloadArgument)
+        )
+        documents = tuple(program.document for program in programs)
         return InvokeReceipt(
             metadata={
                 "interface_id": request.interface_id,
                 "operation_id": request.operation_id,
-                "payload_count": len(request.payloads),
+                "payload_count": len(documents),
             }
         )
 

@@ -14,10 +14,12 @@ def create_quantum_lab_backend(
 ) -> InstrumentBackend:
     """Load concrete drivers only in the instrument worker."""
 
+    from quantum_lab_demo.payloads import quantum_lab_payload_codecs
     from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 
     return InstrumentBackend(
         provider=QuantumLabVirtualProvider(profile=virtual_lab_profile),
+        payload_codecs=quantum_lab_payload_codecs(),
     )
 
 

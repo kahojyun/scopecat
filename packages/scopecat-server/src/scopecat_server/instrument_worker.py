@@ -28,6 +28,7 @@ from scopecat.kernel.problems import Problem
 from scopecat.project import load_instrument_backend_factory
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.sdk.instruments.backend import BackendInvokeRequest
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
@@ -38,7 +39,6 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.instruments.driver import (
     DriverApplyRequest,
     DriverCollectRequest,
-    DriverInvokeRequest,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
 
@@ -361,7 +361,7 @@ class SubprocessInstrumentBackendEndpoint:
     def invoke(
         self,
         handle: InstrumentHandle,
-        request: DriverInvokeRequest,
+        request: BackendInvokeRequest,
     ) -> InvokeReceipt:
         frames = split_invoke_request(request)
         response = self._rpc(
@@ -655,7 +655,7 @@ def _dispatch_and_respond(
     response_lock: Lock,
     endpoint: LocalInstrumentBackendEndpoint,
     request: _RpcRequest,
-    invoke_request: DriverInvokeRequest | None,
+    invoke_request: BackendInvokeRequest | None,
 ) -> None:
     try:
         response = _dispatch_request(
@@ -677,7 +677,7 @@ def _dispatch_request(
     endpoint: LocalInstrumentBackendEndpoint,
     request: _RpcRequest,
     *,
-    invoke_request: DriverInvokeRequest | None,
+    invoke_request: BackendInvokeRequest | None,
 ) -> _RpcResponse:
     operation = request.operation
     body = request.body or {}
@@ -807,7 +807,7 @@ def _raise_worker_error(error: _RpcError) -> None:
 def _receive_invoke(
     connection: _ByteConnection,
     attachment_count: int,
-) -> DriverInvokeRequest:
+) -> BackendInvokeRequest:
     header = connection.recv_bytes(DEFAULT_WIRE_LIMITS.max_header_bytes)
     attachments = tuple(
         connection.recv_bytes(DEFAULT_WIRE_LIMITS.max_attachment_bytes)

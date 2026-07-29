@@ -16,7 +16,11 @@ from scopecat.planning.provider_validation import (
 )
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.instruments.backend import InstrumentBackend
+from scopecat.sdk.instruments.backend import (
+    BackendInvokeRequest,
+    InstrumentBackend,
+    decode_driver_invoke_request,
+)
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
@@ -31,7 +35,6 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.instruments.driver import (
     DriverApplyRequest,
     DriverCollectRequest,
-    DriverInvokeRequest,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
 
@@ -99,7 +102,7 @@ class InstrumentBackendEndpoint(Protocol):
     def invoke(
         self,
         handle: InstrumentHandle,
-        request: DriverInvokeRequest,
+        request: BackendInvokeRequest,
     ) -> InvokeReceipt: ...
 
     def collect(
@@ -126,7 +129,7 @@ class LocalInstrumentBackendEndpoint:
 
     def __init__(self, backend: InstrumentBackend) -> None:
         self._provider = backend.provider
-        self._payload_catalog = backend.payload_codecs.catalog
+        self._payload_codecs = backend.payload_codecs
         self._endpoint_id = uuid4().hex
         self._connections: dict[InstrumentHandle, _LocalConnection] = {}
         self._lock = RLock()
@@ -144,7 +147,7 @@ class LocalInstrumentBackendEndpoint:
 
     @property
     def payload_catalog(self) -> PayloadCodecCatalog:
-        return self._payload_catalog
+        return self._payload_codecs.catalog
 
     def describe(
         self,
@@ -244,10 +247,20 @@ class LocalInstrumentBackendEndpoint:
     def invoke(
         self,
         handle: InstrumentHandle,
-        request: DriverInvokeRequest,
+        request: BackendInvokeRequest,
     ) -> InvokeReceipt:
         with self._locked_connection(handle) as connection:
-            return connection.driver.invoke(request)
+            try:
+                driver_request = decode_driver_invoke_request(
+                    request,
+                    self._payload_codecs,
+                )
+            except Exception:
+                return InvokeReceipt(
+                    status="not_invoked",
+                    problems=(_payload_decode_problem(),),
+                )
+            return connection.driver.invoke(driver_request)
 
     def collect(
         self,
@@ -322,6 +335,15 @@ def _description_changed_problem(instrument_id: str) -> Problem:
         f"instrument description changed while provisioning {instrument_id}",
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("instrument_provider", "instruments", instrument_id),
+    )
+
+
+def _payload_decode_problem() -> Problem:
+    return problem(
+        "instrument_payload_decode_failed",
+        "instrument operation payload could not be decoded",
+        phase=ProblemPhase.EXECUTION,
+        location=model_location("instrument_operation", "arguments"),
     )
 
 

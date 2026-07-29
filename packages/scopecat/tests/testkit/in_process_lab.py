@@ -97,11 +97,7 @@ class InProcessPreparedExperiment:
                 self.lab.project_root,
                 accepted.run_id,
                 instruments=provision_test_instrument_host(
-                    (
-                        None
-                        if self.lab.instrument_backend is None
-                        else self.lab.instrument_backend.provider
-                    ),
+                    self.lab.instrument_backend,
                     context=InstrumentProviderContext(
                         bindings=instrument_bindings(planned.config)
                     ),

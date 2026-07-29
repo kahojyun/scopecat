@@ -150,10 +150,11 @@ calibration, feedback, and analysis remain experiment procedures rather than
 device operations.
 
 The daemon validates the complete public command, keeps its retry and
-provenance fields, then lowers it once to a frozen driver request. Drivers see
-only physical interface targets, property writes, operation arguments, opaque
-payload envelopes, and acquisition result identities. They do not receive
-command, run, resource, entity, channel, point, product, unit, axis, or
+provenance fields, then lowers it to a process-safe backend request. The worker
+performs the final lowering after decoding any payloads. Drivers see only
+physical interface targets, property writes, scalar or decoded payload
+arguments, and acquisition result identities. They do not receive command, run,
+resource, entity, channel, point, product, codec, byte transport, unit, axis, or
 provenance fields. Collect result shape and units are checked by the daemon
 against the original request after readback.
 
@@ -401,13 +402,16 @@ Opaque values such as compiled pulse programs are operation arguments, never
 persistent properties. A registered codec converts the in-memory value to an
 exact byte payload; the command carries only a typed reference plus a
 content-addressed envelope. The daemon resolves and verifies every payload
-before a hardware batch begins, then lowers it to a driver-native payload
-containing codec metadata and raw bytes. Public inline/blob bodies never enter
-the driver API. The worker wire format keeps its JSON descriptor separate from
-hash-checked raw attachments and never serializes arbitrary Python objects.
-Control messages are capped at 1 MiB and must round-trip through JSON without
-changing value types. Larger acquisition arrays belong on a binary result
-transport rather than an expanded control envelope.
+before a hardware batch begins. The worker wire format keeps its JSON
+descriptor separate from hash-checked raw attachments and never serializes
+arbitrary Python objects. Inside the worker, the registered codec decodes each
+payload once before the driver is called; the driver receives only the decoded
+value and its schema identity. A decode failure proves the operation was not
+invoked. Public inline/blob bodies, codec details, and transport bytes never
+enter the driver API; a codec may intentionally decode to `bytes` when bytes
+are the domain value. Control messages are capped at 1 MiB and must round-trip
+through JSON without changing value types. Larger acquisition arrays belong on
+a binary result transport rather than an expanded control envelope.
 
 An operator can recover a session left by another notebook kernel with
 `lab.instruments.abort_session(session_id)`. This asks the daemon to run the

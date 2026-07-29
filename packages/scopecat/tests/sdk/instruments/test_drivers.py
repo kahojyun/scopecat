@@ -59,7 +59,6 @@ from scopecat.sdk.instruments import (
     float_property,
     int_property,
     interface,
-    lower_driver_apply_request,
     operation,
     operation_argument,
     quantity_property,
@@ -74,6 +73,7 @@ from scopecat.sdk.instruments import (
     validate_state_snapshot,
 )
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
+from scopecat.sdk.instruments.backend import lower_driver_apply_request
 from scopecat.sdk.instruments.contracts import (
     project_instrument_state,
 )

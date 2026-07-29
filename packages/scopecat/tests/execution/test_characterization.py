@@ -28,7 +28,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.product_identity import ProductUse, ProductUseId, product_id
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import ResourceRequirement
-from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
@@ -41,6 +41,7 @@ from scopecat.sdk.instruments import (
     CollectResultRequest,
     DriverApplyRequest,
     DriverCollectRequest,
+    DriverPayloadArgument,
     InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -206,12 +207,10 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     assert calls == ["produce", "consume"]
     assert len(driver.invoked) == 1
     invoked = driver.invoked[0]
-    payload_ref = invoked.arguments[0].value.root
-    assert isinstance(payload_ref, PayloadRef)
-    driver_payload = invoked.payloads[payload_ref.payload_id]
-    assert payload_codecs[driver_payload.schema_id].decoder(driver_payload.content) == {
-        "consumed": {"source": "parent"}
-    }
+    [argument] = invoked.arguments
+    assert isinstance(argument, DriverPayloadArgument)
+    assert argument.schema_id == "pulse_program"
+    assert argument.value == {"consumed": {"source": "parent"}}
 
 
 def test_compute_output_is_normalized_before_downstream_use() -> None:

@@ -44,6 +44,7 @@ from scopecat.sdk.instruments import (
     DriverCollectRequest,
     DriverFault,
     DriverInvokeRequest,
+    DriverPayloadArgument,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -664,9 +665,10 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             assert not driver.disconnected
             assert driver.applied[0].assignments[0].property_id == "frequency"
             assert driver.invoked[0].operation_id == "play"
-            assert driver.invoked[0].payloads[payload.id].content == (
-                b'{"samples":[0.0]}'
-            )
+            [argument] = driver.invoked[0].arguments
+            assert isinstance(argument, DriverPayloadArgument)
+            assert argument.schema_id == payload.schema_id
+            assert argument.value == {"samples": [0.0]}
             [collect_request] = driver.collect_requests
             assert collect_request.acquisition_id == "sample"
             assert [result.result_id for result in collect_request.results] == [

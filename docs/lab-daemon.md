@@ -40,8 +40,9 @@ deduplicates whole batches, records concise command and receipt evidence, and
 owns abort-on-failure, terminal readback, and connection retirement. Lowering
 finishes before a batch is recorded as started; driver requests contain no run,
 point, product, retry identity, or public payload transport body. Opaque payload
-bytes are carried separately from their worker-wire JSON descriptors. Admission
-binds the expected provider and instrument-description fingerprint;
+bytes are carried separately from their worker-wire JSON descriptors, then
+decoded inside the worker before entering the driver API. Admission binds the
+expected provider and instrument-description fingerprint;
 provisioning verifies that contract before the first write. Renewable executor
 leases carry a unique fencing identity, so an expired client cannot continue
 writing.

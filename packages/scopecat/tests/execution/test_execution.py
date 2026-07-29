@@ -71,7 +71,7 @@ from scopecat.records.instrument import (
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments import DriverCollectRequest
+from scopecat.sdk.instruments import DriverCollectRequest, DriverPayloadArgument
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
     CollectReceipt,
@@ -895,17 +895,13 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
             manifest.run_id,
         ).journal.entries()
     )
-    payloads = [next(iter(command.payloads.values())) for command in instrument.invoked]
-    payload_ids = [payload.id for payload in payloads]
-    assert len(set(payload_ids)) == 6
-    assert all(
-        payload_id.endswith(".compute.build-program.payload")
-        for payload_id in payload_ids
-    )
-    assert [
-        payload_codecs[payload.schema_id].decoder(payload.content)
-        for payload in payloads
-    ] == [
+    arguments: list[DriverPayloadArgument] = []
+    for command in instrument.invoked:
+        [argument] = command.arguments
+        assert isinstance(argument, DriverPayloadArgument)
+        arguments.append(argument)
+    assert [argument.schema_id for argument in arguments] == ["pulse_program"] * 6
+    assert [argument.value for argument in arguments] == [
         {"value": {"value": 4.9, "unit": "GHz"}},
         {"value": {"value": 4.9, "unit": "GHz"}},
         {"value": {"value": 4.9, "unit": "GHz"}},

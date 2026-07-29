@@ -21,8 +21,8 @@ from scopecat.records.artifact import (
     CommandPayload,
     InlinePayloadBody,
 )
+from scopecat.sdk.instruments.backend import BackendPayload
 from scopecat.sdk.instruments.contracts import InvokeCommand
-from scopecat.sdk.instruments.driver import DriverPayload
 
 DEFAULT_MAX_PAYLOAD_OBJECT_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_INLINE_PAYLOAD_BYTES = 1024 * 1024
@@ -159,8 +159,8 @@ class CommandPayloadService:
     def materialize_payloads(
         self,
         payloads: Mapping[str, CommandPayload],
-    ) -> dict[str, DriverPayload]:
-        """Resolve one payload set to verified driver-native bytes."""
+    ) -> dict[str, BackendPayload]:
+        """Resolve one payload set to verified backend bytes."""
 
         return self._materialize_payloads(
             payloads,
@@ -170,7 +170,7 @@ class CommandPayloadService:
     def materialize_payload_sets(
         self,
         payload_sets: Iterable[Mapping[str, CommandPayload]],
-    ) -> tuple[dict[str, DriverPayload], ...]:
+    ) -> tuple[dict[str, BackendPayload], ...]:
         """Resolve an ordered batch atomically before any hardware action."""
 
         content_by_ref: dict[str, bytes] = {}
@@ -187,7 +187,7 @@ class CommandPayloadService:
         payloads: Mapping[str, CommandPayload],
         *,
         content_by_ref: dict[str, bytes],
-    ) -> dict[str, DriverPayload]:
+    ) -> dict[str, BackendPayload]:
         return {
             payload_id: self._materialize_payload(
                 payload,
@@ -244,7 +244,7 @@ class CommandPayloadService:
         payload: CommandPayload,
         *,
         content_by_ref: dict[str, bytes],
-    ) -> DriverPayload:
+    ) -> BackendPayload:
         self._require_size(
             payload.size_bytes,
             limit=self._max_object_bytes,
@@ -272,7 +272,7 @@ class CommandPayloadService:
                     ) from error
                 content_by_ref[body.ref] = content
         _verify_payload(payload, content)
-        return DriverPayload(
+        return BackendPayload(
             id=payload.id,
             schema_id=payload.schema_id,
             codec_id=payload.codec_id,

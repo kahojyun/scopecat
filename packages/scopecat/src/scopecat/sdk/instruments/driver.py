@@ -1,12 +1,14 @@
-"""Process-safe requests implemented by instrument drivers."""
+"""Worker-local requests implemented by instrument drivers."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
@@ -42,28 +44,33 @@ class DriverApplyRequest(_DriverRequestModel):
     assignments: tuple[DriverPropertyWrite, ...] = Field(min_length=1)
 
 
-class DriverOperationArgument(_DriverRequestModel):
-    id: _NonEmptyId
-    value: StateValue
+type DriverScalarValue = bool | int | float | str | Quantity
 
 
-class DriverPayload(_DriverRequestModel):
-    """Opaque codec output materialized before entering a driver."""
-
-    id: _NonEmptyId
-    schema_id: _NonEmptyId
-    codec_id: _NonEmptyId
-    codec_version: int = Field(ge=1)
-    media_type: _NonEmptyId
-    content: bytes = Field(repr=False)
+@dataclass(frozen=True, slots=True)
+class DriverOperationArgument:
+    id: str
+    value: DriverScalarValue
 
 
-class DriverInvokeRequest(_DriverRequestModel):
+@dataclass(frozen=True, slots=True)
+class DriverPayloadArgument:
+    """One payload argument decoded inside its driver worker."""
+
+    id: str
+    schema_id: str
+    value: object = field(repr=False)
+
+
+type DriverInvokeArgument = DriverOperationArgument | DriverPayloadArgument
+
+
+@dataclass(frozen=True, slots=True)
+class DriverInvokeRequest:
     interface_id: InterfaceId
-    component_path: tuple[_NonEmptyId, ...] = ()
-    operation_id: _NonEmptyId
-    arguments: tuple[DriverOperationArgument, ...] = ()
-    payloads: dict[str, DriverPayload] = Field(default_factory=dict)
+    operation_id: str
+    component_path: tuple[str, ...] = ()
+    arguments: tuple[DriverInvokeArgument, ...] = ()
 
     @property
     def target(self) -> OperationRef:
@@ -75,7 +82,7 @@ class DriverInvokeRequest(_DriverRequestModel):
 
     def argument_target(
         self,
-        argument: DriverOperationArgument,
+        argument: DriverInvokeArgument,
     ) -> OperationArgumentRef:
         return self.target.argument(argument.id)
 
@@ -107,8 +114,10 @@ __all__ = [
     "DriverApplyRequest",
     "DriverCollectRequest",
     "DriverCollectResult",
+    "DriverInvokeArgument",
     "DriverInvokeRequest",
     "DriverOperationArgument",
-    "DriverPayload",
+    "DriverPayloadArgument",
     "DriverPropertyWrite",
+    "DriverScalarValue",
 ]

@@ -6,10 +6,10 @@ from typing import cast
 
 import pytest
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.sdk.instruments import (
-    DriverInvokeRequest,
-    DriverOperationArgument,
-    DriverPayload,
+from scopecat.sdk.instruments.backend import (
+    BackendInvokeRequest,
+    BackendOperationArgument,
+    BackendPayload,
 )
 
 from scopecat_server.instrument_worker_wire import (
@@ -20,8 +20,8 @@ from scopecat_server.instrument_worker_wire import (
 )
 
 
-def _payload(payload_id: str, content: bytes) -> DriverPayload:
-    return DriverPayload(
+def _payload(payload_id: str, content: bytes) -> BackendPayload:
+    return BackendPayload(
         id=payload_id,
         schema_id=f"tests.{payload_id}/v1",
         codec_id="tests.binary",
@@ -31,13 +31,13 @@ def _payload(payload_id: str, content: bytes) -> DriverPayload:
     )
 
 
-def _request(*payloads: DriverPayload) -> DriverInvokeRequest:
-    return DriverInvokeRequest(
+def _request(*payloads: BackendPayload) -> BackendInvokeRequest:
+    return BackendInvokeRequest(
         interface_id="tests.program_player/v1",
         component_path=("channel-a",),
         operation_id="play",
         arguments=tuple(
-            DriverOperationArgument(
+            BackendOperationArgument(
                 id=f"argument-{payload.id}",
                 value=StateValue(PayloadRef(payload_id=payload.id)),
             )

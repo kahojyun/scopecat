@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 from scopecat.kernel.quantity import Quantity
@@ -24,6 +24,7 @@ from scopecat.sdk.instruments import (
     DriverApplyRequest,
     DriverCollectRequest,
     DriverInvokeRequest,
+    DriverPayloadArgument,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -37,6 +38,11 @@ from scopecat.sdk.instruments import (
     operation,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+
+
+@dataclass(frozen=True, slots=True)
+class _DecodedProgram:
+    content: bytes
 
 
 class _Driver:
@@ -98,9 +104,12 @@ class _Driver:
             entered.touch()
             while not release.exists():
                 time.sleep(0.01)
-        content = b"".join(
-            payload.content for _, payload in sorted(request.payloads.items())
-        )
+        programs: list[_DecodedProgram] = []
+        for argument in request.arguments:
+            if isinstance(argument, DriverPayloadArgument):
+                assert isinstance(argument.value, _DecodedProgram)
+                programs.append(argument.value)
+        content = b"".join(program.content for program in programs)
         return InvokeReceipt(
             status="invoked",
             metadata={
@@ -217,7 +226,7 @@ def _encode_bytes(value: object) -> bytes:
 
 
 def _decode_bytes(content: bytes) -> object:
-    return content
+    return _DecodedProgram(content=content)
 
 
 def _write_pid(path: Path) -> None:

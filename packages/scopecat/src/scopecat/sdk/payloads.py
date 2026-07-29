@@ -157,18 +157,26 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec]):
             content=content,
         )
 
-    def validate_descriptor(self, payload: CommandPayload) -> PayloadCodec:
+    def validate_descriptor(self, payload: PayloadDescriptor) -> PayloadCodec:
         """Resolve and validate the codec declared by a payload descriptor."""
 
         codec = self._require(payload.schema_id)
         self._catalog.validate_descriptor(payload)
         return codec
 
+    def decode_content(
+        self,
+        descriptor: PayloadDescriptor,
+        content: bytes,
+    ) -> object:
+        """Decode verified bytes using their exact declared codec."""
+
+        return self.validate_descriptor(descriptor).decoder(content)
+
     def decode(self, payload: CommandPayload) -> object:
-        codec = self.validate_descriptor(payload)
         content = payload.inline_bytes()
         payload.verify_content(content)
-        return codec.decoder(content)
+        return self.decode_content(payload, content)
 
     def _require(self, schema_id: str) -> PayloadCodec:
         try:

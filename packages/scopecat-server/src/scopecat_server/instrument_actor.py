@@ -9,6 +9,7 @@ from threading import Condition, RLock
 from typing import Literal, Self
 
 from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.sdk.instruments.backend import BackendInvokeRequest
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
@@ -18,7 +19,6 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.instruments.driver import (
     DriverApplyRequest,
     DriverCollectRequest,
-    DriverInvokeRequest,
 )
 
 from .instrument_backend import (
@@ -138,7 +138,7 @@ class OwnedInstrument:
     def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
         return self._actor.apply_state(self, request)
 
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(self, request: BackendInvokeRequest) -> InvokeReceipt:
         return self._actor.invoke(self, request)
 
     def collect(self, request: DriverCollectRequest) -> CollectReceipt:
@@ -271,7 +271,7 @@ class _InstrumentActor:
     def invoke(
         self,
         owned: OwnedInstrument,
-        request: DriverInvokeRequest,
+        request: BackendInvokeRequest,
     ) -> InvokeReceipt:
         with self._lock:
             endpoint, handle = self._require_owned(owned)

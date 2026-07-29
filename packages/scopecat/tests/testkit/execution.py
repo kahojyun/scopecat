@@ -120,7 +120,7 @@ def execute_invocation_run(
             accepted.run_id,
             runs=repository,
             instruments=provision_test_instrument_host(
-                (None if instrument_backend is None else instrument_backend.provider),
+                instrument_backend,
                 context=InstrumentProviderContext(
                     bindings=instrument_bindings(planned.config)
                 ),
@@ -164,7 +164,7 @@ def execute_program_run(
             accepted.run_id,
             runs=repository,
             instruments=provision_test_instrument_host(
-                instrument_provider,
+                composition.backend,
                 context=InstrumentProviderContext(bindings=instrument_bindings(config)),
                 instrument_ids=program.resource_order,
             ),

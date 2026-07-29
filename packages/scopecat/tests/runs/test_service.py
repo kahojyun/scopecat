@@ -75,7 +75,7 @@ def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
             tmp_path,
             accepted.run_id,
             instruments=provision_test_instrument_host(
-                composition.backend.provider,
+                composition.backend,
                 context=InstrumentProviderContext(
                     bindings=instrument_bindings(planned.config)
                 ),

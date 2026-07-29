@@ -3,17 +3,25 @@ from __future__ import annotations
 from typing import override
 
 import pytest
+from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import instrument_bindings
 from scopecat.sdk.instruments import (
     DriverApplyRequest,
     DriverCollectRequest,
     DriverCollectResult,
+    DriverPayloadArgument,
     DriverPropertyWrite,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
+from scopecat.sdk.instruments.backend import (
+    BackendInvokeRequest,
+    BackendOperationArgument,
+    BackendPayload,
+)
+from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,
     load_config,
@@ -145,6 +153,69 @@ def test_local_backend_rejects_foreign_handles_and_changed_contracts() -> None:
     other.shutdown()
 
 
+def test_local_backend_decodes_payloads_before_driver_dispatch() -> None:
+    provider = _Provider()
+    endpoint = LocalInstrumentBackendEndpoint(
+        InstrumentBackend(
+            provider=provider,
+            payload_codecs=json_payload_codecs("tests.program/v1"),
+        )
+    )
+    config = load_config()
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
+    connection = endpoint.connect(binding=binding, expected=expected)
+
+    receipt = endpoint.invoke(
+        connection.handle,
+        _backend_invoke_request(b'{"program":1}'),
+    )
+
+    assert receipt.status == "invoked"
+    [driver_request] = provider.drivers[0].invoked
+    [argument] = driver_request.arguments
+    assert isinstance(argument, DriverPayloadArgument)
+    assert argument.schema_id == "tests.program/v1"
+    assert argument.value == {"program": 1}
+    endpoint.disconnect(connection.handle)
+
+
+def test_local_backend_rejects_payload_decode_before_driver_dispatch() -> None:
+    provider = _Provider()
+    endpoint = LocalInstrumentBackendEndpoint(
+        InstrumentBackend(
+            provider=provider,
+            payload_codecs=PayloadCodecRegistry(
+                {
+                    "tests.program/v1": PayloadCodec(
+                        id="tests.canonical-json",
+                        version=1,
+                        media_type="application/json",
+                        encoder=_unused_encoder,
+                        decoder=_reject_decoder,
+                    )
+                }
+            ),
+        )
+    )
+    config = load_config()
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
+    connection = endpoint.connect(binding=binding, expected=expected)
+
+    receipt = endpoint.invoke(
+        connection.handle,
+        _backend_invoke_request(b"invalid"),
+    )
+
+    assert receipt.status == "not_invoked"
+    assert [item.code for item in receipt.problems] == [
+        "instrument_payload_decode_failed"
+    ]
+    assert provider.drivers[0].invoked == []
+    endpoint.disconnect(connection.handle)
+
+
 def test_local_backend_shutdown_disconnects_handles_and_fences_new_work() -> None:
     provider = _Provider()
     endpoint = LocalInstrumentBackendEndpoint(InstrumentBackend(provider=provider))
@@ -169,3 +240,33 @@ def test_local_backend_shutdown_disconnects_handles_and_fences_new_work() -> Non
             binding=binding,
             expected=expected,
         )
+
+
+def _backend_invoke_request(content: bytes) -> BackendInvokeRequest:
+    payload = BackendPayload(
+        id="program",
+        schema_id="tests.program/v1",
+        codec_id="tests.canonical-json",
+        codec_version=1,
+        media_type="application/json",
+        content=content,
+    )
+    return BackendInvokeRequest(
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=(
+            BackendOperationArgument(
+                id="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            ),
+        ),
+        payloads={payload.id: payload},
+    )
+
+
+def _unused_encoder(_value: object) -> bytes:
+    return b""
+
+
+def _reject_decoder(_content: bytes) -> object:
+    raise ValueError("invalid test payload")

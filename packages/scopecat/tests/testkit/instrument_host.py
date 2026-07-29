@@ -24,12 +24,13 @@ from scopecat.records.instrument import (
     property_target_identity,
 )
 from scopecat.sdk.domain.compiler import DomainCompiler
-from scopecat.sdk.instruments import (
-    DriverPayload,
-    InstrumentBackend,
+from scopecat.sdk.instruments import InstrumentBackend
+from scopecat.sdk.instruments.backend import (
+    BackendPayload,
+    decode_driver_invoke_request,
+    lower_backend_invoke_request,
     lower_driver_apply_request,
     lower_driver_collect_request,
-    lower_driver_invoke_request,
 )
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
@@ -89,6 +90,7 @@ class TestRunInstrumentHost:
         *,
         ready: bool = True,
         setup_problems: tuple[Problem, ...] = (),
+        payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
     ) -> None:
         selected = tuple(drivers)
         self._drivers = {driver.instrument_id: driver for driver in selected}
@@ -97,6 +99,7 @@ class TestRunInstrumentHost:
         }
         self._ready = ready
         self._setup_problems = setup_problems
+        self._payload_codecs = payload_codecs
         self._observed_state = tuple(driver.read_state() for driver in selected)
         self._prepared_state = self._observed_state
         self._assumed_states = {
@@ -163,11 +166,14 @@ class TestRunInstrumentHost:
                     channel_bindings=list(action.channel_bindings),
                 )
                 receipt = driver.invoke(
-                    lower_driver_invoke_request(
-                        command,
-                        materialized_payloads=_materialize_driver_payloads(
-                            command.payloads
+                    decode_driver_invoke_request(
+                        lower_backend_invoke_request(
+                            command,
+                            materialized_payloads=_materialize_backend_payloads(
+                                command.payloads
+                            ),
                         ),
+                        self._payload_codecs,
                     )
                 )
                 problems.extend(receipt.problems)
@@ -269,24 +275,26 @@ def _state_value(
     )
 
 
-def _materialize_driver_payloads(
+def _materialize_backend_payloads(
     payloads: Mapping[str, CommandPayload],
-) -> dict[str, DriverPayload]:
-    return {
-        payload_id: DriverPayload(
+) -> dict[str, BackendPayload]:
+    materialized: dict[str, BackendPayload] = {}
+    for payload_id, payload in payloads.items():
+        content = payload.inline_bytes()
+        payload.verify_content(content)
+        materialized[payload_id] = BackendPayload(
             id=payload.id,
             schema_id=payload.schema_id,
             codec_id=payload.codec_id,
             codec_version=payload.codec_version,
             media_type=payload.media_type,
-            content=payload.inline_bytes(),
+            content=content,
         )
-        for payload_id, payload in payloads.items()
-    }
+    return materialized
 
 
 def provision_test_instrument_host(
-    provider: InstrumentProvider | None,
+    backend: InstrumentBackend | None,
     *,
     context: InstrumentProviderContext,
     instrument_ids: Sequence[str],
@@ -295,8 +303,9 @@ def provision_test_instrument_host(
 
     if not instrument_ids:
         return TestRunInstrumentHost()
-    if provider is None:
-        raise ValueError("instrument claims require a test instrument provider")
+    if backend is None:
+        raise ValueError("instrument claims require a test instrument backend")
+    provider = backend.provider
     bindings = {binding.id: binding for binding in context.bindings}
     drivers: list[InstrumentDriver] = []
     try:
@@ -312,7 +321,10 @@ def provision_test_instrument_host(
         for driver in reversed(drivers):
             driver.disconnect()
         raise
-    return TestRunInstrumentHost(drivers)
+    return TestRunInstrumentHost(
+        drivers,
+        payload_codecs=backend.payload_codecs,
+    )
 
 
 __all__ = ["TestRunInstrumentHost", "provision_test_instrument_host"]

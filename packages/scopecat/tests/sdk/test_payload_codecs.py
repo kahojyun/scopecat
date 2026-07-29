@@ -53,6 +53,30 @@ def test_payload_codec_registry_round_trips_encoded_command_payload() -> None:
     assert registry.decode(payload) == value
 
 
+def test_payload_codec_registry_decodes_verified_external_content() -> None:
+    registry = _registry()
+    value = {"program": [1, 2, 3]}
+    encoded = registry.encode("tests.program/v1", value)
+
+    assert registry.decode_content(registry.catalog.codecs[0], encoded.content) == value
+
+
+def test_command_payload_decode_still_verifies_content_identity() -> None:
+    registry = _registry()
+    encoded = registry.encode("tests.program/v1", {"program": 1})
+    payload = command_payload_from_bytes(
+        id="program-a",
+        schema_id=encoded.schema_id,
+        codec_id=encoded.codec_id,
+        codec_version=encoded.codec_version,
+        media_type=encoded.media_type,
+        content=encoded.content,
+    ).model_copy(update={"content_hash": f"sha256:{'0' * 64}"})
+
+    with pytest.raises(ValueError, match="content_hash"):
+        registry.decode(payload)
+
+
 def test_payload_codec_catalog_is_stable_serializable_and_has_no_callables() -> None:
     registry = _registry()
 

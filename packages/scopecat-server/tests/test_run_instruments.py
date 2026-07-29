@@ -56,6 +56,7 @@ from scopecat.sdk.instruments import (
     DriverApplyRequest,
     DriverCollectRequest,
     DriverInvokeRequest,
+    DriverPayloadArgument,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -963,7 +964,10 @@ def test_run_invoke_reads_back_state_before_later_actions(
         assert receipt.problems == ()
         assert len(driver.invoked) == 1
         assert driver.read_count == reads_before_invoke + 1
-        assert driver.invoked[0].payloads[payload.id].content == (b'{"samples":[0.0]}')
+        [argument] = driver.invoked[0].arguments
+        assert isinstance(argument, DriverPayloadArgument)
+        assert argument.schema_id == payload.schema_id
+        assert argument.value == {"samples": [0.0]}
 
 
 def test_provision_rejects_contract_changed_after_admission(tmp_path: Path) -> None:

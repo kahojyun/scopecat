@@ -8,7 +8,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from scopecat.kernel.state import PayloadRef, StateValue
+    from scopecat.kernel.state import StateValue
     from scopecat.records.config import (
         InstrumentBindingSpec,
         InstrumentConnection,
@@ -21,12 +21,7 @@ if TYPE_CHECKING:
         InstrumentReadback,
         InstrumentStateSnapshot,
     )
-    from scopecat.sdk.instruments.backend import (
-        InstrumentBackend,
-        lower_driver_apply_request,
-        lower_driver_collect_request,
-        lower_driver_invoke_request,
-    )
+    from scopecat.sdk.instruments.backend import InstrumentBackend
     from scopecat.sdk.instruments.contracts import (
         AcquisitionAxisSpec,
         AcquisitionCaseSpec,
@@ -89,10 +84,12 @@ if TYPE_CHECKING:
         DriverApplyRequest,
         DriverCollectRequest,
         DriverCollectResult,
+        DriverInvokeArgument,
         DriverInvokeRequest,
         DriverOperationArgument,
-        DriverPayload,
+        DriverPayloadArgument,
         DriverPropertyWrite,
+        DriverScalarValue,
     )
     from scopecat.sdk.instruments.members import (
         AcquisitionRef,
@@ -168,6 +165,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.driver",
         "DriverCollectResult",
     ),
+    "DriverInvokeArgument": (
+        "scopecat.sdk.instruments.driver",
+        "DriverInvokeArgument",
+    ),
     "DriverInvokeRequest": (
         "scopecat.sdk.instruments.driver",
         "DriverInvokeRequest",
@@ -176,13 +177,17 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.driver",
         "DriverOperationArgument",
     ),
-    "DriverPayload": (
+    "DriverPayloadArgument": (
         "scopecat.sdk.instruments.driver",
-        "DriverPayload",
+        "DriverPayloadArgument",
     ),
     "DriverPropertyWrite": (
         "scopecat.sdk.instruments.driver",
         "DriverPropertyWrite",
+    ),
+    "DriverScalarValue": (
+        "scopecat.sdk.instruments.driver",
+        "DriverScalarValue",
     ),
     "InstrumentConnectionContext": (
         "scopecat.sdk.instruments.contracts",
@@ -296,18 +301,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "float_property": ("scopecat.sdk.instruments.contracts", "float_property"),
     "int_property": ("scopecat.sdk.instruments.contracts", "int_property"),
     "interface": ("scopecat.sdk.instruments.contracts", "interface"),
-    "lower_driver_apply_request": (
-        "scopecat.sdk.instruments.backend",
-        "lower_driver_apply_request",
-    ),
-    "lower_driver_collect_request": (
-        "scopecat.sdk.instruments.backend",
-        "lower_driver_collect_request",
-    ),
-    "lower_driver_invoke_request": (
-        "scopecat.sdk.instruments.backend",
-        "lower_driver_invoke_request",
-    ),
     "operation": ("scopecat.sdk.instruments.contracts", "operation"),
     "operation_argument": (
         "scopecat.sdk.instruments.contracts",
@@ -351,7 +344,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "validate_invoke_command",
     ),
-    "PayloadRef": ("scopecat.kernel.state", "PayloadRef"),
     "StateValue": ("scopecat.kernel.state", "StateValue"),
     "TcpipSocketInstrumentConnection": (
         "scopecat.records.config",

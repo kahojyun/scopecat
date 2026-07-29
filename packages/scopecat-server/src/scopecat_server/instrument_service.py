@@ -80,9 +80,11 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import (
+    BackendInvokeRequest,
+    BackendPayload,
+    lower_backend_invoke_request,
     lower_driver_apply_request,
     lower_driver_collect_request,
-    lower_driver_invoke_request,
 )
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
@@ -104,8 +106,6 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.instruments.driver import (
     DriverApplyRequest,
     DriverCollectRequest,
-    DriverInvokeRequest,
-    DriverPayload,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
 
@@ -127,8 +127,8 @@ from .payload_service import CommandPayloadService
 
 _FINISHED_RUN_CACHE_LIMIT = 256
 
-type _DriverHardwareRequest = (
-    DriverApplyRequest | DriverInvokeRequest | DriverCollectRequest
+type _BackendHardwareRequest = (
+    DriverApplyRequest | BackendInvokeRequest | DriverCollectRequest
 )
 
 
@@ -870,7 +870,7 @@ class InstrumentService:
                 action.payloads if isinstance(action, RunHardwareInvoke) else {}
                 for action in canonical_request.batch.actions
             )
-            driver_actions = tuple(
+            backend_requests = tuple(
                 _lower_hardware_action(
                     action,
                     materialized_payloads=payloads,
@@ -907,7 +907,7 @@ class InstrumentService:
             with runtime.lock:
                 for action, backend_request in zip(
                     canonical_request.batch.actions,
-                    driver_actions,
+                    backend_requests,
                     strict=True,
                 ):
                     try:
@@ -925,7 +925,7 @@ class InstrumentService:
                                 canonical_request.lease_id,
                                 runtime,
                                 action,
-                                cast("DriverInvokeRequest", backend_request),
+                                cast("BackendInvokeRequest", backend_request),
                             )
                         else:
                             collected, evidence = self._execute_hardware_collect(
@@ -1192,11 +1192,11 @@ class InstrumentService:
         token: str,
         runtime: _OwnershipRuntime,
         action: RunHardwareInvoke,
-        driver_request: DriverInvokeRequest,
+        backend_request: BackendInvokeRequest,
     ) -> dict[str, JsonValue]:
         _runtime, instrument = self._run_instrument(run_id, action.instrument_id)
         try:
-            receipt = instrument.invoke(driver_request)
+            receipt = instrument.invoke(backend_request)
         except Exception as error:
             self._lose_run_runtime(
                 run_id,
@@ -2157,7 +2157,7 @@ class InstrumentService:
                     f"{conflict_scope} command id has different invoke content"
                 )
             return replay.receipt
-        driver_request = lower_driver_invoke_request(
+        backend_request = lower_backend_invoke_request(
             canonical_command,
             materialized_payloads=self._payloads.materialize_payloads(
                 canonical_command.payloads
@@ -2165,7 +2165,7 @@ class InstrumentService:
         )
         on_started()
         try:
-            receipt = instrument.invoke(driver_request)
+            receipt = instrument.invoke(backend_request)
         except Exception as error:
             on_unknown("instrument_invoke_unknown")
             raise BackendConflict(
@@ -2937,8 +2937,8 @@ def _provision_problem(
 def _lower_hardware_action(
     action: RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
     *,
-    materialized_payloads: Mapping[str, DriverPayload],
-) -> _DriverHardwareRequest:
+    materialized_payloads: Mapping[str, BackendPayload],
+) -> _BackendHardwareRequest:
     if isinstance(action, RunHardwareApply):
         return lower_driver_apply_request(
             InstrumentStateCommand(
@@ -2948,7 +2948,7 @@ def _lower_hardware_action(
             )
         )
     if isinstance(action, RunHardwareInvoke):
-        return lower_driver_invoke_request(
+        return lower_backend_invoke_request(
             InvokeCommand(
                 command_id=action.effect_id,
                 instrument_id=action.instrument_id,

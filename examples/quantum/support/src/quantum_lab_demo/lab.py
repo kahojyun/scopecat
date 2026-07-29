@@ -7,6 +7,7 @@ from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.compiler import QuantumLabCompiler
+from quantum_lab_demo.payloads import quantum_lab_payload_codecs
 from quantum_lab_demo.targets.fake_list_mode import configured_fake_list_target
 
 
@@ -27,6 +28,7 @@ def quantum_lab_system(
         domain_compiler=QuantumLabCompiler(
             target=configured_fake_list_target(config),
         ),
+        payload_codecs=quantum_lab_payload_codecs(),
     )
 
 

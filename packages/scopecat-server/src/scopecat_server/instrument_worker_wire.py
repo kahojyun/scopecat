@@ -10,11 +10,10 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from scopecat.kernel.interface_identity import InterfaceId
-from scopecat.kernel.state import PayloadRef
-from scopecat.sdk.instruments.driver import (
-    DriverInvokeRequest,
-    DriverOperationArgument,
-    DriverPayload,
+from scopecat.sdk.instruments.backend import (
+    BackendInvokeRequest,
+    BackendOperationArgument,
+    BackendPayload,
 )
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
@@ -66,7 +65,7 @@ class _InvokeDescriptor(_WireModel):
     interface_id: InterfaceId
     component_path: tuple[_NonEmptyText, ...] = ()
     operation_id: _NonEmptyText
-    arguments: tuple[DriverOperationArgument, ...] = ()
+    arguments: tuple[BackendOperationArgument, ...] = ()
 
 
 class _PayloadDescriptor(_WireModel):
@@ -104,7 +103,7 @@ class _InvokeHeader(_WireModel):
 
 
 def split_invoke_request(
-    request: DriverInvokeRequest,
+    request: BackendInvokeRequest,
     *,
     limits: WireLimits = DEFAULT_WIRE_LIMITS,
 ) -> InvokeFrames:
@@ -112,9 +111,7 @@ def split_invoke_request(
     payloads: list[_PayloadDescriptor] = []
     manifests: list[_AttachmentManifest] = []
     attachments: list[bytes] = []
-    for index, (payload_id, payload) in enumerate(selected):
-        if payload_id != payload.id:
-            raise WorkerWireError("driver payload map key does not match payload id")
+    for index, (_, payload) in enumerate(selected):
         content = payload.content
         payloads.append(
             _PayloadDescriptor(
@@ -165,7 +162,7 @@ def join_invoke_request(
     attachments: Sequence[bytes],
     *,
     limits: WireLimits = DEFAULT_WIRE_LIMITS,
-) -> DriverInvokeRequest:
+) -> BackendInvokeRequest:
     if len(header) > limits.max_header_bytes:
         raise WorkerWireError("worker invoke header exceeds its size limit")
     try:
@@ -178,7 +175,7 @@ def join_invoke_request(
     if len(frames.attachments) != len(descriptor.attachments):
         raise WorkerWireError("worker attachment count does not match its manifest")
 
-    payloads: dict[str, DriverPayload] = {}
+    payloads: dict[str, BackendPayload] = {}
     for payload, manifest, content in zip(
         descriptor.payloads,
         descriptor.attachments,
@@ -193,7 +190,7 @@ def join_invoke_request(
             raise WorkerWireError(
                 f"worker attachment hash mismatch for payload {payload.id!r}"
             )
-        payloads[payload.id] = DriverPayload(
+        payloads[payload.id] = BackendPayload(
             id=payload.id,
             schema_id=payload.schema_id,
             codec_id=payload.codec_id,
@@ -202,21 +199,16 @@ def join_invoke_request(
             content=content,
         )
 
-    request = DriverInvokeRequest(
-        interface_id=descriptor.request.interface_id,
-        component_path=descriptor.request.component_path,
-        operation_id=descriptor.request.operation_id,
-        arguments=descriptor.request.arguments,
-        payloads=payloads,
-    )
-    referenced_ids = {
-        value.payload_id
-        for argument in request.arguments
-        if isinstance((value := argument.value.root), PayloadRef)
-    }
-    if referenced_ids != set(payloads):
-        raise WorkerWireError("worker payload bindings do not match request arguments")
-    return request
+    try:
+        return BackendInvokeRequest(
+            interface_id=descriptor.request.interface_id,
+            component_path=descriptor.request.component_path,
+            operation_id=descriptor.request.operation_id,
+            arguments=descriptor.request.arguments,
+            payloads=payloads,
+        )
+    except ValidationError as error:
+        raise WorkerWireError("invalid worker invoke request") from error
 
 
 def _validate_limits(

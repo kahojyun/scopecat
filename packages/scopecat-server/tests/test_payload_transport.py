@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Literal, override
 
@@ -33,6 +33,7 @@ from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     CollectResultRequest,
     DriverInvokeRequest,
+    DriverPayloadArgument,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentOperationArgument,
@@ -66,11 +67,9 @@ class _PayloadConsumerDriver(SignalInstrumentDriver):
     @override
     def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
         for argument in request.arguments:
-            value = argument.value.root
-            if isinstance(value, PayloadRef):
-                self.consumed_payloads.append(
-                    request.payloads[value.payload_id].content
-                )
+            if isinstance(argument, DriverPayloadArgument):
+                assert isinstance(argument.value, bytes)
+                self.consumed_payloads.append(argument.value)
         return super().invoke(request)
 
 
@@ -174,7 +173,59 @@ def test_direct_invoke_uses_the_same_payload_object_boundary(
         assert receipt.status == "invoked"
         [driver] = provider.drivers
         assert driver.consumed_payloads == [_PAYLOAD_BYTES]
-        assert driver.invoked[0].payloads[payload.id].content == _PAYLOAD_BYTES
+        [argument] = driver.invoked[0].arguments
+        assert isinstance(argument, DriverPayloadArgument)
+        assert argument.schema_id == payload.schema_id
+        assert argument.value == _PAYLOAD_BYTES
+
+
+def test_direct_payload_decode_rejection_does_not_reach_driver_or_quarantine(
+    tmp_path: Path,
+) -> None:
+    provider = _PayloadProvider()
+    with (
+        _runtime(
+            tmp_path,
+            provider,
+            payload_codecs=_payload_codecs(decoder=_reject_payload_decoder),
+        ) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        daemon = _daemon_client(transport)
+        session = daemon.open_instrument_session(
+            InstrumentSessionOpenCommand(
+                operation_id="open-rejected-payload-session",
+                actor="payload-test",
+                instrument_ids=("source-0",),
+            )
+        )
+        payload = _inline_payload("rejected-program", _PAYLOAD_BYTES)
+
+        receipt = daemon.invoke_instrument(
+            session.session_id,
+            "source-0",
+            _direct_payload_command("rejected-payload-invoke", payload),
+        )
+
+        assert receipt.status == "not_invoked"
+        assert [problem.code for problem in receipt.problems] == [
+            "instrument_payload_decode_failed"
+        ]
+        [driver] = provider.drivers
+        assert driver.invoked == []
+        assert driver.consumed_payloads == []
+        assert (
+            daemon.read_instrument_state(
+                session.session_id,
+                "source-0",
+            ).instrument_id
+            == "source-0"
+        )
+        [owned] = daemon.list_instruments().items
+        assert owned.availability == "active"
+        assert owned.owner_id == session.session_id
+
+        daemon.close_instrument_session(session.session_id)
 
 
 @pytest.mark.parametrize("first_body_kind", ["inline", "blob"])
@@ -661,6 +712,8 @@ def test_batch_prevalidates_every_action_before_first_driver_call(
 def _runtime(
     root: Path,
     provider: _PayloadProvider,
+    *,
+    payload_codecs: PayloadCodecRegistry | None = None,
 ) -> LocalDaemonRuntime:
     return LocalDaemonRuntime(
         root,
@@ -668,7 +721,9 @@ def _runtime(
         instrument_endpoint=LocalInstrumentBackendEndpoint(
             InstrumentBackend(
                 provider=provider,
-                payload_codecs=_payload_codecs(),
+                payload_codecs=(
+                    _payload_codecs() if payload_codecs is None else payload_codecs
+                ),
             )
         ),
     )
@@ -903,7 +958,10 @@ def _invalid_contract_action(
     return action
 
 
-def _payload_codecs() -> PayloadCodecRegistry:
+def _payload_codecs(
+    *,
+    decoder: Callable[[bytes], object] | None = None,
+) -> PayloadCodecRegistry:
     return PayloadCodecRegistry(
         {
             "pulse_program": PayloadCodec(
@@ -911,7 +969,7 @@ def _payload_codecs() -> PayloadCodecRegistry:
                 version=_CODEC_VERSION,
                 media_type=_MEDIA_TYPE,
                 encoder=_unused_payload_encoder,
-                decoder=_identity_payload_decoder,
+                decoder=_identity_payload_decoder if decoder is None else decoder,
             )
         }
     )
@@ -923,6 +981,10 @@ def _unused_payload_encoder(_value: object) -> bytes:
 
 def _identity_payload_decoder(content: bytes) -> object:
     return content
+
+
+def _reject_payload_decoder(_content: bytes) -> object:
+    raise ValueError("fixture rejected payload bytes")
 
 
 def _payload_object_path(

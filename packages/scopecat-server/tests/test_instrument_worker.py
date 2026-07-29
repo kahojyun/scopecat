@@ -25,11 +25,13 @@ from scopecat.sdk.instruments import (
     DriverApplyRequest,
     DriverCollectRequest,
     DriverCollectResult,
-    DriverInvokeRequest,
-    DriverOperationArgument,
-    DriverPayload,
     DriverPropertyWrite,
     InvokeCommand,
+)
+from scopecat.sdk.instruments.backend import (
+    BackendInvokeRequest,
+    BackendOperationArgument,
+    BackendPayload,
 )
 from tests.testkit.instrument_drivers import load_config
 
@@ -112,17 +114,17 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
     content = b"\x00\xffprogram\x00"
     invoke = endpoint.invoke(
         connection.handle,
-        DriverInvokeRequest(
+        BackendInvokeRequest(
             interface_id="tests.control/v1",
             operation_id="play",
             arguments=(
-                DriverOperationArgument(
+                BackendOperationArgument(
                     id="program",
                     value=StateValue(PayloadRef(payload_id="program")),
                 ),
             ),
             payloads={
-                "program": DriverPayload(
+                "program": BackendPayload(
                     id="program",
                     schema_id="pulse_program",
                     codec_id="tests.raw",
@@ -137,6 +139,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
         "payload_hex": content.hex(),
         "worker_pid": endpoint.worker_pid,
     }
+    assert "worker_fixture.backend" not in sys.modules
 
     collected = endpoint.collect(
         connection.handle,
@@ -380,7 +383,7 @@ def test_shutdown_interrupts_a_blocked_driver_call(tmp_path: Path) -> None:
         try:
             endpoint.invoke(
                 connection.handle,
-                DriverInvokeRequest(
+                BackendInvokeRequest(
                     interface_id="tests.control/v1",
                     operation_id="block",
                 ),
@@ -512,7 +515,7 @@ def test_blocked_driver_does_not_block_another_device(tmp_path: Path) -> None:
             blocked = calls.submit(
                 endpoint.invoke,
                 first.handle,
-                DriverInvokeRequest(
+                BackendInvokeRequest(
                     interface_id="tests.control/v1",
                     operation_id="block",
                 ),

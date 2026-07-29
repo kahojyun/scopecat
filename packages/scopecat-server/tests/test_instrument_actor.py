@@ -20,6 +20,10 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.backend import (
+    BackendInvokeRequest,
+    decode_driver_invoke_request,
+)
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecCatalog
 from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,
@@ -172,9 +176,11 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
     def invoke(
         self,
         handle: InstrumentHandle,
-        request: DriverInvokeRequest,
+        request: BackendInvokeRequest,
     ) -> InvokeReceipt:
-        return self._driver(handle).invoke(request)
+        return self._driver(handle).invoke(
+            decode_driver_invoke_request(request, EMPTY_PAYLOAD_CODECS)
+        )
 
     @override
     def collect(
@@ -622,9 +628,13 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     assert owned.assumed_state is None
     owned.adopt_state(observed)
 
-    invoke_request = DriverInvokeRequest(
+    invoke_request = BackendInvokeRequest(
         interface_id="test.play_program/v1",
         operation_id="play",
+    )
+    expected_driver_invoke = DriverInvokeRequest(
+        interface_id=invoke_request.interface_id,
+        operation_id=invoke_request.operation_id,
     )
     invoke_receipt = owned.invoke(invoke_request)
     assert invoke_receipt.status == "invoked"
@@ -640,7 +650,7 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     assert owned.collect(collect_request).status == "collected"
     assert owned.assumed_state is not None
     assert drivers[0].applied == [apply_request]
-    assert drivers[0].invoked == [invoke_request]
+    assert drivers[0].invoked == [expected_driver_invoke]
     assert drivers[0].collect_requests == [collect_request]
 
     owned.release()
