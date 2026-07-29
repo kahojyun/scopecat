@@ -5,20 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat.application import LabApplication
-from scopecat.planning.system import ExperimentSystem
+from scopecat.records.config import ConfigProfileSnapshot
 
-from .configuration import bootstrap_config
-from .provider import InstrumentDemoProvider
+
+def _bootstrap_config() -> ConfigProfileSnapshot:
+    from .configuration import bootstrap_config
+
+    return bootstrap_config()
 
 
 def create_application(_project_root: Path) -> LabApplication:
-    """Keep one virtual world alive for all daemon-owned device sessions."""
+    """Compose planning and bootstrap behavior for the virtual lab."""
 
-    provider = InstrumentDemoProvider(seed=7)
-    return LabApplication(
-        bootstrap_config=bootstrap_config,
-        build_system=lambda _config: ExperimentSystem(provider=provider),
-    )
+    return LabApplication(bootstrap_config=_bootstrap_config)
 
 
 __all__ = ["create_application"]

@@ -8,6 +8,7 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
     ComputeOperation,
+    InvokeOperation,
     LocalOperation,
 )
 from scopecat.kernel.problems import (
@@ -19,14 +20,18 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.units import compatible_units
+from scopecat.kernel.value_types import Payload
+from scopecat.kernel.value_validation import ValueValidationError, validate_literal
 from scopecat.records.artifact import CommandPayload
+from scopecat.sdk.instruments.commands import CollectResultRequest
 from scopecat.sdk.instruments.contracts import (
-    CollectProductRequest,
+    AcquisitionResultSpec,
+    ComponentSpec,
     InstrumentDescription,
-    InstrumentStateCommand,
-    InstrumentStateCommandField,
-    ProductDescription,
-    validate_state_command,
+    InterfaceSpec,
+    OperationSpec,
+    acquisition_results,
+    validate_state_assignments,
 )
 
 
@@ -47,7 +52,7 @@ def validate_local_effect_block_instruments(
                     for operation in operations
                     if isinstance(
                         operation,
-                        ApplyStateOperation | CollectOperation,
+                        ApplyStateOperation | InvokeOperation | CollectOperation,
                     )
                 ),
             )
@@ -64,26 +69,25 @@ def validate_local_effect_block_instruments(
                     "description",
                 )
             )
-    payloads = {**available_payloads, **_payload_stubs(tuple(operations))}
+    payload_schemas = {
+        payload_id: payload.schema_id
+        for payload_id, payload in available_payloads.items()
+    }
+    payload_schemas.update(_payload_schemas(tuple(operations)))
     for operation in operations:
         if isinstance(operation, ApplyStateOperation):
             description = descriptions.get(operation.instrument_id)
             if description is None:
                 continue
-            fields = [
-                target.command_field(resource_id=operation.instrument_id)
+            assignments = [
+                target.command_assignment(resource_id=operation.instrument_id)
                 for target in operation.targets
             ]
             problems.extend(
-                validate_state_command(
-                    command=InstrumentStateCommand(
-                        operation_id=operation.operation_id,
-                        instrument_id=operation.instrument_id,
-                        fields=fields,
-                        payloads=_referenced_payloads(fields, payloads),
-                    ),
+                validate_state_assignments(
+                    instrument_id=operation.instrument_id,
+                    assignments=assignments,
                     description=description,
-                    payloads=payloads,
                 )
             )
         elif isinstance(operation, CollectOperation):
@@ -91,18 +95,20 @@ def validate_local_effect_block_instruments(
             if description is None:
                 continue
             for request in operation.command.requests:
-                product = _matching_product(
+                result = _matching_result(
                     description,
-                    capability_id=request.capability_id,
-                    product_key=request.id,
+                    interface_id=request.interface_id,
+                    component_path=request.component_path,
+                    acquisition_id=request.acquisition_id,
+                    result_id=request.result_id,
                 )
-                if product is None:
+                if result is None:
                     problems.append(
                         _problem(
-                            "instrument_product_unsupported",
+                            "instrument_acquisition_result_unsupported",
                             f"instrument {operation.instrument_id} does not "
-                            f"support product {request.id} under capability "
-                            f"{request.capability_id!r}",
+                            f"support acquisition result {request.result_id!r} "
+                            f"under {request.interface_id!r}",
                             "operations",
                             operation.operation_id,
                             "requests",
@@ -111,82 +117,212 @@ def validate_local_effect_block_instruments(
                     )
                     continue
                 problems.extend(
-                    _validate_product(
+                    _validate_result(
                         operation_id=operation.operation_id,
                         instrument_id=operation.instrument_id,
                         request=request,
-                        product=product,
+                        result=result,
                     )
                 )
+        elif isinstance(operation, InvokeOperation):
+            description = descriptions.get(operation.instrument_id)
+            if description is None:
+                continue
+            operation_spec = _matching_operation(
+                description,
+                interface_id=operation.interface_id,
+                component_path=operation.component_path,
+                operation_id=operation.operation_id,
+            )
+            if operation_spec is None:
+                problems.append(
+                    _problem(
+                        "instrument_operation_unsupported",
+                        f"instrument {operation.instrument_id} does not support "
+                        f"operation {operation.operation_id!r} under "
+                        f"{operation.interface_id!r}",
+                        "operations",
+                        operation.effect_id,
+                    )
+                )
+                continue
+            problems.extend(
+                _validate_invocation_arguments(
+                    operation,
+                    operation_spec,
+                    payload_schemas=payload_schemas,
+                )
+            )
     return problems
 
 
-def _payload_stubs(
+def _payload_schemas(
     operations: tuple[LocalOperation, ...],
-) -> dict[str, CommandPayload]:
-    payloads: dict[str, CommandPayload] = {}
+) -> dict[str, str]:
+    schemas: dict[str, str] = {}
     for operation in operations:
         if not isinstance(operation, ComputeOperation):
             continue
         if operation.payload_slot is None:
             continue
         slot = operation.payload_slot
-        payloads[slot.id] = CommandPayload(
-            id=slot.id,
-            schema_id=slot.schema_id,
-            operation_id=operation.operation_id,
-            payload=object(),
-        )
-    return payloads
+        schemas[slot.id] = slot.schema_id
+    return schemas
 
 
-def _referenced_payloads(
-    fields: Sequence[InstrumentStateCommandField],
-    payloads: Mapping[str, CommandPayload],
-) -> dict[str, CommandPayload]:
-    selected: dict[str, CommandPayload] = {}
-    for field in fields:
-        value = field.value.root
-        if not isinstance(value, PayloadRef):
-            continue
-        payload = payloads.get(value.payload_id)
-        if payload is not None:
-            selected[payload.id] = payload
-    return selected
-
-
-def _matching_product(
+def _matching_result(
     description: InstrumentDescription,
     *,
-    capability_id: str,
-    product_key: str,
-) -> ProductDescription | None:
-    selected_capability = next(
+    interface_id: str,
+    component_path: list[str],
+    acquisition_id: str,
+    result_id: str,
+) -> AcquisitionResultSpec | None:
+    selected_interface = next(
         (
-            capability
-            for capability in description.capabilities
-            if capability.id == capability_id
+            interface
+            for interface in description.interfaces
+            if interface.id == interface_id
         ),
         None,
     )
-    if selected_capability is None:
+    if selected_interface is None:
+        return None
+    component: InterfaceSpec | ComponentSpec = selected_interface
+    for component_id in component_path:
+        selected_component = next(
+            (child for child in component.components if child.id == component_id),
+            None,
+        )
+        if selected_component is None:
+            return None
+        component = selected_component
+    selected_acquisition = next(
+        (
+            acquisition
+            for acquisition in component.acquisitions
+            if acquisition.id == acquisition_id
+        ),
+        None,
+    )
+    if selected_acquisition is None:
         return None
     return next(
         (
-            product
-            for product in selected_capability.products
-            if product.key == product_key
+            result
+            for result in acquisition_results(selected_acquisition)
+            if result.id == result_id
         ),
         None,
     )
 
 
-def _validate_product(
+def _matching_operation(
+    description: InstrumentDescription,
+    *,
+    interface_id: str,
+    component_path: Sequence[str],
+    operation_id: str,
+) -> OperationSpec | None:
+    selected_interface = next(
+        (
+            interface
+            for interface in description.interfaces
+            if interface.id == interface_id
+        ),
+        None,
+    )
+    if selected_interface is None:
+        return None
+    component: InterfaceSpec | ComponentSpec = selected_interface
+    for component_id in component_path:
+        selected_component = next(
+            (child for child in component.components if child.id == component_id),
+            None,
+        )
+        if selected_component is None:
+            return None
+        component = selected_component
+    return next(
+        (
+            operation
+            for operation in component.operations
+            if operation.id == operation_id
+        ),
+        None,
+    )
+
+
+def _validate_invocation_arguments(
+    invocation: InvokeOperation,
+    operation: OperationSpec,
+    *,
+    payload_schemas: Mapping[str, str],
+) -> list[Problem]:
+    declared = {argument.id: argument for argument in operation.arguments}
+    supplied = {argument.id: argument for argument in invocation.arguments}
+    path = ("operations", invocation.effect_id, "arguments")
+    problems: list[Problem] = []
+    for argument_id in sorted(declared.keys() - supplied.keys()):
+        problems.append(
+            _problem(
+                "instrument_operation_argument_missing",
+                f"operation {operation.id!r} requires argument {argument_id!r}",
+                *path,
+                argument_id,
+            )
+        )
+    for argument_id in sorted(supplied.keys() - declared.keys()):
+        problems.append(
+            _problem(
+                "instrument_operation_argument_unsupported",
+                f"operation {operation.id!r} does not accept argument {argument_id!r}",
+                *path,
+                argument_id,
+            )
+        )
+    for argument_id in sorted(declared.keys() & supplied.keys()):
+        value = supplied[argument_id].value.root
+        value_type = declared[argument_id].value_type
+        atom = value_type.atom
+        if isinstance(atom, Payload):
+            schema_id = (
+                payload_schemas.get(value.payload_id)
+                if isinstance(value, PayloadRef)
+                else None
+            )
+            if schema_id != atom.schema_id:
+                problems.append(
+                    _problem(
+                        "instrument_operation_argument_payload_mismatch",
+                        f"operation argument {argument_id!r} requires payload "
+                        f"{atom.schema_id!r}",
+                        *path,
+                        argument_id,
+                    )
+                )
+            continue
+        try:
+            validate_literal(value_type, value)
+        except ValueValidationError as error:
+            problems.append(
+                _problem(
+                    "instrument_operation_argument_value_mismatch",
+                    f"operation argument {argument_id!r}: {error.reason}",
+                    *path,
+                    argument_id,
+                    *error.path,
+                )
+            )
+    return problems
+
+
+def _validate_result(
     *,
     operation_id: str,
     instrument_id: str,
-    request: CollectProductRequest,
-    product: ProductDescription,
+    request: CollectResultRequest,
+    result: AcquisitionResultSpec,
 ) -> list[Problem]:
     problems: list[Problem] = []
     path: tuple[LocationPathItem, ...] = (
@@ -195,12 +331,12 @@ def _validate_product(
         "requests",
         request.id,
     )
-    if request.dtype != product.dtype:
+    if request.dtype != result.dtype:
         problems.append(
             _problem(
-                "instrument_product_dtype_mismatch",
-                f"instrument {instrument_id} product {product.key} dtype "
-                f"{product.dtype!r} does not match requested "
+                "instrument_acquisition_result_dtype_mismatch",
+                f"instrument {instrument_id} acquisition result "
+                f"{result.id} dtype {result.dtype!r} does not match requested "
                 f"{request.dtype!r}",
                 *path,
                 "dtype",
@@ -208,44 +344,46 @@ def _validate_product(
         )
     requested_unit = request.unit
     if requested_unit is not None and (
-        product.unit is None or not compatible_units(requested_unit, product.unit)
+        result.unit is None or not compatible_units(requested_unit, result.unit)
     ):
         problems.append(
             _problem(
-                "instrument_product_unit_mismatch",
-                f"instrument {instrument_id} product {product.key} unit "
-                f"{product.unit!r} does not satisfy requested "
+                "instrument_acquisition_result_unit_mismatch",
+                f"instrument {instrument_id} acquisition result {result.id} unit "
+                f"{result.unit!r} does not satisfy requested "
                 f"unit {requested_unit!r}",
                 *path,
                 "unit",
             )
         )
     dimensions = request.dimensions
-    if len(dimensions) != len(product.axes):
+    if len(dimensions) != len(result.axes):
         problems.append(
             _problem(
-                "instrument_product_axes_mismatch",
-                f"instrument {instrument_id} product {product.key} axes do not match",
+                "instrument_acquisition_result_axes_mismatch",
+                f"instrument {instrument_id} acquisition result "
+                f"{result.id} axes do not match",
                 *path,
                 "dimensions",
             )
         )
         return problems
     for index, (requested_axis, declared_axis) in enumerate(
-        zip(dimensions, product.axes, strict=True)
+        zip(dimensions, result.axes, strict=True)
     ):
         if (
             requested_axis.id != declared_axis.id
             or requested_axis.kind != declared_axis.kind
             or (
-                declared_axis.size is not None
+                isinstance(declared_axis.size, int)
                 and requested_axis.size != declared_axis.size
             )
         ):
             problems.append(
                 _problem(
-                    "instrument_product_axis_mismatch",
-                    f"instrument {instrument_id} product {product.key} axis "
+                    "instrument_acquisition_result_axis_mismatch",
+                    f"instrument {instrument_id} acquisition result "
+                    f"{result.id} axis "
                     f"{declared_axis.id!r} does not match the request",
                     *path,
                     "axes",
@@ -259,8 +397,9 @@ def _validate_product(
         ):
             problems.append(
                 _problem(
-                    "instrument_product_axis_unit_mismatch",
-                    f"instrument {instrument_id} product {product.key} axis "
+                    "instrument_acquisition_result_axis_unit_mismatch",
+                    f"instrument {instrument_id} acquisition result "
+                    f"{result.id} axis "
                     f"{requested_axis.id!r} unit {declared_axis.unit!r} does not "
                     f"satisfy requested unit {requested_axis_unit!r}",
                     *path,

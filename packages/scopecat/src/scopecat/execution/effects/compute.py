@@ -11,15 +11,12 @@ from scopecat.execution.local.program import (
     ComputeOperation,
 )
 from scopecat.graph.values import ValueId
-from scopecat.kernel.content_identity import (
-    content_fingerprint,
-    stable_content_hash,
-)
 from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.records.artifact import CommandPayload
+from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
+from scopecat.sdk.payloads import PayloadCodecRegistry
 
 
 @dataclass(slots=True, kw_only=True)
@@ -42,8 +39,10 @@ class ComputeEffectExecutor:
         self,
         *,
         journal: JournaledEffectBoundary,
+        payload_codecs: PayloadCodecRegistry,
     ) -> None:
         self.journal = journal
+        self.payload_codecs = payload_codecs
 
     def execute(
         self,
@@ -69,10 +68,18 @@ class ComputeEffectExecutor:
                     )
                 )
                 if operation.payload_slot is not None:
-                    fingerprint = content_fingerprint(result)
-                    content_hash = stable_content_hash(fingerprint)
+                    slot = operation.payload_slot
+                    encoded = self.payload_codecs.encode(slot.schema_id, result)
+                    payload = command_payload_from_bytes(
+                        id=slot.id,
+                        schema_id=encoded.schema_id,
+                        codec_id=encoded.codec_id,
+                        codec_version=encoded.codec_version,
+                        media_type=encoded.media_type,
+                        content=encoded.content,
+                    )
                 else:
-                    content_hash = None
+                    payload = None
             except Exception as error:
                 problem = self.journal.problem_from_exception(
                     "compute_operation_failed",
@@ -88,19 +95,5 @@ class ComputeEffectExecutor:
                 self.journal.problems.append(problem)
                 return
             frame.compute_results[operation.result.id] = result
-            if operation.payload_slot is not None:
-                slot = operation.payload_slot
-                frame.payloads[slot.id] = CommandPayload(
-                    id=slot.id,
-                    schema_id=slot.schema_id,
-                    content_hash=content_hash,
-                    operation_id=operation.operation_id,
-                    semantic_operation_id=operation.semantic_operation_id,
-                    implementation_id=operation.implementation_id,
-                    point_index=(
-                        frame.point_index
-                        if isinstance(frame, PointEffectState)
-                        else None
-                    ),
-                    payload=result,
-                )
+            if payload is not None:
+                frame.payloads[payload.id] = payload

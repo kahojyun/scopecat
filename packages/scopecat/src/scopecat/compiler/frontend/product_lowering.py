@@ -12,6 +12,7 @@ from scopecat.authoring._products import (
     ModuleProductDecl,
     ProductAxis,
     RecordSelection,
+    product_axis_dimension_id,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -101,6 +102,7 @@ def lower_products(
             RecordUse(
                 id=selection.record_id or product.qualified_id,
                 product_use_id=use.id,
+                role=selection.role,
                 metadata=_durable_metadata(selection.metadata),
             )
         )
@@ -117,7 +119,7 @@ def _lower_product_axis(
     axis: ProductAxis,
     inputs: Mapping[str, object],
     *,
-    product_id: str,
+    product: ModuleProductDecl,
     type_bindings: RelationTypeBindings,
     input_row: InputRow,
 ) -> ProductAxisDef:
@@ -128,7 +130,7 @@ def _lower_product_axis(
         default=1,
         location=ModelLocation(
             root="products",
-            path=(product_id, "axes", axis.id, "size"),
+            path=(product.qualified_id, "axes", axis.id, "size"),
         ),
         inputs=inputs,
         type_bindings=type_bindings,
@@ -137,6 +139,8 @@ def _lower_product_axis(
     )
     return compiler_product_axis(
         axis.id,
+        dimension_id=product_axis_dimension_id(product, axis),
+        dimension_label=axis.shared_as or axis.id,
         size=size,
         kind=axis.kind,
         unit=axis.unit,
@@ -163,7 +167,7 @@ def _lower_product_declaration(
                 topology,
                 axis,
                 inputs,
-                product_id=product.qualified_id,
+                product=product,
                 type_bindings=type_bindings,
                 input_row=input_row,
             )

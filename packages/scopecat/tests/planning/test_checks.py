@@ -16,8 +16,13 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
 )
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.check_results import ExperimentCheckResult
-from scopecat.records.config import ConfigProfileSnapshot, DomainTargetBinding
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    DomainTargetBinding,
+    config_content_hash,
+)
 from scopecat.sdk.domain.batch import (
     DomainBatchRequest,
 )
@@ -28,6 +33,7 @@ from tests.testkit.in_process_lab import (
     InProcessPreparedExperiment,
     in_process_lab,
 )
+from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
@@ -37,10 +43,16 @@ def _lab(
     *,
     config: ConfigProfileSnapshot | None = None,
 ) -> InProcessLab:
+    selected_config = load_config() if config is None else config
+    composition = compose_test_instruments(
+        config=selected_config,
+        provider=TestSignalInstrumentProvider(),
+    )
     return in_process_lab(
         tmp_path,
-        config=load_config() if config is None else config,
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        config=selected_config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
 
 
@@ -175,7 +187,12 @@ def test_check_and_preview_surface_domain_compilation_errors(
     )
     prepared = _lab(tmp_path, config=config).prepare(
         _domain_invocation(),
-        system=sc.ExperimentSystem(domain_compiler=compiler),
+        system=sc.ExperimentSystem(
+            instrument_catalog=InstrumentContractCatalog(
+                config_content_hash=config_content_hash(config)
+            ),
+            domain_compiler=compiler,
+        ),
     )
     _assert_terminal_problem(
         prepared,

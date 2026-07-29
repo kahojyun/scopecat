@@ -1,26 +1,16 @@
-"""Shared parsing, validation, and receipt helpers for concrete drivers."""
+"""Shared value and receipt helpers for concrete drivers."""
 
 from __future__ import annotations
 
-import math
-from collections.abc import Iterable
 from dataclasses import dataclass
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectCommand,
-    CollectReceipt,
-    InstrumentDescription,
-    InstrumentStateCommand,
-    InstrumentStateField,
-)
-from scopecat.sdk.instruments import (
-    validate_collect_command as validate_collect_contract,
-)
-from scopecat.sdk.instruments import (
-    validate_state_command as validate_state_contract,
+    DriverOperation,
+    DriverRejected,
+    DriverScalar,
+    DriverUnknown,
+    PropertyRef,
 )
 from scopecat.sdk.problems import Problem, ProblemPhase, model_location, problem
 
@@ -45,154 +35,83 @@ class LinearSweepSettings:
     s_parameter: str
 
 
-@dataclass(frozen=True)
-class ScpiIdentity:
-    manufacturer: str
-    model: str
-    serial_number: str
-    firmware: str
-    raw: str
+def quantity_value(value: DriverScalar, unit: str) -> float:
+    if not isinstance(value, Quantity):
+        raise TypeError("validated state property is not a quantity")
+    if value.unit == unit:
+        return value.value
+    return value.to(unit).value
 
 
-def parse_identity(response: str) -> ScpiIdentity:
-    raw = response.strip()
-    parts = [part.strip() for part in raw.split(",")]
-    if len(parts) < 2 or not parts[0] or not parts[1]:
-        raise ValueError("instrument returned malformed *IDN? response")
-    return ScpiIdentity(
-        manufacturer=parts[0],
-        model=parts[1],
-        serial_number=parts[2] if len(parts) > 2 else "",
-        firmware=",".join(parts[3:]) if len(parts) > 3 else "",
-        raw=raw,
-    )
-
-
-def format_number(value: float) -> str:
-    if not math.isfinite(value):
-        raise ValueError("SCPI numeric values must be finite")
-    return format(value, ".15g")
-
-
-def parse_float(response: str) -> float:
-    value = float(response.strip())
-    if not math.isfinite(value):
-        raise ValueError("instrument returned a non-finite number")
+def bool_value(value: DriverScalar) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError("validated state property is not a boolean")
     return value
 
 
-def parse_int(response: str) -> int:
-    return int(response.strip())
+def int_value(value: DriverScalar) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError("validated state property is not an integer")
+    return value
 
 
-def parse_bool(response: str) -> bool:
-    selected = response.strip().upper()
-    if selected in {"1", "ON"}:
-        return True
-    if selected in {"0", "OFF"}:
-        return False
-    raise ValueError(f"instrument returned invalid boolean {response!r}")
+def string_value(value: DriverScalar) -> str:
+    if not isinstance(value, str):
+        raise TypeError("validated state property is not a string")
+    return value
 
 
-def parse_csv_floats(response: str) -> tuple[float, ...]:
-    return tuple(parse_float(value) for value in response.strip().split(",") if value)
-
-
-def strip_scpi_string(response: str) -> str:
-    selected = response.strip()
-    if len(selected) >= 2 and selected[0] == selected[-1] and selected[0] in {"'", '"'}:
-        return selected[1:-1]
-    return selected
-
-
-def quantity_value(value: StateValue, unit: str) -> float:
-    literal = value.root
-    if not isinstance(literal, Quantity):
-        raise TypeError("validated state field is not a quantity")
-    if literal.unit == unit:
-        return literal.value
-    return literal.to(unit).value
-
-
-def bool_value(value: StateValue) -> bool:
-    literal = value.root
-    if not isinstance(literal, bool):
-        raise TypeError("validated state field is not a boolean")
-    return literal
-
-
-def int_value(value: StateValue) -> int:
-    literal = value.root
-    if not isinstance(literal, int) or isinstance(literal, bool):
-        raise TypeError("validated state field is not an integer")
-    return literal
-
-
-def string_value(value: StateValue) -> str:
-    literal = value.root
-    if not isinstance(literal, str):
-        raise TypeError("validated state field is not a string")
-    return literal
-
-
-def state_field(
-    capability_id: str,
-    field_path: str,
-    value: bool | float | str | Quantity,
-) -> InstrumentStateField:
-    return InstrumentStateField(
-        capability_id=capability_id,
-        field_path=field_path,
-        value=StateValue(value),
+def unsupported_invoke(
+    request: DriverOperation,
+    instrument_id: str,
+) -> DriverRejected:
+    return DriverRejected(
+        problems=(
+            execution_problem(
+                "instrument_operation_not_implemented",
+                f"{instrument_id} does not implement {request.target.operation_id}",
+                "driver_operation",
+                "operation_id",
+            ),
+        ),
     )
 
 
-def validate_writable_command(
-    command: InstrumentStateCommand,
-    description: InstrumentDescription,
-) -> list[Problem]:
-    return validate_state_contract(command=command, description=description)
+def state_sync_failed(instrument_id: str, error: Exception) -> DriverRejected:
+    return DriverRejected(
+        problems=(
+            execution_problem(
+                "instrument_state_sync_failed",
+                f"could not synchronize state from {instrument_id}",
+                "driver_state_patch",
+                details={"exception_type": _exception_type(error)},
+            ),
+        )
+    )
 
 
-def validate_collect_command(
-    command: CollectCommand,
-    description: InstrumentDescription,
-) -> list[Problem]:
-    return validate_collect_contract(command=command, description=description)
-
-
-def not_applied(problems: Iterable[Problem]) -> ApplyReceipt:
-    return ApplyReceipt(status="not_applied", problems=tuple(problems))
-
-
-def apply_unknown(instrument_id: str, error: Exception) -> ApplyReceipt:
-    return ApplyReceipt(
-        status="unknown",
+def apply_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
+    return DriverUnknown(
         problems=(
             execution_problem(
                 "instrument_apply_outcome_unknown",
                 f"lost confirmation while applying state to {instrument_id} "
                 f"({type(error).__name__})",
-                "instrument_state_command",
+                "driver_state_patch",
                 details={"exception_type": _exception_type(error)},
             ),
         ),
     )
 
 
-def not_collected(problems: Iterable[Problem]) -> CollectReceipt:
-    return CollectReceipt(status="not_collected", problems=tuple(problems))
-
-
-def collect_unknown(instrument_id: str, error: Exception) -> CollectReceipt:
-    return CollectReceipt(
-        status="unknown",
+def collect_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
+    return DriverUnknown(
         problems=(
             execution_problem(
                 "instrument_collect_outcome_unknown",
                 f"lost readback while collecting from {instrument_id} "
                 f"({type(error).__name__})",
-                "collect_command",
+                "driver_acquisition",
                 details={"exception_type": _exception_type(error)},
             ),
         ),
@@ -212,6 +131,21 @@ def execution_problem(
         phase=ProblemPhase.EXECUTION,
         location=model_location(root, *path),
         details=details,
+    )
+
+
+def state_property_problem(
+    code: str,
+    message: str,
+    target: PropertyRef,
+) -> Problem:
+    return execution_problem(
+        code,
+        message,
+        "instrument_state",
+        target.interface_id,
+        *target.component_path,
+        target.property_id,
     )
 
 

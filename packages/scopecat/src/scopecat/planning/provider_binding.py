@@ -1,11 +1,10 @@
-"""Bind a configured instrument provider to host execution during planning."""
+"""Resolve and validate config-bound instrument contracts."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 
-from scopecat.execution.local.program import LocalOperation
+from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.program import RunHostBinding
 from scopecat.kernel.errors import ProviderContractError
@@ -16,39 +15,42 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    InstrumentSpec,
+    config_content_hash,
+    instrument_bindings,
+)
+from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
-    InstrumentProvider,
+    validate_reconciled_state_assignments,
+)
+from scopecat.sdk.instruments.provider import (
     InstrumentProviderContext,
+    InstrumentProviderDescription,
 )
 
 from .provider_validation import preflight_problem_from_exception
 
 
-@dataclass(frozen=True, slots=True)
-class InstrumentProviderPreflight:
-    """Pure provider ABI snapshot captured before host point lowering."""
-
-    provider_id: str
-    instrument_order: tuple[str, ...]
-    advertised_descriptions: dict[str, InstrumentDescription]
-    problems: tuple[Problem, ...]
-
-
-def preflight_instrument_provider(
+def resolve_instrument_contract_catalog(
     *,
     config: ConfigProfileSnapshot,
-    instrument_provider: InstrumentProvider,
-) -> InstrumentProviderPreflight:
-    """Describe and normalize the provider before point-local lowering."""
+    provider_id: str,
+    describe: Callable[
+        [InstrumentProviderContext],
+        InstrumentProviderDescription,
+    ],
+) -> InstrumentContractCatalog:
+    """Resolve one serializable provider contract without connecting hardware."""
 
     problems: list[Problem] = []
-    provider_id = instrument_provider.provider_id
 
     try:
-        description = instrument_provider.describe(
-            InstrumentProviderContext(config=config)
+        description = describe(
+            InstrumentProviderContext(bindings=instrument_bindings(config))
         )
     except Exception as error:
         problems.append(
@@ -59,7 +61,11 @@ def preflight_instrument_provider(
                 error,
             )
         )
-        raise ProviderContractError(problems) from error
+        return InstrumentContractCatalog(
+            config_content_hash=config_content_hash(config),
+            provider_id=provider_id,
+            problems=tuple(problems),
+        )
 
     problems.extend(description.problems)
     if description.provider_id != provider_id:
@@ -77,12 +83,10 @@ def preflight_instrument_provider(
             descriptions=description.instruments,
         )
     )
-    return InstrumentProviderPreflight(
+    return InstrumentContractCatalog(
+        config_content_hash=config_content_hash(config),
         provider_id=provider_id,
-        instrument_order=tuple(item.instrument_id for item in description.instruments),
-        advertised_descriptions={
-            item.instrument_id: item for item in description.instruments
-        },
+        instruments=description.instruments,
         problems=tuple(problems),
     )
 
@@ -110,9 +114,46 @@ def validate_run_host_binding(
             available_payloads={},
         )
     )
+    selected.extend(_payload_codec_problems(host, effect_blocks))
     if bool(selected):
         raise ProviderContractError(selected)
     return host
+
+
+def _payload_codec_problems(
+    host: RunHostBinding,
+    effect_blocks: Sequence[Sequence[LocalOperation]],
+) -> list[Problem]:
+    missing_schemas: set[str] = set()
+    problems: list[Problem] = []
+    for operations in effect_blocks:
+        for operation in operations:
+            if not isinstance(operation, ComputeOperation):
+                continue
+            slot = operation.payload_slot
+            if (
+                slot is None
+                or slot.schema_id in host.payload_codecs
+                or slot.schema_id in missing_schemas
+            ):
+                continue
+            missing_schemas.add(slot.schema_id)
+            problems.append(
+                problem(
+                    "payload_codec_missing",
+                    f"compute payload schema {slot.schema_id!r} "
+                    "has no registered codec",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location(
+                        "execution_program",
+                        "operations",
+                        operation.operation_id,
+                        "payload_slot",
+                        "schema_id",
+                    ),
+                )
+            )
+    return problems
 
 
 def _validate_described_instruments(
@@ -120,9 +161,12 @@ def _validate_described_instruments(
     config: ConfigProfileSnapshot,
     descriptions: tuple[InstrumentDescription, ...],
 ) -> list[Problem]:
-    configured_ids = {
-        instrument.id for instrument in config.instrument_registry.instruments
+    configured = {
+        instrument.id: (index, instrument)
+        for index, instrument in enumerate(config.instrument_registry.instruments)
     }
+    configured_ids = set(configured)
+    described_ids = {description.instrument_id for description in descriptions}
     problems: list[Problem] = []
     for description_index, description in enumerate(descriptions):
         if not description.instrument_id:
@@ -165,7 +209,85 @@ def _validate_described_instruments(
                     "instrument_id",
                 )
             )
+            continue
+        configured_item = configured.get(description.instrument_id)
+        if configured_item is not None:
+            config_index, instrument = configured_item
+            problems.extend(
+                _validate_default_state(
+                    instrument=instrument,
+                    config_index=config_index,
+                    description=description,
+                )
+            )
+    for instrument_id, (config_index, instrument) in configured.items():
+        if instrument.default_state and instrument_id not in described_ids:
+            problems.append(
+                problem(
+                    "instrument_default_state_description_missing",
+                    f"instrument {instrument_id} default state cannot be validated "
+                    "without an advertised description",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location(
+                        "config",
+                        "system",
+                        "instrument_registry",
+                        "instruments",
+                        config_index,
+                        "default_state",
+                    ),
+                )
+            )
     return problems
+
+
+def _validate_default_state(
+    *,
+    instrument: InstrumentSpec,
+    config_index: int,
+    description: InstrumentDescription,
+) -> list[Problem]:
+    if not instrument.default_state:
+        return []
+    assignments = [
+        InstrumentStateAssignment(
+            resource_id=instrument.id,
+            interface_id=item.interface_id,
+            component_path=list(item.component_path),
+            property_id=item.property_id,
+            value=item.value,
+        )
+        for item in instrument.default_state
+    ]
+    issues = validate_reconciled_state_assignments(
+        instrument_id=instrument.id,
+        assignments=assignments,
+        description=description,
+        require_explicit_state_case=True,
+    )
+    location = model_location(
+        "config",
+        "system",
+        "instrument_registry",
+        "instruments",
+        config_index,
+        "default_state",
+    )
+    normalized: list[Problem] = []
+    for issue in issues:
+        related_locations = issue.related_locations
+        if issue.location is not None:
+            related_locations = (issue.location, *related_locations)
+        normalized.append(
+            issue.model_copy(
+                update={
+                    "phase": ProblemPhase.PROVIDER_PREFLIGHT,
+                    "location": location,
+                    "related_locations": related_locations,
+                }
+            )
+        )
+    return normalized
 
 
 def _preflight_problem(

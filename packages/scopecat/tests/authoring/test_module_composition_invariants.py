@@ -20,7 +20,12 @@ from scopecat.compiler.semantic.model import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import template_fixture
+
+_MEASURE = InterfaceRef("test.measure/v1")
+_MEASURE_MODE = _MEASURE.property("mode")
+_MEASURE_SAMPLE_SIGNAL = _MEASURE.acquisition("sample").result("signal")
 
 _INSTANCE_IDS = (
     "alpha",
@@ -74,17 +79,20 @@ def _composable_module() -> sc.ExperimentModule[...]:
     )
     return (
         sc.module_body(id="test.composition-invariant.source")
-        .resource("source", requires=("measure",))
-        .bind_field(
+        .resource("source", requires=(_MEASURE,))
+        .bind_property(
             "source",
-            capability="measure",
-            field="mode",
+            _MEASURE_MODE,
             value="fast",
         )
         .computes(consume, produce)
         .export(payload=consume.output)
         .product("signal", unit="ratio")
-        .acquire("read-signal", "signal", resource="source", capability="measure")
+        .acquire(
+            "read-signal",
+            resource="source",
+            results={_MEASURE_SAMPLE_SIGNAL: "signal"},
+        )
         .build()
     )
 
@@ -150,9 +158,7 @@ def _normalized_signature(
         return (type(definition.source).__name__, definition.value_type)
 
     return (
-        tuple(
-            (port.id, port.selector.capabilities) for port in assembly.resource_ports
-        ),
+        tuple((port.id, port.selector.interfaces) for port in assembly.resource_ports),
         tuple(
             (
                 operation.id.local_id,
@@ -167,8 +173,8 @@ def _normalized_signature(
         tuple(
             (
                 resources[binding.port_id],
-                binding.capability_id,
-                binding.field_path,
+                binding.interface_id,
+                binding.property_id,
                 binding.value,
             )
             for binding in assembly.bindings

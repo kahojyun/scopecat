@@ -22,7 +22,7 @@ from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
     record_product,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumerKind,
@@ -166,7 +166,7 @@ def _symbolic_program() -> CoreProgram:
     selected_acquisition = instrument_acquisition(
         selected_product,
         id="read-signal",
-        capability="scalar_signal",
+        interface="test.scalar_signal/v1",
         metadata={"owner": "selected-producer"},
     )
     return CoreProgram(
@@ -176,7 +176,7 @@ def _symbolic_program() -> CoreProgram:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                capabilities=("scalar_signal",),
+                interfaces=("test.scalar_signal/v1",),
             ),
         ),
         effects=(selected_acquisition,),
@@ -242,14 +242,14 @@ def test_raw_link_retains_product_metadata_and_accepted_environment() -> None:
 
     for metadata in (
         program.product_defs[0].metadata,
-        acquisition.products[0].metadata,
+        acquisition.results[0].metadata,
         program.record_uses[0].metadata,
     ):
         with pytest.raises(TypeError, match="frozen mapping is immutable"):
             cast("dict[str, object]", metadata)["mutated-source"] = True
 
     assert linked.program.product_defs[0].metadata == {"owner": "selected"}
-    assert acquisition.products[0].metadata == {"owner": "selected-producer"}
+    assert acquisition.results[0].metadata == {"owner": "selected-producer"}
     assert linked.program.record_uses[0].metadata == {"owner": "record"}
 
 
@@ -378,14 +378,14 @@ def test_link_rejects_remaining_relation_input_imports() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                capabilities=("set_frequency",),
+                interfaces=("test.set_frequency/v1",),
             ),
         ),
         effects=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=logical_resource_port_id("source"),
-                capability_id="set_frequency",
-                field_path="value",
+                interface_id="test.set_frequency/v1",
+                property_id="value",
                 value=scalar_value_expr(
                     input_ref(input_id),
                     bindings=RelationTypeBindings(inputs={input_id: _FLOAT}),

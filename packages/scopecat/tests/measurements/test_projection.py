@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import UTC, datetime
+
 from scopecat.compiler.measurement_projection import (
     project_measurement_catalog,
     project_run_point_catalog,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.points import RunPoint
+from scopecat.measurements.products import ProductAxisDef
 from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
+)
+from scopecat.measurements.results import (
+    InstrumentAcquisitionEvidence,
+    MeasurementScalar,
 )
 from scopecat.measurements.values import (
     seal_measurement_values,
@@ -59,6 +69,49 @@ def test_projection_selects_only_the_linked_point_batch() -> None:
     )
 
 
+def test_dimension_identity_changes_catalog_and_projection_contracts() -> None:
+    scenario = measurement_assembly_scenario(use_count=2)
+    product = scenario.catalog.product_defs[0]
+    first_product = replace(
+        product,
+        axes=(
+            ProductAxisDef(
+                id="sample",
+                dimension_id="product/first/sample",
+                kind="sample",
+                size=2,
+            ),
+        ),
+    )
+    second_product = replace(
+        first_product,
+        axes=(
+            replace(
+                first_product.axes[0],
+                dimension_id="product/second/sample",
+            ),
+        ),
+    )
+    first_catalog = replace(
+        scenario.catalog,
+        product_defs=(first_product, *scenario.catalog.product_defs[1:]),
+    )
+    second_catalog = replace(
+        scenario.catalog,
+        product_defs=(second_product, *scenario.catalog.product_defs[1:]),
+    )
+
+    assert first_catalog.contract_fingerprint != second_catalog.contract_fingerprint
+    assert (
+        select_measurement_projection(
+            first_catalog, scenario.records
+        ).contract_fingerprint
+        != select_measurement_projection(
+            second_catalog, scenario.records
+        ).contract_fingerprint
+    )
+
+
 def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> None:
     scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)
@@ -78,6 +131,38 @@ def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> 
         assert record.observables["primary"] == record.observables["alias"]
 
 
+def test_record_coordinates_project_as_inner_coordinate_variables() -> None:
+    scenario, assembled = assembled_measurement_values_for_all_uses()
+    observable_projection = select_measurement_projection(
+        scenario.catalog,
+        scenario.records,
+    )
+    records = (
+        replace(scenario.records[0], role="coordinate"),
+        *scenario.records[1:],
+    )
+    projection = select_measurement_projection(scenario.catalog, records)
+
+    assert projection.contract_fingerprint != observable_projection.contract_fingerprint
+    projected = project_measurement_records(
+        projection,
+        assembled,
+        run_id="coordinate-product-run",
+        points=scenario.points,
+    )
+
+    assert projected.schema is not None
+    assert projected.schema.primary_coordinates == ["x", "primary"]
+    assert projected.schema.primary_observables == ["alias", "secondary"]
+    variables = {variable.id: variable for variable in projected.schema.variables}
+    assert variables["primary"].role == "coordinate"
+    assert variables["primary"].dims == ["point"]
+    for record in projected.records:
+        assert set(record.coordinates) == {"x", "primary"}
+        assert set(record.observables) == {"alias", "secondary"}
+        assert record.coordinates["primary"] == record.observables["alias"]
+
+
 def test_projection_filters_non_coordinate_point_values() -> None:
     scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)
@@ -90,8 +175,8 @@ def test_projection_filters_non_coordinate_point_values() -> None:
     )
 
     assert [record.coordinates for record in projected.records] == [
-        {"x": 0.0},
-        {"x": 1.0},
+        {"x": MeasurementScalar.create(dtype="float64", value=0.0)},
+        {"x": MeasurementScalar.create(dtype="float64", value=1.0)},
     ]
     assert all("opaque" not in record.coordinates for record in projected.records)
 
@@ -120,6 +205,48 @@ def test_record_metadata_changes_schema_not_product_value_assembly() -> None:
         "definition": 0,
         "projection": "alias",
     }
+    assert (
+        variables["primary"].source_product_id
+        == scenario.catalog.product_defs[0].id.qualified_name
+    )
+    assert (
+        variables["alias"].source_product_id == variables["primary"].source_product_id
+    )
+    assert variables["x"].source_product_id is None
+
+
+def test_projection_retains_acquisition_evidence_for_each_record_alias() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
+    candidates = list(measurement_value_candidates(scenario, scenario.uses))
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="collect-signal",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        component_path=("channel-1",),
+        acquisition_id="sample",
+        result_id="signal",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
+    candidates[0] = replace(candidates[0], evidence=evidence)
+    assembled = seal_measurement_values(
+        scenario.catalog,
+        candidates,
+        points=scenario.points,
+    )
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+
+    projected = project_measurement_records(
+        projection,
+        assembled,
+        run_id="acquisition-evidence-run",
+        points=scenario.points,
+    )
+
+    assert projected.records[0].acquisition_evidence == {
+        "primary": evidence,
+        "alias": evidence,
+    }
 
 
 def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> None:
@@ -137,8 +264,8 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
 
     assert [record.point_index for record in projected.records] == [0, 1]
     assert [record.coordinates for record in projected.records] == [
-        {"x": 4.0},
-        {"x": 4.0},
+        {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
+        {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
     ]
     assert (
         scenario.linked_points.point_domain.points[0].logical_id
@@ -166,10 +293,65 @@ def test_projection_emits_complete_run_records() -> None:
     record = projected.records[0]
     assert record.run_id == "complete-record-run"
     assert record.point_index == 0
-    assert record.coordinates == {"x": 0.0}
+    assert record.coordinates == {
+        "x": MeasurementScalar.create(dtype="float64", value=0.0)
+    }
     primary = record.observables["primary"]
-    assert isinstance(primary, Quantity)
+    assert isinstance(primary, MeasurementScalar)
+    assert primary.dtype == "float64"
+    assert primary.unit == "ratio"
     assert primary.value == 0.0
+
+
+def test_projection_normalizes_compiler_coordinates_to_measurement_scalars() -> None:
+    scenario, assembled = assembled_measurement_values_for_all_uses(point_values=(0.0,))
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+    original = scenario.points[0]
+    cases = (
+        (
+            Quantity(value=5.0, unit="GHz"),
+            MeasurementScalar.create(dtype="float64", unit="GHz", value=5.0),
+        ),
+        (
+            EntityRef(
+                id="q0",
+                kind="qubit",
+                metadata={"label": "readout"},
+            ),
+            MeasurementScalar.create(
+                dtype="string",
+                value="q0",
+                metadata={
+                    "entity": {
+                        "kind": "qubit",
+                        "metadata": {"label": "readout"},
+                    }
+                },
+            ),
+        ),
+        (
+            EntityRef(id="q0"),
+            MeasurementScalar.create(
+                dtype="string",
+                value="q0",
+                metadata={"entity": {}},
+            ),
+        ),
+        (True, MeasurementScalar.create(dtype="bool", value=True)),
+        (2, MeasurementScalar.create(dtype="int64", value=2)),
+        (2.5, MeasurementScalar.create(dtype="float64", value=2.5)),
+        ("high", MeasurementScalar.create(dtype="string", value="high")),
+    )
+
+    for source, expected in cases:
+        projected = project_measurement_records(
+            projection,
+            assembled,
+            run_id="coordinate-normalization-run",
+            points=(RunPoint(original.logical_id, {"x": source}),),
+        )
+
+        assert projected.records[0].coordinates == {"x": expected}
 
 
 def test_zero_points_and_no_record_projection_produce_no_measurement_records() -> None:

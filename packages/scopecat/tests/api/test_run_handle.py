@@ -10,30 +10,45 @@ from scopecat.authoring import (
     ExperimentTemplate,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.run import AnalysisCandidateRunConfigSource
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
 from tests.testkit.in_process_lab import in_process_lab
+from tests.testkit.instrument_host import compose_test_instruments
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
+_SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
+_SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")
+_SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
+_SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
+
 SIMPLE_FREQUENCY_SCAN = (
     authoring.module_body(id="test.session.simple_frequency_scan")
-    .resource("source", requires=("set_frequency", "scalar_signal"))
-    .bind_field(
+    .resource("source", requires=(_SET_FREQUENCY, _SCALAR_SIGNAL))
+    .bind_property(
         "source",
-        capability="set_frequency",
-        field="frequency",
+        _SET_FREQUENCY_VALUE,
         value=DRIVE_FREQUENCY_POINT,
     )
     .product("signal", unit="ratio")
     .acquire(
         "read-signal",
-        "signal",
         resource="source",
-        capability="scalar_signal",
+        results={_SCALAR_SIGNAL_VALUE: "signal"},
     )
     .build()
 )
+
+
+def _quantity_coordinate(record: MeasurementRecord, coordinate_id: str) -> Quantity:
+    value = record.coordinates[coordinate_id]
+    assert isinstance(value, MeasurementScalar)
+    assert value.dtype in {"float64", "int64"}
+    assert isinstance(value.value, int | float) and not isinstance(value.value, bool)
+    assert value.unit is not None
+    return Quantity(float(value.value), value.unit)
 
 
 def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
@@ -72,10 +87,16 @@ def simple_frequency_scan_template() -> ExperimentTemplate[...]:
 
 
 def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     lab = in_process_lab(
         tmp_path,
-        config=load_config(),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
 
     preview = lab.prepare(load_invocation()).preview()
@@ -87,10 +108,16 @@ def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
 def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     tmp_path: Path,
 ) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     lab = in_process_lab(
         tmp_path,
-        config=load_config(),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
     experiment = load_invocation()
 
@@ -103,7 +130,10 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
             "drive_frequency",
             sc.replace_scalar_parameter(
                 "drive_frequency",
-                raw.dataset.records[2].coordinates["drive_frequency"],
+                _quantity_coordinate(
+                    raw.dataset.records[2],
+                    "drive_frequency",
+                ),
             ),
             reason="manual notebook pick",
         )
@@ -129,10 +159,16 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
 def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     tmp_path: Path,
 ) -> None:
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     lab = in_process_lab(
         tmp_path,
-        config=load_config(),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
     experiment = load_invocation()
 
@@ -142,7 +178,10 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
         "drive_frequency",
         sc.replace_scalar_parameter(
             "drive_frequency",
-            raw.dataset.records[2].coordinates["drive_frequency"],
+            _quantity_coordinate(
+                raw.dataset.records[2],
+                "drive_frequency",
+            ),
         ),
         reason="manual center point",
     )

@@ -5,49 +5,82 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import (
-    ComplexQuantity,
+    ComplexComponents,
     MeasurementArray,
+    MeasurementScalar,
     MeasurementValue,
 )
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectCommand,
-    CollectReceipt,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverRejected,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentDescription,
-    InstrumentStateCommand,
 )
 
 from scopecat_instruments._support import (
     LinearSweepSettings,
     NetworkTrace,
     bool_value,
-    execution_problem,
     int_value,
-    not_applied,
-    not_collected,
     quantity_value,
-    state_field,
+    state_property_problem,
     string_value,
-    validate_collect_command,
-    validate_writable_command,
+    unsupported_invoke,
 )
-from scopecat_instruments.capabilities import (
-    DC_OUTPUT,
-    NETWORK_SWEEP,
-    RF_OUTPUT,
-    TEMPERATURE_READOUT,
-    dc_output_capability,
-    network_sweep_capability,
-    rf_output_capability,
-    temperature_readout_capability,
+from scopecat_instruments.driver_ids import (
+    VIRTUAL_DC_SOURCE,
+    VIRTUAL_RF_SOURCE,
+    VIRTUAL_TEMPERATURE_MONITOR,
+    VIRTUAL_VNA,
+)
+from scopecat_instruments.interfaces import (
+    dc_monitor_interface,
+    dc_source_interface,
+    network_sweep_interface,
+    rf_output_interface,
+    temperature_readout_interface,
+)
+from scopecat_instruments.members import (
+    DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
+    DC_MONITOR_VOLTAGE_RESULT,
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_PROTECTION,
+    DC_SOURCE_CURRENT_RANGE,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_PROTECTION,
+    DC_SOURCE_VOLTAGE_RANGE,
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_IF_BANDWIDTH,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER,
+    NETWORK_SWEEP_SOURCE_POWER,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
+    RF_OUTPUT_POWER,
+    RF_OUTPUT_REFERENCE_SOURCE,
+    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+    TEMPERATURE_READOUT_SCAN_CHANNEL,
+    TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
 from scopecat_instruments.virtual.world import VirtualLabWorld
 
 
 class VirtualRfSource:
-    implementation_id = "scopecat.virtual.rf_source"
+    implementation_id = VIRTUAL_RF_SOURCE
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
@@ -62,56 +95,50 @@ class VirtualRfSource:
             implementation_version=self.implementation_version,
             label="Virtual RF source",
             description="Deterministic CW RF source connected to a VirtualLabWorld.",
-            capabilities=[rf_output_capability()],
+            interfaces=[rf_output_interface()],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         with self.world.lock:
             source = self.world.rf_source(self.instrument_id)
-            fields = [
-                state_field(
-                    RF_OUTPUT,
-                    "frequency",
-                    Quantity(source.frequency_hz, "Hz"),
-                ),
-                state_field(
-                    RF_OUTPUT,
-                    "power",
-                    Quantity(source.power_dbm, "dBm"),
-                ),
-                state_field(RF_OUTPUT, "output_enabled", source.output_enabled),
-                state_field(
-                    RF_OUTPUT,
-                    "reference_source",
-                    source.reference_source,
-                ),
-            ]
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            fields=fields,
+            values = {
+                RF_OUTPUT_FREQUENCY: Quantity(source.frequency_hz, "Hz"),
+                RF_OUTPUT_POWER: Quantity(source.power_dbm, "dBm"),
+                RF_OUTPUT_ENABLED: source.output_enabled,
+                RF_OUTPUT_REFERENCE_SOURCE: source.reference_source,
+            }
+        return DriverState(
+            values=values,
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
-        for field in command.fields:
-            if field.field_path == "frequency":
-                self.set_frequency(quantity_value(field.value, "Hz"))
-            elif field.field_path == "power":
-                self.set_power(quantity_value(field.value, "dBm"))
-            elif field.field_path == "output_enabled":
-                self.set_output(bool_value(field.value))
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        for target, value in request.values.items():
+            if target == RF_OUTPUT_FREQUENCY:
+                self.set_frequency(quantity_value(value, "Hz"))
+            elif target == RF_OUTPUT_POWER:
+                self.set_power(quantity_value(value, "dBm"))
+            elif target == RF_OUTPUT_ENABLED:
+                self.set_output(bool_value(value))
             else:
-                self.set_reference_source(string_value(field.value))
-        return ApplyReceipt(status="applied", state=self.read_state())
+                self.set_reference_source(string_value(value))
+        return DriverSuccess(self.read_state())
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        return CollectReceipt(readback=InstrumentReadback())
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        return unsupported_invoke(request, self.instrument_id)
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        del request
+        return DriverSuccess(DriverReadback(values={}))
 
     def set_frequency(self, frequency_hz: float) -> None:
         with self.world.lock:
@@ -147,10 +174,7 @@ class VirtualRfSource:
         with self.world.lock:
             return self.world.rf_source(self.instrument_id).reference_source
 
-    def cleanup(self) -> None:
-        pass
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:
@@ -158,7 +182,7 @@ class VirtualRfSource:
 
 
 class VirtualDcSource:
-    implementation_id = "scopecat.virtual.dc_source"
+    implementation_id = VIRTUAL_DC_SOURCE
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
@@ -176,148 +200,203 @@ class VirtualDcSource:
                 "Voltage/current source whose active level contributes flux and "
                 "heating to the shared VirtualLabWorld."
             ),
-            capabilities=[dc_output_capability(monitor=True)],
+            interfaces=[dc_source_interface(), dc_monitor_interface()],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
             mode = source.source_mode
-            range_field = (
+            range_property = (
                 (
-                    "voltage_range",
+                    DC_SOURCE_VOLTAGE_RANGE,
                     Quantity(source.voltage_range_v, "V"),
                 )
                 if mode == "voltage"
                 else (
-                    "current_range",
+                    DC_SOURCE_CURRENT_RANGE,
                     Quantity(source.current_range_a, "A"),
                 )
             )
-            level_field = (
+            level_property = (
                 (
-                    "voltage_level",
+                    DC_SOURCE_VOLTAGE_LEVEL,
                     Quantity(source.voltage_level_v, "V"),
                 )
                 if mode == "voltage"
                 else (
-                    "current_level",
+                    DC_SOURCE_CURRENT_LEVEL,
                     Quantity(source.current_level_a, "A"),
                 )
             )
-            fields = [
-                state_field(DC_OUTPUT, "source_mode", mode),
-                state_field(DC_OUTPUT, range_field[0], range_field[1]),
-                state_field(DC_OUTPUT, level_field[0], level_field[1]),
-                state_field(
-                    DC_OUTPUT,
-                    "voltage_protection",
-                    Quantity(source.voltage_protection_v, "V"),
+            values = {
+                DC_SOURCE_MODE: mode,
+                range_property[0]: range_property[1],
+                level_property[0]: level_property[1],
+                DC_SOURCE_VOLTAGE_PROTECTION: Quantity(
+                    source.voltage_protection_v, "V"
                 ),
-                state_field(
-                    DC_OUTPUT,
-                    "current_protection",
-                    Quantity(source.current_protection_a, "A"),
+                DC_SOURCE_CURRENT_PROTECTION: Quantity(
+                    source.current_protection_a, "A"
                 ),
-                state_field(DC_OUTPUT, "output_enabled", source.output_enabled),
-            ]
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            fields=fields,
+                DC_SOURCE_OUTPUT_ENABLED: source.output_enabled,
+                DC_MONITOR_MEASUREMENT_ENABLED: source.measurement_enabled,
+                DC_MONITOR_INTEGRATION_CYCLES: source.integration_cycles,
+                DC_MONITOR_MEASUREMENT_DELAY: Quantity(source.measurement_delay_s, "s"),
+            }
+        return DriverState(
+            values=values,
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        fields = {field.field_path: field for field in command.fields}
-        if problems:
-            return not_applied(problems)
-        implied_modes = {
-            "voltage" for path in fields if path in {"voltage_range", "voltage_level"}
-        } | {"current" for path in fields if path in {"current_range", "current_level"}}
-        explicit_field = fields.get("source_mode")
-        explicit_mode = (
-            string_value(explicit_field.value) if explicit_field is not None else None
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        baseline = self.read_state()
+        properties = request.values
+        baseline_properties = baseline.values
+        current_mode = string_value(baseline_properties[DC_SOURCE_MODE])
+        current_output = bool_value(baseline_properties[DC_SOURCE_OUTPUT_ENABLED])
+        mode_property = properties.get(DC_SOURCE_MODE)
+        target_mode = (
+            string_value(mode_property) if mode_property is not None else current_mode
         )
-        if len(implied_modes) > 1 or (
-            explicit_mode is not None
-            and implied_modes
-            and explicit_mode not in implied_modes
-        ):
-            problems.append(
-                execution_problem(
-                    "virtual_dc_conflicting_source_modes",
-                    "one command cannot mix voltage and current source fields",
-                    "instrument_state_command",
-                    "fields",
+        output_property = properties.get(DC_SOURCE_OUTPUT_ENABLED)
+        target_output = (
+            bool_value(output_property)
+            if output_property is not None
+            else current_output
+        )
+        changes_source_state = target_mode != current_mode or bool(
+            {
+                DC_SOURCE_VOLTAGE_RANGE,
+                DC_SOURCE_CURRENT_RANGE,
+                DC_SOURCE_VOLTAGE_LEVEL,
+                DC_SOURCE_CURRENT_LEVEL,
+            }
+            & properties.keys()
+        )
+        disabled_for_update = current_output and (
+            not target_output or changes_source_state
+        )
+        if disabled_for_update:
+            self.set_output(False)
+        if target_mode != current_mode:
+            self.set_source_mode(target_mode)
+        if DC_SOURCE_VOLTAGE_RANGE in properties:
+            self.set_voltage_range(
+                quantity_value(properties[DC_SOURCE_VOLTAGE_RANGE], "V")
+            )
+        if DC_SOURCE_CURRENT_RANGE in properties:
+            self.set_current_range(
+                quantity_value(properties[DC_SOURCE_CURRENT_RANGE], "A")
+            )
+        if DC_SOURCE_VOLTAGE_PROTECTION in properties:
+            self.set_voltage_protection(
+                quantity_value(
+                    properties[DC_SOURCE_VOLTAGE_PROTECTION],
+                    "V",
                 )
             )
-        if problems:
-            return not_applied(problems)
-        mode = explicit_mode or next(iter(implied_modes), None)
-        output_field = fields.get("output_enabled")
-        target_output = (
-            bool_value(output_field.value) if output_field is not None else None
-        )
-        if target_output is False:
-            self.set_output(False)
-        if mode is not None:
-            self.set_source_mode(mode)
-        if "voltage_range" in fields:
-            self.set_voltage_range(quantity_value(fields["voltage_range"].value, "V"))
-        if "current_range" in fields:
-            self.set_current_range(quantity_value(fields["current_range"].value, "A"))
-        if "voltage_level" in fields:
-            self.set_voltage_level(quantity_value(fields["voltage_level"].value, "V"))
-        if "current_level" in fields:
-            self.set_current_level(quantity_value(fields["current_level"].value, "A"))
-        if "voltage_protection" in fields:
-            self.set_voltage_protection(
-                quantity_value(fields["voltage_protection"].value, "V")
-            )
-        if "current_protection" in fields:
+        if DC_SOURCE_CURRENT_PROTECTION in properties:
             self.set_current_protection(
-                quantity_value(fields["current_protection"].value, "A")
+                quantity_value(
+                    properties[DC_SOURCE_CURRENT_PROTECTION],
+                    "A",
+                )
             )
-        if target_output is True:
-            self.set_output(True)
-        return ApplyReceipt(status="applied", state=self.read_state())
+        if DC_SOURCE_VOLTAGE_LEVEL in properties:
+            self.set_voltage_level(
+                quantity_value(properties[DC_SOURCE_VOLTAGE_LEVEL], "V")
+            )
+        if DC_SOURCE_CURRENT_LEVEL in properties:
+            self.set_current_level(
+                quantity_value(properties[DC_SOURCE_CURRENT_LEVEL], "A")
+            )
+        if DC_MONITOR_MEASUREMENT_ENABLED in properties:
+            self.set_measurement_enabled(
+                bool_value(properties[DC_MONITOR_MEASUREMENT_ENABLED])
+            )
+        if DC_MONITOR_INTEGRATION_CYCLES in properties:
+            self.set_integration_cycles(
+                int_value(properties[DC_MONITOR_INTEGRATION_CYCLES])
+            )
+        if DC_MONITOR_MEASUREMENT_DELAY in properties:
+            self.set_measurement_delay(
+                quantity_value(properties[DC_MONITOR_MEASUREMENT_DELAY], "s")
+            )
+        effective_output = False if disabled_for_update else current_output
+        if target_output != effective_output:
+            self.set_output(target_output)
+        return DriverSuccess(self.read_state())
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        return unsupported_invoke(request, self.instrument_id)
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         with self.world.lock:
             source = self.world.dc_source(self.instrument_id)
-            product_id = (
-                "monitored_current"
+            if not source.output_enabled:
+                return DriverRejected(
+                    problems=(
+                        state_property_problem(
+                            "virtual_dc_monitor_output_disabled",
+                            "DC source output is disabled",
+                            DC_SOURCE_OUTPUT_ENABLED,
+                        ),
+                    )
+                )
+            if not source.measurement_enabled:
+                return DriverRejected(
+                    problems=(
+                        state_property_problem(
+                            "virtual_dc_monitor_disabled",
+                            "DC monitor measurement is disabled",
+                            DC_MONITOR_MEASUREMENT_ENABLED,
+                        ),
+                    )
+                )
+            active_result = (
+                DC_MONITOR_CURRENT_RESULT
                 if source.source_mode == "voltage"
-                else "monitored_voltage"
+                else DC_MONITOR_VOLTAGE_RESULT
             )
-            requested_ids = {request.id for request in command.requests}
-            if requested_ids != {product_id}:
-                return not_collected(
-                    [
-                        execution_problem(
-                            "virtual_dc_monitor_product_inactive",
-                            f"{source.source_mode} mode provides only {product_id}",
-                            "collect_command",
-                            "requests",
-                        )
-                    ]
+            if request.results != frozenset({active_result}):
+                return DriverRejected(
+                    problems=(
+                        state_property_problem(
+                            "virtual_dc_monitor_result_inactive",
+                            f"{source.source_mode} mode provides only "
+                            f"{active_result.result_id}",
+                            DC_SOURCE_MODE,
+                        ),
+                    )
                 )
             measured = (
-                Quantity(source.voltage_level_v / 1.0e3, "A")
+                MeasurementScalar.create(
+                    dtype="float64",
+                    unit="A",
+                    value=source.voltage_level_v / 1.0e3,
+                )
                 if source.source_mode == "voltage"
-                else Quantity(source.current_level_a * 1.0e3, "V")
+                else MeasurementScalar.create(
+                    dtype="float64",
+                    unit="V",
+                    value=source.current_level_a * 1.0e3,
+                )
             )
-        return CollectReceipt(
-            readback=InstrumentReadback(
-                values={product_id: measured},
+        return DriverSuccess(
+            DriverReadback(
+                values=dict.fromkeys(request.results, measured),
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
-            )
+            ),
         )
 
     def set_source_mode(self, mode: str) -> None:
@@ -332,27 +411,19 @@ class VirtualDcSource:
 
     def set_voltage_range(self, value_v: float) -> None:
         with self.world.lock:
-            source = self.world.dc_source(self.instrument_id)
-            source.source_mode = "voltage"
-            source.voltage_range_v = value_v
+            self.world.dc_source(self.instrument_id).voltage_range_v = value_v
 
     def set_current_range(self, value_a: float) -> None:
         with self.world.lock:
-            source = self.world.dc_source(self.instrument_id)
-            source.source_mode = "current"
-            source.current_range_a = value_a
+            self.world.dc_source(self.instrument_id).current_range_a = value_a
 
     def set_voltage_level(self, value_v: float) -> None:
         with self.world.lock:
-            source = self.world.dc_source(self.instrument_id)
-            source.source_mode = "voltage"
-            source.voltage_level_v = value_v
+            self.world.dc_source(self.instrument_id).voltage_level_v = value_v
 
     def set_current_level(self, value_a: float) -> None:
         with self.world.lock:
-            source = self.world.dc_source(self.instrument_id)
-            source.source_mode = "current"
-            source.current_level_a = value_a
+            self.world.dc_source(self.instrument_id).current_level_a = value_a
 
     def set_voltage_protection(self, value_v: float) -> None:
         with self.world.lock:
@@ -370,10 +441,19 @@ class VirtualDcSource:
         with self.world.lock:
             return self.world.dc_source(self.instrument_id).output_enabled
 
-    def cleanup(self) -> None:
-        pass
+    def set_measurement_enabled(self, enabled: bool) -> None:
+        with self.world.lock:
+            self.world.dc_source(self.instrument_id).measurement_enabled = enabled
 
-    def close(self) -> None:
+    def set_integration_cycles(self, cycles: int) -> None:
+        with self.world.lock:
+            self.world.dc_source(self.instrument_id).integration_cycles = cycles
+
+    def set_measurement_delay(self, delay_s: float) -> None:
+        with self.world.lock:
+            self.world.dc_source(self.instrument_id).measurement_delay_s = delay_s
+
+    def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:
@@ -381,19 +461,15 @@ class VirtualDcSource:
 
 
 @dataclass(frozen=True)
-class VirtualTemperatureTelemetry:
+class _VirtualTemperatureSample:
     scan_channel: int
     autoscan_enabled: bool
     temperature_k: float
     resistance_ohm: float
-    reading_status: int
-    heater_output: float
-    heater_range: int
-    heater_status: int
 
 
 class VirtualTemperatureMonitor:
-    implementation_id = "scopecat.virtual.temperature_monitor"
+    implementation_id = VIRTUAL_TEMPERATURE_MONITOR
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
@@ -408,108 +484,77 @@ class VirtualTemperatureMonitor:
             implementation_version=self.implementation_version,
             label="Virtual temperature monitor",
             description="Read-only cryogenic telemetry from a VirtualLabWorld.",
-            capabilities=[temperature_readout_capability()],
+            interfaces=[temperature_readout_interface()],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
-        telemetry = self.read_telemetry()
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            fields=[
-                state_field(
-                    TEMPERATURE_READOUT,
-                    "scan_channel",
-                    telemetry.scan_channel,
-                ),
-                state_field(
-                    TEMPERATURE_READOUT,
-                    "autoscan_enabled",
-                    telemetry.autoscan_enabled,
-                ),
-                state_field(
-                    TEMPERATURE_READOUT,
-                    "temperature",
-                    Quantity(telemetry.temperature_k, "K"),
-                ),
-                state_field(
-                    TEMPERATURE_READOUT,
-                    "resistance",
-                    Quantity(telemetry.resistance_ohm, "Ohm"),
-                ),
-                state_field(
-                    TEMPERATURE_READOUT,
-                    "reading_status",
-                    telemetry.reading_status,
-                ),
-                state_field(
-                    TEMPERATURE_READOUT,
-                    "heater_output",
-                    telemetry.heater_output,
-                ),
-                state_field(
-                    TEMPERATURE_READOUT,
-                    "heater_range",
-                    telemetry.heater_range,
-                ),
-                state_field(
-                    TEMPERATURE_READOUT,
-                    "heater_status",
-                    telemetry.heater_status,
-                ),
-            ],
-            metadata={"mode": "virtual", "world_seed": self.world.seed},
-        )
-
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
-        return ApplyReceipt(status="applied", state=self.read_state())
-
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
-        telemetry = self.read_telemetry()
-        return CollectReceipt(
-            readback=InstrumentReadback(
+    def read_state(self) -> DriverState:
+        with self.world.lock:
+            state = self.world.temperature_monitor(self.instrument_id)
+            return DriverState(
                 values={
-                    request.id: (
-                        Quantity(telemetry.temperature_k, "K")
-                        if request.id == "temperature"
-                        else Quantity(telemetry.resistance_ohm, "Ohm")
+                    TEMPERATURE_READOUT_SCAN_CHANNEL: state.scan_channel,
+                    TEMPERATURE_READOUT_AUTOSCAN_ENABLED: state.autoscan_enabled,
+                },
+                metadata={"mode": "virtual", "world_seed": self.world.seed},
+            )
+
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        del request
+        return DriverSuccess(self.read_state())
+
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        return unsupported_invoke(request, self.instrument_id)
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        sample = self.read_sample()
+        return DriverSuccess(
+            DriverReadback(
+                values={
+                    result: (
+                        MeasurementScalar.create(
+                            dtype="float64",
+                            unit="K",
+                            value=sample.temperature_k,
+                        )
+                        if result == TEMPERATURE_READOUT_TEMPERATURE_RESULT
+                        else MeasurementScalar.create(
+                            dtype="float64",
+                            unit="Ohm",
+                            value=sample.resistance_ohm,
+                        )
                     )
-                    for request in command.requests
+                    for result in request.results
                 },
                 metadata={
                     "mode": "virtual",
                     "world_seed": self.world.seed,
-                    "scan_channel": telemetry.scan_channel,
-                    "reading_status": telemetry.reading_status,
+                    "scan_channel": sample.scan_channel,
+                    "autoscan_enabled": sample.autoscan_enabled,
+                    "reading_status": 0,
                 },
-            )
+            ),
         )
 
-    def read_telemetry(self) -> VirtualTemperatureTelemetry:
+    def read_sample(self) -> _VirtualTemperatureSample:
         with self.world.lock:
             state = self.world.temperature_monitor(self.instrument_id)
-            return VirtualTemperatureTelemetry(
+            return _VirtualTemperatureSample(
                 scan_channel=state.scan_channel,
                 autoscan_enabled=state.autoscan_enabled,
                 temperature_k=self.world.temperature_k(),
                 resistance_ohm=self.world.sensor_resistance_ohm(),
-                reading_status=state.reading_status,
-                heater_output=state.heater_output,
-                heater_range=state.heater_range,
-                heater_status=state.heater_status,
             )
 
-    def cleanup(self) -> None:
-        pass
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:
@@ -517,7 +562,7 @@ class VirtualTemperatureMonitor:
 
 
 class VirtualNetworkAnalyzer:
-    implementation_id = "scopecat.virtual.vna"
+    implementation_id = VIRTUAL_VNA
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: VirtualLabWorld) -> None:
@@ -535,103 +580,98 @@ class VirtualNetworkAnalyzer:
                 "Deterministic complex notch response whose resonance and linewidth "
                 "follow shared flux and temperature state."
             ),
-            capabilities=[network_sweep_capability()],
+            interfaces=[network_sweep_interface()],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         settings = self.sweep_settings()
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            fields=[
-                state_field(
-                    NETWORK_SWEEP,
-                    "start_frequency",
-                    Quantity(settings.start_frequency_hz, "Hz"),
+        return DriverState(
+            values={
+                NETWORK_SWEEP_START_FREQUENCY: Quantity(
+                    settings.start_frequency_hz, "Hz"
                 ),
-                state_field(
-                    NETWORK_SWEEP,
-                    "stop_frequency",
-                    Quantity(settings.stop_frequency_hz, "Hz"),
+                NETWORK_SWEEP_STOP_FREQUENCY: Quantity(
+                    settings.stop_frequency_hz, "Hz"
                 ),
-                state_field(NETWORK_SWEEP, "points", settings.points),
-                state_field(
-                    NETWORK_SWEEP,
-                    "if_bandwidth",
-                    Quantity(settings.if_bandwidth_hz, "Hz"),
-                ),
-                state_field(
-                    NETWORK_SWEEP,
-                    "source_power",
-                    Quantity(settings.source_power_dbm, "dBm"),
-                ),
-                state_field(
-                    NETWORK_SWEEP,
-                    "s_parameter",
-                    settings.s_parameter,
-                ),
-            ],
+                NETWORK_SWEEP_POINTS: settings.points,
+                NETWORK_SWEEP_IF_BANDWIDTH: Quantity(settings.if_bandwidth_hz, "Hz"),
+                NETWORK_SWEEP_SOURCE_POWER: Quantity(settings.source_power_dbm, "dBm"),
+                NETWORK_SWEEP_S_PARAMETER: settings.s_parameter,
+            },
             metadata={"mode": "virtual", "world_seed": self.world.seed},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         with self.world.lock:
             state = self.world.vna(self.instrument_id)
-            for field in command.fields:
-                if field.field_path == "start_frequency":
-                    state.start_frequency_hz = quantity_value(field.value, "Hz")
-                elif field.field_path == "stop_frequency":
-                    state.stop_frequency_hz = quantity_value(field.value, "Hz")
-                elif field.field_path == "points":
-                    state.points = int_value(field.value)
-                elif field.field_path == "if_bandwidth":
-                    state.if_bandwidth_hz = quantity_value(field.value, "Hz")
-                elif field.field_path == "source_power":
-                    state.source_power_dbm = quantity_value(field.value, "dBm")
+            for target, value in request.values.items():
+                if target == NETWORK_SWEEP_START_FREQUENCY:
+                    state.start_frequency_hz = quantity_value(
+                        value,
+                        "Hz",
+                    )
+                elif target == NETWORK_SWEEP_STOP_FREQUENCY:
+                    state.stop_frequency_hz = quantity_value(
+                        value,
+                        "Hz",
+                    )
+                elif target == NETWORK_SWEEP_POINTS:
+                    state.points = int_value(value)
+                elif target == NETWORK_SWEEP_IF_BANDWIDTH:
+                    state.if_bandwidth_hz = quantity_value(
+                        value,
+                        "Hz",
+                    )
+                elif target == NETWORK_SWEEP_SOURCE_POWER:
+                    state.source_power_dbm = quantity_value(
+                        value,
+                        "dBm",
+                    )
                 else:
-                    state.s_parameter = string_value(field.value)
-        return ApplyReceipt(status="applied", state=self.read_state())
+                    state.s_parameter = string_value(value)
+        return DriverSuccess(self.read_state())
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        return unsupported_invoke(request, self.instrument_id)
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         trace = self.acquire_trace()
-        values: dict[str, MeasurementValue] = {}
-        for request in command.requests:
-            if request.id == "frequency":
-                values[request.id] = MeasurementArray(
+        values: dict[AcquisitionResultRef, MeasurementValue] = {}
+        for result in request.results:
+            if result == NETWORK_SWEEP_FREQUENCY_RESULT:
+                values[result] = MeasurementArray.create(
                     dtype="float64",
                     unit="Hz",
                     shape=[len(trace.frequencies_hz)],
-                    values=[
-                        Quantity(frequency_hz, "Hz")
-                        for frequency_hz in trace.frequencies_hz
-                    ],
+                    values=trace.frequencies_hz,
                 )
             else:
-                values[request.id] = MeasurementArray(
+                values[result] = MeasurementArray.create(
                     dtype="complex128",
                     unit="ratio",
                     shape=[len(trace.values)],
                     values=[
-                        ComplexQuantity(
+                        ComplexComponents(
                             real=value.real,
                             imag=value.imag,
-                            unit="ratio",
                         )
                         for value in trace.values
                     ],
                 )
-        return CollectReceipt(
-            readback=InstrumentReadback(
+        return DriverSuccess(
+            DriverReadback(
                 values=values,
                 metadata={"mode": "virtual", "world_seed": self.world.seed},
-            )
+            ),
         )
 
     def configure_linear_sweep(self, settings: LinearSweepSettings) -> None:
@@ -674,10 +714,7 @@ class VirtualNetworkAnalyzer:
         self.single_trigger()
         return self.read_trace_ascii()
 
-    def cleanup(self) -> None:
-        pass
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         pass
 
     def abort(self) -> None:
@@ -689,5 +726,4 @@ __all__ = [
     "VirtualNetworkAnalyzer",
     "VirtualRfSource",
     "VirtualTemperatureMonitor",
-    "VirtualTemperatureTelemetry",
 ]

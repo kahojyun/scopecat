@@ -53,7 +53,7 @@ describe("ConfigWorkspace", () => {
       activation: activation(2, "baseline", "sha256:baseline"),
       activation_history: [
         activation(2, "baseline", "sha256:baseline", "calibrated"),
-        activation(1, "calibrated", "sha256:calibrated"),
+        activation(1, "calibrated", "sha256:calibrated", undefined, "inventory_migration"),
       ],
       entries: [
         configEntry("baseline", "sha256:baseline"),
@@ -87,6 +87,7 @@ describe("ConfigWorkspace", () => {
     expect(await screen.findByText("Direct configuration profile")).toBeInTheDocument();
     expect(screen.getByText("Saved from one complete config snapshot.")).toBeInTheDocument();
     expect(screen.queryByText(/application-provided/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Inventory migration")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /calibrated.*direct profile/i }));
     fireEvent.click(await screen.findByRole("button", { name: "Set as default" }));
@@ -344,10 +345,11 @@ function activation(
   entryId: string,
   entryContentHash: string,
   previousEntryId?: string,
+  action: "activation" | "inventory_migration" | "undo" = "activation",
 ) {
   return {
     generation,
-    action: "activation" as const,
+    action,
     entry_id: entryId,
     entry_content_hash: entryContentHash,
     previous_entry_id: previousEntryId,

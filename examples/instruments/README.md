@@ -2,7 +2,7 @@
 
 This project is a hardware-free tour of both direct instrument control and a
 complete measurement workflow. Its RF source, DC source, temperature monitor,
-and VNA use the same capability contracts as the first-party real drivers. They
+and VNA use the same interface contracts as the first-party real drivers. They
 share one deterministic virtual world, so enabled bias and RF power affect
 temperature and the VNA response.
 
@@ -22,7 +22,9 @@ uv run scopecat open examples/instruments
 Open **Instruments**, choose a device, and explicitly connect it. Changes stay
 staged until **Apply staged** is selected. The daemon owns the exclusive
 session until disconnect. A later GUI client can disconnect a session left by
-a closed browser.
+a closed browser. The **Add instrument** and **Configure device** actions use
+the registered driver catalog; test a candidate connection before publishing
+its connection, options, and startup defaults.
 
 ## Try the notebook API
 
@@ -54,11 +56,11 @@ creates a reviewable configuration proposal for
 does not accept that proposal automatically.
 
 The experiment declares only the logical resources `flux-source`,
-`mixing-chamber`, and `readout-vna` plus their capabilities. It has no driver or
+`mixing-chamber`, and `readout-vna` plus their interfaces. It has no driver or
 vendor imports, so the same experiment can be routed to compatible real
 instruments. The intended path explicitly disables the flux output after each
-acquisition. The demo provider also enforces bias-off during cleanup or abort,
-which covers an acquisition failure before the final experiment effect runs.
+acquisition. The demo provider also enforces bias-off during abort, which covers
+an acquisition failure before the final experiment effect runs.
 
 Run the example-level checks with:
 
@@ -68,7 +70,6 @@ uv run ruff check examples/instruments
 uv run basedpyright examples/instruments
 ```
 
-Connection edits in the GUI publish a new immutable configuration revision.
-The four defaults use `virtual` connections; change one to a supported real
-driver and `tcpip_socket` address only when the corresponding hardware is safe
-to operate.
+Instrument configuration changes publish a new immutable revision. The four
+defaults use `virtual` connections; select a supported real driver and
+`tcpip_socket` address only when the corresponding hardware is safe to operate.

@@ -1,8 +1,8 @@
 import type {
-  ControlRun,
   DaemonUiApi,
   DurableEvent,
   RunContentEntry,
+  RunControlView,
   RunManifest,
   RunResourceView,
 } from "./api-contract";
@@ -14,9 +14,9 @@ import type {
   ProjectRun,
   ProjectRunPage,
   PresentationRunStatus,
-  ResourceClaim,
   RunAnalysis,
   RunContentPreview,
+  RunResource,
 } from "./types";
 
 const API = {
@@ -25,7 +25,8 @@ const API = {
   events: "/api/v1/events?limit=500&latest=true",
 } as const;
 
-type AdmissionResource = ControlRun["admission"]["plan"]["run_resource_claims"][number];
+type RunResourceRequirement =
+  RunControlView["admission"]["plan"]["run_resource_requirements"][number];
 
 export class ApiError extends Error {
   constructor(
@@ -239,7 +240,7 @@ function normalizeEvents(response: DaemonUiApi["eventPage"]): ProjectEvent[] {
 }
 
 function normalizeRun(
-  control: ControlRun,
+  control: RunControlView,
   manifest: RunManifest,
   detailResources?: RunResourceView[],
 ): ProjectRun {
@@ -267,7 +268,7 @@ function normalizeRun(
     resources:
       detailResources !== undefined
         ? detailResources.map(normalizeRunResource)
-        : (plan.run_resource_claims ?? []).map(normalizeResourceClaim),
+        : (plan.run_resource_requirements ?? []).map(normalizeResourceRequirement),
     contents: manifest.contents.map(normalizeContentEntry),
   };
 }
@@ -282,14 +283,14 @@ function normalizeEvent(event: DurableEvent): ProjectEvent {
   };
 }
 
-function normalizeResourceClaim(resource: AdmissionResource): ResourceClaim {
+function normalizeResourceRequirement(resource: RunResourceRequirement): RunResource {
   return {
     id: resource.id,
     kind: resource.kind ?? "instrument",
   };
 }
 
-function normalizeRunResource(resource: RunResourceView): ResourceClaim {
+function normalizeRunResource(resource: RunResourceView): RunResource {
   return {
     id: resource.resource.id,
     kind: resource.resource.kind ?? "instrument",
@@ -332,7 +333,7 @@ function artifactFormat(entry: ContentEntry): RunContentPreview["format"] | unde
   return undefined;
 }
 
-function normalizeStatus(control: ControlRun, manifest: RunManifest): PresentationRunStatus {
+function normalizeStatus(control: RunControlView, manifest: RunManifest): PresentationRunStatus {
   if (control.state === "attention_required") {
     return "attention_required";
   }

@@ -36,6 +36,8 @@ def test_scalar_types_coerce_literals_and_apply_constraints() -> None:
         coerce_literal(integer, True)
     with pytest.raises(ValueValidationError, match="expected a finite float"):
         coerce_literal(floating, float("inf"))
+    with pytest.raises(ValueValidationError, match="expected a finite float"):
+        coerce_literal(floating, 10**309)
 
 
 def test_value_shapes_reject_null() -> None:
@@ -75,6 +77,8 @@ def test_quantity_coercion_normalizes_units_and_validates_dimension() -> None:
 
     with pytest.raises(ValueValidationError, match="dimension 'frequency'"):
         coerce_literal(frequency, QuantityValue(value=5.0, unit="ns"))
+    with pytest.raises(ValueValidationError, match="expected a finite quantity"):
+        coerce_literal(frequency, 10**309)
 
 
 def test_entity_coercion_applies_domain_kind_constraint() -> None:

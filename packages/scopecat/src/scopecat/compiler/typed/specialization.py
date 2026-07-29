@@ -17,6 +17,7 @@ from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     verify_scalar_value_expr,
 )
+from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import (
     parameter_cell_bindings,
 )
@@ -114,6 +115,13 @@ def _live_compute_nodes(program: CoreProgram) -> tuple[TypedComputeNode, ...]:
         if isinstance(effect, SetStateSpec)
         and isinstance(effect.value_use, ComputeResultRef)
     }
+    demanded.update(
+        argument.value_use.value_id
+        for effect in program.effects
+        if isinstance(effect, InvokeEffect)
+        for argument in effect.arguments
+        if isinstance(argument.value_use, ComputeResultRef)
+    )
 
     owners = {node.result.id: node for node in program.compute_nodes}
     live_ids: set[OperationId] = set()
@@ -223,6 +231,21 @@ def _specialize_effect(
                 )
                 for name, value in effect.compiler_inputs.items()
             },
+        )
+    if isinstance(effect, InvokeEffect):
+        return replace(
+            effect,
+            arguments=tuple(
+                replace(
+                    argument,
+                    value_use=_specialize_value_use(
+                        argument.value_use,
+                        known=known,
+                        parameter_cells=parameter_cells,
+                    ),
+                )
+                for argument in effect.arguments
+            ),
         )
     return _specialize_state(
         effect,

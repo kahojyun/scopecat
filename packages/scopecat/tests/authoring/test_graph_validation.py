@@ -33,7 +33,14 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
+
+_PLAY_WAVEFORMS = InterfaceRef("test.play_waveforms/v1")
+_PLAY_WAVEFORMS_PLAY = _PLAY_WAVEFORMS.operation("play")
+_PLAY_WAVEFORMS_PROGRAM = _PLAY_WAVEFORMS_PLAY.argument("program")
+_SET_GAIN = InterfaceRef("test.set_gain/v1")
+_SET_GAIN_VALUE = _SET_GAIN.property("value")
 
 
 def _resolve(module: sc.ExperimentModule[...]) -> None:
@@ -77,7 +84,7 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
     assert error.value.problems[0].code == "module_compute_foreign_definition"
 
 
-def test_state_rejects_an_unregistered_compute_output() -> None:
+def test_invocation_rejects_an_unregistered_compute_output() -> None:
     missing = sc.compute(
         "missing-program",
         fn=lambda: {"program": True},
@@ -85,13 +92,13 @@ def test_state_rejects_an_unregistered_compute_output() -> None:
     )
     with pytest.raises(CheckFailed) as error:
         (
-            sc.module_body(id="test.graph.state-missing")
-            .resource("drive", requires=("play_waveforms",))
-            .bind_field(
-                "drive",
-                capability="play_waveforms",
-                field="program",
-                value=missing.output,
+            sc.module_body(id="test.graph.invocation-missing")
+            .resource("drive", requires=(_PLAY_WAVEFORMS,))
+            .invoke(
+                "play",
+                resource="drive",
+                operation=_PLAY_WAVEFORMS_PLAY,
+                arguments={_PLAY_WAVEFORMS_PROGRAM: missing.output},
             )
             .build()
         )
@@ -107,12 +114,11 @@ def test_state_rejects_a_non_payload_compute_output() -> None:
     )
     module = (
         sc.module_body(id="test.graph.state-type")
-        .resource("drive", requires=("set_gain",))
+        .resource("drive", requires=(_SET_GAIN,))
         .computes(compute_value)
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="set_gain",
-            field="value",
+            _SET_GAIN_VALUE,
             value=compute_value.output,
         )
         .build()
@@ -136,11 +142,10 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
         (
             sc.module_body(id="test.graph.table-state-binding")
             .inputs(rows)
-            .resource("drive", requires=("set_gain",))
-            .bind_field(
+            .resource("drive", requires=(_SET_GAIN,))
+            .bind_property(
                 "drive",
-                capability="set_gain",
-                field="value",
+                _SET_GAIN_VALUE,
                 value=rows,
             )
         )
@@ -185,6 +190,27 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
     assert error.value.problems[0].location == model_location(
         "products", "signal", "axes"
     )
+
+
+def test_product_rejects_duplicate_effective_dimensions() -> None:
+    module = (
+        sc.module_body(id="test.graph.duplicate-dimension")
+        .product(
+            "signal",
+            axes=(
+                sc.product_axis("i", size=2, shared_as="sample"),
+                sc.product_axis("q", size=2, shared_as="sample"),
+            ),
+        )
+        .build()
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        _resolve(module)
+
+    assert [problem.code for problem in error.value.problems] == [
+        "product_axis_dimension_duplicate"
+    ]
 
 
 def test_resource_selector_rejects_external_operation_value() -> None:

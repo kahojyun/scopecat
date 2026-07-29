@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict
 
 from scopecat.kernel.json_types import JsonValue
-from scopecat.measurements.results import MeasurementDataset
+from scopecat.measurements.results import (
+    MeasurementDataset,
+    Trace,
+    measurement_traces,
+)
 from scopecat.records.artifact import RunContentEntry
 
 
@@ -42,3 +46,15 @@ class RunArtifactBytesResult:
 class RunMeasurementDatasetResult(_RunDataResult):
     dataset_entry: RunContentEntry
     dataset: MeasurementDataset
+
+    def traces(
+        self,
+        *,
+        coordinate: str,
+        observable: str,
+    ) -> tuple[Trace, ...]:
+        return measurement_traces(
+            self.dataset,
+            coordinate=coordinate,
+            observable=observable,
+        )

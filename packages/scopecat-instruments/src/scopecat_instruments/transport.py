@@ -5,28 +5,18 @@ from __future__ import annotations
 import socket
 from contextlib import suppress
 from threading import RLock
-from typing import Protocol
+from typing import Literal
 
-
-class ScpiTransport(Protocol):
-    """The text command boundary shared by all drivers in this package."""
-
-    def write(self, command: str) -> None: ...
-
-    def query(self, command: str) -> str: ...
-
-    def close(self) -> None: ...
-
-
-class TransportError(ConnectionError):
-    """A transport failure whose command may already have reached the device."""
+from scopecat.sdk.instruments.scpi import TransportError
 
 
 class TcpScpiTransport:
     """Dependency-free raw TCP transport for newline-terminated SCPI.
 
     The socket is opened lazily. A transport can therefore be created during
-    provider setup or description without contacting hardware.
+    provider setup or description without contacting hardware. Each instance
+    owns at most one socket generation: any connection or protocol failure
+    requires the provider to construct and identify a new driver.
     """
 
     def __init__(
@@ -47,16 +37,21 @@ class TcpScpiTransport:
         self.max_response_bytes = max_response_bytes
         self._socket: socket.socket | None = None
         self._receive_buffer = bytearray()
+        self._state: Literal["new", "connected", "broken", "closed"] = "new"
         self._lock = RLock()
 
     @property
     def connected(self) -> bool:
-        return self._socket is not None
+        with self._lock:
+            return self._state == "connected"
 
     def connect(self) -> None:
         with self._lock:
-            if self._socket is not None:
+            if self._state == "connected":
                 return
+            if self._state != "new":
+                raise TransportError(f"SCPI transport is {self._state}")
+            connection: socket.socket | None = None
             try:
                 connection = socket.create_connection(
                     (self.host, self.port),
@@ -64,19 +59,21 @@ class TcpScpiTransport:
                 )
                 connection.settimeout(self.timeout_seconds)
             except OSError as error:
+                self._break_connection(connection)
                 raise TransportError(
                     f"failed to connect to {self.host}:{self.port}"
                 ) from error
             self._socket = connection
+            self._state = "connected"
 
     def write(self, command: str) -> None:
         with self._lock:
             connection = self._connection()
-            payload = command.encode(self.encoding) + self.terminator
             try:
+                payload = command.encode(self.encoding) + self.terminator
                 connection.sendall(payload)
-            except OSError as error:
-                self._discard_connection()
+            except (OSError, UnicodeEncodeError) as error:
+                self._break_connection()
                 raise TransportError("SCPI write failed") from error
 
     def query(self, command: str) -> str:
@@ -86,6 +83,7 @@ class TcpScpiTransport:
             try:
                 return response.decode(self.encoding)
             except UnicodeDecodeError as error:
+                self._break_connection()
                 raise TransportError("SCPI response is not valid text") from error
 
     def close(self) -> None:
@@ -93,6 +91,7 @@ class TcpScpiTransport:
             connection = self._socket
             self._socket = None
             self._receive_buffer.clear()
+            self._state = "closed"
             if connection is None:
                 return
             try:
@@ -118,22 +117,24 @@ class TcpScpiTransport:
             try:
                 chunk = connection.recv(64 * 1024)
             except OSError as error:
-                self._discard_connection()
+                self._break_connection()
                 raise TransportError("SCPI response read failed") from error
             if not chunk:
-                self._discard_connection()
+                self._break_connection()
                 raise TransportError(
                     "SCPI connection closed before response terminator"
                 )
             self._receive_buffer.extend(chunk)
             if len(self._receive_buffer) > self.max_response_bytes:
-                self._discard_connection()
+                self._break_connection()
                 raise TransportError("SCPI response exceeded configured size limit")
 
-    def _discard_connection(self) -> None:
-        connection = self._socket
+    def _break_connection(self, connection: socket.socket | None = None) -> None:
+        active = self._socket if connection is None else connection
         self._socket = None
         self._receive_buffer.clear()
-        if connection is not None:
+        if self._state != "closed":
+            self._state = "broken"
+        if active is not None:
             with suppress(OSError):
-                connection.close()
+                active.close()

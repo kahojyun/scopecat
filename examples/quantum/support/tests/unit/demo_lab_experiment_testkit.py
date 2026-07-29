@@ -18,13 +18,15 @@ from scopecat.config.registry import service as config_registry_service
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview_models import ExperimentPreview
+from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.selectors import RunSelector
-from scopecat.sdk.instruments import InstrumentProviderContext
+from scopecat.sdk.instruments import InstrumentBackend, InstrumentProviderContext
 from tests.testkit.instrument_host import provision_test_instrument_host
+from tests.testkit.planning import TestExperimentSystemBuilder
 from tests.testkit.runtime import (
     ServiceRunOperations,
     admit_test_run,
@@ -34,6 +36,7 @@ from tests.testkit.runtime import (
     sqlite_project_services,
 )
 
+from quantum_lab_demo.backend import create_quantum_lab_backend
 from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.lab import quantum_lab_system
 
@@ -52,6 +55,7 @@ class InProcessPreparedExperiment:
     invocation: ExperimentInvocation
     config: str | ConfigProfileSnapshot | CandidateConfig
     system: ExperimentSystem | None
+    build_experiment_system: TestExperimentSystemBuilder | None
 
     def scan(
         self,
@@ -68,6 +72,7 @@ class InProcessPreparedExperiment:
             services=self.lab.services,
             config=self.config,
             system=self.system,
+            build_experiment_system=self.build_experiment_system,
         )
 
     def preview(self) -> ExperimentPreview:
@@ -81,6 +86,7 @@ class InProcessPreparedExperiment:
             services=self.lab.services,
             config=self.config,
             system=self.system,
+            build_experiment_system=self.build_experiment_system,
         )
         accepted = admit_test_run(
             config=planned.config,
@@ -94,11 +100,11 @@ class InProcessPreparedExperiment:
                 self.lab.project_root,
                 accepted.run_id,
                 instruments=provision_test_instrument_host(
-                    None if planned.system is None else planned.system.provider,
+                    self.lab.instrument_backend,
                     context=InstrumentProviderContext(
-                        config=planned.config,
-                        instrument_ids=planned.program.resource_order,
+                        bindings=instrument_bindings(planned.config)
                     ),
+                    instrument_ids=planned.program.resource_order,
                 ),
             ),
         )
@@ -112,7 +118,7 @@ class InProcessQuantumLab:
     project_root: Path
     services: ProjectStateServices
     config: str | ConfigProfileSnapshot
-    system: ExperimentSystem | None
+    instrument_backend: InstrumentBackend
     reviewer: str = "operator"
     operator: str = "operator"
 
@@ -132,11 +138,29 @@ class InProcessQuantumLab:
             if isinstance(experiment, ExperimentTemplate)
             else experiment
         )
+        selected_config = self.config if config is None else config
         return InProcessPreparedExperiment(
             lab=self,
             invocation=invocation,
-            config=self.config if config is None else config,
-            system=self.system if system is None else system,
+            config=selected_config,
+            system=system,
+            build_experiment_system=(
+                self._system_for_config if system is None else None
+            ),
+        )
+
+    def _system_for_config(
+        self,
+        config: ConfigProfileSnapshot,
+    ) -> ExperimentSystem:
+        provider = self.instrument_backend.provider
+        return quantum_lab_system(
+            config=config,
+            instrument_catalog=resolve_instrument_contract_catalog(
+                config=config,
+                provider_id=provider.provider_id,
+                describe=provider.describe,
+            ),
         )
 
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
@@ -246,12 +270,10 @@ def in_process_quantum_lab(
     config = (
         quantum_lab_bootstrap_config() if config_profile is None else config_profile
     )
+    instrument_backend = create_quantum_lab_backend(virtual_lab_profile)
     return InProcessQuantumLab(
         project_root=Path(project_root),
         services=sqlite_project_services(project_root),
         config=config,
-        system=quantum_lab_system(
-            config=config,
-            virtual_lab_profile=virtual_lab_profile,
-        ),
+        instrument_backend=instrument_backend,
     )

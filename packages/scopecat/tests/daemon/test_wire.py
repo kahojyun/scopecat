@@ -1,18 +1,29 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
 
 from scopecat.config.changes import parameter_change_proposal_from_updates
+from scopecat.config.inventory import (
+    InstrumentInventoryRekey,
+    InstrumentInventoryRemoval,
+    InstrumentInventoryRenameRekey,
+)
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
 )
-from scopecat.control.models import ResourceKey, RunPlanSummary
+from scopecat.control.models import (
+    ResourceKey,
+    RunDomainTargetRequirement,
+    RunPlanSummary,
+    RunResourceRequirement,
+)
 from scopecat.daemon.wire import (
     AnalysisJsonOutputPayload,
     AnalysisParameterProposalOutputPayload,
@@ -26,6 +37,12 @@ from scopecat.daemon.wire import (
     DirectConfigRevisionSource,
     ExecutionTransitionAppend,
     ExecutorLease,
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
+    InstrumentSessionLeaseReceipt,
+    InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
@@ -35,14 +52,19 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.execution.ports.instruments import RunHardwareApply, RunHardwareBatch
+from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.kernel.state import StateValue
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments import InstrumentDescription
+from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from tests.testkit.workflow_fixtures import load_config
 
 
@@ -131,6 +153,76 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
     )
 
 
+def test_instrument_inventory_migration_is_discriminated_closed_json() -> None:
+    config = load_config()
+    changes = (
+        InstrumentInventoryRemoval(
+            instrument_id="retired-source",
+            exclusivity_key="retired-source",
+        ),
+        InstrumentInventoryRekey(
+            instrument_id="source-0",
+            from_exclusivity_key="source-0",
+            to_exclusivity_key="rack-a/source",
+        ),
+        InstrumentInventoryRenameRekey(
+            from_instrument_id="old-meter",
+            to_instrument_id="meter-0",
+            from_exclusivity_key="old-meter",
+            to_exclusivity_key="rack-a/meter",
+        ),
+    )
+    command = InstrumentInventoryMigrationCommand(
+        config=config,
+        entry_id="inventory-v2",
+        changes=changes,
+        actor="operator",
+        expected_generation=1,
+    )
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref="config-registry/entries/inventory-v2/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor=command.actor,
+    )
+    receipt = InstrumentInventoryMigrationReceipt(
+        entry=entry,
+        activation=ConfigRegistryActivationRecord(
+            generation=2,
+            action="inventory_migration",
+            entry_id=entry.id,
+            entry_content_hash=entry.content_hash,
+            actor=command.actor,
+        ),
+        changes=changes,
+    )
+
+    restored = InstrumentInventoryMigrationCommand.model_validate_json(
+        command.model_dump_json()
+    )
+
+    assert restored == command
+    assert isinstance(restored.changes[0], InstrumentInventoryRemoval)
+    assert isinstance(restored.changes[1], InstrumentInventoryRekey)
+    assert isinstance(restored.changes[2], InstrumentInventoryRenameRekey)
+    assert (
+        InstrumentInventoryMigrationReceipt.model_validate_json(
+            receipt.model_dump_json()
+        )
+        == receipt
+    )
+
+
+def test_instrument_inventory_rekey_rejects_a_noop() -> None:
+    with pytest.raises(ValidationError, match="must change"):
+        InstrumentInventoryRekey(
+            instrument_id="source-0",
+            from_exclusivity_key="source-0",
+            to_exclusivity_key="source-0",
+        )
+
+
 def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
     proposal = parameter_change_proposal_from_updates(
         source_run_id="run-1",
@@ -216,9 +308,14 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             host_instrument_order=("scope-1",),
             host_provider_id="tests.provider",
             host_contract_fingerprint="0" * 64,
-            run_resource_claims=(
-                ResourceKey(id="scope-1"),
-                ResourceKey(id="controller-1", kind="target"),
+            domain_target_requirement=RunDomainTargetRequirement(
+                id="controller-1",
+                kind="tests.controller",
+                instrument_ids=(),
+            ),
+            run_resource_requirements=(
+                RunResourceRequirement(id="scope-1"),
+                RunResourceRequirement(id="controller-1", kind="target"),
             ),
         ),
     )
@@ -232,24 +329,77 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
-            run_resource_claims=(
-                ResourceKey(id="scope-1"),
-                ResourceKey(id="scope-1"),
+            run_resource_requirements=(
+                RunResourceRequirement(id="scope-1"),
+                RunResourceRequirement(id="scope-1"),
             ),
         )
     RunPlanSummary(
         experiment_id="scratch",
         experiment_kind="scratch",
         point_count=1,
-        run_resource_claims=(ResourceKey(id="scope-1"),),
+        run_resource_requirements=(RunResourceRequirement(id="scope-1"),),
     )
-    with pytest.raises(ValidationError, match="host_instrument_order"):
+    with pytest.raises(ValidationError, match="host instrument order"):
         RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
             host_instrument_order=("scope-2",),
-            run_resource_claims=(ResourceKey(id="scope-1"),),
+            run_resource_requirements=(RunResourceRequirement(id="scope-1"),),
+        )
+
+
+@pytest.mark.parametrize(
+    "requirements",
+    [
+        (),
+        (RunResourceRequirement(id="source-0"),),
+    ],
+)
+def test_domain_target_summary_requires_its_target_claim(
+    requirements: tuple[RunResourceRequirement, ...],
+) -> None:
+    with pytest.raises(ValidationError, match="exactly one target"):
+        RunPlanSummary(
+            experiment_id="domain",
+            experiment_kind="domain",
+            point_count=1,
+            domain_target_requirement=RunDomainTargetRequirement(
+                id="tests.domain.target",
+                kind="tests.domain",
+                instrument_ids=("source-0",),
+            ),
+            run_resource_requirements=requirements,
+        )
+
+
+def test_target_claim_requires_structured_domain_requirement() -> None:
+    with pytest.raises(ValidationError, match="require a domain target"):
+        RunPlanSummary(
+            experiment_id="domain",
+            experiment_kind="domain",
+            point_count=1,
+            run_resource_requirements=(
+                RunResourceRequirement(id="tests.domain.target", kind="target"),
+            ),
+        )
+
+
+def test_domain_target_summary_requires_its_complete_instrument_footprint() -> None:
+    with pytest.raises(ValidationError, match="omits domain target instruments"):
+        RunPlanSummary(
+            experiment_id="domain",
+            experiment_kind="domain",
+            point_count=1,
+            domain_target_requirement=RunDomainTargetRequirement(
+                id="tests.domain.target",
+                kind="tests.domain",
+                instrument_ids=("source-0",),
+            ),
+            run_resource_requirements=(
+                RunResourceRequirement(id="tests.domain.target", kind="target"),
+            ),
         )
 
 
@@ -311,7 +461,14 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
                 effect_id="point-0.apply.source-0",
                 point_index=0,
                 instrument_id="source-0",
-                fields=(),
+                assignments=(
+                    InstrumentStateAssignment(
+                        resource_id="source-0",
+                        interface_id="test.set_frequency/v1",
+                        property_id="frequency",
+                        value=StateValue(Quantity(5.0, "GHz")),
+                    ),
+                ),
             ),
         ),
     )
@@ -347,6 +504,260 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
         )
 
 
+def test_run_hardware_apply_rejects_duplicate_physical_targets() -> None:
+    assignment = InstrumentStateAssignment(
+        resource_id="source-0",
+        interface_id="test.set_frequency/v1",
+        property_id="frequency",
+        value=StateValue(Quantity(5.0, "GHz")),
+        entity_ids=["q0"],
+    )
+
+    with pytest.raises(ValidationError, match="property targets must be unique"):
+        RunHardwareApply(
+            effect_id="point-0.apply.source-0",
+            point_index=0,
+            instrument_id="source-0",
+            assignments=(
+                assignment,
+                assignment.model_copy(update={"entity_ids": ["q1"]}),
+            ),
+        )
+
+
+def test_run_instrument_provision_state_evidence_matches_instrument_order() -> None:
+    source_a = InstrumentStateSnapshot(instrument_id="source-a")
+    source_b = InstrumentStateSnapshot(instrument_id="source-b")
+
+    receipt = RunInstrumentProvisionReceipt(
+        run_id="run-1",
+        operation_id="lifecycle.provide-instruments",
+        status="ready",
+        instrument_ids=("source-a", "source-b"),
+        observed_state=(source_a, source_b),
+        prepared_state=(source_a, source_b),
+    )
+
+    assert (
+        RunInstrumentProvisionReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="observed state must match"):
+        RunInstrumentProvisionReceipt(
+            run_id="run-1",
+            operation_id="lifecycle.provide-instruments",
+            status="ready",
+            instrument_ids=("source-a", "source-b"),
+            observed_state=(source_b, source_a),
+            prepared_state=(source_a, source_b),
+        )
+    with pytest.raises(ValidationError, match="prepared state must match"):
+        RunInstrumentProvisionReceipt(
+            run_id="run-1",
+            operation_id="lifecycle.provide-instruments",
+            status="ready",
+            instrument_ids=("source-a", "source-b"),
+            observed_state=(source_a, source_b),
+            prepared_state=(source_b, source_a),
+        )
+
+
+def test_rejected_run_instrument_provision_has_no_state_evidence() -> None:
+    source = InstrumentStateSnapshot(instrument_id="source-a")
+    problem = Problem(
+        code="instrument_unavailable",
+        phase=ProblemPhase.EXECUTION,
+        message="instrument unavailable",
+    )
+
+    receipt = RunInstrumentProvisionReceipt(
+        run_id="run-1",
+        operation_id="lifecycle.provide-instruments",
+        status="rejected",
+        instrument_ids=("source-a",),
+        problems=(problem,),
+    )
+
+    assert receipt.observed_state == ()
+    assert receipt.prepared_state == ()
+    with pytest.raises(ValidationError, match="cannot expose state evidence"):
+        RunInstrumentProvisionReceipt(
+            run_id="run-1",
+            operation_id="lifecycle.provide-instruments",
+            status="rejected",
+            instrument_ids=("source-a",),
+            problems=(problem,),
+            observed_state=(source,),
+        )
+
+
+def test_instrument_session_open_requires_ordered_observed_state() -> None:
+    instrument_ids = ("source-a", "source-b")
+    descriptions = tuple(
+        InstrumentDescription(
+            instrument_id=instrument_id,
+            implementation_id="tests.source",
+            implementation_version="1",
+        )
+        for instrument_id in instrument_ids
+    )
+    observed_state = tuple(
+        InstrumentStateSnapshot(instrument_id=instrument_id)
+        for instrument_id in instrument_ids
+    )
+    receipt = InstrumentSessionOpenReceipt(
+        session_id="session-1",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'0' * 64}",
+        instrument_ids=instrument_ids,
+        configured_default_instrument_ids=("source-b",),
+        descriptions=descriptions,
+        observed_state=observed_state,
+        opened_at=datetime(2026, 7, 29, tzinfo=UTC),
+        renewed_at=datetime(2026, 7, 29, tzinfo=UTC),
+        expires_at=datetime(2026, 7, 29, 0, 1, tzinfo=UTC),
+    )
+
+    assert (
+        InstrumentSessionOpenReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    for invalid_state in (
+        observed_state[:1],
+        tuple(reversed(observed_state)),
+    ):
+        with pytest.raises(
+            ValidationError,
+            match="observed state must match instrument_ids in order",
+        ):
+            InstrumentSessionOpenReceipt(
+                **receipt.model_dump(exclude={"observed_state"}),
+                observed_state=invalid_state,
+            )
+    with pytest.raises(ValidationError, match="must follow renewed_at"):
+        InstrumentSessionOpenReceipt(
+            **receipt.model_dump(exclude={"expires_at"}),
+            expires_at=receipt.renewed_at,
+        )
+
+
+def test_instrument_session_lease_requires_an_aware_ordered_window() -> None:
+    renewed_at = datetime(2026, 7, 29, tzinfo=UTC)
+    receipt = InstrumentSessionLeaseReceipt(
+        session_id="session-1",
+        renewed_at=renewed_at,
+        expires_at=renewed_at + timedelta(minutes=1),
+    )
+
+    assert (
+        InstrumentSessionLeaseReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="renewed_at must include a UTC offset"):
+        InstrumentSessionLeaseReceipt(
+            session_id="session-1",
+            renewed_at=renewed_at.replace(tzinfo=None),
+            expires_at=receipt.expires_at,
+        )
+    with pytest.raises(ValidationError, match="expires_at must include a UTC offset"):
+        InstrumentSessionLeaseReceipt(
+            session_id="session-1",
+            renewed_at=renewed_at,
+            expires_at=receipt.expires_at.replace(tzinfo=None),
+        )
+    with pytest.raises(ValidationError, match="must follow renewed_at"):
+        InstrumentSessionLeaseReceipt(
+            session_id="session-1",
+            renewed_at=renewed_at,
+            expires_at=renewed_at,
+        )
+
+
+def test_configured_defaults_apply_command_requires_operation_identity() -> None:
+    command = InstrumentConfiguredDefaultsApplyCommand(operation_id="defaults.apply-1")
+
+    assert (
+        InstrumentConfiguredDefaultsApplyCommand.model_validate_json(
+            command.model_dump_json()
+        )
+        == command
+    )
+    with pytest.raises(ValidationError):
+        InstrumentConfiguredDefaultsApplyCommand(operation_id="")
+
+
+@pytest.mark.parametrize("status", ["applied", "unchanged"])
+def test_successful_configured_defaults_apply_requires_synchronized_state(
+    status: Literal["applied", "unchanged"],
+) -> None:
+    state = InstrumentStateSnapshot(instrument_id="source-a")
+    receipt = InstrumentConfiguredDefaultsApplyReceipt(
+        session_id="session-1",
+        operation_id="defaults.apply-1",
+        instrument_id="source-a",
+        config_entry_id="baseline",
+        status=status,
+        state=state,
+    )
+
+    assert (
+        InstrumentConfiguredDefaultsApplyReceipt.model_validate_json(
+            receipt.model_dump_json()
+        )
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="requires synchronized state"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"state"})
+        )
+    with pytest.raises(ValidationError, match="cannot contain problems"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"problems"}),
+            problems=(_configured_defaults_problem(),),
+        )
+    with pytest.raises(ValidationError, match="must match instrument_id"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"state"}),
+            state=state.model_copy(update={"instrument_id": "source-b"}),
+        )
+
+
+def test_rejected_configured_defaults_apply_has_problem_without_state() -> None:
+    receipt = InstrumentConfiguredDefaultsApplyReceipt(
+        session_id="session-1",
+        operation_id="defaults.apply-1",
+        instrument_id="source-a",
+        config_entry_id="baseline",
+        status="rejected",
+        problems=(_configured_defaults_problem(),),
+    )
+
+    assert (
+        InstrumentConfiguredDefaultsApplyReceipt.model_validate_json(
+            receipt.model_dump_json()
+        )
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="requires a problem"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"problems"})
+        )
+    with pytest.raises(ValidationError, match="cannot report state"):
+        InstrumentConfiguredDefaultsApplyReceipt(
+            **receipt.model_dump(exclude={"state"}),
+            state=InstrumentStateSnapshot(instrument_id="source-a"),
+        )
+
+
+def _configured_defaults_problem() -> Problem:
+    return Problem(
+        code="configured_defaults_rejected",
+        phase=ProblemPhase.EXECUTION,
+        message="configured defaults were rejected",
+    )
+
+
 def test_effect_commands_do_not_repeat_durable_identity() -> None:
     append = MeasurementDatasetAppend(
         run_id="run-1",
@@ -358,7 +769,13 @@ def test_effect_commands_do_not_repeat_durable_identity() -> None:
                 logical_point_id="point-0",
                 point_index=0,
                 coordinates={},
-                observables={"signal": Quantity(value=1, unit="ratio")},
+                observables={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=1,
+                        unit="ratio",
+                    )
+                },
             ),
         ),
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 from scopecat.authoring import QuantityType, ScalarType
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.state import StateValue
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentRegistry,
@@ -16,17 +17,35 @@ from scopecat.records.config import (
     VirtualInstrumentConnection,
     snapshot_config_profile,
 )
+from scopecat.records.instrument import InstrumentPropertyState
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterDefinition,
     ParameterSnapshot,
     ScalarParameterValue,
 )
-from scopecat_instruments.provider import (
+from scopecat.sdk.instruments import PropertyRef
+from scopecat_instruments.driver_ids import (
     VIRTUAL_DC_SOURCE,
     VIRTUAL_RF_SOURCE,
     VIRTUAL_TEMPERATURE_MONITOR,
     VIRTUAL_VNA,
+)
+from scopecat_instruments.members import (
+    DC_MONITOR,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
+    DC_SOURCE,
+    DC_SOURCE_CURRENT_PROTECTION,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_PROTECTION,
+    DC_SOURCE_VOLTAGE_RANGE,
+    NETWORK_SWEEP,
+    RF_OUTPUT,
+    TEMPERATURE_READOUT,
 )
 
 RESONANCE_FREQUENCY_PARAMETER_ID = "readout_resonance_frequency"
@@ -68,19 +87,23 @@ def bootstrap_config() -> ConfigProfileSnapshot:
                 bindings=[
                     RoutingEndpointBinding(
                         instrument_id="pump-source",
-                        capability="rf_output",
+                        interface_id=RF_OUTPUT.interface_id,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="flux-source",
-                        capability="dc_output",
+                        interface_id=DC_SOURCE.interface_id,
+                    ),
+                    RoutingEndpointBinding(
+                        instrument_id="flux-source",
+                        interface_id=DC_MONITOR.interface_id,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="mixing-chamber",
-                        capability="temperature_readout",
+                        interface_id=TEMPERATURE_READOUT.interface_id,
                     ),
                     RoutingEndpointBinding(
                         instrument_id="readout-vna",
-                        capability="network_sweep",
+                        interface_id=NETWORK_SWEEP.interface_id,
                     ),
                 ]
             ),
@@ -127,10 +150,61 @@ def _virtual_instrument(
     *,
     driver_id: str,
 ) -> InstrumentSpec:
+    default_state: list[InstrumentPropertyState]
+    if driver_id == VIRTUAL_DC_SOURCE:
+        default_state = [
+            _property_state(DC_SOURCE_MODE, StateValue("voltage")),
+            _property_state(
+                DC_SOURCE_VOLTAGE_RANGE,
+                StateValue(Quantity(1.0, "V")),
+            ),
+            _property_state(
+                DC_SOURCE_VOLTAGE_LEVEL,
+                StateValue(Quantity(0.0, "V")),
+            ),
+            _property_state(
+                DC_SOURCE_VOLTAGE_PROTECTION,
+                StateValue(Quantity(1.0, "V")),
+            ),
+            _property_state(
+                DC_SOURCE_CURRENT_PROTECTION,
+                StateValue(Quantity(0.01, "A")),
+            ),
+            _property_state(DC_SOURCE_OUTPUT_ENABLED, StateValue(False)),
+            _property_state(
+                DC_MONITOR_MEASUREMENT_ENABLED,
+                StateValue(True),
+            ),
+            _property_state(
+                DC_MONITOR_INTEGRATION_CYCLES,
+                StateValue(1),
+            ),
+            _property_state(
+                DC_MONITOR_MEASUREMENT_DELAY,
+                StateValue(Quantity(0.0, "s")),
+            ),
+        ]
+    else:
+        default_state = []
     return InstrumentSpec(
         id=instrument_id,
+        exclusivity_key=instrument_id,
         driver_id=driver_id,
         connection=VirtualInstrumentConnection(),
+        default_state=default_state,
+        run_start="apply_default_state" if default_state else "preserve",
+    )
+
+
+def _property_state(
+    target: PropertyRef,
+    value: StateValue,
+) -> InstrumentPropertyState:
+    return InstrumentPropertyState(
+        interface_id=target.interface_id,
+        component_path=list(target.component_path),
+        property_id=target.property_id,
+        value=value,
     )
 
 

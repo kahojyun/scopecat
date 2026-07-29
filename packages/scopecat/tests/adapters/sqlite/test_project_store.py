@@ -29,6 +29,10 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         event_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(durable_events)")
         }
+        instrument_session_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(instrument_sessions)")
+        }
     assert journal_mode == ("wal",)
     assert {
         "project_schema",
@@ -39,6 +43,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "config_registry_activations",
     } <= tables
     assert {"run_sequence", "deduplication_key"} <= event_columns
+    assert {"renewed_at", "expires_at"} <= instrument_session_columns
 
 
 @pytest.mark.parametrize("version", (0, 99))

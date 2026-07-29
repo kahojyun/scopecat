@@ -26,7 +26,7 @@ from scopecat.daemon.endpoint import (
     read_daemon_endpoint_record,
 )
 from scopecat.daemon.views import DaemonHealth
-from scopecat.project import Project, load_application_factory, open_project
+from scopecat.project import Project, open_project
 
 from .runtime import LocalDaemonRuntime
 from .scaffold import scaffold_paths, write_project_scaffold
@@ -138,17 +138,13 @@ def serve_project(
 
     listener = _bind_listener(host, port)
     actual_port = cast("tuple[str, int]", listener.getsockname())[1]
-    application_factory = (
-        None
-        if project.application_spec is None
-        else load_application_factory(project.application_spec, project.root)
-    )
     runtime: LocalDaemonRuntime | None = None
     record: DaemonEndpointRecord | None = None
     try:
         runtime = LocalDaemonRuntime(
             project.root,
-            application_factory=application_factory,
+            application_spec=project.application_spec,
+            instrument_backend_spec=project.instrument_backend_spec,
             lease_ttl=lease_ttl,
         )
         record = DaemonEndpointRecord(

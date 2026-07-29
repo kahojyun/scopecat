@@ -22,19 +22,24 @@ from scopecat.config.changes import (
     load_parameter_change_approval,
 )
 from scopecat.control.models import (
+    ControlRun,
     ControlRunState,
     DurableEventInput,
     EventPage,
+    RunResourceRequirement,
 )
 from scopecat.daemon.views import (
     MeasurementPage,
     ParameterProposalListView,
     ParameterProposalView,
+    RunAdmissionView,
     RunAnalysisListView,
     RunAnalysisView,
     RunArtifactBytesView,
     RunConfigView,
+    RunControlView,
     RunDetail,
+    RunPlanView,
     RunRequestView,
     RunResourceView,
     RunSummary,
@@ -85,6 +90,31 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
     )
 
 
+def _run_control_view(control: ControlRun) -> RunControlView:
+    plan = control.admission.plan
+    return RunControlView(
+        sequence=control.sequence,
+        admission=RunAdmissionView(
+            run_id=control.run_id,
+            admitted_at=control.admission.admitted_at,
+            plan=RunPlanView(
+                experiment_id=plan.experiment_id,
+                experiment_kind=plan.experiment_kind,
+                point_count=plan.point_count,
+                coordinate_ids=plan.coordinate_ids,
+                record_ids=plan.record_ids,
+                run_resource_requirements=tuple(
+                    RunResourceRequirement(kind=resource.kind, id=resource.id)
+                    for resource in plan.run_resource_requirements
+                ),
+            ),
+        ),
+        state=control.state,
+        updated_at=control.updated_at,
+        attention_reason=control.attention_reason,
+    )
+
+
 class RunService:
     """Own run records, analysis content, and read-side queries."""
 
@@ -116,7 +146,7 @@ class RunService:
             return RunSummaryPage(
                 items=tuple(
                     RunSummary(
-                        control=control,
+                        control=_run_control_view(control),
                         manifest=self._runs.read_manifest_in_transaction(
                             connection,
                             control.run_id,
@@ -147,10 +177,18 @@ class RunService:
             raise BackendNotFound(str(error)) from error
         resources = tuple(
             RunResourceView(
-                resource=resource,
+                resource=RunResourceRequirement(
+                    kind=logical_resource.kind,
+                    id=logical_resource.id,
+                ),
                 status=(
                     claim.status
-                    if (claim := claims.get((resource.kind, resource.id))) is not None
+                    if (
+                        claim := claims.get(
+                            (canonical_resource.kind, canonical_resource.id)
+                        )
+                    )
+                    is not None
                     else ("released" if control.state == "closed" else "required")
                 ),
                 expires_at=(
@@ -161,10 +199,14 @@ class RunService:
                     else None
                 ),
             )
-            for resource in control.admission.resource_claims
+            for logical_resource, canonical_resource in zip(
+                control.admission.plan.run_resource_requirements,
+                control.admission.resource_claims,
+                strict=True,
+            )
         )
         return RunDetail(
-            control=control,
+            control=_run_control_view(control),
             manifest=manifest,
             resources=resources,
         )

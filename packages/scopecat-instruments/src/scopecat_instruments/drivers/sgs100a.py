@@ -4,39 +4,47 @@ from __future__ import annotations
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectCommand,
-    CollectReceipt,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentDescription,
-    InstrumentStateCommand,
+)
+from scopecat.sdk.instruments.scpi import (
+    ScpiIdentity,
+    ScpiTransport,
+    format_number,
+    query_bool,
+    query_float,
+    query_identity,
+    query_text,
 )
 
 from scopecat_instruments._support import (
-    ScpiIdentity,
     apply_unknown,
     bool_value,
-    format_number,
-    not_applied,
-    not_collected,
-    parse_bool,
-    parse_float,
-    parse_identity,
     quantity_value,
-    state_field,
     string_value,
-    validate_collect_command,
-    validate_writable_command,
+    unsupported_invoke,
 )
-from scopecat_instruments.capabilities import RF_OUTPUT, rf_output_capability
-from scopecat_instruments.transport import ScpiTransport
+from scopecat_instruments.driver_ids import ROHDE_SCHWARZ_SGS100A
+from scopecat_instruments.interfaces import rf_output_interface
+from scopecat_instruments.members import (
+    RF_OUTPUT_ENABLED,
+    RF_OUTPUT_FREQUENCY,
+    RF_OUTPUT_POWER,
+    RF_OUTPUT_REFERENCE_SOURCE,
+)
 
 
 class RohdeSchwarzSGS100A:
     """CW frequency, power, RF output, and reference source controls."""
 
-    implementation_id = "scopecat.rohde_schwarz.sgs100a"
+    implementation_id = ROHDE_SCHWARZ_SGS100A
     implementation_version = "v1"
 
     def __init__(self, instrument_id: str, transport: ScpiTransport) -> None:
@@ -54,88 +62,91 @@ class RohdeSchwarzSGS100A:
                 "Minimal continuous-wave RF source driver. Modulation and "
                 "option-dependent features are outside the v1 boundary."
             ),
-            capabilities=[rf_output_capability()],
+            interfaces=[rf_output_interface()],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
+        self._require_cw_state()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Rohde & Schwarz",
             "model": "SGS100A",
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            fields=[
-                state_field(
-                    RF_OUTPUT,
-                    "frequency",
-                    Quantity(self.frequency(), "Hz"),
-                ),
-                state_field(
-                    RF_OUTPUT,
-                    "power",
-                    Quantity(self.power(), "dBm"),
-                ),
-                state_field(RF_OUTPUT, "output_enabled", self.output_enabled()),
-                state_field(
-                    RF_OUTPUT,
-                    "reference_source",
-                    self.reference_source(),
-                ),
-            ],
+        return DriverState(
+            values={
+                RF_OUTPUT_FREQUENCY: Quantity(self.frequency(), "Hz"),
+                RF_OUTPUT_POWER: Quantity(self.power(), "dBm"),
+                RF_OUTPUT_ENABLED: self.output_enabled(),
+                RF_OUTPUT_REFERENCE_SOURCE: self.reference_source(),
+            },
             metadata=metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
-        fields = {field.field_path: field for field in command.fields}
-        output_field = fields.get("output_enabled")
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        properties = request.values
+        output_property = properties.get(RF_OUTPUT_ENABLED)
         target_output = (
-            bool_value(output_field.value) if output_field is not None else None
+            bool_value(output_property) if output_property is not None else None
         )
         try:
-            if target_output is False:
+            observed_output = self.output_enabled()
+            if observed_output:
                 self.set_output(False)
-            if "reference_source" in fields:
+            self._establish_cw_state()
+            if RF_OUTPUT_REFERENCE_SOURCE in properties:
                 self.set_reference_source(
-                    string_value(fields["reference_source"].value)
+                    string_value(properties[RF_OUTPUT_REFERENCE_SOURCE])
                 )
-            if "frequency" in fields:
-                self.set_frequency(quantity_value(fields["frequency"].value, "Hz"))
-            if "power" in fields:
-                self.set_power(quantity_value(fields["power"].value, "dBm"))
-            if target_output is True:
+            if RF_OUTPUT_FREQUENCY in properties:
+                self.set_frequency(
+                    quantity_value(properties[RF_OUTPUT_FREQUENCY], "Hz")
+                )
+            if RF_OUTPUT_POWER in properties:
+                self.set_power(quantity_value(properties[RF_OUTPUT_POWER], "dBm"))
+            final_output = observed_output if target_output is None else target_output
+            if final_output:
                 self.set_output(True)
-            return ApplyReceipt(status="applied", state=self.read_state())
+            return DriverSuccess(self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        return CollectReceipt(readback=InstrumentReadback())
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        return unsupported_invoke(request, self.instrument_id)
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        del request
+        return DriverSuccess(DriverReadback(values={}))
 
     def set_frequency(self, frequency_hz: float) -> None:
         self.transport.write(f":SOUR:FREQ {format_number(frequency_hz)}")
 
     def frequency(self) -> float:
-        return parse_float(self.transport.query(":SOUR:FREQ?"))
+        # FREQ? includes the downstream display offset, which does not shift RF.
+        displayed = query_float(self.transport, ":SOUR:FREQ?")
+        offset = query_float(self.transport, ":SOUR:FREQ:OFFS?")
+        return displayed - offset
 
     def set_power(self, power_dbm: float) -> None:
-        self.transport.write(f":SOUR:POW {format_number(power_dbm)}")
+        self.transport.write(f":SOUR:POW:POW {format_number(power_dbm)}")
 
     def power(self) -> float:
-        return parse_float(self.transport.query(":SOUR:POW?"))
+        return query_float(self.transport, ":SOUR:POW:POW?")
 
     def set_output(self, enabled: bool) -> None:
         self.transport.write(f":OUTP {'ON' if enabled else 'OFF'}")
 
     def output_enabled(self) -> bool:
-        return parse_bool(self.transport.query(":OUTP?"))
+        return query_bool(self.transport, ":OUTP?")
 
     def set_reference_source(self, source: str) -> None:
         command = {"internal": "INT", "external": "EXT"}.get(source)
@@ -144,25 +155,43 @@ class RohdeSchwarzSGS100A:
         self.transport.write(f":SOUR:ROSC:SOUR {command}")
 
     def reference_source(self) -> str:
-        response = self.transport.query(":SOUR:ROSC:SOUR?").strip().upper()
+        response = query_text(self.transport, ":SOUR:ROSC:SOUR?").upper()
         if response.startswith("INT"):
             return "internal"
         if response.startswith("EXT"):
             return "external"
         raise ValueError(f"SGS100A returned unknown reference source {response!r}")
 
+    def _establish_cw_state(self) -> None:
+        self.transport.write(":SOUR:OPM NORM")
+        self.transport.write(":SOUR:IQ:STAT OFF")
+        self.transport.write(":SOUR:PULM:STAT OFF")
+
+    def _require_cw_state(self) -> None:
+        operation_mode = query_text(self.transport, ":SOUR:OPM?").upper()
+        iq_modulation = query_bool(self.transport, ":SOUR:IQ:STAT?")
+        pulse_modulation = query_bool(self.transport, ":SOUR:PULM:STAT?")
+        incompatible: list[str] = []
+        if operation_mode not in {"NORM", "NORMAL"}:
+            incompatible.append(f"mode={operation_mode}")
+        if iq_modulation:
+            incompatible.append("iq_modulation=ON")
+        if pulse_modulation:
+            incompatible.append("pulse_modulation=ON")
+        if incompatible:
+            raise ValueError(
+                "SGS100A is outside the CW adapter state: " + ", ".join(incompatible)
+            )
+
     def identify(self) -> ScpiIdentity:
-        identity = parse_identity(self.transport.query("*IDN?"))
+        identity = query_identity(self.transport)
         manufacturer = identity.manufacturer.upper().replace(" ", "")
         if "ROHDE&SCHWARZ" not in manufacturer or identity.model.upper() != "SGS100A":
             raise ValueError(f"expected an R&S SGS100A, got {identity.raw!r}")
         self._identity = identity
         return identity
 
-    def cleanup(self) -> None:
-        """Do not change the RF output when a run releases the driver."""
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         self.transport.close()
 
     def abort(self) -> None:

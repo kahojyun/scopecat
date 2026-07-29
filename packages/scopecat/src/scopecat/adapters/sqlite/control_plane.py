@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Generator
+from collections.abc import Collection, Generator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,6 +22,7 @@ from scopecat.control.models import (
     EventPage,
     ExecutorLease,
     InstrumentSession,
+    InventoryMigrationBlocker,
     ResourceClaim,
     ResourceKey,
     RunAdmissionRecord,
@@ -65,9 +66,28 @@ class SQLiteControlPlane:
         self,
         connection: sqlite3.Connection,
         admission: RunAdmissionRecord,
+        *,
+        expected_config_generation: int,
     ) -> ControlRun:
         """Publish control admission through an existing daemon transaction."""
 
+        retry_row = _one(
+            connection.execute(
+                """
+                SELECT * FROM scheduler_runs
+                WHERE submission_id = ?
+                """,
+                (admission.submission_id,),
+            )
+        )
+        if retry_row is not None:
+            retry = _run(retry_row)
+            if admission.is_retry_of(retry.admission):
+                return retry
+            raise ControlPlaneConflict(
+                "submission id is already admitted with different content"
+            )
+        self._require_config_generation(connection, expected_config_generation)
         admitted_at = _timestamp(admission.admitted_at)
         try:
             cursor = connection.execute(
@@ -94,7 +114,7 @@ class SQLiteControlPlane:
             ) from error
         connection.executemany(
             """
-            INSERT INTO run_resource_requirements(
+            INSERT INTO run_resource_claims(
                 run_id, resource_kind, resource_id
             )
             VALUES (?, ?, ?)
@@ -137,6 +157,21 @@ class SQLiteControlPlane:
         """Read a run through an existing daemon transaction."""
 
         return _run(self._require_run(connection, run_id))
+
+    def find_run_by_submission_id(self, submission_id: str) -> ControlRun | None:
+        """Return an admitted submission when it already exists."""
+
+        with closing(self._connect()) as connection:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT * FROM scheduler_runs
+                    WHERE submission_id = ?
+                    """,
+                    (submission_id,),
+                )
+            )
+        return None if row is None else _run(row)
 
     def list_runs(
         self,
@@ -400,7 +435,7 @@ class SQLiteControlPlane:
         ttl: timedelta,
         at: datetime | None = None,
     ) -> ExecutorLease:
-        """Lease every declared resource and enter the leased scheduler state."""
+        """Lease every canonical claim and enter the leased scheduler state."""
 
         _ttl(ttl)
         started_at = at or datetime.now(tz=UTC)
@@ -410,9 +445,8 @@ class SQLiteControlPlane:
             raise ControlPlaneConflict(
                 f"executor can only start a queued run, got {run.state}"
             )
-        requirements = self._requirements(connection, run_id)
-        conflicts: list[ResourceKey] = []
-        for resource in requirements:
+        run_claims = self._run_claims(connection, run_id)
+        for resource in run_claims:
             row = _one(
                 connection.execute(
                     """
@@ -422,14 +456,8 @@ class SQLiteControlPlane:
                     (resource.kind, resource.id),
                 )
             )
-            if row is None:
-                continue
-            conflicts.append(resource)
-        if conflicts:
-            owners = ", ".join(
-                f"{resource.kind}:{resource.id}" for resource in conflicts
-            )
-            raise ControlPlaneConflict(f"run resources are busy: {owners}")
+            if row is not None:
+                raise ControlPlaneConflict("run resources are busy")
 
         token = uuid4().hex
         expires_at = started_at + ttl
@@ -464,7 +492,7 @@ class SQLiteControlPlane:
                     run_id,
                     _timestamp(started_at),
                 )
-                for resource in requirements
+                for resource in run_claims
             ],
         )
         lease = ExecutorLease(
@@ -492,7 +520,7 @@ class SQLiteControlPlane:
             DurableEventInput(
                 run_id=run_id,
                 kind="resources_claimed",
-                payload={"count": len(requirements)},
+                payload={"count": len(run_claims)},
                 occurred_at=started_at,
             ),
         )
@@ -614,6 +642,112 @@ class SQLiteControlPlane:
         )
         return tuple(_resource_claim(row) for row in rows)
 
+    def inventory_migration_blockers_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        affected_keys: Collection[ResourceKey],
+    ) -> tuple[InventoryMigrationBlocker, ...]:
+        """Return owners pinning resource identities in the current transaction.
+
+        Run reservations are read separately because queued runs do not yet have
+        live resource claims.
+        """
+
+        identities = tuple(sorted({(key.kind, key.id) for key in affected_keys}))
+        if not identities:
+            return ()
+        affected_json = json.dumps(
+            identities,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        rows = _all(
+            connection.execute(
+                """
+                WITH affected AS (
+                    SELECT
+                        json_extract(value, '$[0]') AS resource_kind,
+                        json_extract(value, '$[1]') AS resource_id
+                    FROM json_each(?)
+                ),
+                blocker_rows(
+                    resource_kind,
+                    resource_id,
+                    owner_kind,
+                    owner_id,
+                    state,
+                    source_priority
+                ) AS (
+                    SELECT
+                        reserved.resource_kind,
+                        reserved.resource_id,
+                        'run',
+                        run.run_id,
+                        run.state,
+                        0
+                    FROM scheduler_runs AS run
+                    JOIN run_resource_claims AS reserved
+                        ON reserved.run_id = run.run_id
+                    JOIN affected
+                        ON affected.resource_kind = reserved.resource_kind
+                        AND affected.resource_id = reserved.resource_id
+                    WHERE run.state <> 'closed'
+                    UNION ALL
+                    SELECT
+                        claim.resource_kind,
+                        claim.resource_id,
+                        claim.owner_kind,
+                        claim.owner_id,
+                        claim.status,
+                        1
+                    FROM resource_claims AS claim
+                    JOIN affected
+                        ON affected.resource_kind = claim.resource_kind
+                        AND affected.resource_id = claim.resource_id
+                )
+                SELECT
+                    resource_kind,
+                    resource_id,
+                    owner_kind,
+                    owner_id,
+                    state,
+                    source_priority
+                FROM blocker_rows
+                ORDER BY
+                    resource_kind,
+                    resource_id,
+                    owner_kind,
+                    owner_id,
+                    source_priority
+                """,
+                (affected_json,),
+            )
+        )
+        blockers: dict[
+            tuple[str, str, str, str],
+            InventoryMigrationBlocker,
+        ] = {}
+        for row in rows:
+            blocker = InventoryMigrationBlocker.model_validate(
+                {
+                    "key": {
+                        "kind": _text(row, "resource_kind"),
+                        "id": _text(row, "resource_id"),
+                    },
+                    "owner_kind": _text(row, "owner_kind"),
+                    "owner_id": _text(row, "owner_id"),
+                    "state": _text(row, "state"),
+                }
+            )
+            identity = (
+                blocker.key.kind,
+                blocker.key.id,
+                blocker.owner_kind,
+                blocker.owner_id,
+            )
+            blockers.setdefault(identity, blocker)
+        return tuple(blockers.values())
+
     def open_instrument_session(
         self,
         *,
@@ -622,10 +756,14 @@ class SQLiteControlPlane:
         config_entry_id: str,
         config_content_hash: str,
         instrument_ids: tuple[str, ...],
+        exclusivity_keys: tuple[str, ...],
+        ttl: timedelta,
+        expected_config_generation: int | None,
         at: datetime | None = None,
     ) -> InstrumentSession:
         """Atomically reserve instruments for one direct-interaction session."""
 
+        _ttl(ttl)
         if not operation_id:
             raise ValueError("instrument session operation id must be non-empty")
         if not actor:
@@ -640,12 +778,21 @@ class SQLiteControlPlane:
             raise ValueError("instrument session ids must be non-empty")
         if len(instrument_ids) != len(set(instrument_ids)):
             raise ValueError("instrument session ids must be unique")
+        if len(exclusivity_keys) != len(instrument_ids):
+            raise ValueError(
+                "instrument session ids and exclusivity keys must have equal length"
+            )
+        if any(not exclusivity_key for exclusivity_key in exclusivity_keys):
+            raise ValueError("instrument session exclusivity keys must be non-empty")
+        if len(exclusivity_keys) != len(set(exclusivity_keys)):
+            raise ValueError("instrument session exclusivity keys must be unique")
 
         started_at = at or datetime.now(tz=UTC)
+        expires_at = started_at + ttl
         session_id = f"instrument-{uuid4().hex}"
         resources = tuple(
-            ResourceKey(kind="instrument", id=instrument_id)
-            for instrument_id in instrument_ids
+            ResourceKey(kind="instrument", id=exclusivity_key)
+            for exclusivity_key in exclusivity_keys
         )
         with self._transaction() as connection:
             retry_row = _one(
@@ -659,12 +806,8 @@ class SQLiteControlPlane:
             )
             if retry_row is not None:
                 retry = _instrument_session(retry_row)
-                if (
-                    retry.actor != actor
-                    or retry.config_entry_id != config_entry_id
-                    or retry.config_content_hash != config_content_hash
-                    or retry.instrument_ids != instrument_ids
-                ):
+                # Config identity is server-resolved output from the first command.
+                if retry.actor != actor or retry.instrument_ids != instrument_ids:
                     raise ControlPlaneConflict(
                         "instrument session operation id has different content"
                     )
@@ -672,7 +815,17 @@ class SQLiteControlPlane:
                     raise ControlPlaneConflict(
                         "instrument session open retry is no longer active"
                     )
+                if retry.expires_at <= started_at:
+                    raise ControlPlaneConflict(
+                        "instrument session open retry has expired"
+                    )
                 return retry
+            if expected_config_generation is None:
+                raise ValueError("new instrument session requires a config generation")
+            self._require_config_generation(
+                connection,
+                expected_config_generation,
+            )
             conflicts = tuple(
                 resource
                 for resource in resources
@@ -688,22 +841,21 @@ class SQLiteControlPlane:
                 is not None
             )
             if conflicts:
-                busy = ", ".join(
-                    f"{resource.kind}:{resource.id}" for resource in conflicts
-                )
-                raise ControlPlaneConflict(
-                    f"instrument session resources are busy: {busy}"
-                )
+                raise ControlPlaneConflict("instrument session resources are busy")
             connection.execute(
                 """
                 INSERT INTO instrument_sessions(
                     session_id, open_operation_id, actor, config_entry_id,
                     config_content_hash,
-                    instrument_ids_json, state, acquired_at,
+                    instrument_ids_json, exclusivity_keys_json, state, acquired_at,
+                    renewed_at, expires_at,
                     attention_reason, active_operation_id,
                     active_operation_kind, end_status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, NULL, NULL, NULL, NULL)
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?,
+                    NULL, NULL, NULL, NULL
+                )
                 """,
                 (
                     session_id,
@@ -716,7 +868,14 @@ class SQLiteControlPlane:
                         allow_nan=False,
                         separators=(",", ":"),
                     ),
+                    json.dumps(
+                        exclusivity_keys,
+                        allow_nan=False,
+                        separators=(",", ":"),
+                    ),
                     _timestamp(started_at),
+                    _timestamp(started_at),
+                    _timestamp(expires_at),
                 ),
             )
             connection.executemany(
@@ -760,6 +919,30 @@ class SQLiteControlPlane:
             assert row is not None
             return _instrument_session(row)
 
+    def get_instrument_session_by_open_operation_id(
+        self,
+        operation_id: str,
+    ) -> InstrumentSession:
+        """Read the durable result of an instrument-session open command."""
+
+        if not operation_id:
+            raise ValueError("instrument session operation id must be non-empty")
+        with closing(self._connect()) as connection:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT * FROM instrument_sessions
+                    WHERE open_operation_id = ?
+                    """,
+                    (operation_id,),
+                )
+            )
+        if row is None:
+            raise ControlPlaneNotFound(
+                f"instrument session open operation was not found: {operation_id}"
+            )
+        return _instrument_session(row)
+
     def get_instrument_session(self, session_id: str) -> InstrumentSession:
         with closing(self._connect()) as connection:
             row = _one(
@@ -802,14 +985,69 @@ class SQLiteControlPlane:
                 )
         return tuple(_instrument_session(row) for row in rows)
 
+    def renew_instrument_session(
+        self,
+        session_id: str,
+        *,
+        ttl: timedelta,
+        at: datetime | None = None,
+    ) -> InstrumentSession:
+        """Renew one live direct-session lease without adding an event."""
+
+        _ttl(ttl)
+        renewed_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            self._live_instrument_session(
+                connection,
+                session_id=session_id,
+                at=renewed_at,
+            )
+            connection.execute(
+                """
+                UPDATE instrument_sessions SET renewed_at = ?, expires_at = ?
+                WHERE session_id = ? AND state = 'active'
+                """,
+                (
+                    _timestamp(renewed_at),
+                    _timestamp(renewed_at + ttl),
+                    session_id,
+                ),
+            )
+            return self._instrument_session_row(connection, session_id)
+
+    def expired_instrument_sessions(
+        self,
+        *,
+        at: datetime | None = None,
+    ) -> tuple[InstrumentSession, ...]:
+        """List active direct sessions whose leases have elapsed."""
+
+        checked_at = at or datetime.now(tz=UTC)
+        with closing(self._connect()) as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT * FROM instrument_sessions
+                    WHERE state = 'active' AND expires_at <= ?
+                    ORDER BY expires_at, session_id
+                    """,
+                    (_timestamp(checked_at),),
+                )
+            )
+        return tuple(_instrument_session(row) for row in rows)
+
     def validate_instrument_session(
         self,
         session_id: str,
+        *,
+        at: datetime | None = None,
     ) -> InstrumentSession:
+        checked_at = at or datetime.now(tz=UTC)
         with closing(self._connect()) as connection:
-            return self._active_instrument_session(
+            return self._live_instrument_session(
                 connection,
                 session_id=session_id,
+                at=checked_at,
             )
 
     def start_instrument_operation(
@@ -821,15 +1059,16 @@ class SQLiteControlPlane:
         kind: str,
         at: datetime | None = None,
     ) -> InstrumentSession:
-        if kind not in {"apply", "collect"}:
+        if kind not in {"apply", "invoke", "collect"}:
             raise ValueError(f"unsupported instrument operation kind: {kind}")
         if not operation_id:
             raise ValueError("instrument operation id must be non-empty")
         started_at = at or datetime.now(tz=UTC)
         with self._transaction() as connection:
-            session = self._active_instrument_session(
+            session = self._live_instrument_session(
                 connection,
                 session_id=session_id,
+                at=started_at,
             )
             if session.active_operation_id is not None:
                 raise ControlPlaneConflict(
@@ -870,9 +1109,10 @@ class SQLiteControlPlane:
     ) -> InstrumentSession:
         finished_at = at or datetime.now(tz=UTC)
         with self._transaction() as connection:
-            session = self._active_instrument_session(
+            session = self._live_instrument_session(
                 connection,
                 session_id=session_id,
+                at=finished_at,
             )
             if (
                 session.active_operation_id != operation_id
@@ -936,6 +1176,38 @@ class SQLiteControlPlane:
             )
             return self._instrument_session_row(connection, session_id)
 
+    def expire_instrument_session(
+        self,
+        session_id: str,
+        *,
+        at: datetime | None = None,
+    ) -> InstrumentSession:
+        """Close one expired idle session after its actor has been released."""
+
+        expired_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            current = self._instrument_session_row(connection, session_id)
+            if current.state == "closed":
+                return current
+            if current.state != "active":
+                raise InstrumentSessionNotActive(
+                    "instrument session requires operator attention"
+                )
+            if current.expires_at > expired_at:
+                raise ControlPlaneConflict("instrument session lease has not expired")
+            if current.active_operation_id is not None:
+                raise ControlPlaneConflict(
+                    "instrument session cannot expire during an active operation"
+                )
+            self._close_instrument_session_in_transaction(
+                connection,
+                current,
+                status="aborted",
+                at=expired_at,
+                event_kind="instrument_session_lease_expired",
+            )
+            return self._instrument_session_row(connection, session_id)
+
     def mark_instrument_session_unknown(
         self,
         session_id: str,
@@ -947,10 +1219,9 @@ class SQLiteControlPlane:
             raise ValueError("instrument session attention reason must be non-empty")
         lost_at = at or datetime.now(tz=UTC)
         with self._transaction() as connection:
-            self._active_instrument_session(
-                connection,
-                session_id=session_id,
-            )
+            current = self._instrument_session_row(connection, session_id)
+            if current.state != "active":
+                raise InstrumentSessionNotActive("instrument session is not active")
             self._lose_instrument_session(
                 connection,
                 session_id,
@@ -1154,6 +1425,24 @@ class SQLiteControlPlane:
         existing = _run(rows[0])
         return existing if admission.is_retry_of(existing.admission) else None
 
+    @staticmethod
+    def _require_config_generation(
+        connection: sqlite3.Connection,
+        expected_generation: int,
+    ) -> None:
+        row = _one(
+            connection.execute(
+                """
+                SELECT COALESCE(MAX(generation), 0) AS generation
+                FROM config_registry_activations
+                """
+            )
+        )
+        assert row is not None
+        actual_generation = _integer(row, "generation")
+        if actual_generation != expected_generation:
+            raise ControlPlaneConflict("active configuration changed")
+
     def _expire_one(
         self,
         connection: sqlite3.Connection,
@@ -1293,10 +1582,11 @@ class SQLiteControlPlane:
         return True
 
     @staticmethod
-    def _active_instrument_session(
+    def _live_instrument_session(
         connection: sqlite3.Connection,
         *,
         session_id: str,
+        at: datetime,
     ) -> InstrumentSession:
         row = _one(
             connection.execute(
@@ -1311,6 +1601,8 @@ class SQLiteControlPlane:
         session = _instrument_session(row)
         if session.state != "active":
             raise InstrumentSessionNotActive("instrument session is not active")
+        if session.expires_at <= at:
+            raise InstrumentSessionNotActive("instrument session lease has expired")
         return session
 
     @staticmethod
@@ -1372,7 +1664,7 @@ class SQLiteControlPlane:
         return released
 
     @staticmethod
-    def _requirements(
+    def _run_claims(
         connection: sqlite3.Connection,
         run_id: str,
     ) -> tuple[ResourceKey, ...]:
@@ -1380,7 +1672,7 @@ class SQLiteControlPlane:
             connection.execute(
                 """
                 SELECT resource_kind, resource_id
-                FROM run_resource_requirements
+                FROM run_resource_claims
                 WHERE run_id = ?
                 ORDER BY resource_kind, resource_id
                 """,
@@ -1538,8 +1830,13 @@ def _instrument_session(row: sqlite3.Row) -> InstrumentSession:
             "instrument_ids": _STRING_TUPLE.validate_json(
                 _text(row, "instrument_ids_json")
             ),
+            "exclusivity_keys": _STRING_TUPLE.validate_json(
+                _text(row, "exclusivity_keys_json")
+            ),
             "state": _text(row, "state"),
             "acquired_at": _datetime(_text(row, "acquired_at")),
+            "renewed_at": _datetime(_text(row, "renewed_at")),
+            "expires_at": _datetime(_text(row, "expires_at")),
             "attention_reason": _optional_text(row, "attention_reason"),
             "active_operation_id": _optional_text(row, "active_operation_id"),
             "active_operation_kind": _optional_text(row, "active_operation_kind"),

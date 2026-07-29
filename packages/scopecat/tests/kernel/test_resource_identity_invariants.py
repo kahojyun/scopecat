@@ -7,16 +7,21 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
+from scopecat.sdk.instruments import InterfaceRef
+
+_SET_FREQUENCY_VALUE = InterfaceRef("test.set_frequency/v1").property("value")
+_MEASURE_SIGNAL_VALUE = (
+    InterfaceRef("test.measure_signal/v1").acquisition("sample").result("signal")
+)
 
 
-def test_capability_less_authored_port_rejects_state_and_acquire_at_assembly() -> None:
+def test_interface_less_authored_port_rejects_state_and_acquire_at_assembly() -> None:
     module = (
-        sc.module_body(id="test.resource-identity.capability-less")
+        sc.module_body(id="test.resource-identity.interface-less")
         .resource("drive")
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="set.frequency",
-            field="value",
+            _SET_FREQUENCY_VALUE,
             value=1.0,
         )
         .product(
@@ -24,9 +29,8 @@ def test_capability_less_authored_port_rejects_state_and_acquire_at_assembly() -
         )
         .acquire(
             "read-signal",
-            "signal",
             resource="drive",
-            capability="measure.signal",
+            results={_MEASURE_SIGNAL_VALUE: "signal"},
         )
         .build()
     )
@@ -35,8 +39,8 @@ def test_capability_less_authored_port_rejects_state_and_acquire_at_assembly() -
         verify_assembly_graph(elaborate_module(module.ir))
 
     assert [problem.code for problem in caught.value.problems] == [
-        "module_resource_port_capability_missing",
-        "module_resource_port_capability_missing",
+        "module_resource_port_interface_missing",
+        "module_resource_port_interface_missing",
     ]
     assert all(
         problem.phase is ProblemPhase.AUTHORING for problem in caught.value.problems

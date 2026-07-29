@@ -2,11 +2,19 @@ import { ApiError, request } from "../../api";
 import type {
   ConfigProfileSnapshot,
   DaemonUiApi,
+  DriverCatalog,
+  InstrumentAcquisition,
+  InstrumentAcquisitionResult,
   InstrumentApplyReceipt,
-  InstrumentCapability,
   InstrumentCollectReceipt,
-  InstrumentConnection,
+  InstrumentConfiguredDefaultsApplyReceipt,
+  InstrumentDriverProbeCommand,
+  InstrumentDriverProbeReceipt,
+  InstrumentInvokeReceipt,
+  InstrumentOperation,
   InstrumentSession,
+  InstrumentSessionLease,
+  InstrumentSpec,
   InstrumentState,
   InstrumentStateValue,
   InstrumentView,
@@ -15,21 +23,34 @@ import { setConfigDefault } from "../config/config-api";
 import { safeConfigEntryId } from "../config/config-utils";
 
 const INSTRUMENT_API = "/api/v1/instruments";
+const DRIVER_API = "/api/v1/instrument-drivers";
 const SESSION_API = "/api/v1/instrument-sessions";
 
 export type ActiveConfig = DaemonUiApi["activeConfig"];
 export type InstrumentList = DaemonUiApi["instrumentList"];
 
-export interface StagedInstrumentField {
-  capabilityId: string;
-  fieldPath: string;
+export interface StagedInstrumentProperty {
+  interfaceId: string;
+  componentPath: string[];
+  propertyId: string;
   value: InstrumentStateValue;
 }
 
-export interface InstrumentCollectionReadiness {
-  ready: boolean;
-  reason?: string;
+export interface InstrumentAcquisitionTarget {
+  interfaceId: string;
+  componentPath: string[];
+  acquisition: InstrumentAcquisition;
 }
+
+export interface InstrumentOperationTarget {
+  interfaceId: string;
+  componentPath: string[];
+  operation: InstrumentOperation;
+}
+
+export type InstrumentOperationArgument = NonNullable<
+  DaemonUiApi["instrumentInvokeCommand"]["arguments"]
+>[number];
 
 export async function getInstruments(signal?: AbortSignal): Promise<InstrumentList> {
   return request<InstrumentList>(INSTRUMENT_API, signal);
@@ -42,6 +63,20 @@ export async function getInstrument(
   return request<InstrumentView>(`${INSTRUMENT_API}/${encodeURIComponent(instrumentId)}`, signal);
 }
 
+export async function getDriverCatalog(signal?: AbortSignal): Promise<DriverCatalog> {
+  return request<DriverCatalog>(DRIVER_API, signal);
+}
+
+export async function probeInstrumentDriver(
+  command: InstrumentDriverProbeCommand,
+): Promise<InstrumentDriverProbeReceipt> {
+  return request<InstrumentDriverProbeReceipt>(
+    `${DRIVER_API}/probe`,
+    undefined,
+    jsonRequest(command),
+  );
+}
+
 export async function getActiveConfig(signal?: AbortSignal): Promise<ActiveConfig> {
   return request<ActiveConfig>("/api/v1/config-registry/active", signal);
 }
@@ -49,7 +84,7 @@ export async function getActiveConfig(signal?: AbortSignal): Promise<ActiveConfi
 export async function openInstrumentSession(
   instrumentId: string,
   actor: string,
-  operationId = createInstrumentOperationId("open"),
+  operationId = createInstrumentCommandId("open"),
 ): Promise<InstrumentSession> {
   return request<InstrumentSession>(
     SESSION_API,
@@ -59,6 +94,14 @@ export async function openInstrumentSession(
       actor,
       instrument_ids: [instrumentId],
     } satisfies DaemonUiApi["instrumentSessionOpenCommand"]),
+  );
+}
+
+export async function renewInstrumentSession(sessionId: string): Promise<InstrumentSessionLease> {
+  return request<InstrumentSessionLease>(
+    `${SESSION_API}/${encodeURIComponent(sessionId)}/heartbeat`,
+    undefined,
+    { method: "POST" },
   );
 }
 
@@ -72,53 +115,83 @@ export async function readInstrumentState(
 export async function applyInstrumentState(
   session: InstrumentSession,
   instrumentId: string,
-  fields: StagedInstrumentField[],
-  operationId = createInstrumentOperationId("apply"),
+  properties: StagedInstrumentProperty[],
+  commandId = createInstrumentCommandId("apply"),
 ): Promise<InstrumentApplyReceipt> {
+  const [first, ...remaining] = properties;
+  if (!first) throw new Error("Apply requires at least one staged property.");
+  const assignment = (property: StagedInstrumentProperty) => ({
+    resource_id: instrumentId,
+    interface_id: property.interfaceId,
+    component_path: property.componentPath,
+    property_id: property.propertyId,
+    value: property.value,
+  });
   return request<InstrumentApplyReceipt>(
     instrumentSessionPath(session.session_id, instrumentId, "state/apply"),
     undefined,
     jsonRequest({
-      operation_id: operationId,
+      command_id: commandId,
       instrument_id: instrumentId,
-      fields: fields.map((field) => ({
-        resource_id: instrumentId,
-        capability_id: field.capabilityId,
-        field_path: field.fieldPath,
-        value: field.value,
-      })),
+      assignments: [assignment(first), ...remaining.map(assignment)],
     } satisfies DaemonUiApi["instrumentApplyCommand"]),
   );
 }
 
-export async function collectInstrumentCapability(
+export async function applyInstrumentConfiguredDefaults(
   session: InstrumentSession,
   instrumentId: string,
-  capability: InstrumentCapability,
-  state?: InstrumentState,
-  operationId = createInstrumentOperationId("collect"),
+  operationId = createInstrumentCommandId("configured-defaults"),
+): Promise<InstrumentConfiguredDefaultsApplyReceipt> {
+  return request<InstrumentConfiguredDefaultsApplyReceipt>(
+    instrumentSessionPath(session.session_id, instrumentId, "configured-defaults/apply"),
+    undefined,
+    jsonRequest({
+      operation_id: operationId,
+    } satisfies DaemonUiApi["instrumentConfiguredDefaultsApplyCommand"]),
+  );
+}
+
+export async function collectInstrumentAcquisition(
+  session: InstrumentSession,
+  instrumentId: string,
+  target: InstrumentAcquisitionTarget,
+  commandId = createInstrumentCommandId("collect"),
 ): Promise<InstrumentCollectReceipt> {
-  const plan = planInstrumentCollection(capability, state);
-  if (!plan.ready) throw new Error(plan.reason);
   return request<InstrumentCollectReceipt>(
     instrumentSessionPath(session.session_id, instrumentId, "collect"),
     undefined,
     jsonRequest({
-      operation_id: operationId,
+      command_id: commandId,
       instrument_id: instrumentId,
-      point_index: 0,
-      point_count: 1,
-      requests: plan.requests,
-    } satisfies DaemonUiApi["instrumentCollectCommand"]),
+      interface_id: target.interfaceId,
+      component_path: target.componentPath,
+      acquisition_id: target.acquisition.id,
+      result_ids: [],
+    } satisfies DaemonUiApi["interactiveCollectIntent"]),
   );
 }
 
-export function instrumentCollectionReadiness(
-  capability: InstrumentCapability,
-  state?: InstrumentState,
-): InstrumentCollectionReadiness {
-  const plan = planInstrumentCollection(capability, state);
-  return plan.ready ? { ready: true } : { ready: false, reason: plan.reason };
+export async function invokeInstrumentOperation(
+  session: InstrumentSession,
+  instrumentId: string,
+  target: InstrumentOperationTarget,
+  arguments_: InstrumentOperationArgument[],
+  commandId = createInstrumentCommandId("invoke"),
+): Promise<InstrumentInvokeReceipt> {
+  return request<InstrumentInvokeReceipt>(
+    instrumentSessionPath(session.session_id, instrumentId, "invoke"),
+    undefined,
+    jsonRequest({
+      command_id: commandId,
+      instrument_id: instrumentId,
+      resource_id: instrumentId,
+      interface_id: target.interfaceId,
+      component_path: target.componentPath,
+      operation_id: target.operation.id,
+      arguments: arguments_,
+    } satisfies DaemonUiApi["instrumentInvokeCommand"]),
+  );
 }
 
 export async function closeInstrumentSession(sessionId: string, keepalive = false): Promise<void> {
@@ -149,27 +222,35 @@ export async function resolveInstrumentAttention(sessionId: string): Promise<voi
   );
 }
 
-export async function publishInstrumentConnection({
+export async function publishInstrumentSpec({
   active,
-  instrumentId,
-  connection,
+  spec,
+  originalInstrumentId,
   actor,
   note,
 }: {
   active: ActiveConfig;
-  instrumentId: string;
-  connection: InstrumentConnection;
+  spec: InstrumentSpec;
+  originalInstrumentId?: string;
   actor: string;
   note: string;
 }): Promise<void> {
   const config = cloneConfig(active.config);
-  const spec = config.system.instrument_registry.instruments.find(
-    (instrument) => instrument.id === instrumentId,
-  );
-  if (!spec) throw new Error(`The active config no longer contains ${instrumentId}.`);
-  spec.connection = connection;
-  const suffix = createInstrumentOperationId("config");
-  const entryId = safeConfigEntryId(`${config.id}-instrument-${instrumentId}-${suffix}`);
+  const instruments = config.system.instrument_registry.instruments;
+  if (originalInstrumentId === undefined) {
+    if (instruments.some((instrument) => instrument.id === spec.id)) {
+      throw new Error(`The active config already contains ${spec.id}.`);
+    }
+    instruments.push(spec);
+  } else {
+    const index = instruments.findIndex((instrument) => instrument.id === originalInstrumentId);
+    if (index < 0) {
+      throw new Error(`The active config no longer contains ${originalInstrumentId}.`);
+    }
+    instruments[index] = spec;
+  }
+  const suffix = createInstrumentCommandId("config");
+  const entryId = safeConfigEntryId(`${config.id}-instrument-${spec.id}-${suffix}`);
   config.id = entryId;
   await setConfigDefault({
     source: {
@@ -183,7 +264,7 @@ export async function publishInstrumentConnection({
   });
 }
 
-export function connectionSummary(connection: InstrumentView["spec"]["connection"]): string {
+export function connectionSummary(connection: InstrumentView["connection"]): string {
   switch (connection.kind) {
     case "virtual":
       return "Virtual · local simulator";
@@ -192,7 +273,7 @@ export function connectionSummary(connection: InstrumentView["spec"]["connection
   }
 }
 
-export function createInstrumentOperationId(prefix: string): string {
+export function createInstrumentCommandId(prefix: string): string {
   const random =
     typeof globalThis.crypto?.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
@@ -207,7 +288,7 @@ export function retryTransientInstrumentMutation(failureCount: number, error: un
 function instrumentSessionPath(
   sessionId: string,
   instrumentId: string,
-  operation: "state" | "state/apply" | "collect",
+  operation: "state" | "state/apply" | "configured-defaults/apply" | "invoke" | "collect",
 ): string {
   return (
     `${SESSION_API}/${encodeURIComponent(sessionId)}/instruments/` +
@@ -215,85 +296,12 @@ function instrumentSessionPath(
   );
 }
 
-function stateAxisSize(state: InstrumentState | undefined, axisId: string): number | undefined {
-  const candidates = [
-    axisId,
-    `${axisId}_points`,
-    axisId === "frequency" ? "points" : undefined,
-  ].filter((value): value is string => value !== undefined);
-  const field = (state?.fields ?? []).find(
-    (candidate) =>
-      candidates.includes(candidate.field_path) &&
-      typeof candidate.value === "number" &&
-      Number.isInteger(candidate.value) &&
-      candidate.value > 0,
-  );
-  return typeof field?.value === "number" ? field.value : undefined;
-}
-
-type InstrumentCollectProductRequest = NonNullable<
-  DaemonUiApi["instrumentCollectCommand"]["requests"]
->[number];
-
-type InstrumentCollectPlan =
-  | {
-      ready: true;
-      requests: InstrumentCollectProductRequest[];
-    }
-  | {
-      ready: false;
-      reason: string;
-    };
-
-function planInstrumentCollection(
-  capability: InstrumentCapability,
-  state?: InstrumentState,
-): InstrumentCollectPlan {
-  const requests: InstrumentCollectProductRequest[] = [];
-  for (const product of capability.products ?? []) {
-    const axes = product.axes ?? [];
-    const dimensions = axes.map((axis) => {
-      const size = axis.size ?? stateAxisSize(state, axis.id);
-      return size === undefined
-        ? undefined
-        : {
-            id: axis.id,
-            kind: axis.kind,
-            size,
-            unit: axis.unit,
-          };
-    });
-    const allDimensionsResolved = dimensions.every(
-      (dimension): dimension is NonNullable<typeof dimension> => dimension !== undefined,
-    );
-    const allAxesDynamic = axes.length > 0 && axes.every((axis) => axis.size == null);
-    if (!allDimensionsResolved && !allAxesDynamic) {
-      const missingAxes = axes
-        .filter((_, index) => dimensions[index] === undefined)
-        .map((axis) => axis.label ?? axis.id);
-      const productLabel = product.label ?? product.key;
-      return {
-        ready: false,
-        reason:
-          `Collect is unavailable until ${productLabel} has a positive point count for ` +
-          `${formatList(missingAxes)}. Refresh state after configuring the sweep.`,
-      };
-    }
-    requests.push({
-      id: product.key,
-      capability_id: capability.id,
-      unit: product.unit,
-      dtype: product.dtype,
-      dimensions: allDimensionsResolved ? dimensions : [],
-    });
-  }
-  return { ready: true, requests };
-}
-
-function formatList(values: string[]): string {
-  if (values.length <= 1) return values[0] ?? "its dynamic axis";
-  if (values.length === 2) return `${values[0]} and ${values[1]}`;
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+export function declaredAcquisitionResults(
+  acquisition: InstrumentAcquisition,
+): InstrumentAcquisitionResult[] {
+  return acquisition.kind === "fixed"
+    ? acquisition.results
+    : acquisition.cases.flatMap((candidate) => candidate.results);
 }
 
 function cloneConfig(source: ActiveConfig["config"]): ConfigProfileSnapshot {

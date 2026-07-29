@@ -13,6 +13,7 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
     ComputeOperation,
+    InvokeOperation,
 )
 from scopecat.execution.points import AdmittedPointLedger
 from scopecat.execution.ports.instruments import RunInstrumentHost
@@ -27,6 +28,7 @@ from scopecat.kernel.problems import ProblemPhase
 from scopecat.measurements.points import RunPoint
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 
 
 class _CapturedDomainEffectFailure(Exception):
@@ -53,6 +55,7 @@ class RunEffectInterpreter:
         instruments: RunInstrumentHost,
         journal: ExecutionJournal,
         coverage_observer: effect_result.CoverageMeasurementObserver | None = None,
+        payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
     ) -> None:
         self.run_id = run_id
         self.point_ledger = AdmittedPointLedger(
@@ -60,7 +63,8 @@ class RunEffectInterpreter:
         )
         self.logical_points: dict[int, LogicalPointId] = {}
         self.run_points: dict[int, RunPoint] = {}
-        self.initial_state = list(instruments.initial_state)
+        self.observed_state = list(instruments.observed_state)
+        self.prepared_state = list(instruments.prepared_state)
         self.final_state: list[InstrumentStateSnapshot] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
@@ -69,7 +73,10 @@ class RunEffectInterpreter:
         self._terminal_point_indices: set[int] = set()
 
         self._journal = JournaledEffectBoundary(run_id=run_id, journal=journal)
-        self._compute = ComputeEffectExecutor(journal=self._journal)
+        self._compute = ComputeEffectExecutor(
+            journal=self._journal,
+            payload_codecs=payload_codecs,
+        )
         self._hardware = HardwareEffectExecutor(
             instruments=instruments,
             problems=self._journal,
@@ -161,7 +168,8 @@ class RunEffectInterpreter:
         hardware: list[RunCoverageEffect] = []
         for operation in operations:
             if isinstance(operation, RunCoverageEffect) and isinstance(
-                operation.operation, ApplyStateOperation | CollectOperation
+                operation.operation,
+                ApplyStateOperation | InvokeOperation | CollectOperation,
             ):
                 self._point_state(operation.point_index)
                 hardware.append(operation)
@@ -303,7 +311,8 @@ class RunEffectInterpreter:
     def _result(self) -> effect_result.RunEffectResult:
         return effect_result.RunEffectResult(
             problems=tuple(self._journal.problems),
-            initial_state=tuple(self.initial_state),
+            observed_state=tuple(self.observed_state),
+            prepared_state=tuple(self.prepared_state),
             final_state=tuple(self.final_state),
             admitted_points=self.point_ledger.points,
             indeterminate=self._journal.indeterminate,

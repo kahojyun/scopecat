@@ -10,12 +10,14 @@ from typing import Protocol, cast, overload, override
 
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
+    InvocationIntent,
     ResourcePort,
     ResourceSelector,
+    invoke_operation,
     resource_port,
 )
 from scopecat.authoring._binding_intents import (
-    bind_field as binding_field,
+    bind_property as binding_property,
 )
 from scopecat.authoring._identities import InvocationKey
 from scopecat.authoring._intents import (
@@ -24,7 +26,7 @@ from scopecat.authoring._intents import (
 )
 from scopecat.authoring._module_ir import (
     ModuleAcquireEffect,
-    ModuleAcquireProduct,
+    ModuleAcquireResult,
     ModuleBindingEffect,
     ModuleBodyIR,
     ModuleDomainEffect,
@@ -33,6 +35,7 @@ from scopecat.authoring._module_ir import (
     ModuleInstanceIR,
     ModuleInstanceLookup,
     ModuleInterfaceIR,
+    ModuleInvokeEffect,
     ModuleIR,
     ModulePythonImplementation,
     ModuleResourceBinding,
@@ -70,20 +73,27 @@ from scopecat.authoring.values import (
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.instrument_members import (
+    AcquisitionResultRef,
+    InterfaceRef,
+    OperationArgumentRef,
+    OperationRef,
+    PropertyRef,
+)
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.kernel.value_types import Payload
 from scopecat.measurements.results import MeasurementDType
 
-type StateLiteral = (
-    Quantity | EntityRef | PayloadValue | str | int | float | bool | None
-)
+type StateLiteral = Quantity | EntityRef | str | int | float | bool | None
 type BindingInput = StateLiteral | ValueRef
+type InvocationInput = BindingInput
 
 
 class ModuleCall(Protocol):
@@ -111,16 +121,15 @@ def _is_public_binding_input(value: object) -> bool:
         or value is None
         or isinstance(
             value,
-            Quantity | EntityRef | PayloadValue | str | int | float | bool,
+            Quantity | EntityRef | str | int | float | bool,
         )
     )
 
 
-def _resource_capabilities(requires: tuple[str, ...]) -> tuple[str, ...]:
-    if any(not capability for capability in requires):
-        msg = "resource capability ids must be non-empty"
-        raise ValueError(msg)
-    return requires
+def _resource_interfaces(
+    requires: Sequence[InterfaceRef],
+) -> tuple[InterfaceId, ...]:
+    return tuple(interface.interface_id for interface in requires)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -204,6 +213,14 @@ class ModuleBuilder:
             if isinstance(effect, ModuleAcquireEffect)
         )
 
+    @property
+    def invocations(self) -> tuple[InvocationIntent, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleInvokeEffect)
+        )
+
     def inputs(self, *values: ValueRef) -> ModuleBuilder:
         """Register typed input values declared with :func:`scopecat.input`."""
 
@@ -241,10 +258,10 @@ class ModuleBuilder:
         self,
         id: str,
         *,
-        requires: tuple[str, ...] = (),
+        requires: Sequence[InterfaceRef] = (),
         for_entities: Sequence[ValueRef] = (),
     ) -> ModuleBuilder:
-        capabilities = _resource_capabilities(requires)
+        interfaces = _resource_interfaces(requires)
         for value in for_entities:
             if not _is_entity_input_type(value.value_type):
                 msg = "resource for_entities values must be entity-shaped"
@@ -253,7 +270,7 @@ class ModuleBuilder:
                 msg = "resource for_entities cannot use compute outputs"
                 raise TypeError(msg)
         selector = ResourceSelector(
-            capabilities=capabilities,
+            interfaces=interfaces,
             entity_inputs=tuple(for_entities),
         )
         return replace(
@@ -264,16 +281,17 @@ class ModuleBuilder:
             ),
         )
 
-    def bind_field(
+    def bind_property(
         self,
         resource: str,
+        property: PropertyRef,
         *,
-        capability: str,
-        field: str,
         value: BindingInput,
     ) -> ModuleBuilder:
-        """Bind state through structured resource/capability/field identities."""
+        """Bind one typed persistent device property."""
 
+        if _is_payload_binding_input(value):
+            raise TypeError("persistent properties cannot contain opaque payloads")
         if not _is_public_binding_input(value):
             msg = "module bindings require a scalar typed value or scalar literal"
             raise TypeError(msg)
@@ -282,11 +300,54 @@ class ModuleBuilder:
             procedure=(
                 *self.procedure,
                 ModuleBindingEffect(
-                    binding_field(
+                    binding_property(
                         resource,
-                        capability=capability,
-                        field=field,
-                        value=cast("BindingInput", _capture_state_literal(value)),
+                        interface=property.interface_id,
+                        component_path=property.component_path,
+                        property=property.property_id,
+                        value=cast("BindingInput", _capture_binding_literal(value)),
+                    )
+                ),
+            ),
+        )
+
+    def invoke(
+        self,
+        id: str,
+        *,
+        resource: str,
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, InvocationInput] | None = None,
+    ) -> ModuleBuilder:
+        """Append one ordered atomic hardware operation."""
+
+        selected_arguments = arguments or {}
+        if any(target.operation != operation for target in selected_arguments):
+            raise ValueError(
+                "module invocation arguments must belong to the selected operation"
+            )
+        if any(
+            not _is_public_binding_input(value) for value in selected_arguments.values()
+        ):
+            raise TypeError("module invocation arguments require scalar values")
+        return replace(
+            self,
+            procedure=(
+                *self.procedure,
+                ModuleInvokeEffect(
+                    invoke_operation(
+                        id,
+                        port_id=resource,
+                        interface=operation.interface_id,
+                        component_path=operation.component_path,
+                        operation=operation.operation_id,
+                        arguments={
+                            target.argument_id: cast(
+                                "InvocationInput",
+                                _capture_binding_literal(value),
+                            )
+                            for target, value in selected_arguments.items()
+                        },
                     )
                 ),
             ),
@@ -303,52 +364,40 @@ class ModuleBuilder:
     def acquire(
         self,
         id: str,
-        *products: str | ProductRef,
+        *,
         resource: str,
-        capability: str,
-        product_key: str | None = None,
-        product_keys: Mapping[str | ProductRef, str] | None = None,
+        results: Mapping[AcquisitionResultRef, str | ProductRef],
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleBuilder:
-        """Acquire instrument products through one logical resource capability.
+        """Map results from one typed acquisition target to declared products."""
 
-        ``product_key`` is the single-product shorthand. ``product_keys`` may
-        override provider keys for any subset of a multi-product acquisition;
-        products without an override keep their local logical id.
-        """
-
-        if not id or not products:
-            raise ValueError("acquire requires a non-empty id and products")
-        if not capability:
-            raise ValueError("acquire requires a non-empty capability")
-        if product_key is not None and product_keys is not None:
-            raise ValueError("acquire accepts either product_key or product_keys")
-        if product_key is not None and len(products) != 1:
-            raise ValueError("acquire product_key is only valid for one product")
-        if product_key is not None and not product_key:
-            raise ValueError("acquire product_key must be non-empty")
-        selected = tuple(
-            self.products[product] if isinstance(product, str) else product
-            for product in products
-        )
-        selected_by_id = {product.id: product for product in selected}
-        provider_keys_by_product_id: dict[ProductId, str] = {}
-        for key, provider_key in (product_keys or {}).items():
-            if not provider_key:
-                raise ValueError("acquire product_keys values must be non-empty")
-            selected_id = key.id if isinstance(key, ProductRef) else key
-            selected_product = selected_by_id.get(selected_id)
-            if selected_product is None:
+        if not id or not results:
+            raise ValueError("acquire requires a non-empty id and result mapping")
+        available_products = self.products
+        selected_results: list[tuple[AcquisitionResultRef, ProductRef]] = []
+        for result, product in results.items():
+            selected_product = (
+                available_products[product] if isinstance(product, str) else product
+            )
+            expected_product = available_products.get(selected_product.id)
+            if (
+                expected_product is None
+                or expected_product.product_id != selected_product.product_id
+                or expected_product.origin != selected_product.origin
+            ):
                 raise ValueError(
-                    "acquire product_keys references unselected product "
-                    f"{selected_id!r}"
+                    "acquire result references a product outside this builder: "
+                    f"{selected_product.id!r}"
                 )
-            if selected_product.product_id in provider_keys_by_product_id:
-                raise ValueError(
-                    "acquire product_keys maps one selected product more than once: "
-                    f"{selected_id!r}"
-                )
-            provider_keys_by_product_id[selected_product.product_id] = provider_key
+            selected_results.append((result, expected_product))
+        acquisition = selected_results[0][0].acquisition
+        if any(result.acquisition != acquisition for result, _ in selected_results):
+            raise ValueError("acquire results must belong to one acquisition")
+        selected_products = tuple(product for _, product in selected_results)
+        if len({product.product_id for product in selected_products}) != len(
+            selected_products
+        ):
+            raise ValueError("acquire results must map to unique products")
         selected_metadata = freeze_json_mapping(metadata or {})
         return replace(
             self,
@@ -357,21 +406,16 @@ class ModuleBuilder:
                 ModuleAcquireEffect(
                     id=id,
                     resource_port_id=logical_resource_port_id(resource),
-                    capability_id=capability,
-                    products=tuple(
-                        ModuleAcquireProduct(
+                    interface_id=acquisition.interface_id,
+                    component_path=acquisition.component_path,
+                    acquisition_id=acquisition.acquisition_id,
+                    results=tuple(
+                        ModuleAcquireResult(
                             product=product,
-                            provider_key=(
-                                product_key
-                                if product_key is not None
-                                else provider_keys_by_product_id.get(
-                                    product.product_id,
-                                    product.local_id,
-                                )
-                            ),
+                            result_id=result.result_id,
                             metadata=selected_metadata,
                         )
-                        for product in selected
+                        for result, product in selected_results
                     ),
                 ),
             ),
@@ -598,6 +642,10 @@ class ExperimentModule[**P]:
     @property
     def domain_executions(self) -> tuple[DomainExecution, ...]:
         return self._ir.body.domain_executions
+
+    @property
+    def invocations(self) -> tuple[InvocationIntent, ...]:
+        return self._ir.body.invocations
 
     @property
     def procedure(self) -> tuple[ModuleEffectIR, ...]:
@@ -835,12 +883,18 @@ def _module_input_value_ref(
     return internal_literal_value_ref(value, value_type, path=path)
 
 
-def _capture_state_literal(value: object) -> object:
+def _capture_binding_literal(value: object) -> object:
     if isinstance(value, ValueRef):
         return value
-    if isinstance(value, PayloadValue):
-        return value
     return capture_runtime_input(value)
+
+
+def _is_payload_binding_input(value: object) -> bool:
+    return isinstance(value, PayloadValue) or (
+        isinstance(value, ValueRef)
+        and isinstance(value.value_type, ScalarType)
+        and isinstance(value.value_type.atom, Payload)
+    )
 
 
 def build_module_ir(

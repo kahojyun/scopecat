@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
-from typing import Annotated, override
+from typing import Annotated, cast, override
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import Path as ApiPath
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from scopecat.control.models import (
@@ -47,11 +48,20 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
+    InstrumentContractCatalogRequest,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
     InstrumentSessionEndReceipt,
+    InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
     MeasurementSealCommand,
+    PayloadObjectReceipt,
     RunAdmission,
     RunAttachmentCommand,
     RunHardwareBatchCommand,
@@ -65,6 +75,7 @@ from scopecat.execution.ports.instruments import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
 )
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -76,28 +87,39 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.catalog import DriverCatalog
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
     InstrumentStateCommand,
+    InteractiveCollectIntent,
+    InvokeCommand,
+    InvokeReceipt,
 )
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.types import Scope
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .application import DaemonApplication
 from .errors import BackendConflict, BackendNotFound
+from .payload_service import (
+    CommandPayloadError,
+    CommandPayloadStorageError,
+    CommandPayloadTooLarge,
+)
 
 _API_PREFIX = "/api/v1"
 _SSE_PAGE_SIZE = 100
 _SSE_POLL_SECONDS = 0.5
+DEFAULT_MAX_COMMAND_BODY_BYTES = 8 * 1024 * 1024
 
 
 def create_app(  # noqa: C901 - route registration is intentionally centralized
     application: DaemonApplication,
     static_dir: str | Path | None = None,
+    *,
+    max_command_body_bytes: int = DEFAULT_MAX_COMMAND_BODY_BYTES,
 ) -> FastAPI:
     """Create transport routes around an already-composed daemon application."""
 
@@ -106,11 +128,52 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
     )
+    app.add_middleware(
+        _CommandBodyLimitMiddleware,
+        max_body_bytes=max_command_body_bytes,
+    )
     _install_error_mapping(app)
 
     @app.get(f"{_API_PREFIX}/health")
     def health() -> DaemonHealth:
         return application.health()
+
+    @app.put(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/"
+        "payload-objects/{hexdigest}",
+        status_code=201,
+    )
+    async def put_session_payload_object(
+        session_id: str,
+        hexdigest: Annotated[str, ApiPath(pattern=r"^[0-9a-f]{64}$")],
+        request: Request,
+    ) -> PayloadObjectReceipt:
+        application.instruments.authorize_session_payload_upload(session_id)
+        return await application.payloads.put_object_stream(
+            request.stream(),
+            expected_content_hash=f"sha256:{hexdigest}",
+            declared_size_bytes=_request_content_length(request),
+        )
+
+    @app.put(
+        f"{_API_PREFIX}/runs/{{run_id}}/payload-objects/{{hexdigest}}",
+        status_code=201,
+    )
+    async def put_run_payload_object(
+        run_id: str,
+        hexdigest: Annotated[str, ApiPath(pattern=r"^[0-9a-f]{64}$")],
+        request: Request,
+        lease_id: Annotated[
+            str,
+            Header(alias="X-Scopecat-Lease-ID", min_length=1),
+        ],
+    ) -> PayloadObjectReceipt:
+        application.instruments.authorize_run_payload_upload(run_id, lease_id)
+        return await application.payloads.put_object_stream(
+            request.stream(),
+            expected_content_hash=f"sha256:{hexdigest}",
+            declared_size_bytes=_request_content_length(request),
+        )
 
     @app.get(f"{_API_PREFIX}/config-registry")
     def get_config_registry() -> ConfigRegistryView:
@@ -131,6 +194,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.post(f"{_API_PREFIX}/config-registry/default")
     def publish_config(command: ConfigPublishCommand) -> ConfigPublishReceipt:
         return application.config.publish_config(command)
+
+    @app.post(f"{_API_PREFIX}/config-registry/instrument-inventory-migrations")
+    def migrate_instrument_inventory(
+        command: InstrumentInventoryMigrationCommand,
+    ) -> InstrumentInventoryMigrationReceipt:
+        return application.config.migrate_instrument_inventory(command)
 
     @app.post(f"{_API_PREFIX}/config-registry/drafts/preview")
     def preview_config_draft(
@@ -154,15 +223,37 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def list_instruments() -> InstrumentListView:
         return application.instruments.list_instruments()
 
+    @app.get(f"{_API_PREFIX}/instrument-drivers")
+    def get_driver_catalog() -> DriverCatalog:
+        return application.instruments.driver_catalog()
+
+    @app.post(f"{_API_PREFIX}/instrument-drivers/probe")
+    def probe_driver(
+        command: InstrumentDriverProbeCommand,
+    ) -> InstrumentDriverProbeReceipt:
+        return application.instruments.probe_driver(command)
+
     @app.get(f"{_API_PREFIX}/instruments/{{instrument_id}}")
     def get_instrument(instrument_id: str) -> InstrumentView:
         return application.instruments.get_instrument(instrument_id)
+
+    @app.post(f"{_API_PREFIX}/instrument-contracts/resolve")
+    def resolve_instrument_contracts(
+        command: InstrumentContractCatalogRequest,
+    ) -> InstrumentContractCatalog:
+        return application.instruments.resolve_instrument_contracts(command.config)
 
     @app.post(f"{_API_PREFIX}/instrument-sessions", status_code=201)
     def open_instrument_session(
         command: InstrumentSessionOpenCommand,
     ) -> InstrumentSessionOpenReceipt:
         return application.instruments.open_session(command)
+
+    @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/heartbeat")
+    def renew_instrument_session(
+        session_id: str,
+    ) -> InstrumentSessionLeaseReceipt:
+        return application.instruments.renew_session(session_id)
 
     @app.get(
         f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
@@ -194,17 +285,47 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.post(
         f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/configured-defaults/apply"
+    )
+    def apply_instrument_configured_defaults(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentConfiguredDefaultsApplyCommand,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        return application.instruments.apply_configured_defaults(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/invoke"
+    )
+    def invoke_instrument(
+        session_id: str,
+        instrument_id: str,
+        command: InvokeCommand,
+    ) -> InvokeReceipt:
+        return application.instruments.invoke(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
         "{instrument_id}/collect"
     )
     def collect_instrument(
         session_id: str,
         instrument_id: str,
-        command: CollectCommand,
+        intent: InteractiveCollectIntent,
     ) -> CollectReceipt:
         return application.instruments.collect(
             session_id,
             instrument_id,
-            command,
+            intent,
         )
 
     @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/close")
@@ -470,6 +591,27 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
 
 def _install_error_mapping(app: FastAPI) -> None:
+    @app.exception_handler(CommandPayloadTooLarge)
+    async def payload_too_large(
+        _request: Request,
+        error: CommandPayloadTooLarge,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=413, content={"detail": str(error)})
+
+    @app.exception_handler(CommandPayloadStorageError)
+    async def payload_storage_failure(
+        _request: Request,
+        error: CommandPayloadStorageError,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=500, content={"detail": str(error)})
+
+    @app.exception_handler(CommandPayloadError)
+    async def invalid_payload(
+        _request: Request,
+        error: CommandPayloadError,
+    ) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(error)})
+
     @app.exception_handler(BackendNotFound)
     async def not_found(
         _request: Request,
@@ -523,6 +665,89 @@ def _require_run_id(path_run_id: str, body_run_id: str) -> None:
             status_code=422,
             detail="path run_id must match request body",
         )
+
+
+class _CommandBodyTooLarge(Exception):
+    """The JSON command body crossed the executable request boundary."""
+
+
+class _CommandBodyLimitMiddleware:
+    """Bound command JSON while leaving FastAPI request schemas intact."""
+
+    def __init__(self, app: ASGIApp, *, max_body_bytes: int) -> None:
+        if max_body_bytes < 1:
+            raise ValueError("command body byte limit must be positive")
+        self._app = app
+        self._max_body_bytes = max_body_bytes
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if not _is_payload_command_request(scope):
+            await self._app(scope, receive, send)
+            return
+        content_length = _content_length(scope)
+        if content_length is not None and content_length > self._max_body_bytes:
+            await self._reject(scope, receive, send)
+            return
+        size_bytes = 0
+
+        async def bounded_receive() -> Message:
+            nonlocal size_bytes
+            message = await receive()
+            if message["type"] == "http.request":
+                body = cast("bytes", message.get("body", b""))
+                size_bytes += len(body)
+                if size_bytes > self._max_body_bytes:
+                    raise _CommandBodyTooLarge
+            return message
+
+        try:
+            await self._app(scope, bounded_receive, send)
+        except _CommandBodyTooLarge:
+            await self._reject(scope, receive, send)
+
+    async def _reject(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        response = JSONResponse(
+            status_code=413,
+            content={
+                "detail": (
+                    f"command request body exceeds {self._max_body_bytes} byte limit"
+                )
+            },
+        )
+        await response(scope, receive, send)
+
+
+def _is_payload_command_request(scope: Scope) -> bool:
+    method = cast("str | None", scope.get("method"))
+    if scope["type"] != "http" or method != "POST":
+        return False
+    path = cast("str", scope.get("path", ""))
+    return path.endswith(("/invoke", "/hardware/execute"))
+
+
+def _content_length(scope: Scope) -> int | None:
+    headers = cast("tuple[tuple[bytes, bytes], ...]", scope.get("headers", ()))
+    for name, value in headers:
+        if name == b"content-length":
+            try:
+                return int(value)
+            except ValueError:
+                return None
+    return None
+
+
+def _request_content_length(request: Request) -> int | None:
+    return _content_length(request.scope)
 
 
 class _SpaStaticFiles(StaticFiles):

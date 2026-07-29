@@ -19,6 +19,7 @@ from scopecat.compiler.typed.program import (
     ValueInput,
     core_acquisitions,
     core_domain_executions,
+    core_invocations,
     core_state,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
@@ -63,7 +64,6 @@ def _seal_core_program(
                     program.product_defs,
                     program.product_uses,
                     program.record_uses,
-                    point_count=1,
                 ),
                 phase=ProblemPhase.AUTHORING,
             )
@@ -80,9 +80,9 @@ def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
     """Close ownership after record demand has introduced exact product uses."""
 
     owned_products = {
-        product.product_id
+        result.product_id
         for acquisition in core_acquisitions(program)
-        for product in acquisition.products
+        for result in acquisition.results
     }
     owned_products.update(
         result.product_id
@@ -251,6 +251,21 @@ def _program_relation_consumers(
                 ProgramRelationConsumerKind.STATE_VALUE,
                 state.value_use.value,
                 model_location("state", state_index, "value"),
+            )
+
+    for invocation_index, invocation in enumerate(core_invocations(program)):
+        for argument in invocation.arguments:
+            if isinstance(argument.value_use, ComputeResultRef):
+                continue
+            yield _consumer(
+                ProgramRelationConsumerKind.INVOCATION_ARGUMENT,
+                argument.value_use.value,
+                model_location(
+                    "invocations",
+                    invocation_index,
+                    "arguments",
+                    argument.id,
+                ),
             )
 
 

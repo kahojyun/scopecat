@@ -30,7 +30,7 @@ from tests.testkit.local_materialization import (
 def config_with_physical_resources(
     resources: Mapping[str, Sequence[str]],
 ) -> ConfigProfileSnapshot:
-    """Extend the test config with explicit instrument capability bindings."""
+    """Extend the test config with explicit instrument interface bindings."""
 
     config = load_config()
     existing_instrument_ids = {
@@ -39,24 +39,26 @@ def config_with_physical_resources(
     seed_instrument = config.instrument_registry.instruments[0]
     routing_bindings = list(config.routing.bindings)
     binding_keys = {
-        (binding.instrument_id, binding.capability) for binding in routing_bindings
+        (binding.instrument_id, binding.interface_id) for binding in routing_bindings
     }
-    for resource_id, capabilities in resources.items():
-        for capability in dict.fromkeys(capabilities):
-            key = (resource_id, capability)
+    for resource_id, interfaces in resources.items():
+        for interface_id in dict.fromkeys(interfaces):
+            key = (resource_id, interface_id)
             if key in binding_keys:
                 continue
             routing_bindings.append(
                 RoutingEndpointBinding(
                     instrument_id=resource_id,
-                    capability=capability,
+                    interface_id=interface_id,
                 )
             )
             binding_keys.add(key)
 
     instruments = list(config.instrument_registry.instruments)
     instruments.extend(
-        seed_instrument.model_copy(update={"id": resource_id})
+        seed_instrument.model_copy(
+            update={"id": resource_id, "exclusivity_key": resource_id}
+        )
         for resource_id in resources
         if resource_id not in existing_instrument_ids
     )
@@ -101,10 +103,10 @@ def measurement_projection_contract(
     )
 
 
-def materialized_state_fields(
+def materialized_state_properties(
     plan: LocalEffectInspection,
 ) -> tuple[tuple[int, ApplyStateOperation, StateTarget], ...]:
-    """Flatten exact state coverage for focused assertions."""
+    """Flatten materialized state-property targets for focused assertions."""
 
     return tuple(
         (effect.point_index, operation, target)

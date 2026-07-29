@@ -7,6 +7,7 @@ import pytest
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.config.registry import CandidateConfigRegistrySource
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.parameter import TableParameterValue
 from scopecat.sdk.domain import DomainBatchRequest
 
@@ -35,6 +36,14 @@ def _entity_id(value: object) -> str:
 def _quantity_in_unit(value: object, unit: str) -> float:
     assert isinstance(value, Quantity)
     return float(value.to(unit).value)
+
+
+def _measurement_in_unit(value: object, unit: str) -> float:
+    assert isinstance(value, MeasurementScalar)
+    assert value.dtype in {"float64", "int64"}
+    assert isinstance(value.value, int | float) and not isinstance(value.value, bool)
+    assert value.unit is not None
+    return float(Quantity(value.value, value.unit).to(unit).value)
 
 
 def test_drag_beta_closes_measurement_analysis_publish_and_undo(
@@ -78,8 +87,8 @@ def test_drag_beta_closes_measurement_analysis_publish_and_undo(
     records = source_run.data().measurements().dataset.records
     assert len(records) == 15
     assert all(
-        _quantity_in_unit(record.observables["probability_0"], "ratio")
-        + _quantity_in_unit(record.observables["probability_1"], "ratio")
+        _measurement_in_unit(record.observables["probability_0"], "ratio")
+        + _measurement_in_unit(record.observables["probability_1"], "ratio")
         == pytest.approx(1.0)
         for record in records
     )

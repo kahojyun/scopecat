@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.measurements.results import ComplexQuantity, MeasurementArray
+from scopecat.measurements.results import ComplexComponents, MeasurementArray
 from scopecat.sdk.domain import (
     DomainResultValue,
 )
@@ -105,15 +105,14 @@ def _frames_for_result_address(
 def _realize_integrated_iq_value(
     frames: tuple[FakeDigitizerFrame, ...],
 ) -> MeasurementArray:
-    return MeasurementArray(
+    return MeasurementArray.create(
         dtype="complex128",
         unit=_FAKE_RESPONSE_UNIT,
         shape=[len(frames)],
         values=[
-            ComplexQuantity(
+            ComplexComponents(
                 real=frame.value.real,
                 imag=frame.value.imag,
-                unit=_FAKE_RESPONSE_UNIT,
             )
             for frame in frames
         ],

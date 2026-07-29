@@ -51,16 +51,22 @@ class DomainProductAxisView:
     """Immutable SDK projection of one logical product axis."""
 
     id: str
+    dimension_id: str
     kind: str
     size: int
+    dimension_label: str | None = None
     unit: str | None = None
     metadata: Mapping[str, object] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
-        if not self.id or not self.kind:
-            raise ValueError("domain product axis ids and kinds must be non-empty")
+        if not self.id or not self.dimension_id or not self.kind:
+            raise ValueError(
+                "domain product axis ids, dimension ids, and kinds must be non-empty"
+            )
         if self.size <= 0:
             raise ValueError("domain product axis sizes must be positive integers")
+        if self.dimension_label is not None and not self.dimension_label:
+            raise ValueError("domain product axis dimension labels must be non-empty")
         object.__setattr__(
             self,
             "metadata",

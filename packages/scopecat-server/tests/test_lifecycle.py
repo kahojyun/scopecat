@@ -18,9 +18,13 @@ from scopecat.daemon.endpoint import (
     daemon_record_path,
     read_daemon_endpoint_record,
 )
-from scopecat.project import Project, open_project
+from scopecat.project import (
+    Project,
+    load_instrument_backend_factory,
+    open_project,
+)
 from scopecat.records.parameter import ScalarParameterValue
-from tests.testkit.project_loading import isolated_project_application_imports
+from tests.testkit.project_loading import isolated_project_imports
 from typer.testing import CliRunner
 
 from scopecat_server.cli import app
@@ -37,7 +41,7 @@ from scopecat_server.lifecycle import (
 
 @pytest.fixture(autouse=True)
 def isolate_project_loader() -> Iterator[None]:
-    with isolated_project_application_imports():
+    with isolated_project_imports():
         yield
 
 
@@ -49,7 +53,9 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
     project = initialize_project(tmp_path)
 
     assert project.manifest.read_text(encoding="utf-8") == (
-        '[lab]\napplication = "scopecat_lab.application:create_application"\n'
+        "[lab]\n"
+        'application = "scopecat_lab.application:create_application"\n'
+        'instrument_backend = "scopecat_lab.backend:create_backend"\n'
     )
     assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == (
         "results/\n.scopecat/\n"
@@ -57,6 +63,7 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
     assert not (tmp_path / ".scopecat").exists()
     assert (tmp_path / "src/scopecat_lab/__init__.py").is_file()
     assert (tmp_path / "src/scopecat_lab/application.py").is_file()
+    assert (tmp_path / "src/scopecat_lab/backend.py").is_file()
     assert (tmp_path / "src/scopecat_lab/configuration.py").is_file()
     notebook = tmp_path / "notebooks/01_first_run.py"
     assert notebook.is_file()
@@ -71,8 +78,12 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
         id="repetitions",
         value=128,
     )
-    assert application.build_system is not None
-    assert application.build_system(config).provider is not None
+    assert project.instrument_backend_spec is not None
+    create_backend = load_instrument_backend_factory(
+        project.instrument_backend_spec,
+        project.root,
+    )
+    assert create_backend(project.root).provider.provider_id == "scopecat-lab.local"
 
     with pytest.raises(DaemonLifecycleError, match="already initialized"):
         initialize_project(tmp_path)

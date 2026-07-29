@@ -1,22 +1,32 @@
 from __future__ import annotations
 
+import pytest
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
-    CollectCommand,
-    CollectProductRequest,
-    InstrumentStateCommand,
-    InstrumentStateCommandField,
+    AcquisitionRef,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverOperation,
+    DriverRejected,
+    DriverScalar,
+    DriverStatePatch,
+    DriverUnknown,
+    PropertyRef,
 )
+from scopecat.sdk.instruments.scpi import TransportError
 
 from scopecat_instruments.drivers import (
     KeysightE5080B,
-    LakeShore372,
     YokogawaGS200,
 )
+from scopecat_instruments.members import (
+    DC_SOURCE_MODE,
+    NETWORK_SWEEP,
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+    NETWORK_SWEEP_START_FREQUENCY,
+)
 from scopecat_instruments.testing import ScriptedTransport
-from scopecat_instruments.transport import TransportError
-from scopecat_instruments.virtual import VirtualDcSource, VirtualLabWorld
 
 
 class _FailingTransport:
@@ -30,166 +40,67 @@ class _FailingTransport:
         pass
 
 
-def test_read_only_lakeshore_command_is_not_applied_without_io() -> None:
-    driver = LakeShore372("fridge", ScriptedTransport([]))
-    receipt = driver.apply_state(
-        InstrumentStateCommand(
-            instrument_id="fridge",
-            fields=[
-                InstrumentStateCommandField(
-                    resource_id="fridge",
-                    capability_id="temperature_readout",
-                    field_path="heater_range",
-                    value=StateValue(1),
-                )
-            ],
+def test_gs200_baseline_transport_loss_is_raised() -> None:
+    driver = YokogawaGS200("bias", _FailingTransport())
+
+    with pytest.raises(TransportError, match="failed query"):
+        driver.apply_state(
+            _apply_request(
+                DC_SOURCE_MODE,
+                "voltage",
+            )
         )
-    )
-
-    assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "instrument_driver_read_only_field"
-
-
-def test_invalid_gs200_mode_is_not_applied_without_io() -> None:
-    driver = YokogawaGS200("bias", ScriptedTransport([]))
-    receipt = driver.apply_state(
-        InstrumentStateCommand(
-            instrument_id="bias",
-            fields=[
-                InstrumentStateCommandField(
-                    resource_id="bias",
-                    capability_id="dc_output",
-                    field_path="source_mode",
-                    value=StateValue(17),
-                )
-            ],
-        )
-    )
-
-    assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "instrument_driver_field_value_mismatch"
-
-
-def test_real_gs200_rejects_mixed_modes_without_io() -> None:
-    transport = ScriptedTransport([])
-    driver = YokogawaGS200("bias", transport)
-
-    receipt = driver.apply_state(_mixed_dc_mode_command())
-
-    assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "gs200_conflicting_source_modes"
-    assert transport.transcript == []
-
-
-def test_virtual_dc_rejects_mixed_modes_without_mutation() -> None:
-    world = VirtualLabWorld(seed=3)
-    driver = VirtualDcSource("bias", world)
-    before = world.dc_source("bias")
-    before_values = (
-        before.source_mode,
-        before.voltage_level_v,
-        before.current_level_a,
-    )
-
-    receipt = driver.apply_state(_mixed_dc_mode_command())
-    after = world.dc_source("bias")
-
-    assert receipt.status == "not_applied"
-    assert receipt.problems[0].code == "virtual_dc_conflicting_source_modes"
-    assert (
-        after.source_mode,
-        after.voltage_level_v,
-        after.current_level_a,
-    ) == before_values
 
 
 def test_apply_transport_loss_reports_unknown_not_not_applied() -> None:
     driver = KeysightE5080B("vna", _FailingTransport())
-    receipt = driver.apply_state(InstrumentStateCommand(instrument_id="vna"))
-
-    assert receipt.status == "unknown"
-    assert receipt.problems[0].code == "instrument_apply_outcome_unknown"
-
-
-def test_unsupported_collect_product_is_not_collected_without_trigger() -> None:
-    driver = KeysightE5080B("vna", ScriptedTransport([]))
-    receipt = driver.collect(
-        CollectCommand(
-            instrument_id="vna",
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectProductRequest(
-                    id="not_a_trace",
-                    capability_id="network_sweep",
-                )
-            ],
+    receipt = driver.apply_state(
+        _apply_request(
+            NETWORK_SWEEP_START_FREQUENCY,
+            Quantity(4.9e9, "Hz"),
         )
     )
 
-    assert receipt.status == "not_collected"
-    assert receipt.problems[0].code == "instrument_driver_unsupported_product"
+    assert isinstance(receipt, DriverUnknown)
+    assert receipt.problems[0].code == "instrument_apply_outcome_unknown"
 
 
 def test_acquisition_transport_loss_reports_unknown() -> None:
     driver = KeysightE5080B("vna", _FailingTransport())
     receipt = driver.collect(
-        CollectCommand(
-            instrument_id="vna",
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectProductRequest(
-                    id="s_parameter",
-                    capability_id="network_sweep",
-                    unit="ratio",
-                    dtype="complex128",
-                )
-            ],
+        _collect_request(
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
         )
     )
 
-    assert receipt.status == "unknown"
+    assert isinstance(receipt, DriverUnknown)
     assert receipt.problems[0].code == "instrument_collect_outcome_unknown"
 
 
-def test_collect_contract_mismatch_is_rejected_without_trigger() -> None:
+def test_unsupported_invoke_returns_not_invoked_without_io() -> None:
     driver = KeysightE5080B("vna", ScriptedTransport([]))
-    receipt = driver.collect(
-        CollectCommand(
-            instrument_id="vna",
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectProductRequest(
-                    id="s_parameter",
-                    capability_id="network_sweep",
-                    unit="ratio",
-                    dtype="float64",
-                )
-            ],
-        )
+
+    receipt = driver.invoke(
+        DriverOperation(target=NETWORK_SWEEP.operation("calibrate"))
     )
 
-    assert receipt.status == "not_collected"
-    assert receipt.problems[0].code == "instrument_driver_product_dtype_mismatch"
+    assert isinstance(receipt, DriverRejected)
+    assert receipt.problems[0].code == "instrument_operation_not_implemented"
 
 
-def _mixed_dc_mode_command() -> InstrumentStateCommand:
-    return InstrumentStateCommand(
-        instrument_id="bias",
-        fields=[
-            InstrumentStateCommandField(
-                resource_id="bias",
-                capability_id="dc_output",
-                field_path="voltage_level",
-                value=StateValue(Quantity(0.1, "V")),
-            ),
-            InstrumentStateCommandField(
-                resource_id="bias",
-                capability_id="dc_output",
-                field_path="current_level",
-                value=StateValue(Quantity(1.0e-3, "A")),
-            ),
-        ],
+def _apply_request(
+    target: PropertyRef,
+    value: DriverScalar,
+) -> DriverStatePatch:
+    return DriverStatePatch(values={target: value})
+
+
+def _collect_request(
+    acquisition: AcquisitionRef,
+    result: AcquisitionResultRef,
+) -> DriverAcquisition:
+    return DriverAcquisition(
+        target=acquisition,
+        results=frozenset({result}),
     )

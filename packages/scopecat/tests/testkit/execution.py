@@ -12,17 +12,22 @@ from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.service import plan_scratch_experiment
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.backend import InstrumentBackend
+from scopecat.sdk.instruments.provider import (
+    InstrumentConnectionContext,
     InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
 )
-from tests.testkit.instrument_host import provision_test_instrument_host
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
+from tests.testkit.instrument_host import (
+    compose_test_instruments,
+    provision_test_instrument_host,
+)
 from tests.testkit.runtime import (
     admit_test_run,
     sqlite_execution_session,
@@ -49,12 +54,15 @@ class _ExplicitDriverProvider:
             instruments=tuple(driver.describe() for driver in self.drivers),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        return InstrumentProviderResult(drivers=self.drivers)
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        return next(
+            driver
+            for driver in self.drivers
+            if driver.instrument_id == context.binding.id
+        )
 
 
 def execute_bound_run(
@@ -63,6 +71,7 @@ def execute_bound_run(
     experiment: CoreProgram,
     instruments: Sequence[InstrumentDriver],
     project_root: str | Path,
+    payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
 ) -> RunManifest:
     """Bind a typed test program, then exercise the production executor boundary."""
 
@@ -72,6 +81,7 @@ def execute_bound_run(
         experiment=experiment,
         instrument_provider=provider,
         project_root=project_root,
+        payload_codecs=payload_codecs,
     )
 
 
@@ -80,6 +90,7 @@ def execute_invocation_run(
     config: ConfigProfileSnapshot,
     experiment: ExperimentInvocation,
     system: ExperimentSystem,
+    instrument_backend: InstrumentBackend | None,
     project_root: str | Path,
     config_source: RunConfigSource | None = None,
     metadata: Mapping[str, object] | None = None,
@@ -109,11 +120,11 @@ def execute_invocation_run(
             accepted.run_id,
             runs=repository,
             instruments=provision_test_instrument_host(
-                None if planned.system is None else planned.system.provider,
+                instrument_backend,
                 context=InstrumentProviderContext(
-                    config=planned.config,
-                    instrument_ids=planned.program.resource_order,
+                    bindings=instrument_bindings(planned.config)
                 ),
+                instrument_ids=planned.program.resource_order,
             ),
         ),
     )
@@ -127,12 +138,18 @@ def execute_program_run(
     project_root: str | Path,
     request: RunRequest | None = None,
     config_source: RunConfigSource | None = None,
+    payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
 ) -> RunManifest:
     """Execute a typed test program through the unified production boundary."""
 
     environment = build_config_environment(config)
     linked = link_program(experiment, environment)
-    program = ExperimentSystem(provider=instrument_provider).compile(linked)
+    composition = compose_test_instruments(
+        config=config,
+        provider=instrument_provider,
+        payload_codecs=payload_codecs,
+    )
+    program = composition.system.compile(linked)
     repository = sqlite_run_repository(project_root)
     accepted = admit_test_run(
         config=config,
@@ -147,11 +164,9 @@ def execute_program_run(
             accepted.run_id,
             runs=repository,
             instruments=provision_test_instrument_host(
-                instrument_provider,
-                context=InstrumentProviderContext(
-                    config=config,
-                    instrument_ids=program.resource_order,
-                ),
+                composition.backend,
+                context=InstrumentProviderContext(bindings=instrument_bindings(config)),
+                instrument_ids=program.resource_order,
             ),
         ),
     )

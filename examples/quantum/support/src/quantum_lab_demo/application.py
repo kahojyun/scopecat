@@ -14,11 +14,12 @@ def quantum_lab_application(project_root: Path) -> LabApplication:
     """Compose the daemon from configuration owned by the selected project."""
 
     config_dir = project_root / "config"
+
     return LabApplication(
         bootstrap_config=lambda: quantum_lab_bootstrap_config(config_dir),
-        build_system=lambda config: quantum_lab_system(
+        build_experiment_system=lambda config, instrument_catalog: quantum_lab_system(
             config=config,
-            virtual_lab_profile=config_dir / "virtual-lab.json",
+            instrument_catalog=instrument_catalog,
         ),
     )
 

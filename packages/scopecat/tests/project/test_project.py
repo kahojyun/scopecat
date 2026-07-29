@@ -16,26 +16,31 @@ from scopecat.daemon.endpoint import (
     DaemonEndpointRecord,
     daemon_record_path,
 )
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.system import ExperimentSystem
 from scopecat.project import (
-    ProjectApplicationLoadError,
+    ProjectCodeLoadError,
     ProjectManifestError,
     load_application_factory,
     load_project,
     open_project,
 )
-from tests.testkit.project_loading import isolated_project_application_imports
+from scopecat.records.config import ConfigProfileSnapshot
+from tests.testkit.project_loading import isolated_project_imports
 
 
 @pytest.fixture(autouse=True)
 def isolate_project_loader() -> Iterator[None]:
-    with isolated_project_application_imports():
+    with isolated_project_imports():
         yield
 
 
-def test_project_application_is_resolved_from_manifest(tmp_path: Path) -> None:
+def test_project_composition_is_resolved_from_manifest(tmp_path: Path) -> None:
     manifest = tmp_path / "scopecat.toml"
     manifest.write_text(
-        '[lab]\napplication = "my_lab.application:create"\n',
+        "[lab]\n"
+        'application = "my_lab.application:create"\n'
+        'instrument_backend = "my_lab.backend:create"\n',
         encoding="utf-8",
     )
 
@@ -43,6 +48,7 @@ def test_project_application_is_resolved_from_manifest(tmp_path: Path) -> None:
 
     assert project.root == tmp_path
     assert project.application_spec == "my_lab.application:create"
+    assert project.instrument_backend_spec == "my_lab.backend:create"
 
 
 def test_project_is_discovered_from_a_child_directory(tmp_path: Path) -> None:
@@ -65,6 +71,7 @@ def test_empty_lab_manifest_can_open_before_code_or_config_exists(
     client = project.connect("http://daemon.local")
 
     assert project.application_spec is None
+    assert project.instrument_backend_spec is None
     assert isinstance(project.load_application(), LabApplication)
     assert isinstance(client, LabClient)
     client.close()
@@ -81,6 +88,27 @@ def test_project_connect_forwards_notebook_operator(
     )
 
     assert client._instruments._operator == "alice"
+    client.close()
+
+
+def test_project_connect_overrides_the_notebook_system_builder(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "scopecat.toml").write_text("[lab]\n", encoding="utf-8")
+
+    def build_experiment_system(
+        config: ConfigProfileSnapshot,
+        instrument_catalog: InstrumentContractCatalog,
+    ) -> ExperimentSystem:
+        del config
+        return ExperimentSystem(instrument_catalog=instrument_catalog)
+
+    client = open_project(tmp_path).connect(
+        "http://daemon.local",
+        build_experiment_system=build_experiment_system,
+    )
+
+    assert client._runner.build_experiment_system is build_experiment_system
     client.close()
 
 
@@ -189,8 +217,8 @@ def test_different_projects_cannot_reuse_the_same_application_module(
 
     assert isinstance(first_factory(first), LabApplication)
     with pytest.raises(
-        ProjectApplicationLoadError,
-        match="already loaded project application code",
+        ProjectCodeLoadError,
+        match="already loaded project code",
     ) as caught:
         load_application_factory(f"{module_name}.application:create", second)
 
@@ -214,7 +242,7 @@ def test_preloaded_application_module_from_outside_project_is_rejected(
     monkeypatch.setitem(sys.modules, module_name, conflicting)
 
     with pytest.raises(
-        ProjectApplicationLoadError,
+        ProjectCodeLoadError,
         match="already loaded from outside this project",
     ):
         load_application_factory(f"{module_name}.application:create", tmp_path)
@@ -229,6 +257,7 @@ def test_preloaded_application_module_from_outside_project_is_rejected(
             r"unknown \[lab\] field",
         ),
         ("[lab]\napplication = ''\n", "must be a non-empty string"),
+        ("[lab]\ninstrument_backend = ''\n", "must be a non-empty string"),
     ],
 )
 def test_invalid_project_manifests_fail_at_the_boundary(

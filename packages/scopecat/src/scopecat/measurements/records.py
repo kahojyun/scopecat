@@ -29,6 +29,7 @@ from scopecat.measurements.results import (
     MeasurementDimension,
     MeasurementDType,
     MeasurementVariable,
+    MeasurementVariableRole,
 )
 
 
@@ -42,6 +43,7 @@ class RecordUse:
 
     id: str
     product_use_id: ProductUseId
+    role: MeasurementVariableRole = "observable"
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
@@ -58,6 +60,7 @@ class RecordUse:
 @dataclass(frozen=True, slots=True)
 class RecordAxisPlan:
     id: str
+    label: str | None
     kind: str
     size: int
     unit: str | None = None
@@ -79,16 +82,13 @@ class RecordPlan:
     product_use_id: ProductUseId
     product_id: ProductId
     dtype: MeasurementDType
+    role: MeasurementVariableRole = "observable"
     unit: str | None = None
     axes: tuple[RecordAxisPlan, ...] = ()
-    dims: tuple[str, ...] = ()
-    shape: tuple[int, ...] = ()
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "axes", tuple(self.axes))
-        object.__setattr__(self, "dims", tuple(self.dims))
-        object.__setattr__(self, "shape", tuple(self.shape))
         object.__setattr__(
             self,
             "metadata",
@@ -100,15 +100,13 @@ class RecordPlan:
 
 class PointRecordLike(Protocol):
     @property
-    def row(self) -> Mapping[str, object]: ...
+    def row(self) -> Mapping[str, CellValue]: ...
 
 
 def plan_records(
     products: Sequence[ProductDef],
     product_uses: Sequence[ProductUse],
     record_uses: Sequence[RecordUse],
-    *,
-    point_count: int,
 ) -> list[RecordPlan]:
     products_by_id = {product.id: product for product in products}
     uses_by_id = {use.id: use for use in product_uses}
@@ -125,11 +123,10 @@ def plan_records(
                 id=record.id,
                 product_use_id=use.id,
                 product_id=product.id,
+                role=record.role,
                 unit=product.unit,
                 dtype=product.dtype,
                 axes=tuple(_plan_axis(axis) for axis in product.axes),
-                dims=("point", *(axis.id for axis in product.axes)),
-                shape=(point_count, *(axis.size for axis in product.axes)),
                 metadata={**product.metadata, **record.metadata},
             )
         )
@@ -138,7 +135,8 @@ def plan_records(
 
 def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
     return RecordAxisPlan(
-        id=axis.id,
+        id=axis.dimension_id,
+        label=axis.dimension_label,
         kind=axis.kind,
         size=axis.size,
         unit=axis.unit,
@@ -171,17 +169,23 @@ def validate_record_axes(
             problems.append(
                 problem(
                     "experiment_record_axis_conflict",
-                    f"record {record.id!r} axis {axis.id!r} conflicts with "
-                    f"record {existing_record_id!r}; shared axes must have "
-                    "identical kind, size, unit, and metadata",
+                    f"record {record.id!r} axis {axis.label or axis.id!r} conflicts "
+                    f"with record {existing_record_id!r} on shared dimension "
+                    f"{axis.id!r}; shared axes must have identical labels, kind, "
+                    "size, unit, and metadata",
                     phase=phase,
-                    location=model_location("records", record.id, "axes", axis.id),
+                    location=model_location(
+                        "records",
+                        record.id,
+                        "axes",
+                        axis.label or axis.id,
+                    ),
                     related_locations=(
                         model_location(
                             "records",
                             existing_record_id,
                             "axes",
-                            axis.id,
+                            existing_axis.label or existing_axis.id,
                         ),
                     ),
                 )
@@ -219,6 +223,21 @@ def validate_record_plan(
                 location=model_location("records", record_id),
             )
         )
+    dimension_ids = {
+        "point",
+        *(axis.id for record in records for axis in record.axes),
+    }
+    variable_ids = {*coordinate_ids, *record_ids}
+    for variable_id in sorted(dimension_ids & variable_ids):
+        problems.append(
+            problem(
+                "experiment_record_dimension_collision",
+                f"measurement variable {variable_id!r} conflicts with a dataset "
+                "dimension of the same id",
+                phase=phase,
+                location=model_location("records", variable_id),
+            )
+        )
     problems.extend(validate_record_axes(records, phase=phase))
     return problems
 
@@ -236,25 +255,21 @@ def expected_dataset_schema(
         MeasurementDimension(id="point", kind="point", size=len(points)),
         *_record_axes(records),
     ]
-    coordinates = _coordinate_variables(points)
-    observables = [
-        MeasurementVariable(
-            id=record.id,
-            role="observable",
-            dtype=record.dtype,
-            unit=record.unit,
-            dims=list(record.dims),
-            shape=list(record.shape),
-            metadata=_wire_metadata(record.metadata),
-        )
-        for record in records
+    point_coordinates = _coordinate_variables(points)
+    record_variables = [_record_variable(record) for record in records]
+    record_coordinates = [
+        variable for variable in record_variables if variable.role == "coordinate"
     ]
+    observables = [
+        variable for variable in record_variables if variable.role == "observable"
+    ]
+    coordinates = [*point_coordinates, *record_coordinates]
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
         dimensions=dimensions,
         variables=[*coordinates, *observables],
         primary_coordinates=[variable.id for variable in coordinates],
-        primary_observables=[record.id for record in records],
+        primary_observables=[variable.id for variable in observables],
         metadata={"experiment_id": experiment_id},
     )
 
@@ -276,17 +291,30 @@ def _record_axes(records: Sequence[RecordPlan]) -> list[MeasurementDimension]:
                 MeasurementDimension(
                     id=axis.id,
                     kind=axis.kind,
+                    label=axis.label,
                     size=axis.size,
-                    unit=axis.unit,
                     metadata=_wire_metadata(axis.metadata),
                 )
             )
     return dimensions
 
 
+def _record_variable(record: RecordPlan) -> MeasurementVariable:
+    return MeasurementVariable(
+        id=record.id,
+        role=record.role,
+        dtype=record.dtype,
+        unit=record.unit,
+        dims=["point", *(axis.id for axis in record.axes)],
+        source_product_id=record.product_id.qualified_name,
+        metadata=_wire_metadata(record.metadata),
+    )
+
+
 def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:
     return (
-        left.kind == right.kind
+        left.label == right.label
+        and left.kind == right.kind
         and left.size == right.size
         and left.unit == right.unit
         and left.metadata == right.metadata
@@ -298,19 +326,14 @@ def _coordinate_variables(
 ) -> list[MeasurementVariable]:
     variables: list[MeasurementVariable] = []
     dimensions = ["point"]
-    shape = [len(points)]
     for column in _point_columns(points):
-        values = cast(
-            "list[CellValue]",
-            [point.row[column] for point in points if column in point.row],
-        )
+        values = [point.row[column] for point in points if column in point.row]
         if len(values) != len(points):
             continue
         variable = _coordinate_variable(
             column,
             values,
             dimensions=dimensions,
-            shape=shape,
         )
         if variable is not None:
             variables.append(variable)
@@ -322,7 +345,6 @@ def _coordinate_variable(
     values: list[CellValue],
     *,
     dimensions: list[str],
-    shape: list[int],
 ) -> MeasurementVariable | None:
     dtype = _measurement_dtype(values)
     if dtype is None:
@@ -338,7 +360,6 @@ def _coordinate_variable(
         dtype=dtype,
         unit=unit,
         dims=dimensions,
-        shape=shape,
         metadata=metadata,
     )
 

@@ -17,12 +17,20 @@ from scopecat.records.config import (
     RoutingEndpointBinding,
     RoutingGraph,
 )
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
-    materialized_state_fields,
+    materialized_state_properties,
 )
+
+_DRIVE_FREQUENCY = InterfaceRef("test.drive_frequency/v1")
+_DRIVE_FREQUENCY_VALUE = _DRIVE_FREQUENCY.property("value")
+_READOUT_ACQUIRE = InterfaceRef("test.readout_acquire/v1")
+_READOUT_SAMPLE_IQ = _READOUT_ACQUIRE.acquisition("sample").result("iq")
+_READOUT_EMIT = InterfaceRef("test.readout_emit/v1")
+_READOUT_EMIT_FREQUENCY = _READOUT_EMIT.property("frequency")
 
 
 def _resource_binding_config(
@@ -48,7 +56,11 @@ def _resource_binding_config(
                 update={
                     "instruments": [
                         seed_instrument.model_copy(
-                            update={"id": instrument_id, "kind": kind}
+                            update={
+                                "id": instrument_id,
+                                "exclusivity_key": instrument_id,
+                                "kind": kind,
+                            }
                         )
                         for instrument_id, kind in instruments.items()
                     ]
@@ -68,12 +80,12 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         bindings=(
             RoutingEndpointBinding(
                 instrument_id="drive-awg-0",
-                capability="drive.frequency",
+                interface_id="test.drive_frequency/v1",
                 entity_id="q0",
             ),
             RoutingEndpointBinding(
                 instrument_id="drive-awg-1",
-                capability="drive.frequency",
+                interface_id="test.drive_frequency/v1",
                 entity_id="q1",
             ),
         ),
@@ -87,13 +99,12 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         authoring.module_body(id="test.resource-binding-scenarios.entity-routing")
         .resource(
             "drive",
-            requires=("drive.frequency",),
+            requires=(_DRIVE_FREQUENCY,),
             for_entities=(qubit,),
         )
-        .bind_field(
+        .bind_property(
             "drive",
-            capability="drive.frequency",
-            field="value",
+            _DRIVE_FREQUENCY_VALUE,
             value=Quantity(value=5.0, unit="GHz"),
         )
         .build()
@@ -124,7 +135,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
     ]
     assert {
         (point_index, operation.instrument_id)
-        for point_index, operation, _field in materialized_state_fields(preview)
+        for point_index, operation, _target in materialized_state_properties(preview)
     } == {
         (0, "drive-awg-1"),
         (1, "drive-awg-0"),
@@ -155,13 +166,13 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         bindings=(
             RoutingEndpointBinding(
                 instrument_id="digitizer-0",
-                capability="readout.acquire",
+                interface_id="test.readout_acquire/v1",
                 entity_id="q0",
                 channel_id="readout-q0",
             ),
             RoutingEndpointBinding(
                 instrument_id=q1_instrument,
-                capability="readout.acquire",
+                interface_id="test.readout_acquire/v1",
                 entity_id="q1",
                 channel_id="readout-q1",
             ),
@@ -176,15 +187,14 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         authoring.module_body(id="test.resource-binding-scenarios.channel-selection")
         .resource(
             "digitizer",
-            requires=("readout.acquire",),
+            requires=(_READOUT_ACQUIRE,),
             for_entities=(qubit,),
         )
         .product("iq", dtype="complex128")
         .acquire(
             "capture-iq",
-            "iq",
             resource="digitizer",
-            capability="readout.acquire",
+            results={_READOUT_SAMPLE_IQ: "iq"},
         )
         .build()
     )
@@ -242,12 +252,12 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         bindings=(
             RoutingEndpointBinding(
                 instrument_id="readout-source-0",
-                capability="readout.emit",
+                interface_id="test.readout_emit/v1",
                 entity_id="q0",
             ),
             RoutingEndpointBinding(
                 instrument_id="digitizer-0",
-                capability="readout.acquire",
+                interface_id="test.readout_acquire/v1",
                 entity_id="q0",
             ),
         ),
@@ -261,18 +271,17 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         .inputs(qubit)
         .resource(
             "readout_source",
-            requires=("readout.emit",),
+            requires=(_READOUT_EMIT,),
             for_entities=(qubit,),
         )
         .resource(
             "digitizer",
-            requires=("readout.acquire",),
+            requires=(_READOUT_ACQUIRE,),
             for_entities=(qubit,),
         )
-        .bind_field(
+        .bind_property(
             "readout_source",
-            capability="readout.emit",
-            field="frequency",
+            _READOUT_EMIT_FREQUENCY,
             value=Quantity(value=6.5, unit="GHz"),
         )
         .product(
@@ -281,9 +290,8 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         )
         .acquire(
             "capture-iq",
-            "iq",
             resource="digitizer",
-            capability="readout.acquire",
+            results={_READOUT_SAMPLE_IQ: "iq"},
         )
         .build()
     )

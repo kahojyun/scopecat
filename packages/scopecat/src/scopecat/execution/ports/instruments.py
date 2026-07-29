@@ -6,13 +6,21 @@ from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.records.artifact import CommandPayload
-from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementValue
-from scopecat.sdk.instruments.contracts import (
-    CollectProductRequest,
-    InstrumentStateCommandField,
+from scopecat.records.instrument import CommandChannelBinding, InstrumentStateSnapshot
+from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
+    MeasurementValue,
+)
+from scopecat.sdk.instruments.commands import (
+    CollectCommand,
+    CollectResultRequest,
+    InstrumentOperationArgument,
+    InstrumentStateAssignment,
+    InstrumentStateCommand,
+    InvokeCommand,
 )
 
 
@@ -25,12 +33,51 @@ class RunHardwareApply(_HardwareModel):
     effect_id: str = Field(min_length=1)
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
-    fields: tuple[InstrumentStateCommandField, ...]
+    assignments: tuple[InstrumentStateAssignment, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_command(self) -> RunHardwareApply:
+        InstrumentStateCommand(
+            command_id=self.effect_id,
+            instrument_id=self.instrument_id,
+            assignments=list(self.assignments),
+        )
+        return self
+
+
+class RunHardwareInvoke(_HardwareModel):
+    kind: Literal["invoke"] = "invoke"
+    effect_id: str = Field(min_length=1)
+    point_index: int = Field(ge=0)
+    instrument_id: str = Field(min_length=1)
+    resource_id: str = Field(min_length=1)
+    interface_id: InterfaceId
+    component_path: tuple[str, ...] = ()
+    operation_id: str = Field(min_length=1)
+    arguments: tuple[InstrumentOperationArgument, ...] = ()
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_command(self) -> RunHardwareInvoke:
+        InvokeCommand(
+            command_id=self.effect_id,
+            instrument_id=self.instrument_id,
+            resource_id=self.resource_id,
+            interface_id=self.interface_id,
+            component_path=list(self.component_path),
+            operation_id=self.operation_id,
+            arguments=list(self.arguments),
+            payloads=self.payloads,
+            entity_ids=list(self.entity_ids),
+            channel_bindings=list(self.channel_bindings),
+        )
+        return self
 
 
 class RunHardwareCollectBinding(_HardwareModel):
-    provider_key: str = Field(min_length=1)
+    request_id: str = Field(min_length=1)
     product_use_ids: tuple[str, ...] = Field(min_length=1)
 
 
@@ -40,20 +87,27 @@ class RunHardwareCollect(_HardwareModel):
     point_index: int = Field(ge=0)
     instrument_id: str = Field(min_length=1)
     point_count: int = Field(ge=1)
-    requests: tuple[CollectProductRequest, ...] = ()
+    requests: tuple[CollectResultRequest, ...] = Field(min_length=1)
     bindings: tuple[RunHardwareCollectBinding, ...]
 
     @model_validator(mode="after")
     def validate_bindings(self) -> RunHardwareCollect:
+        CollectCommand(
+            command_id=self.effect_id,
+            instrument_id=self.instrument_id,
+            point_index=self.point_index,
+            point_count=self.point_count,
+            requests=list(self.requests),
+        )
         request_ids = {request.id for request in self.requests}
-        binding_ids = {binding.provider_key for binding in self.bindings}
+        binding_ids = {binding.request_id for binding in self.bindings}
         if request_ids != binding_ids:
-            raise ValueError("hardware collect bindings must match requested products")
+            raise ValueError("hardware collect bindings must match requested results")
         return self
 
 
 type RunHardwareAction = Annotated[
-    RunHardwareApply | RunHardwareCollect,
+    RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
     Field(discriminator="kind"),
 ]
 
@@ -74,6 +128,7 @@ class RunHardwareValue(_HardwareModel):
     point_index: int = Field(ge=0)
     product_use_id: str = Field(min_length=1)
     value: MeasurementValue
+    evidence: InstrumentAcquisitionEvidence
 
 
 class RunHardwareBatchReceipt(_HardwareModel):
@@ -100,7 +155,14 @@ class RunInstrumentHost(Protocol):
     def setup_problems(self) -> tuple[Problem, ...]: ...
 
     @property
-    def initial_state(self) -> tuple[InstrumentStateSnapshot, ...]: ...
+    def observed_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        """Return fresh state read after the run acquired exclusive ownership."""
+        ...
+
+    @property
+    def prepared_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        """Return the execution baseline after applying the run policy."""
+        ...
 
     def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt: ...
 
@@ -120,6 +182,7 @@ __all__ = [
     "RunHardwareCollect",
     "RunHardwareCollectBinding",
     "RunHardwareFinalizationReceipt",
+    "RunHardwareInvoke",
     "RunHardwareValue",
     "RunInstrumentHost",
 ]

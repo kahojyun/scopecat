@@ -16,7 +16,7 @@ from typing import cast
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
@@ -189,39 +189,6 @@ def close_domain_invocation[
     )
 
 
-def _domain_measurement_output_selection_problems[
-    ResultAddressT: Hashable,
-](
-    mapping: DomainResultMapping[ResultAddressT],
-) -> tuple[Problem, ...]:
-    problems: list[Problem] = []
-    for use_index, product_use in enumerate(mapping.selected_product_uses):
-        product = mapping.product_for_use(product_use.id)
-        identity_details = {
-            "product_use_id": product_use.id.value,
-            "product_id": product.id.qualified_name,
-        }
-        if not product.axes and product.dtype in {"bool", "string"}:
-            problems.append(
-                _domain_output_selection_problem(
-                    "domain_output_scalar_dtype_unsupported",
-                    "domain measurement output closure has no scalar carrier for "
-                    f"dtype {product.dtype!r}",
-                    path=("product_uses", use_index, "product", "dtype"),
-                    details={
-                        **identity_details,
-                        "actual": product.dtype,
-                        "supported_scalar_dtypes": [
-                            "float64",
-                            "int64",
-                            "complex128",
-                        ],
-                    },
-                )
-            )
-    return tuple(problems)
-
-
 def seal_domain_output_values[
     ResultAddressT: Hashable,
 ](
@@ -238,9 +205,6 @@ def seal_domain_output_values[
     closures rather than overloading ``MeasurementValue``.
     """
 
-    selection_problems = _domain_measurement_output_selection_problems(mapping)
-    if selection_problems:
-        raise CheckFailed(selection_problems)
     selected = tuple(values)
 
     expected_addresses = {result.result_address for result in mapping.results}
@@ -310,9 +274,6 @@ def seal_domain_output_values[
             elif issue_code == "shape_mismatch":
                 problem_code = "domain_output_shape_mismatch"
                 field_path = ("shape",)
-            elif issue_code == "array_structure_mismatch":
-                problem_code = "domain_output_shape_mismatch"
-                field_path = issue.path
             else:
                 problem_code = "domain_output_value_mismatch"
                 field_path = issue.path
@@ -396,22 +357,6 @@ def _domain_output_problem(
         code,
         message,
         phase=ProblemPhase.EXECUTION,
-        location=model_location("domain_output_values", *path),
-        details=details,
-    )
-
-
-def _domain_output_selection_problem(
-    code: str,
-    message: str,
-    *,
-    path: tuple[str | int, ...],
-    details: Mapping[str, object],
-) -> Problem:
-    return problem(
-        code,
-        message,
-        phase=ProblemPhase.PLANNING,
         location=model_location("domain_output_values", *path),
         details=details,
     )

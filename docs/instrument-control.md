@@ -8,62 +8,220 @@ compete for the same exclusive resource claims.
 The design borrows Labber's useful separation between a background Instrument
 Server, manual instrument controls, and measurement tooling. It does not adopt
 a flat, vendor-shaped quantity tree as Scopecat's experiment model. Logical
-resource ports and capabilities remain the experiment-facing contract.
+resource ports and versioned interface requirements remain the
+experiment-facing contract.
 
-## Four distinct layers
+## Contract and lifecycle layers
 
 ```mermaid
 flowchart LR
-    C["InstrumentSpec<br/>immutable connection config"]
-    D["InstrumentDescription<br/>capabilities, fields, products"]
-    S["InstrumentSession<br/>live daemon drivers + claim"]
+    C["InstrumentSpec<br/>logical id + exclusivity key + connection"]
+    D["InstrumentDescription<br/>interfaces and components"]
+    B["InstrumentBackendEndpoint<br/>opaque connection handles"]
+    A["InstrumentActor<br/>ownership serialization"]
+    S["InstrumentSession / run<br/>ownership epoch + claim"]
     R["ResourcePort<br/>logical experiment requirement"]
 
     C --> D
-    C --> S
-    D --> S
+    C --> B
+    D --> B
+    B --> A
+    A --> S
     R -->|"planning and routing"| C
 ```
 
-`InstrumentSpec` answers what physical device is configured and how a provider
-can reach it. It contains a stable instance id, `driver_id`, and a typed
-connection. It is versioned with the complete `ConfigProfileSnapshot`; editing
-a connection publishes a new immutable config entry instead of mutating a live
-run's inputs.
+`InstrumentSpec` answers what device is configured and how a provider can reach
+it. Its `id` is the logical name used by commands, UI, and evidence;
+`exclusivity_key` is the stable lab-defined physical access domain used only for
+scheduling and daemon actors. It also contains `driver_id` and a typed
+connection. The exclusivity key is neither inferred from an address nor exposed
+to drivers. A config cannot assign one key to multiple instruments; a device
+with several roles exposes multiple interfaces or components instead.
+Ordinary activations may add physical domains but cannot remove or rekey one;
+renaming a logical instrument keeps the same key. Retirement and rekeying
+use a separate explicit inventory migration and only succeed after every
+affected old and new physical domain is drained.
+The complete spec is versioned with `ConfigProfileSnapshot`; editing it
+publishes a new immutable entry instead of mutating a live run's inputs.
 
 `InstrumentDescription` is the pure driver contract used without opening
-hardware. It declares vendor-neutral capabilities, state fields, field access,
-types, units, labels, descriptions, and collectable products. Both GUI controls
-and experiment validation are derived from it.
+hardware. It declares the versioned interfaces the device implements. An
+interface or nested component may contain persistent properties, atomic
+operations, and acquisitions with typed results. GUI controls and experiment
+validation are derived from this description.
 
-`InstrumentSession` is an explicit daemon-owned connection. The daemon pins
-the active config revision, claims all requested instruments, provisions the
-drivers, and keeps them behind a session id until close or abort. There is no
-client lease, TTL, or heartbeat: losing a GUI tab does not imply that hardware
-state is uncertain. The session remains visible and can be disconnected by
-another GUI or notebook client. Daemon shutdown aborts and closes live drivers;
-on restart, idle sessions are released while a session interrupted during a
-consequential operation remains in `attention_required`.
+`InstrumentBackendEndpoint` owns providers and raw drivers, returning only
+opaque connection handles. Before crossing that boundary, the daemon projects
+the accepted config to provider bindings containing only device identity,
+driver id, and connection settings. Topology, parameters, routing, and run-start
+policy never enter the worker. Production uses one spawned, project-long worker;
+the in-process implementation is a test seam behind the same API.
+`InstrumentActor` remains in the daemon, is indexed by `exclusivity_key`, and
+may retain a matching worker handle while the physical access domain is idle.
+The owned view separately retains the logical instrument id. The actor accepts
+only the driver backend ABI and never treats idle state as observed.
+A handle is reusable only when its provider endpoint, canonical per-device
+binding, and complete advertised description still match. Changing defaults,
+run-start policy, routing, or unrelated configuration does not reconnect the
+device; changing its driver, connection, options, or contract does. An idle
+handle that is no longer selected remains process-local until a mismatched
+owner replaces it or the daemon shuts down.
+
+The normal instrument list is a separate safe projection: identity, driver id,
+connection kind, and TCP/IP host/port. It excludes driver options, timeouts,
+default state, run-start policy, exclusivity keys, and config hashes. The GUI
+loads the complete active config only after a user explicitly opens
+configuration editing.
+
+`InstrumentSession` and an admitted run are ownership epochs, not connections.
+The daemon pins the config revision, claims all requested instruments, and
+acquires their actors until release or abort. Owner-scoped state and replay
+evidence are cleared at the end of every epoch. Direct sessions carry a
+renewable ownership lease; GUI and Notebook clients renew it explicitly at one
+third of its duration. Renewal changes no hardware state and emits no durable
+event. An expired idle session releases its actor without aborting, resetting,
+or disconnecting a healthy cached connection. New run and session claims compare
+the activation generation in the same SQLite writer transaction, so a concurrent
+config activation cannot commit ownership derived from a stale physical
+inventory.
+
+A submitted run carries logical resource requirements only. Admission verifies
+its complete instrument inventory against daemon-owned configuration, then
+resolves separate canonical claims keyed by `exclusivity_key`; clients cannot
+author physical claim ids. Registry and analysis-candidate sources are resolved
+from their durable records, while a scratch submission must match the active
+inventory. Domain plans retain the target kind and its complete instrument
+footprint as one structured requirement. Ordinary run and instrument views
+project claims back to logical ids. Scheduler keys remain confined to admission
+storage, resource claims, and actor lookup.
+
+Executable Python remains in the client, so admission validates and authorizes
+the declared plan rather than reconstructing it. Treating a hostile client as a
+planner requires a future daemon-signed or daemon-built plan, not broader
+implicit claims that serialize unrelated experiments.
+
+Every new owner reads the device before its first write, including when it
+reuses an idle connection. This accepts legitimate front-panel changes without
+background polling or pretending the daemon observed idle hardware. A direct
+session returns that synchronized snapshot in its open receipt; replaying the
+same open operation returns the same evidence without touching hardware again.
+If the initial refresh fails on a reused connection, the actor retires it and
+retries once with a new connection. Normal release leaves a healthy connection
+available; an unknown hardware outcome faults and disconnects it. Daemon
+shutdown first fences new owners, then drains durable ownership, disconnects
+actor handles, and shuts down the endpoint. If driver cleanup exceeds the
+shutdown grace period, the daemon fences the whole worker generation; pending
+consequential calls become unknown and the worker is terminated.
+
+A state snapshot is complete public physical state for every advertised static
+component. Logical entity and channel bindings remain command provenance; they
+are resolved before a driver request and never become device-state identity.
+Quantity readback uses the unit declared by its `PropertySpec`; canonical units
+make daemon-side validation deterministic.
+
+An explicit state refresh is read-only. If it fails, or the driver returns an
+invalid snapshot, the daemon ends the whole multi-instrument ownership epoch
+and faults every connection without issuing hardware aborts. The durable
+session is quarantined only if closing that session fails. A readback failure
+after a consequential apply, operation, or acquisition remains an unknown
+outcome and uses the abort-and-quarantine path.
 
 `ResourcePort` remains a logical experiment requirement such as RF output or
-network sweep. Planning routes it to a physical instrument. Experiment
-definitions therefore do not depend on addresses, vendors, or GUI concepts.
+network sweep. It requests one or more namespaced interface ids such as
+`scopecat.rf_output/v1`; planning routes the complete requirement to a physical
+instrument. Experiment definitions therefore do not depend on addresses,
+vendors, or GUI concepts.
+
+## Interface boundaries
+
+An interface id names stable behavior, not a driver implementation or current
+device mode. Its major version is part of the id. The members have distinct
+roles:
+
+- `PropertySpec` describes readable or writable persistent state;
+- `OperationSpec` describes one atomic action that is not state;
+- `AcquisitionSpec` describes one trigger and its typed result set;
+- `ComponentSpec` gives repeated or nested endpoints, such as channels and
+  traces, a stable path beneath the interface.
+
+A fixed acquisition always exposes the same results. A state-discriminated
+acquisition references one physical state discriminator and declares a result
+set for every mode. Acquisition- and case-level preconditions declare the
+observable public state required before a trigger. The daemon resolves an
+interactive collect intent from a fresh hardware snapshot, while batch
+preflight uses projected state to reject an incoherent plan before its first
+side effect.
+
+Every array axis has either a fixed size or an observable integer state
+property as its size source. Executable collect commands always freeze concrete
+dimensions; state references remain in the interface contract and never enter
+the driver request. Truly ragged or event-shaped results require a distinct
+result contract rather than an omitted axis size.
+
+Interactive replay is checked before touching hardware. On the first attempt,
+the daemon synchronizes state, selects the active results, resolves every axis,
+and freezes the resulting concrete command. A rejection is also replayed
+without another state read. The driver still rechecks live mode and
+preconditions before the trigger because the front panel can change after the
+snapshot; implementation-specific constraints remain driver guards.
+
+A driver implementation may expose several interfaces. Multi-device
+calibration, feedback, and analysis remain experiment procedures rather than
+device operations.
+
+Persistent hardware settings may not remain undeclared if they can change an
+interface's promised behavior. A setting is either public state represented by
+a `PropertySpec`, a fixed driver-configuration invariant, or state local to one
+operation or acquisition. A continuous invariant is verified by `read_state`
+and re-established before related writes; an action-local invariant is
+established at that action boundary and temporary trigger or transport state is
+restored afterward. Diagnostic metadata is not a substitute for observed public
+state. Calibration and correction choices are explicit configuration with
+provenance and are never silently reset by a generic interface.
+
+The daemon validates the complete public command, keeps its retry and
+provenance fields, then lowers it to a process-safe backend request. The worker
+performs the final lowering after decoding any payloads. Drivers see only
+physical interface targets, property writes, scalar or decoded payload
+arguments, and acquisition result identities. They do not receive command, run,
+resource, entity, channel, point, product, codec, byte transport, unit, axis, or
+provenance fields. Collect result shape and units are checked by the daemon
+against the original request after readback.
+
+Operating-mode-dependent property sets use the interface's discriminated state
+model. The discriminator and common properties are valid in every case, while
+each case declares its own additional property set. A mode is mutable state, so
+routing never selects a different interface merely because the device changed
+mode. A patch within the observed case may remain sparse. A patch that changes
+case must set the discriminator and the target case's declared entry
+properties; otherwise safety-relevant hidden state from an earlier use of that
+mode could become active. Common and other case properties may remain sparse.
+The current `scopecat.dc_source/v2` contract uses this model for voltage and
+current source modes. Configured startup defaults resolve to property
+assignments; omitted experiment properties preserve freshly observed device
+state unless the run explicitly applies those defaults.
 
 ## Connection configuration
 
 The core configuration schema distinguishes:
 
-- `virtual`: an in-process simulated device selected by `driver_id`;
+- `virtual`: a deterministic simulated device selected by `driver_id`;
 - `tcpip_socket`: host, port, and timeout for line-oriented SCPI.
 
 Connections may carry driver-specific `options`. The first-party provider
 supports virtual devices and configured TCP/IP endpoints.
+
+A raw TCP transport owns one socket generation and never reconnects itself.
+Connect, write, read, response-size, or text-decoding failure permanently
+breaks that transport and clears buffered bytes. Reconnection happens only by
+constructing and identifying a new driver through the provider.
 
 Example:
 
 ```json
 {
   "id": "readout-vna",
+  "exclusivity_key": "rack-a/readout-vna",
   "driver_id": "scopecat.keysight.e5080b",
   "connection": {
     "kind": "tcpip_socket",
@@ -71,54 +229,118 @@ Example:
     "port": 5025,
     "timeout_seconds": 10,
     "options": {}
-  }
+  },
+  "default_state": [],
+  "run_start": "preserve"
 }
 ```
 
-The GUI's connection editor follows the same immutable workflow as other
-configuration: load the active complete snapshot, edit the selected
-instrument's current TCP/IP endpoint or timeout, publish a new entry, and
-activate it. The editor does not change `driver_id`, connection kind, or driver
-options. Virtual connections have no endpoint to edit. Editing is disabled
-while the instrument is owned.
+`default_state` is a reusable partial public physical-state profile. It may be
+saved independently of how runs start, so interactive tools can apply it
+explicitly.
+
+`run_start` is required for every instrument:
+
+- `preserve` reads the device after the run acquires exclusive ownership and
+  keeps those settings.
+- `apply_default_state` reads first, then reconciles only `default_state`.
+  Unspecified properties are preserved.
+
+Applying default state is not a factory reset. Settings outside the public
+interface remain driver-owned connection or profile configuration; experiments
+neither guess nor overwrite them. A discriminated state case explicitly lists
+the properties required when entering it. Defaults that select a new case must
+provide those values, so startup does not activate safety-relevant settings left
+by an earlier use of that mode.
+
+A hardware reset or preset is an explicit `OperationSpec`, not a connection
+hook or session-open flag. It therefore participates in normal argument
+validation, operation replay, auditing, state readback, and unknown-outcome
+handling. Neither connection reuse nor opening an interactive session may reset
+hardware implicitly.
+
+Run evidence records both the fresh `observed_state` and the resulting
+`prepared_state`. Direct GUI and Notebook sessions always use fresh observation
+with preserve semantics; saved defaults never change a device merely because a
+user opened an interactive session. An explicit configured-default action reads
+again and uses the immutable config entry pinned when that session opened, even
+if another revision has since become active.
+
+The GUI reads the provider's driver catalog when adding or configuring an
+instrument. It edits the registered driver, supported connection kind, endpoint,
+strict driver options, sparse default state, and run-start policy, then
+publishes and activates a new immutable configuration entry. Changing the driver
+clears defaults whose property identities may no longer be valid. **Test
+connection** opens the candidate binding in the worker, identifies it, returns
+its interface description, and closes it without changing the active config.
+Configuration is disabled while the instrument is owned or quarantined.
+
+Activation never hot-switches a live owner: a run or session keeps its accepted
+configuration through release. A later owner may reuse the idle connection only
+when the provider endpoint, binding, and advertised contract still match, and
+always reads fresh physical state before use.
+
+### Inventory changes
+
+Removing a device, changing its `exclusivity_key`, or renaming and rekeying it
+is an administrative migration rather than a normal config edit. The command
+supplies a complete target snapshot plus explicit `remove`, `rekey`, or
+`rename_rekey` intent. The daemon derives the destructive diff itself and
+requires an exact match; ordinary additions, same-key logical renames, and
+other valid config edits may be included in the same target snapshot.
+
+The daemon gates acquisition on every affected old and new key, rejects queued
+or active runs, active sessions, and quarantined claims, then disconnects any
+idle retained actor before saving and activating the revision in one
+transaction. It does not cancel runs, abort sessions, retain key aliases, or
+rewrite historical run records. A failed migration leaves the active config
+and event stream unchanged. Reverting one therefore uses another explicit
+migration rather than ordinary undo.
 
 ## Instruments workspace
 
 Instruments are a top-level workspace beside Runs and Configuration. The list
 shows:
 
-- friendly label, stable id, driver, and non-secret connection summary;
+- friendly label, stable id, and non-secret connection summary;
 - availability: `available`, `active`, `quarantined`, or `unavailable`;
-- current owner kind and actor or run id;
+- whether a run or interactive session currently owns the device;
 - provider or configuration problems.
 
-Opening an instrument does not connect automatically. The operator explicitly
-selects **Connect**, after which the detail view:
+Opening the workspace does not acquire an instrument automatically. The
+operator explicitly selects **Connect**, after which the detail view:
 
-1. reads a fresh state snapshot;
-2. renders capability groups and field controls from
+1. renders the fresh state snapshot returned by session open;
+2. renders interface components and property controls from
    `InstrumentDescription`;
-3. disables `read_only` fields and never tries to read `write_only` values;
-4. stages edits locally, showing current and proposed values separately;
-5. submits all staged fields in one **Apply** operation;
-6. offers **Collect** only for declared products and previews returned values
-   or arrays;
-7. closes the session on explicit disconnect or workspace teardown.
+3. offers an explicit **Apply configured defaults** action when the session's
+   pinned config contains a sparse default state;
+4. disables `read_only` properties and never tries to read `write_only` values;
+5. stages edits locally, showing current and proposed values separately;
+6. submits all staged properties in one **Apply** operation;
+7. offers one-shot controls for declared operations whose arguments the GUI can
+   encode;
+8. offers **Collect** for declared acquisitions; the daemon resolves the active
+   result case and validates its preconditions;
+9. releases session ownership on explicit disconnect or workspace teardown.
+
+**Refresh state** performs a new read when the operator wants to synchronize
+again; connecting does not issue a redundant second read.
 
 If a browser teardown request does not reach the daemon, the next client can
 disconnect the still-visible interactive session. This is ordinary ownership
-recovery, not quarantine: only an unfinished consequential operation or failed
-driver cleanup creates hardware uncertainty.
+recovery, not quarantine: only an unfinished consequential operation or
+unconfirmed abort creates hardware uncertainty.
 
-This is intentionally not a raw SCPI terminal. Driver capabilities preserve
+This is intentionally not a raw SCPI terminal. Driver interfaces preserve
 units and validation, make changes auditable, and keep the same semantics in
 GUI, notebooks, and experiments.
 
-Output enable, source level, heater control, and similar consequential fields
-must never be “apply on change”. Staging makes a multi-field transition
-intentional and lets a driver order dependent device commands safely. The
-initial Lake Shore driver is read-only because generic heater controls need
-additional lab-specific safety policy.
+Output enable, source level, heater control, and similar consequential
+properties must never be “apply on change”. Staging makes a multi-property
+transition intentional and lets a driver order dependent device commands
+safely. The initial Lake Shore driver is read-only because generic heater
+controls need additional lab-specific safety policy.
 
 ## Notebook API
 
@@ -126,120 +348,208 @@ The normal project connection exposes the same daemon-owned path:
 
 ```python
 import scopecat as sc
+from scopecat_instruments.members import (
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
+)
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
-        print(item.spec.id, item.availability, item.owner_actor)
+        print(item.instrument_id, item.availability)
 
     with lab.instruments.open("readout-vna") as vna:
         print(vna.describe())
-        print(vna.read_state())
+        print(vna.observed_state())
 
+        prepared = vna.apply_configured_defaults()
         receipt = vna.apply(
-            "network_sweep",
-            start_frequency=sc.Quantity(4.8, "GHz"),
-            stop_frequency=sc.Quantity(5.2, "GHz"),
-            points=401,
+            {
+                NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(4.8, "GHz"),
+                NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(5.2, "GHz"),
+                NETWORK_SWEEP_POINTS: 401,
+            }
         )
         trace = vna.collect(
-            "network_sweep",
-            "frequency",
-            "s_parameter",
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_FREQUENCY_RESULT,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
         )
 ```
 
+Experiment authoring and interactive Python calls use nominal member refs, so
+an acquisition result cannot be accidentally paired with another interface or
+component. Specs, compiler IR, and daemon requests lower them to physical ids.
+
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
-numbers remain valid only where the declared field type accepts them. A
-multi-instrument session is available when an operation must reserve a coherent
-set:
+numbers remain valid only where the declared property type accepts them. A
+`scopecat.dc_source/v2` state belongs to either its voltage or current case.
+When switching cases, include `source_mode` plus the target range and level;
+protection and output properties are common to both.
+
+A multi-instrument session is available when an operation must reserve a
+coherent set:
 
 ```python
+from scopecat_instruments.members import (
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_RANGE,
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+)
+
 with lab.instruments.open("flux-source", "readout-vna") as session:
     session.apply(
-        "dc_output",
         {
-            "voltage_level": sc.Quantity(0.05, "V"),
-            "output_enabled": True,
+            DC_SOURCE_MODE: "voltage",
+            DC_SOURCE_VOLTAGE_RANGE: sc.Quantity(1.0, "V"),
+            DC_SOURCE_VOLTAGE_LEVEL: sc.Quantity(0.05, "V"),
+            DC_SOURCE_OUTPUT_ENABLED: True,
         },
         instrument_id="flux-source",
     )
     trace = session.collect(
-        "network_sweep",
-        "s_parameter",
+        NETWORK_SWEEP_ACQUISITION,
+        NETWORK_SWEEP_S_PARAMETER_RESULT,
         instrument_id="readout-vna",
     )
 ```
 
-The handle is synchronous to match the existing notebook API. It generates a
-new operation id for every apply or collect unless the caller supplies one,
-and closes or aborts through the daemon when leaving the context. If an HTTP
-response is lost, retry with the same `operation_id`: the daemon returns the
-recorded receipt instead of touching the device again. The daemon client
-automatically retries one transport failure with the same complete command;
-callers can supply an id when they need to continue that retry explicitly.
-Opening also has a retry identity. Close and abort are naturally idempotent
-because the daemon records the session's terminal status.
+The handle is synchronous to match the existing notebook API and releases
+ownership when its context exits. Calls are replay-safe across a transient
+transport failure without requiring users to manage daemon command identities.
+Omitting result refs asks the daemon to select every active result from the
+fresh synchronized state.
 
-An operator can recover a session left by another notebook kernel with
-`lab.instruments.abort_session(session_id)`. This asks the daemon to run the
-driver's safe abort path before releasing the resource claim.
+The Notebook API does not read state or resolve acquisition schema locally.
+The daemon performs one fresh synchronization after a replay miss, chooses
+default results, rejects an inactive explicit result or unmet precondition, and
+freezes concrete dimensions before calling the driver.
+
+Opaque values such as compiled pulse programs are operation arguments, never
+persistent properties. A registered codec converts the in-memory value to an
+exact byte payload; the command carries only a typed reference plus a
+content-addressed envelope. The daemon resolves and verifies every payload
+before a hardware batch begins. The worker wire format keeps its JSON
+descriptor separate from hash-checked raw attachments and never serializes
+arbitrary Python objects. Inside the worker, the registered codec decodes each
+payload once before the driver is called; the driver receives only the decoded
+value and its schema identity. A decode failure proves the operation was not
+invoked. Public inline/blob bodies, codec details, and transport bytes never
+enter the driver API; a codec may intentionally decode to `bytes` when bytes
+are the domain value. Control messages are capped at 1 MiB and must round-trip
+through JSON without changing value types.
+
+Collection uses the reverse framed path. The worker keeps receipt status,
+problems, metadata, and scalar values in a bounded JSON descriptor, while every
+array is a separately sized and hash-checked attachment. Numeric and boolean
+arrays use canonical little-endian row-major bytes; string arrays use
+little-endian offsets over UTF-8 content. The daemon reconstructs the public
+`CollectReceipt` before validating it, so binary transport details do not enter
+the driver or experiment APIs.
+
+Collection outcome and data quality are independent. A `collected` receipt may
+contain an unavailable result with reason `missing`, `invalid`, or `overload`;
+the value retains its declared dtype, unit, and complete point-local shape.
+`not_collected` instead means the acquisition did not happen, while `unknown`
+still means its consequence cannot be determined. NaN and infinity are never
+missing-value encodings. An unavailable array marks the whole result;
+element-level validity requires a chunked data representation and is outside
+the current whole-result contract.
+
+Recorded variables identify their logical source product in the dataset schema.
+Each directly collected point value also retains the instrument, interface,
+component, acquisition, result, and daemon-observed driver-call interval.
+Single-input measurement postprocessors retain that physical source evidence;
+scan coordinates and values produced without an instrument do not invent it.
+
+An abandoned idle interactive owner expires automatically. If its lease expires
+during a recorded hardware operation, the daemon faults the connection and
+keeps the claim quarantined for operator resolution.
 
 ## Concurrency and failure semantics
 
 Runs and direct sessions claim the same resource key, so an instrument cannot
 be manually adjusted while an experiment owns it. Multi-instrument acquisition
 is all-or-nothing. The daemon acquires the durable claim before contacting
-hardware. Only the external notebook executor needs a renewable lease and
-fencing token; direct driver calls already execute inside the owning daemon.
+hardware. Both external executors and direct clients renew ownership explicitly;
+ordinary hardware calls do not extend either lease. Executor calls additionally
+carry a fencing token because execution effects cross the process boundary.
+Direct calls use their unique session id and reach the same daemon-owned
+instrument worker as experiment calls.
 
 Reads are observational: a failed read reports an error but does not by itself
-claim the physical state changed. Apply and collect are consequential:
+claim the physical state changed. Apply, invoke, and collect are consequential:
 
-- `applied` or `collected` means the driver confirmed the outcome;
-- `not_applied` or `not_collected` proves it did not happen;
+- `applied`, `invoked`, or `collected` means the driver confirmed the outcome;
+- `not_applied`, `not_invoked`, or `not_collected` proves it did not happen;
 - `unknown` means the command may have reached the instrument.
 
-The last case aborts and closes the live drivers, retains quarantined resource
-claims, and requires operator resolution. Automatic retry would be unsafe.
-Operation ids provide session-local de-duplication, and durable started/finished
-events provide an audit trail around consequential calls. A daemon restart
-releases an idle session, but the durable active-operation marker lets it
-quarantine a session interrupted between those two events.
+The last case aborts the owner, faults its actor connection, retains quarantined
+resource claims, and requires operator resolution. Automatic retry would be
+unsafe. Command ids provide owner-local de-duplication, and durable
+started/finished events provide an audit trail around consequential calls. A
+daemon restart releases an idle session, but the durable active-operation
+marker lets it quarantine a session interrupted between those two events.
 
-The daemon is the sole live driver host for both interactive sessions and
-experiment runs. A notebook plans and interprets the experiment program, but
-after the daemon grants its fenced executor lease, the daemon provisions
-drivers from the run's accepted configuration snapshot. The notebook submits
-ordered hardware batches; the daemon owns current-state reconciliation,
-driver calls, batch replay, and final cleanup or abort with terminal readback.
-Experiments therefore do not expose per-device lifecycle RPCs. Planning may
-call the provider's pure description contract; it never provisions a live
-driver. Fine-grained read, apply, and collect remain available only through an
-explicit interactive session.
+The daemon-owned instrument worker is the sole live driver host for both
+interactive sessions and experiment runs. A notebook plans and interprets the
+experiment program, but after the daemon grants its fenced executor lease, the
+daemon acquires actors bound to the run's accepted configuration snapshot. The
+notebook submits ordered hardware batches; the daemon owns current-state
+reconciliation, batch replay, abort-on-failure, terminal readback, and
+connection retirement, while raw calls stay in the worker. Experiments
+therefore do not expose per-device lifecycle RPCs.
+Planning receives a serializable contract catalog resolved by the daemon for
+the exact configuration snapshot; it neither imports nor calls a provider.
+Fine-grained read, apply, and collect remain available only through an explicit
+interactive session.
 
 Admission records the expected provider and an ordered instrument-contract
 fingerprint. The daemon verifies both before connecting drivers, so a provider
-or capability change cannot be accepted by client convention alone. Each
+or interface change cannot be accepted by client convention alone. Each
 hardware batch has one content-derived retry identity and durable
 started/finished evidence. Individual effects retain semantic ids for
 diagnostics, not independent retry identities.
 
 The daemon's reconciliation cache is an assumed state: it starts from observed
 readback and advances only after confirmed writes, using driver-returned state
-when available. It is not presented as fresh physical observation. Drivers for
-devices whose fields drift independently can later require explicit readback
-without changing the batch boundary.
+when available. After an atomic operation it adopts the receipt state or reads
+the device again before executing later state effects. The cache is not
+presented as fresh physical observation. Projected acquisition readiness proves
+only that an ordered batch is internally coherent; live driver guards protect
+the trigger boundary. Drivers for devices whose properties drift independently
+can later require explicit readback without changing the batch boundary.
+
+The GS200 `/MON` interface treats `measurement_enabled`,
+`integration_cycles` (NPLC), and `measurement_delay` as public persistent
+state. Its monitor acquisition declares output and measurement enablement as
+public preconditions. `remote_sense` and `guard_enabled` instead describe the
+expected physical wiring profile: the driver verifies them but never changes them.
+Four-wire remote sense with a voltage range below 1 V is rejected before any
+state mutation because those ranges require two-terminal wiring.
+Collection is refused while NULL is enabled because disabling it discards the
+reference and cannot restore the prior state. Each collection temporarily
+establishes a one-shot trigger setup and restores the previous trigger
+settings. The condition register maps an incomplete or failed sample to
+`invalid` and an over-range sample to `overload`. Internal GS200 program state
+is outside this direct source-monitor interface.
 
 ## Initial superconducting-lab driver set
 
 The first package deliberately implements narrow, documented subsets:
 
-| Device | Capability | Initial boundary |
+| Device | Interface | Initial boundary |
 |---|---|---|
-| Yokogawa GS200/GS210 | `dc_output` | source mode, range, level, protection, output, optional `/MON` reading |
-| R&S SGS100A | `rf_output` | CW frequency, power, RF output, internal/external reference |
-| Lake Shore 372 | `temperature_readout` | read-only scan channel, temperature, resistance, status, and sample-heater telemetry |
-| Keysight E5080B | `network_sweep` | one linear two-port S-parameter sweep and complex trace |
+| Yokogawa GS200/GS210 | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v3` | discriminated voltage/current state, protection, output, and optional `/MON` acquisition |
+| R&S SGS100A | `scopecat.rf_output/v1` | CW frequency, power, RF output, internal/external reference |
+| Lake Shore 372 | `scopecat.temperature_readout/v1` | read-only scanner state and settled, status-checked temperature or resistance samples |
+| Keysight E5080B | `scopecat.network_sweep/v1` | one linear two-port S-parameter sweep and complex trace |
 
 These subsets follow the vendors' public programming documentation:
 
@@ -250,7 +560,7 @@ These subsets follow the vendors' public programming documentation:
 
 ## Virtual lab
 
-Virtual instruments implement the same descriptions and receipts as real
+Virtual instruments implement the same interfaces and receipts as real
 drivers. They share one deterministic `VirtualLabWorld`: changing an enabled DC
 source shifts the virtual resonance and adds heating; enabled RF power also
 adds heating; the temperature monitor observes the resulting temperature; VNA

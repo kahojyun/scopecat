@@ -21,7 +21,13 @@ from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+
+_SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
+_SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")
+_SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
+_SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
 
 
 def load_config() -> ConfigProfileSnapshot:
@@ -104,19 +110,20 @@ DRIVE_FREQUENCY_POINT = authoring.coordinate(
 SIMPLE_MODULE = (
     authoring.module_body(id="test.simple_scan", metadata={"assembled_by": "module"})
     .inputs(_SIMPLE_SUBJECT)
-    .resource("source", requires=("set_frequency", "scalar_signal"))
-    .bind_field(
+    .resource(
         "source",
-        capability="set_frequency",
-        field="frequency",
+        requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
+    )
+    .bind_property(
+        "source",
+        _SET_FREQUENCY_VALUE,
         value=DRIVE_FREQUENCY_POINT,
     )
     .product("signal", unit="ratio")
     .acquire(
         "read-signal",
-        "signal",
         resource="source",
-        capability="scalar_signal",
+        results={_SCALAR_SIGNAL_VALUE: "signal"},
     )
     .build()
 )

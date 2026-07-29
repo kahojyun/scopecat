@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
 from typing import Literal, override
 
 import pytest
-from scopecat.application import LabApplication
-from scopecat.control.models import ResourceKey, RunPlanSummary
+from scopecat.config.candidates import (
+    CandidateConfig,
+    resolve_candidate_config_from_snapshot,
+)
+from scopecat.config.changes import parameter_change_proposal_from_updates
+from scopecat.config.parameters import replace_scalar_parameter
+from scopecat.control.models import RunPlanSummary, RunResourceRequirement
 from scopecat.daemon.wire import (
+    AnalysisParameterProposalOutputPayload,
+    AnalysisSaveCommand,
     ExecutorStartRequest,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
@@ -22,27 +29,100 @@ from scopecat.execution.ports.instruments import (
     RunHardwareBatch,
     RunHardwareCollect,
     RunHardwareCollectBinding,
+    RunHardwareInvoke,
+)
+from scopecat.kernel.problems import (
+    ModelLocation,
+    ProblemPhase,
+    RuntimeLocation,
+    model_location,
+    problem,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.kernel.state import StateValue
+from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
-from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    InstrumentRunStartPolicy,
+    config_content_hash,
+)
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementScalar,
+    MeasurementValue,
+)
+from scopecat.records.run import (
+    AnalysisCandidateRunConfigSource,
+    ConfigRegistryRunConfigSource,
+    RunConfigSource,
+)
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
-    CollectProductRequest,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverCatalog,
+    DriverOperation,
+    DriverOutcome,
+    DriverPayload,
+    DriverReadback,
+    DriverRejected,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
+    DriverUnknown,
+    InstrumentBackend,
+    InstrumentConnectionContext,
+    InstrumentDescription,
+    InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
-    InstrumentStateCommand,
-    InstrumentStateCommandField,
+    InterfaceRef,
+    acquisition,
+    acquisition_axis,
+    acquisition_case,
+    acquisition_precondition,
+    acquisition_result,
+    bool_property,
+    discriminated_state,
+    enum_property,
+    float_property,
+    int_property,
+    interface,
+    operation,
+    state_case,
+    state_discriminated_acquisition,
+)
+from scopecat.sdk.instruments.commands import (
+    CollectAxisRequest,
+    CollectResultRequest,
+    InstrumentOperationArgument,
+    InstrumentStateAssignment,
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
+from tests.testkit.payload_codecs import json_payload_codecs
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
+from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
 from scopecat_server.instrument_service import InstrumentService
+
+type _FailAction = (
+    Literal[
+        "apply",
+        "reject_apply",
+        "invoke",
+        "unknown_collect_receipt",
+        "abort",
+        "disconnect",
+    ]
+    | None
+)
+
+_DC_MODE = InterfaceRef("test.dc/v1").property("mode")
+_DC_OUTPUT_ENABLED = InterfaceRef("test.dc/v1").property("output_enabled")
+_SWEEP_POINTS = InterfaceRef("test.sweep/v1").property("points")
 
 
 class _Driver(SignalInstrumentDriver):
@@ -50,16 +130,15 @@ class _Driver(SignalInstrumentDriver):
         self,
         instrument_id: str,
         *,
-        fail_action: Literal["apply", "cleanup", "abort", "close"] | None = None,
+        fail_action: _FailAction = None,
         apply_barrier: Barrier | None = None,
     ) -> None:
         super().__init__(instrument_id=instrument_id)
-        self.fail_action = fail_action
+        self.fail_action: _FailAction = fail_action
         self.apply_barrier = apply_barrier
         self.read_count = 0
-        self.cleanup_count = 0
         self.abort_count = 0
-        self.close_count = 0
+        self.disconnect_count = 0
 
     @override
     def read_state(self):  # type: ignore[no-untyped-def]
@@ -67,18 +146,54 @@ class _Driver(SignalInstrumentDriver):
         return super().read_state()
 
     @override
-    def apply_state(self, command: InstrumentStateCommand):  # type: ignore[no-untyped-def]
+    def apply_state(self, request: DriverStatePatch):  # type: ignore[no-untyped-def]
         if self.apply_barrier is not None:
             self.apply_barrier.wait(timeout=2)
         if self.fail_action == "apply":
             raise RuntimeError("apply outcome lost")
-        return super().apply_state(command)
+        if self.fail_action == "reject_apply":
+            return DriverRejected(
+                problems=(
+                    problem(
+                        "test_apply_rejected",
+                        "test driver rejected state",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                ),
+            )
+        return super().apply_state(request)
 
     @override
-    def cleanup(self) -> None:
-        self.cleanup_count += 1
-        if self.fail_action == "cleanup":
-            raise RuntimeError("cleanup failed")
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        self.invoked.append(request)
+        if self.fail_action == "invoke":
+            raise RuntimeError("invoke outcome lost")
+        return DriverSuccess(None)
+
+    @override
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        if self.fail_action == "unknown_collect_receipt":
+            self.collect_requests.append(request)
+            return DriverUnknown(
+                problems=(
+                    problem(
+                        "test_collect_receipt_unknown",
+                        "test driver lost collection confirmation",
+                        phase=ProblemPhase.EXECUTION,
+                        location=model_location(
+                            "driver_acquisition",
+                            "results",
+                        ),
+                    ),
+                ),
+            )
+        return super().collect(request)
 
     @override
     def abort(self) -> None:
@@ -87,10 +202,293 @@ class _Driver(SignalInstrumentDriver):
             raise RuntimeError("abort failed")
 
     @override
-    def close(self) -> None:
-        self.close_count += 1
-        if self.fail_action == "close":
-            raise RuntimeError("close failed")
+    def disconnect(self) -> None:
+        self.disconnect_count += 1
+        if self.fail_action == "disconnect":
+            raise RuntimeError("disconnect failed")
+
+
+class _VariantDriver(_Driver):
+    require_output_for_collect = False
+
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        fail_action: _FailAction = None,
+        apply_barrier: Barrier | None = None,
+    ) -> None:
+        super().__init__(
+            instrument_id,
+            fail_action=fail_action,
+            apply_barrier=apply_barrier,
+        )
+        self.mode = "voltage"
+        self.voltage_level = 0.1
+        self.current_level = 0.01
+        self.output_enabled = False
+
+    @override
+    def describe(self) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id=self.instrument_id,
+            implementation_id=self.implementation_id,
+            implementation_version=self.implementation_version,
+            interfaces=[
+                interface(
+                    "test.dc/v1",
+                    state=discriminated_state(
+                        enum_property("mode", choices=("voltage", "current")),
+                        common_properties=(bool_property("output_enabled"),),
+                        cases=(
+                            state_case(
+                                "voltage",
+                                properties=(float_property("voltage_level"),),
+                                required_on_entry_property_ids=("voltage_level",),
+                            ),
+                            state_case(
+                                "current",
+                                properties=(float_property("current_level"),),
+                                required_on_entry_property_ids=("current_level",),
+                            ),
+                        ),
+                    ),
+                    operations=[operation("select_current")],
+                    acquisitions=[
+                        state_discriminated_acquisition(
+                            "measure",
+                            discriminator=_DC_MODE,
+                            preconditions=(
+                                (
+                                    acquisition_precondition(
+                                        _DC_OUTPUT_ENABLED,
+                                        value=True,
+                                        unavailable_reason="Output is disabled.",
+                                    ),
+                                )
+                                if self.require_output_for_collect
+                                else ()
+                            ),
+                            cases=(
+                                acquisition_case(
+                                    "voltage",
+                                    results=(
+                                        acquisition_result(
+                                            "monitored_voltage",
+                                            unit="V",
+                                        ),
+                                    ),
+                                ),
+                                acquisition_case(
+                                    "current",
+                                    results=(
+                                        acquisition_result(
+                                            "monitored_current",
+                                            unit="A",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ],
+                )
+            ],
+        )
+
+    @override
+    def read_state(self) -> DriverState:
+        self.read_count += 1
+        level_property = "voltage_level" if self.mode == "voltage" else "current_level"
+        level = self.voltage_level if self.mode == "voltage" else self.current_level
+        return DriverState(
+            values={
+                _DC_MODE: self.mode,
+                InterfaceRef("test.dc/v1").property(level_property): level,
+                _DC_OUTPUT_ENABLED: self.output_enabled,
+            },
+        )
+
+    @override
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        self.applied.append(request)
+        for target, value in request.values.items():
+            if target.property_id == "mode":
+                assert isinstance(value, str)
+                self.mode = value
+            elif target.property_id == "voltage_level":
+                assert isinstance(value, float)
+                self.voltage_level = value
+            elif target.property_id == "current_level":
+                assert isinstance(value, float)
+                self.current_level = value
+            elif target.property_id == "output_enabled":
+                assert isinstance(value, bool)
+                self.output_enabled = value
+        return DriverSuccess(None)
+
+    @override
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        self.invoked.append(request)
+        self.mode = "current"
+        return DriverSuccess(None)
+
+    @override
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        self.collect_requests.append(request)
+        if self.require_output_for_collect and not self.output_enabled:
+            return DriverRejected(
+                problems=(
+                    problem(
+                        "test_acquisition_output_disabled",
+                        "Output is disabled.",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                ),
+            )
+        active_result = (
+            "monitored_voltage" if self.mode == "voltage" else "monitored_current"
+        )
+        if {result.result_id for result in request.results} != {active_result}:
+            return DriverRejected(
+                problems=(
+                    problem(
+                        "test_acquisition_result_inactive",
+                        f"{self.mode} mode provides only {active_result}",
+                        phase=ProblemPhase.EXECUTION,
+                        location=model_location(
+                            "instrument_state",
+                            "test.dc/v1",
+                            "mode",
+                        ),
+                    ),
+                ),
+            )
+        values: dict[AcquisitionResultRef, MeasurementValue] = {
+            result: (
+                MeasurementScalar.create(
+                    dtype="float64",
+                    value=self.voltage_level,
+                    unit="V",
+                )
+                if result.result_id == "monitored_voltage"
+                else MeasurementScalar.create(
+                    dtype="float64",
+                    value=self.current_level,
+                    unit="A",
+                )
+            )
+            for result in request.results
+        }
+        return DriverSuccess(DriverReadback(values=values))
+
+
+class _PreconditionVariantDriver(_VariantDriver):
+    require_output_for_collect = True
+
+
+class _StateSizedAxisDriver(_Driver):
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        fail_action: _FailAction = None,
+        apply_barrier: Barrier | None = None,
+    ) -> None:
+        super().__init__(
+            instrument_id,
+            fail_action=fail_action,
+            apply_barrier=apply_barrier,
+        )
+        self._state = {("test.sweep/v1", "points"): 3}
+
+    @override
+    def describe(self) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id=self.instrument_id,
+            implementation_id=self.implementation_id,
+            implementation_version=self.implementation_version,
+            interfaces=[
+                interface(
+                    "test.sweep/v1",
+                    properties=[int_property("points", minimum=1)],
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[
+                                acquisition_result(
+                                    "trace",
+                                    unit="V",
+                                    axes=[
+                                        acquisition_axis(
+                                            "sample",
+                                            size=_SWEEP_POINTS,
+                                        )
+                                    ],
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ],
+        )
+
+    @override
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        self.collect_requests.append(request)
+        points = self._state[("test.sweep/v1", "points")]
+        assert type(points) is int
+        return DriverSuccess(
+            DriverReadback(
+                values={
+                    result: MeasurementArray.create(
+                        shape=(points,),
+                        values=tuple(float(index) for index in range(points)),
+                        unit="V",
+                    )
+                    for result in request.results
+                }
+            ),
+        )
+
+
+class _NonConvergingDriver(_Driver):
+    @override
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        self.applied.append(request)
+        return DriverSuccess(None)
+
+
+class _EquivalentQuantityDriver(_Driver):
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        fail_action: _FailAction = None,
+        apply_barrier: Barrier | None = None,
+    ) -> None:
+        super().__init__(
+            instrument_id,
+            fail_action=fail_action,
+            apply_barrier=apply_barrier,
+        )
+        self._state[("test.set_frequency/v1", "frequency")] = Quantity(
+            value=1.0, unit="GHz"
+        )
 
 
 class _Provider:
@@ -99,45 +497,54 @@ class _Provider:
     def __init__(
         self,
         *,
-        fail_action: Literal["apply", "cleanup", "abort", "close"] | None = None,
+        fail_action: _FailAction = None,
         apply_barrier: Barrier | None = None,
+        driver_type: type[_Driver] = _Driver,
     ) -> None:
-        self.fail_action: Literal["apply", "cleanup", "abort", "close"] | None = (
-            fail_action
-        )
+        self.fail_action: _FailAction = fail_action
         self.apply_barrier = apply_barrier
-        self.provide_count = 0
+        self.driver_type = driver_type
+        self.connect_count = 0
         self.drivers: list[_Driver] = []
 
     def describe(
         self,
         context: InstrumentProviderContext,
     ) -> InstrumentProviderDescription:
-        selected = set(context.instrument_ids)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=tuple(
-                _Driver(item.id).describe()
-                for item in context.config.instrument_registry.instruments
-                if item.id in selected
+                self.driver_type(item.id).describe() for item in context.bindings
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        self.provide_count += 1
-        drivers = tuple(
-            _Driver(
-                instrument_id,
-                fail_action=self.fail_action,
-                apply_barrier=self.apply_barrier,
-            )
-            for instrument_id in context.instrument_ids
+        context: InstrumentConnectionContext,
+    ) -> _Driver:
+        self.connect_count += 1
+        driver = self.driver_type(
+            context.binding.id,
+            fail_action=self.fail_action,
+            apply_barrier=self.apply_barrier,
         )
-        self.drivers.extend(drivers)
-        return InstrumentProviderResult(drivers=drivers)
+        self.drivers.append(driver)
+        return driver
+
+
+class _SecondRejectingProvider(_Provider):
+    @override
+    def connect(
+        self,
+        context: InstrumentConnectionContext,
+    ) -> _Driver:
+        self.connect_count += 1
+        driver = _Driver(
+            context.binding.id,
+            fail_action=("reject_apply" if context.binding.id == "source-1" else None),
+        )
+        self.drivers.append(driver)
+        return driver
 
 
 def test_batch_reconciles_state_collects_values_and_replays_once(
@@ -148,7 +555,9 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         run_id, lease_id = _start_run(runtime, load_config())
         instruments = runtime.application.instruments
         provision = instruments.provision_run(run_id, _provision(lease_id))
-        assert provision.initial_state[0].instrument_id == "source-0"
+        assert provision.observed_state[0].instrument_id == "source-0"
+        assert provision.prepared_state[0].instrument_id == "source-0"
+        assert provision.prepared_state == provision.observed_state
         [driver] = provider.drivers
 
         command = _batch_command(
@@ -157,13 +566,32 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             _apply_action("source-0", effect_id="apply-1"),
             _collect_action("source-0", effect_id="collect-1"),
         )
+        before_collect = datetime.now(UTC)
         receipt = instruments.execute_run_hardware(run_id, command)
+        after_collect = datetime.now(UTC)
         assert instruments.execute_run_hardware(run_id, command) == receipt
         assert [(value.product_use_id, value.value) for value in receipt.values] == [
-            ("signal-use", Quantity(value=1.0, unit="ratio"))
+            (
+                "signal-use",
+                MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
+            )
         ]
+        [collected] = receipt.values
+        assert collected.evidence.command_id == "collect-1"
+        assert collected.evidence.instrument_id == "source-0"
+        assert collected.evidence.interface_id == "test.scalar_signal/v1"
+        assert collected.evidence.component_path == ()
+        assert collected.evidence.acquisition_id == "sample"
+        assert collected.evidence.result_id == "signal"
+        assert (
+            before_collect
+            <= collected.evidence.started_at
+            <= collected.evidence.completed_at
+            <= after_collect
+        )
         assert len(driver.applied) == 1
-        assert len(driver.collect_commands) == 1
+        assert driver.read_count == 2
+        assert len(driver.collect_requests) == 1
 
         unchanged = _batch_command(
             lease_id,
@@ -205,6 +633,788 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         ]
 
 
+def test_run_start_applies_default_state_after_fresh_observation(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.1, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+
+        provision = instruments.provision_run(run_id, _provision(lease_id))
+        replay = instruments.provision_run(run_id, _provision(lease_id))
+
+        assert replay == provision
+        [observed] = provision.observed_state
+        [reconciled] = provision.prepared_state
+        assert {
+            (item.interface_id, item.property_id): item.value.root
+            for item in observed.properties
+        } == {
+            ("test.set_frequency/v1", "frequency"): Quantity(
+                value=4.0,
+                unit="GHz",
+            ),
+            ("test.set_gain/v1", "gain"): 0.0,
+        }
+        assert {
+            (item.interface_id, item.property_id): item.value.root
+            for item in reconciled.properties
+        } == {
+            ("test.set_frequency/v1", "frequency"): Quantity(
+                value=5.1,
+                unit="GHz",
+            ),
+            ("test.set_gain/v1", "gain"): 0.0,
+        }
+        [driver] = provider.drivers
+        assert len(driver.applied) == 1
+        [target] = driver.applied[0].values
+        assert target.property_id == "frequency"
+
+
+def test_run_start_preserves_observed_state_when_default_state_exists(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        ),
+        run_start="preserve",
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+
+        provision = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
+
+        assert provision.prepared_state == provision.observed_state
+        [driver] = provider.drivers
+        assert driver.applied == []
+
+
+def test_unknown_default_state_reconciliation_quarantines_the_run(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="apply")
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+
+        with pytest.raises(
+            BackendConflict,
+            match=r"default-state reconciliation .* failed with unknown",
+        ):
+            runtime.application.instruments.provision_run(
+                run_id,
+                _provision(lease_id),
+            )
+
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 1
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state == "attention_required"
+        assert (
+            durable.attention_reason == "run_instrument_default_reconciliation_unknown"
+        )
+        _assert_run_state_discarded(runtime.application.instruments, run_id)
+
+
+def test_run_start_requires_default_state_to_converge(tmp_path: Path) -> None:
+    provider = _Provider(driver_type=_NonConvergingDriver)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_NonConvergingDriver,
+        )
+
+        with pytest.raises(
+            BackendConflict,
+            match=r"default-state reconciliation .* failed with unknown",
+        ):
+            runtime.application.instruments.provision_run(
+                run_id,
+                _provision(lease_id),
+            )
+
+        [driver] = provider.drivers
+        assert len(driver.applied) == 1
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 1
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state == "attention_required"
+        assert (
+            durable.attention_reason == "run_instrument_default_reconciliation_unknown"
+        )
+
+
+def test_rejected_default_state_reconciliation_releases_without_quarantine(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="reject_apply")
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+
+        receipt = instruments.provision_run(run_id, _provision(lease_id))
+
+        assert receipt.status == "rejected"
+        assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
+        [driver] = provider.drivers
+        assert driver.abort_count == 0
+        assert driver.disconnect_count == 0
+        assert runtime.application.executor._control.get_run(run_id).state != (
+            "attention_required"
+        )
+        assert instruments._run_contexts[run_id].runtime is None
+
+
+def test_partial_default_state_reconciliation_releases_confirmed_state(
+    tmp_path: Path,
+) -> None:
+    provider = _SecondRejectingProvider()
+    config = _two_instrument_config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=5.0, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            host_instrument_order=("source-0", "source-1"),
+        )
+
+        receipt = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
+
+        assert receipt.status == "rejected"
+        assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
+        first, second = provider.drivers
+        assert len(first.applied) == 1
+        assert second.applied == []
+        assert [driver.abort_count for driver in provider.drivers] == [0, 0]
+        assert [driver.disconnect_count for driver in provider.drivers] == [0, 0]
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state != "attention_required"
+        assert runtime.application.instruments._run_contexts[run_id].runtime is None
+        runtime.application.executor.commit_terminal(
+            run_id,
+            TerminalRunCommitCommand(
+                lease_id=lease_id,
+                outcome=RunOutcome(
+                    run_id=run_id,
+                    result="failed",
+                    certainty="known",
+                    problems=receipt.problems,
+                ),
+            ),
+        )
+
+        next_run_id, next_lease_id = _start_run(
+            runtime,
+            config,
+            host_instrument_order=("source-0",),
+            submission_id="reacquire-after-rejection",
+        )
+        reacquired = runtime.application.instruments.provision_run(
+            next_run_id,
+            _provision(next_lease_id),
+        )
+        assert reacquired.status == "ready"
+        [observed] = reacquired.observed_state
+        assert {
+            (item.interface_id, item.property_id): item.value.root
+            for item in observed.properties
+        }[("test.set_frequency/v1", "frequency")] == Quantity(
+            value=5.0,
+            unit="GHz",
+        )
+        assert provider.connect_count == 2
+        assert first.read_count == 3
+        assert len(first.applied) == 1
+
+
+def test_run_start_skips_default_state_matching_observed_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.dc/v1",
+            property_id="mode",
+            value=StateValue("voltage"),
+        ),
+        InstrumentPropertyState(
+            interface_id="test.dc/v1",
+            property_id="voltage_level",
+            value=StateValue(0.1),
+        ),
+        InstrumentPropertyState(
+            interface_id="test.dc/v1",
+            property_id="output_enabled",
+            value=StateValue(False),
+        ),
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_VariantDriver,
+        )
+
+        receipt = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
+
+        assert receipt.status == "ready"
+        assert receipt.prepared_state == receipt.observed_state
+        [driver] = provider.drivers
+        assert driver.applied == []
+
+
+def test_run_start_skips_unit_equivalent_default_state(tmp_path: Path) -> None:
+    provider = _Provider(driver_type=_EquivalentQuantityDriver)
+    config = _config_with_default_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=1000.0, unit="MHz")),
+        )
+    )
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_EquivalentQuantityDriver,
+        )
+
+        receipt = runtime.application.instruments.provision_run(
+            run_id,
+            _provision(lease_id),
+        )
+
+        assert receipt.prepared_state == receipt.observed_state
+        [driver] = provider.drivers
+        assert driver.applied == []
+
+
+def test_batch_retry_replays_before_state_dependent_preflight(tmp_path: Path) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        voltage = _batch_command(
+            lease_id,
+            "voltage-batch",
+            _variant_apply_action(
+                effect_id="voltage-level",
+                voltage_level=0.2,
+            ),
+        )
+
+        first = instruments.execute_run_hardware(run_id, voltage)
+        switched = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "current-batch",
+                _variant_apply_action(
+                    effect_id="switch-current",
+                    mode="current",
+                    current_level=0.02,
+                ),
+            ),
+        )
+        replay = instruments.execute_run_hardware(run_id, voltage)
+
+        assert not first.problems
+        assert not switched.problems
+        assert replay == first
+        assert len(driver.applied) == 2
+
+
+def test_invoke_makes_later_case_specific_preflight_require_discriminator(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        rejected = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "implicit-after-invoke",
+                _variant_invoke_action(effect_id="select-current"),
+                _variant_apply_action(
+                    effect_id="implicit-current-level",
+                    current_level=0.02,
+                ),
+            ),
+        )
+
+        assert [item.code for item in rejected.problems] == [
+            "instrument_driver_state_case_unknown"
+        ]
+        assert driver.invoked == []
+        accepted = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "explicit-after-invoke",
+                _variant_invoke_action(effect_id="select-current-explicit"),
+                _variant_apply_action(
+                    effect_id="explicit-current-level",
+                    mode="current",
+                    current_level=0.02,
+                ),
+                _variant_collect_action(
+                    effect_id="collect-explicit-current",
+                    result_id="monitored_current",
+                ),
+            ),
+        )
+        assert not accepted.problems
+        assert len(driver.invoked) == 1
+        assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
+
+
+def test_batch_collect_requires_the_active_acquisition_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        active = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "collect-active-voltage",
+                _variant_collect_action(
+                    effect_id="active-voltage",
+                    result_id="monitored_voltage",
+                ),
+            ),
+        )
+
+        assert active.problems == ()
+        assert len(driver.collect_requests) == 1
+        inactive = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "collect-inactive-current",
+                _variant_collect_action(
+                    effect_id="inactive-current",
+                    result_id="monitored_current",
+                ),
+            ),
+        )
+        assert [item.code for item in inactive.problems] == [
+            "instrument_driver_inactive_acquisition_result"
+        ]
+        assert len(driver.collect_requests) == 1
+
+        unknown = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "collect-after-invoke",
+                _variant_invoke_action(effect_id="select-current-first"),
+                _variant_collect_action(
+                    effect_id="unknown-voltage",
+                    result_id="monitored_voltage",
+                ),
+            ),
+        )
+        assert [item.code for item in unknown.problems] == [
+            "instrument_driver_acquisition_state_unknown"
+        ]
+        assert driver.invoked == []
+        assert len(driver.collect_requests) == 1
+
+
+def test_batch_projects_complete_mode_change_for_conditional_collect(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        inactive = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "project-current-reject-voltage",
+                _variant_apply_action(
+                    effect_id="select-current-for-voltage",
+                    mode="current",
+                    current_level=0.02,
+                ),
+                _variant_collect_action(
+                    effect_id="collect-projected-voltage",
+                    result_id="monitored_voltage",
+                ),
+            ),
+        )
+
+        assert [item.code for item in inactive.problems] == [
+            "instrument_driver_inactive_acquisition_result"
+        ]
+        assert driver.applied == []
+        assert driver.collect_requests == []
+
+        active = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "project-current-collect-current",
+                _variant_apply_action(
+                    effect_id="select-current-for-current",
+                    mode="current",
+                    current_level=0.02,
+                ),
+                _variant_collect_action(
+                    effect_id="collect-projected-current",
+                    result_id="monitored_current",
+                ),
+            ),
+        )
+
+        assert active.problems == ()
+        assert len(driver.applied) == 1
+        assert driver.read_count == 2
+        assert len(driver.collect_requests) == 1
+
+
+def test_batch_preflights_state_sized_axes_from_opening_and_projected_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_StateSizedAxisDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_StateSizedAxisDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        opening_mismatch = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "opening-axis-mismatch",
+                _state_sized_axis_collect_action(
+                    effect_id="collect-opening-mismatch",
+                    size=2,
+                ),
+            ),
+        )
+
+        assert [issue.code for issue in opening_mismatch.problems] == [
+            "instrument_driver_acquisition_axis_state_mismatch"
+        ]
+        assert driver.applied == []
+        assert driver.collect_requests == []
+
+        projected_match = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "project-axis-match",
+                _state_sized_axis_apply_action(
+                    effect_id="set-four-points",
+                    points=4,
+                ),
+                _state_sized_axis_collect_action(
+                    effect_id="collect-four-points",
+                    size=4,
+                ),
+            ),
+        )
+
+        assert projected_match.problems == ()
+        assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
+
+        side_effect_counts = (
+            driver.read_count,
+            len(driver.applied),
+            len(driver.collect_requests),
+        )
+        projected_mismatch = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "project-axis-mismatch",
+                _state_sized_axis_apply_action(
+                    effect_id="set-five-points",
+                    points=5,
+                ),
+                _state_sized_axis_collect_action(
+                    effect_id="collect-four-after-five",
+                    size=4,
+                ),
+            ),
+        )
+
+        assert [issue.code for issue in projected_mismatch.problems] == [
+            "instrument_driver_acquisition_axis_state_mismatch"
+        ]
+        assert (
+            driver.read_count,
+            len(driver.applied),
+            len(driver.collect_requests),
+        ) == side_effect_counts
+
+
+def test_batch_projects_acquisition_preconditions_before_any_side_effect(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_PreconditionVariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_PreconditionVariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        rejected_command = _batch_command(
+            lease_id,
+            "collect-with-disabled-output",
+            _variant_apply_action(
+                effect_id="change-level-before-rejected-collect",
+                voltage_level=0.2,
+            ),
+            _variant_collect_action(
+                effect_id="collect-disabled-output",
+                result_id="monitored_voltage",
+            ),
+        )
+        rejected = instruments.execute_run_hardware(
+            run_id,
+            rejected_command,
+        )
+
+        assert [issue.code for issue in rejected.problems] == [
+            "instrument_driver_acquisition_precondition_not_met"
+        ]
+        [issue] = rejected.problems
+        assert isinstance(issue.location, RuntimeLocation)
+        assert issue.location.operation_id == "collect-disabled-output"
+        assert issue.location.instrument_id == "source-0"
+        assert isinstance(issue.related_locations[0], ModelLocation)
+        assert issue.related_locations[0].root == "instrument_collect_command"
+        assert isinstance(issue.related_locations[1], ModelLocation)
+        assert issue.related_locations[1].root == "instrument_state"
+        assert driver.applied == []
+        assert driver.collect_requests == []
+
+        accepted = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "enable-output-before-collect",
+                _variant_apply_action(
+                    effect_id="enable-output",
+                    output_enabled=True,
+                ),
+                _variant_collect_action(
+                    effect_id="collect-enabled-output",
+                    result_id="monitored_voltage",
+                ),
+            ),
+        )
+
+        assert accepted.problems == ()
+        assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
+
+        assert instruments.execute_run_hardware(run_id, rejected_command) == rejected
+        assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
+        with pytest.raises(BackendConflict, match="different operation content"):
+            instruments.execute_run_hardware(
+                run_id,
+                _batch_command(
+                    lease_id,
+                    "collect-with-disabled-output",
+                    _variant_collect_action(
+                        effect_id="different-content",
+                        result_id="monitored_voltage",
+                    ),
+                ),
+            )
+
+
+def test_live_collect_rejection_preserves_problem_context_and_replays(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_VariantDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        assert isinstance(driver, _VariantDriver)
+        driver.mode = "current"
+        command = _batch_command(
+            lease_id,
+            "collect-after-external-mode-change",
+            _variant_collect_action(
+                effect_id="collect-stale-voltage",
+                result_id="monitored_voltage",
+            ),
+        )
+
+        receipt = instruments.execute_run_hardware(run_id, command)
+        replay = instruments.execute_run_hardware(run_id, command)
+
+        assert replay == receipt
+        [issue] = receipt.problems
+        assert issue.code == "test_acquisition_result_inactive"
+        assert isinstance(issue.location, RuntimeLocation)
+        assert issue.location.run_id == run_id
+        assert issue.location.operation_id == "collect-stale-voltage"
+        assert isinstance(issue.related_locations[0], ModelLocation)
+        assert issue.related_locations[0].root == "instrument_state"
+        assert len(driver.collect_requests) == 1
+
+        recovered = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "collect-after-rejection-resync",
+                _variant_collect_action(
+                    effect_id="collect-current-after-resync",
+                    result_id="monitored_current",
+                ),
+            ),
+        )
+
+        assert recovered.problems == ()
+        assert len(driver.collect_requests) == 2
+
+
+def test_run_invoke_reads_back_state_before_later_actions(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+        reads_before_invoke = driver.read_count
+        payload = command_payload_from_bytes(
+            id="program-1",
+            schema_id="pulse_program",
+            codec_id="tests.canonical-json",
+            codec_version=1,
+            media_type="application/json",
+            content=b'{"samples":[0.0]}',
+        )
+
+        receipt = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "invoke-batch",
+                _invoke_action(
+                    "source-0",
+                    effect_id="invoke-1",
+                    payload=payload,
+                ),
+            ),
+        )
+
+        assert receipt.problems == ()
+        assert len(driver.invoked) == 1
+        assert driver.read_count == reads_before_invoke + 1
+        [argument] = driver.invoked[0].arguments.values()
+        assert isinstance(argument, DriverPayload)
+        assert argument.schema_id == payload.schema_id
+        assert argument.value == {"samples": [0.0]}
+
+
 def test_provision_rejects_contract_changed_after_admission(tmp_path: Path) -> None:
     provider = _Provider()
     with _runtime(tmp_path, provider) as runtime:
@@ -223,7 +1433,7 @@ def test_provision_rejects_contract_changed_after_admission(tmp_path: Path) -> N
         assert [item.code for item in receipt.problems] == [
             "instrument_contract_changed_after_admission"
         ]
-        assert provider.provide_count == 0
+        assert provider.connect_count == 0
 
 
 def test_batch_id_rejects_different_content(tmp_path: Path) -> None:
@@ -269,14 +1479,91 @@ def test_unknown_driver_action_quarantines_and_discards_run_state(
 
         [driver] = provider.drivers
         assert driver.abort_count == 1
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         assert runtime.application.executor._control.get_run(run_id).state == (
             "attention_required"
         )
         _assert_run_state_discarded(instruments, run_id)
 
 
-def test_finish_owns_cleanup_terminal_read_close_and_replay(tmp_path: Path) -> None:
+def test_unknown_collect_receipt_preserves_driver_diagnostics(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="unknown_collect_receipt")
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        receipt = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "unknown-collect-receipt",
+                _collect_action("source-0", effect_id="collect-unknown"),
+            ),
+        )
+
+        assert receipt.indeterminate
+        [issue] = receipt.problems
+        assert issue.code == "test_collect_receipt_unknown"
+        assert isinstance(issue.location, RuntimeLocation)
+        assert issue.location.operation_id == "collect-unknown"
+        assert isinstance(issue.related_locations[0], ModelLocation)
+        assert issue.related_locations[0].root == "driver_acquisition"
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state == (
+            "attention_required"
+        )
+        _assert_run_state_discarded(instruments, run_id)
+
+
+def test_unknown_invoke_quarantines_and_discards_run_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="invoke")
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        payload = command_payload_from_bytes(
+            id="program-1",
+            schema_id="pulse_program",
+            codec_id="tests.canonical-json",
+            codec_version=1,
+            media_type="application/json",
+            content=b'{"samples":[0.0]}',
+        )
+
+        with pytest.raises(BackendConflict, match="unknown state"):
+            instruments.execute_run_hardware(
+                run_id,
+                _batch_command(
+                    lease_id,
+                    "invoke-unknown",
+                    _invoke_action(
+                        "source-0",
+                        effect_id="invoke-unknown-1",
+                        payload=payload,
+                    ),
+                ),
+            )
+
+        [driver] = provider.drivers
+        assert len(driver.invoked) == 1
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state == (
+            "attention_required"
+        )
+        _assert_run_state_discarded(instruments, run_id)
+
+
+def test_finish_reads_terminal_state_releases_and_replays_concurrently(
+    tmp_path: Path,
+) -> None:
     provider = _Provider()
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, load_config())
@@ -289,24 +1576,75 @@ def test_finish_owns_cleanup_terminal_read_close_and_replay(tmp_path: Path) -> N
             failed=False,
         )
 
-        receipt = instruments.finish_run_hardware(run_id, command)
-        assert instruments.finish_run_hardware(run_id, command) == receipt
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            receipts = tuple(
+                future.result(timeout=3)
+                for future in (
+                    pool.submit(instruments.finish_run_hardware, run_id, command),
+                    pool.submit(instruments.finish_run_hardware, run_id, command),
+                )
+            )
+        receipt, replay = receipts
+        assert replay == receipt
+        with pytest.raises(
+            BackendConflict,
+            match="finalized with different content",
+        ):
+            instruments.finish_run_hardware(
+                run_id,
+                command.model_copy(update={"failed": True}),
+            )
         assert receipt.final_state[0].instrument_id == "source-0"
-        assert driver.cleanup_count == 1
         assert driver.abort_count == 0
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 0
         assert driver.read_count == 2
+        context = instruments._run_contexts[run_id]
+        assert context.provision is None
+        assert context.runtime is None
+        assert context.finalization is not None
+        instruments.release_run(run_id)
         _assert_run_state_discarded(instruments, run_id)
 
 
-def test_failed_finish_aborts_and_close_failure_is_unknown(tmp_path: Path) -> None:
-    provider = _Provider(fail_action="close")
+def test_unprovisioned_run_operations_do_not_leave_contexts(tmp_path: Path) -> None:
+    provider = _Provider()
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+
+        with pytest.raises(BackendConflict, match="not provisioned"):
+            instruments.authorize_run_payload_upload(run_id, lease_id)
+        with pytest.raises(BackendConflict, match="not provisioned"):
+            instruments.execute_run_hardware(
+                run_id,
+                _batch_command(
+                    lease_id,
+                    "unprovisioned-batch",
+                    _apply_action("source-0", effect_id="unprovisioned-apply"),
+                ),
+            )
+        with pytest.raises(BackendConflict, match="not provisioned"):
+            instruments.finish_run_hardware(
+                run_id,
+                RunHardwareFinishCommand(
+                    lease_id=lease_id,
+                    operation_id="unprovisioned-finish",
+                    failed=False,
+                ),
+            )
+        instruments.finalize_run(run_id, token=lease_id)
+
+        assert run_id not in instruments._run_contexts
+
+
+def test_failed_finish_abort_failure_is_unknown(tmp_path: Path) -> None:
+    provider = _Provider(fail_action="abort")
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, load_config())
         instruments = runtime.application.instruments
         instruments.provision_run(run_id, _provision(lease_id))
 
-        with pytest.raises(BackendConflict, match="close failed with unknown state"):
+        with pytest.raises(BackendConflict, match="abort failed with unknown state"):
             instruments.finish_run_hardware(
                 run_id,
                 RunHardwareFinishCommand(
@@ -318,8 +1656,102 @@ def test_failed_finish_aborts_and_close_failure_is_unknown(tmp_path: Path) -> No
 
         [driver] = provider.drivers
         assert driver.abort_count == 1
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 1
         _assert_run_state_discarded(instruments, run_id)
+
+
+def test_analysis_candidate_run_keeps_connection_until_shutdown(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="disconnect")
+    config = load_config()
+    with _runtime(tmp_path, provider) as runtime:
+        active = runtime.application.config.get_active_config()
+        source_admission = runtime.application.submit_run(
+            RunSubmission(
+                submission_id="candidate-source",
+                config=config,
+                config_source=ConfigRegistryRunConfigSource(
+                    selector="active",
+                    entry_id=active.entry.id,
+                    config_ref=active.entry.config_ref,
+                    content_hash=active.entry.content_hash,
+                    registry_generation=active.activation.generation,
+                ),
+                request=RunRequest(experiment_id="candidate-source"),
+                plan=RunPlanSummary(
+                    experiment_id="candidate-source",
+                    experiment_kind="scratch",
+                    point_count=1,
+                ),
+            )
+        )
+        proposal = parameter_change_proposal_from_updates(
+            source_run_id=source_admission.run_id,
+            source_config=config,
+            analysis_title="candidate",
+            analysis_record_id="analysis-candidate",
+            proposal_id="proposal-candidate",
+            updates=(
+                replace_scalar_parameter(
+                    "drive_frequency",
+                    Quantity(value=5.1, unit="GHz"),
+                ),
+            ),
+            reason="candidate",
+            confidence=None,
+        )
+        runtime.application.runs.save_run_analysis(
+            source_admission.run_id,
+            AnalysisSaveCommand(
+                title="candidate",
+                analysis_key="candidate",
+                outputs=(
+                    AnalysisParameterProposalOutputPayload(
+                        kind="parameter_change_proposal",
+                        title="candidate",
+                        content=proposal,
+                    ),
+                ),
+            ),
+        )
+        candidate = resolve_candidate_config_from_snapshot(
+            CandidateConfig(parameter_proposal=proposal),
+            source_config=config,
+        )
+        source = AnalysisCandidateRunConfigSource(
+            source_run_id=source_admission.run_id,
+            analysis_record_id=proposal.analysis_record_id,
+            proposal_id=proposal.id,
+            base_config_content_hash=proposal.base_config_content_hash,
+            content_hash=config_content_hash(candidate),
+        )
+        run_id, lease_id = _start_run(
+            runtime,
+            candidate,
+            config_source=source,
+            submission_id="analysis-candidate",
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        [driver] = provider.drivers
+        assert receipt.final_state[0].instrument_id == "source-0"
+        assert driver.disconnect_count == 0
+        assert runtime.application.executor._control.get_run(run_id).state != (
+            "attention_required"
+        )
+
+    assert driver.disconnect_count == 1
 
 
 def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
@@ -345,15 +1777,15 @@ def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
         [driver] = provider.drivers
         assert manifest.outcome is not None
         assert driver.abort_count == 1
-        assert driver.cleanup_count == 0
         assert driver.read_count == 2
-        assert driver.close_count == 1
+        assert driver.disconnect_count == 0
+        _assert_run_state_discarded(runtime.application.instruments, run_id)
 
 
 def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None:
     provider = _Provider(apply_barrier=Barrier(2))
     config = _two_instrument_config()
-    with _runtime(tmp_path, provider) as runtime:
+    with _runtime(tmp_path, provider, config=config) as runtime:
         first = _start_run(
             runtime,
             config,
@@ -389,7 +1821,7 @@ def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None
             assert all(not future.result(timeout=3).problems for future in futures)
 
 
-def test_expiry_and_shutdown_release_live_run_drivers(tmp_path: Path) -> None:
+def test_expiry_and_shutdown_fault_live_run_connections(tmp_path: Path) -> None:
     provider = _Provider()
     runtime = _runtime(tmp_path, provider)
     run_id, lease_id = _start_run(runtime, load_config())
@@ -404,7 +1836,7 @@ def test_expiry_and_shutdown_release_live_run_drivers(tmp_path: Path) -> None:
     runtime.application.instruments.expire_runs(expired)
     [driver] = provider.drivers
     assert driver.abort_count == 1
-    assert driver.close_count == 1
+    assert driver.disconnect_count == 1
     runtime.close()
 
     shutdown_provider = _Provider()
@@ -417,7 +1849,7 @@ def test_expiry_and_shutdown_release_live_run_drivers(tmp_path: Path) -> None:
     shutdown.close()
     [shutdown_driver] = shutdown_provider.drivers
     assert shutdown_driver.abort_count == 1
-    assert shutdown_driver.close_count == 1
+    assert shutdown_driver.disconnect_count == 1
 
 
 def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:
@@ -433,25 +1865,73 @@ def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:
             _provision(lease_id),
         )
         assert receipt.status == "ready"
-        assert receipt.initial_state == ()
-        assert provider.provide_count == 0
+        assert receipt.observed_state == ()
+        assert receipt.prepared_state == ()
+        assert provider.connect_count == 0
+
+
+def _config_with_default_state(
+    *properties: InstrumentPropertyState,
+    run_start: InstrumentRunStartPolicy = "apply_default_state",
+) -> ConfigProfileSnapshot:
+    config = load_config()
+    [instrument] = config.instrument_registry.instruments
+    configured = instrument.model_copy(
+        update={
+            "run_start": run_start,
+            "default_state": list(properties),
+        }
+    )
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured]}
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
+
+
+def _two_instrument_config_with_default_state(
+    *properties: InstrumentPropertyState,
+) -> ConfigProfileSnapshot:
+    config = _two_instrument_config()
+    instruments = [
+        instrument.model_copy(
+            update={
+                "run_start": "apply_default_state",
+                "default_state": [item.model_copy(deep=True) for item in properties],
+            }
+        )
+        for instrument in config.instrument_registry.instruments
+    ]
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": instruments}
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
 
 
 def _runtime(
     root: Path,
     provider: _Provider,
     *,
+    config: ConfigProfileSnapshot | None = None,
     lease_ttl: timedelta | None = None,
 ) -> LocalDaemonRuntime:
-    def factory(_root: Path) -> LabApplication:
-        return LabApplication(
-            build_system=lambda _config: ExperimentSystem(provider=provider)
-        )
-
     return LocalDaemonRuntime(
         root,
-        bootstrap_config=load_config(),
-        application_factory=factory,
+        bootstrap_config=config or load_config(),
+        instrument_endpoint=LocalInstrumentBackendEndpoint(
+            InstrumentBackend(
+                provider=provider,
+                driver_catalog=DriverCatalog(provider_id=provider.provider_id),
+                payload_codecs=json_payload_codecs("pulse_program"),
+            )
+        ),
         lease_ttl=lease_ttl,
     )
 
@@ -463,12 +1943,31 @@ def _start_run(
     host_instrument_order: tuple[str, ...] = ("source-0",),
     submission_id: str = "run-instruments",
     contract_fingerprint: str | None = None,
+    driver_type: type[_Driver] = _Driver,
+    config_source: RunConfigSource | Literal["matching_active"] | None = (
+        "matching_active"
+    ),
 ) -> tuple[str, str]:
+    if config_source == "matching_active":
+        active = runtime.application.config.get_active_config()
+        selected_config_source = (
+            ConfigRegistryRunConfigSource(
+                selector="active",
+                entry_id=active.entry.id,
+                config_ref=active.entry.config_ref,
+                content_hash=active.entry.content_hash,
+                registry_generation=active.activation.generation,
+            )
+            if active.entry.content_hash == config_content_hash(config)
+            else None
+        )
+    else:
+        selected_config_source = config_source
     admitted_fingerprint = (
         instrument_contract_fingerprint(
             _Provider.provider_id,
             tuple(
-                _Driver(instrument_id).describe()
+                driver_type(instrument_id).describe()
                 for instrument_id in host_instrument_order
             ),
         )
@@ -479,6 +1978,7 @@ def _start_run(
         RunSubmission(
             submission_id=submission_id,
             config=config,
+            config_source=selected_config_source,
             request=RunRequest(experiment_id="scratch"),
             plan=RunPlanSummary(
                 experiment_id="scratch",
@@ -491,8 +1991,8 @@ def _start_run(
                 host_contract_fingerprint=(
                     contract_fingerprint or admitted_fingerprint
                 ),
-                run_resource_claims=tuple(
-                    ResourceKey(kind="instrument", id=instrument_id)
+                run_resource_requirements=tuple(
+                    RunResourceRequirement(kind="instrument", id=instrument_id)
                     for instrument_id in host_instrument_order
                 ),
             ),
@@ -515,7 +2015,7 @@ def _provision(lease_id: str) -> RunInstrumentProvisionCommand:
 def _batch_command(
     lease_id: str,
     operation_id: str,
-    *actions: RunHardwareApply | RunHardwareCollect,
+    *actions: RunHardwareApply | RunHardwareInvoke | RunHardwareCollect,
 ) -> RunHardwareBatchCommand:
     return RunHardwareBatchCommand(
         lease_id=lease_id,
@@ -535,14 +2035,134 @@ def _apply_action(
         effect_id=effect_id,
         point_index=0,
         instrument_id=instrument_id,
-        fields=(
-            InstrumentStateCommandField(
+        assignments=(
+            InstrumentStateAssignment(
                 resource_id=instrument_id,
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=StateValue(Quantity(value=5.0, unit="GHz")),
             ),
         ),
+    )
+
+
+def _variant_apply_action(
+    *,
+    effect_id: str,
+    mode: str | None = None,
+    voltage_level: float | None = None,
+    current_level: float | None = None,
+    output_enabled: bool | None = None,
+) -> RunHardwareApply:
+    values = {
+        "mode": mode,
+        "voltage_level": voltage_level,
+        "current_level": current_level,
+        "output_enabled": output_enabled,
+    }
+    return RunHardwareApply(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        assignments=tuple(
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.dc/v1",
+                property_id=property_id,
+                value=StateValue(value),
+            )
+            for property_id, value in values.items()
+            if value is not None
+        ),
+    )
+
+
+def _variant_invoke_action(*, effect_id: str) -> RunHardwareInvoke:
+    return RunHardwareInvoke(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        resource_id="source-0",
+        interface_id="test.dc/v1",
+        operation_id="select_current",
+    )
+
+
+def _state_sized_axis_apply_action(
+    *,
+    effect_id: str,
+    points: int,
+) -> RunHardwareApply:
+    return RunHardwareApply(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        assignments=(
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.sweep/v1",
+                property_id="points",
+                value=StateValue(points),
+            ),
+        ),
+    )
+
+
+def _state_sized_axis_collect_action(
+    *,
+    effect_id: str,
+    size: int,
+) -> RunHardwareCollect:
+    return RunHardwareCollect(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        point_count=1,
+        requests=(
+            CollectResultRequest(
+                id="trace",
+                interface_id="test.sweep/v1",
+                acquisition_id="sample",
+                result_id="trace",
+                unit="V",
+                dimensions=[
+                    CollectAxisRequest(
+                        id="sample",
+                        kind="sample",
+                        size=size,
+                    )
+                ],
+            ),
+        ),
+        bindings=(
+            RunHardwareCollectBinding(
+                request_id="trace",
+                product_use_ids=(f"{effect_id}-use",),
+            ),
+        ),
+    )
+
+
+def _invoke_action(
+    instrument_id: str,
+    *,
+    effect_id: str,
+    payload: CommandPayload,
+) -> RunHardwareInvoke:
+    return RunHardwareInvoke(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id=instrument_id,
+        resource_id=instrument_id,
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=(
+            InstrumentOperationArgument(
+                id="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            ),
+        ),
+        payloads={payload.id: payload},
     )
 
 
@@ -557,15 +2177,47 @@ def _collect_action(
         instrument_id=instrument_id,
         point_count=1,
         requests=(
-            CollectProductRequest(
+            CollectResultRequest(
                 id="signal",
-                capability_id="scalar_signal",
+                interface_id="test.scalar_signal/v1",
+                acquisition_id="sample",
+                result_id="signal",
+                unit="ratio",
             ),
         ),
         bindings=(
             RunHardwareCollectBinding(
-                provider_key="signal",
+                request_id="signal",
                 product_use_ids=("signal-use",),
+            ),
+        ),
+    )
+
+
+def _variant_collect_action(
+    *,
+    effect_id: str,
+    result_id: str,
+) -> RunHardwareCollect:
+    unit = "V" if result_id == "monitored_voltage" else "A"
+    return RunHardwareCollect(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        point_count=1,
+        requests=(
+            CollectResultRequest(
+                id="reading",
+                interface_id="test.dc/v1",
+                acquisition_id="measure",
+                result_id=result_id,
+                unit=unit,
+            ),
+        ),
+        bindings=(
+            RunHardwareCollectBinding(
+                request_id="reading",
+                product_use_ids=("reading-use",),
             ),
         ),
     )
@@ -575,10 +2227,7 @@ def _assert_run_state_discarded(
     instruments: InstrumentService,
     run_id: str,
 ) -> None:
-    assert run_id not in instruments._run_runtimes
-    assert run_id not in instruments._run_provisions
-    assert run_id not in instruments._run_open_locks
-    assert run_id not in instruments._finalizing_runs
+    assert run_id not in instruments._run_contexts
 
 
 def _two_instrument_config() -> ConfigProfileSnapshot:
@@ -588,7 +2237,12 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
         update={
             "instruments": [
                 source,
-                source.model_copy(update={"id": "source-1"}),
+                source.model_copy(
+                    update={
+                        "id": "source-1",
+                        "exclusivity_key": "source-1",
+                    }
+                ),
             ]
         }
     )

@@ -57,17 +57,21 @@
     "instruments": [
       {
         "id": "drive-stack",
+        "exclusivity_key": "drive-stack",
         "driver_id": "quantum_lab_demo.virtual_lab.drive_stack",
         "connection": {
           "kind": "virtual"
-        }
+        },
+        "run_start": "preserve"
       },
       {
         "id": "readout-stack",
+        "exclusivity_key": "readout-stack",
         "driver_id": "quantum_lab_demo.virtual_lab.readout_stack",
         "connection": {
           "kind": "virtual"
-        }
+        },
+        "run_start": "preserve"
       }
     ]
   },
@@ -75,19 +79,19 @@
     "bindings": [
       {
         "instrument_id": "drive-stack",
-        "capability": "play_pulse_program",
+        "interface_id": "quantum_lab.play_pulse_program/v1",
         "entity_id": "q0",
         "channel_id": "drive.awg0.ch1"
       },
       {
         "instrument_id": "readout-stack",
-        "capability": "readout_pulse",
+        "interface_id": "quantum_lab.readout_pulse/v1",
         "entity_id": "q0",
         "channel_id": "readout.mux0"
       },
       {
         "instrument_id": "readout-stack",
-        "capability": "acquire_iq",
+        "interface_id": "quantum_lab.acquire_iq/v1",
         "entity_id": "q0",
         "channel_id": "readout.mux0"
       }

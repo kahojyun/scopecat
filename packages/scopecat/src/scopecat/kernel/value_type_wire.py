@@ -85,7 +85,11 @@ type _PersistableScalarModel = Annotated[
     | _EntityWire,
     Field(discriminator="type"),
 ]
-type _CapabilityScalarModel = Annotated[
+type _InstrumentPropertyScalarModel = Annotated[
+    _BoolWire | _IntWire | _FiniteFloatWire | _StringWire | _FiniteQuantityWire,
+    Field(discriminator="type"),
+]
+type _InstrumentOperationScalarModel = Annotated[
     _BoolWire
     | _IntWire
     | _FiniteFloatWire
@@ -98,11 +102,20 @@ type _CapabilityScalarModel = Annotated[
 _PERSISTABLE_SCALAR_ADAPTER = TypeAdapter[_PersistableScalarModel](
     _PersistableScalarModel
 )
-_CAPABILITY_SCALAR_ADAPTER = TypeAdapter[_CapabilityScalarModel](_CapabilityScalarModel)
+_INSTRUMENT_PROPERTY_SCALAR_ADAPTER = TypeAdapter[_InstrumentPropertyScalarModel](
+    _InstrumentPropertyScalarModel
+)
+_INSTRUMENT_OPERATION_SCALAR_ADAPTER = TypeAdapter[_InstrumentOperationScalarModel](
+    _InstrumentOperationScalarModel
+)
 
 
 def _scalar_from_model(
-    wire: _PersistableScalarModel | _CapabilityScalarModel,
+    wire: (
+        _PersistableScalarModel
+        | _InstrumentPropertyScalarModel
+        | _InstrumentOperationScalarModel
+    ),
 ) -> Scalar:
     match wire:
         case _BoolWire():
@@ -144,15 +157,29 @@ def _persistable_scalar_from_wire(value: object) -> Scalar:
     return _scalar_from_model(_PERSISTABLE_SCALAR_ADAPTER.validate_python(value))
 
 
-def _capability_scalar_from_wire(value: object) -> Scalar:
+def _instrument_operation_scalar_from_wire(value: object) -> Scalar:
     if isinstance(value, Scalar):
         return value
-    return _scalar_from_model(_CAPABILITY_SCALAR_ADAPTER.validate_python(value))
+    return _scalar_from_model(
+        _INSTRUMENT_OPERATION_SCALAR_ADAPTER.validate_python(value)
+    )
+
+
+def _instrument_property_scalar_from_wire(value: object) -> Scalar:
+    if isinstance(value, Scalar):
+        return value
+    return _scalar_from_model(
+        _INSTRUMENT_PROPERTY_SCALAR_ADAPTER.validate_python(value)
+    )
 
 
 def _scalar_to_wire(
     value: Scalar,
-) -> _PersistableScalarModel | _CapabilityScalarModel:
+) -> (
+    _PersistableScalarModel
+    | _InstrumentPropertyScalarModel
+    | _InstrumentOperationScalarModel
+):
     match value.atom:
         case Bool():
             return _BoolWire(type="bool")
@@ -198,11 +225,20 @@ type PersistableScalarWire = Annotated[
     PlainSerializer(_scalar_to_wire, return_type=_PersistableScalarModel),
 ]
 
-type CapabilityScalarWire = Annotated[
+type InstrumentOperationScalarWire = Annotated[
     Scalar,
     BeforeValidator(
-        _capability_scalar_from_wire,
-        json_schema_input_type=_CapabilityScalarModel,
+        _instrument_operation_scalar_from_wire,
+        json_schema_input_type=_InstrumentOperationScalarModel,
     ),
-    PlainSerializer(_scalar_to_wire, return_type=_CapabilityScalarModel),
+    PlainSerializer(_scalar_to_wire, return_type=_InstrumentOperationScalarModel),
+]
+
+type InstrumentPropertyScalarWire = Annotated[
+    Scalar,
+    BeforeValidator(
+        _instrument_property_scalar_from_wire,
+        json_schema_input_type=_InstrumentPropertyScalarModel,
+    ),
+    PlainSerializer(_scalar_to_wire, return_type=_InstrumentPropertyScalarModel),
 ]

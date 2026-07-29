@@ -20,13 +20,14 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
     ValueInput,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     BoundInput,
     ComputeOperation,
+    InvokeOperation,
     OutputInput,
 )
 from scopecat.graph.relations.model import (
@@ -68,7 +69,12 @@ from tests.testkit.local_materialization import (
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.relation_plans import scalar_value_expr
-from tests.testkit.typed_program import compute_result, link_program, typed_program
+from tests.testkit.typed_program import (
+    compute_result,
+    instrument_invocation,
+    link_program,
+    typed_program,
+)
 
 
 class _FirstIntegerToken(IntEnum):
@@ -181,20 +187,20 @@ def test_bound_state_preserves_primitive_field_types(
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=_resource("source-0"),
-                capabilities=("configure",),
+                interfaces=("test.configure/v1",),
             ),
         ),
         state=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=_resource("source-0"),
-                capability_id="configure",
-                field_path="value",
+                interface_id="test.configure/v1",
+                property_id="value",
                 value=scalar_value_expr(lit(value), expected_type=value_type),
             ),
         ),
     )
     environment = build_config_environment(
-        config_with_physical_resources({"source-0": ("configure",)})
+        config_with_physical_resources({"source-0": ("test.configure/v1",)})
     )
 
     plan = materialize_local_execution(link_program(program, environment))
@@ -264,20 +270,21 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=_resource("source-0"),
-                capabilities=("play_program",),
+                interfaces=("test.play_program/v1",),
             ),
         ),
-        state=(
-            set_state_field(
+        invocations=(
+            instrument_invocation(
+                id="play-program",
                 resource_port_id=_resource("source-0"),
-                capability_id="play_program",
-                field_path="program",
-                value=compute_result(consumer_output_id),
+                interface="test.play_program/v1",
+                operation="play",
+                arguments={"program": compute_result(consumer_output_id)},
             ),
         ),
     )
     environment = build_config_environment(
-        config_with_physical_resources({"source-0": ("play_program",)})
+        config_with_physical_resources({"source-0": ("test.play_program/v1",)})
     )
 
     plan = materialize_local_execution(link_program(program, environment))
@@ -321,13 +328,14 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         assert consumer.payload_slot is not None
         payload_ids.append(consumer.payload_slot.id)
 
-        state_value = (
-            operations_of_type(plan, ApplyStateOperation, point_index=point.ordinal)[0]
-            .targets[0]
-            .value.root
-        )
-        assert isinstance(state_value, PayloadRef)
-        assert state_value.payload_id == consumer.payload_slot.id
+        invocation = operations_of_type(
+            plan,
+            InvokeOperation,
+            point_index=point.ordinal,
+        )[0]
+        payload_ref = invocation.arguments[0].value.root
+        assert isinstance(payload_ref, PayloadRef)
+        assert payload_ref.payload_id == consumer.payload_slot.id
 
     assert len(set(payload_ids)) == 3
     repeated_payload_ids: list[str] = []

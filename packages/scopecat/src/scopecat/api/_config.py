@@ -14,6 +14,7 @@ from scopecat.config.candidates import (
     resolve_candidate_config_from_snapshot,
 )
 from scopecat.config.drafts import ConfigDraft
+from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.resolution import config_revision_entry_id
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
@@ -33,6 +34,8 @@ from scopecat.daemon.wire import (
     ConfigPublishReceipt,
     ConfigUndoCommand,
     DirectConfigRevisionSource,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -215,6 +218,28 @@ class LabConfigOperations:
                     if expected_generation is None
                     else expected_generation
                 ),
+                note=note,
+            )
+        )
+
+    def migrate_instrument_inventory(
+        self,
+        config: ConfigProfileSnapshot,
+        *,
+        changes: tuple[InstrumentInventoryChange, ...],
+        entry_id: str | None = None,
+        actor: str | None = None,
+        note: str = "",
+    ) -> InstrumentInventoryMigrationReceipt:
+        """Publish changed physical identities after their owners are drained."""
+
+        return self.client.migrate_instrument_inventory(
+            InstrumentInventoryMigrationCommand(
+                config=config,
+                entry_id=entry_id or config_revision_entry_id(config),
+                changes=changes,
+                actor=actor or self.operator,
+                expected_generation=self._generation(),
                 note=note,
             )
         )

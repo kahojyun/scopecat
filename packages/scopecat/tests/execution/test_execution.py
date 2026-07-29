@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import math
 from dataclasses import replace
 from pathlib import Path
-from typing import cast, override
+from typing import Never, cast
 
 import pytest
 from pydantic import JsonValue
@@ -24,7 +23,7 @@ from scopecat.compiler.typed.program import (
     ValueInput,
     core_acquisitions,
     record_product,
-    set_state_field,
+    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.evidence import (
@@ -57,34 +56,38 @@ from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.planning.provider_binding import (
-    preflight_instrument_provider,
+    resolve_instrument_contract_catalog,
     validate_run_host_binding,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import (
     CommandChannelBinding,
-    InstrumentReadback,
-    InstrumentStateField,
+    InstrumentPropertyState,
     InstrumentStateSnapshot,
 )
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments.contracts import (
-    CapabilityDescription,
-    CapabilityField,
+from scopecat.sdk.instruments import DriverPayload
+from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
-    CollectCommand,
-    CollectReceipt,
+    InstrumentStateAssignment,
+    InstrumentStateCommand,
+)
+from scopecat.sdk.instruments.contracts import (
+    FixedAcquisitionSpec,
     InstrumentDescription,
+    InterfaceSpec,
+    PropertySpec,
+    acquisition_axis,
+)
+from scopecat.sdk.instruments.provider import (
+    InstrumentConnectionContext,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
-    InstrumentStateCommand,
-    InstrumentStateCommandField,
-    product_axis,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
@@ -94,6 +97,7 @@ from tests.testkit.local_materialization import (
     operations_of_type,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
+from tests.testkit.payload_codecs import json_payload_codecs
 from tests.testkit.records import (
     assert_model_round_trip,
 )
@@ -108,6 +112,7 @@ from tests.testkit.signal_instruments import (
 from tests.testkit.typed_program import (
     compute_result,
     instrument_acquisition,
+    instrument_invocation,
     link_program,
     observable_product,
     typed_program,
@@ -157,11 +162,11 @@ def test_instrument_models_round_trip() -> None:
         instrument_id="source-0",
         implementation_id="test.instrument",
         implementation_version="v1",
-        capabilities=[
-            CapabilityDescription(
-                id="set_frequency",
-                fields=[
-                    CapabilityField(
+        interfaces=[
+            InterfaceSpec(
+                id="test.set_frequency/v1",
+                properties=[
+                    PropertySpec(
                         id="frequency",
                         value_type=Scalar(QuantityType(unit="GHz")),
                     )
@@ -172,28 +177,29 @@ def test_instrument_models_round_trip() -> None:
     state_value = StateValue(Quantity(value=5.0, unit="GHz"))
     state = InstrumentStateSnapshot(
         instrument_id="source-0",
-        fields=[
-            InstrumentStateField(
-                capability_id="set_frequency",
-                field_path="frequency",
+        properties=[
+            InstrumentPropertyState(
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=state_value,
             )
         ],
     )
     command = InstrumentStateCommand(
+        command_id="round-trip-state",
         instrument_id="source-0",
-        fields=[
-            InstrumentStateCommandField(
+        assignments=[
+            InstrumentStateAssignment(
                 resource_id="source-0",
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=state_value,
                 entity_ids=["q0"],
                 channel_bindings=[
                     CommandChannelBinding(
                         entity_id="q0",
                         channel_id="drive.awg0.ch1",
-                        capability="set_frequency",
+                        interface_id="test.set_frequency/v1",
                     )
                 ],
             )
@@ -247,12 +253,17 @@ def test_run_persists_measurements_and_run_files(
     assert persisted_config == config
     assert {
         snapshot.instrument_id
-        for snapshot in [*state_evidence.initial_state, *state_evidence.final_state]
+        for snapshot in [
+            *state_evidence.observed_state,
+            *state_evidence.prepared_state,
+            *state_evidence.final_state,
+        ]
     } == {"source-0"}
-    final_state_value = state_evidence.final_state[0].fields[0].value.root
+    assert state_evidence.observed_state == state_evidence.prepared_state
+    final_state_value = state_evidence.final_state[0].properties[0].value.root
     assert final_state_value == Quantity(value=5.1, unit="GHz")
     persisted_state_evidence = state_evidence.model_dump(mode="json")
-    assert persisted_state_evidence["final_state"][0]["fields"][0]["value"] == {
+    assert persisted_state_evidence["final_state"][0]["properties"][0]["value"] == {
         "value": 5.1,
         "unit": "GHz",
     }
@@ -270,8 +281,10 @@ def test_run_persists_measurements_and_run_files(
     drive_frequencies: list[float] = []
     for item in measurements:
         drive_frequency = item.coordinates["drive_frequency"]
-        assert isinstance(drive_frequency, Quantity)
-        drive_frequencies.append(drive_frequency.value)
+        assert isinstance(drive_frequency, MeasurementScalar)
+        assert not isinstance(drive_frequency.value, bool)
+        assert isinstance(drive_frequency.value, int | float)
+        drive_frequencies.append(float(drive_frequency.value))
     assert drive_frequencies == [
         4.9,
         5.0,
@@ -280,8 +293,10 @@ def test_run_persists_measurements_and_run_files(
     signal_values: list[float] = []
     for measurement in measurements:
         signal = measurement.observables["signal"]
-        assert isinstance(signal, Quantity)
-        signal_values.append(signal.value)
+        assert isinstance(signal, MeasurementScalar)
+        assert not isinstance(signal.value, bool)
+        assert isinstance(signal.value, int | float)
+        signal_values.append(float(signal.value))
     assert signal_values == [
         0.5,
         1.0,
@@ -321,64 +336,11 @@ def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
     assert not storage.exists(manifest.run_id, pending_ref)
 
 
-class _NonFiniteSignalInstrument(TestSignalInstrument):
-    @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        self.collect_commands.append(command)
-        values = (float("nan"), float("inf"), float("-inf"))
-        return CollectReceipt(
-            readback=InstrumentReadback(
-                values={
-                    "signal": Quantity(
-                        value=values[command.point_index],
-                        unit="ratio",
-                    )
-                },
-                metadata={"encoding": "ieee-754"},
-            )
-        )
-
-
-def test_run_round_trips_non_finite_terminal_measurements(
-    tmp_path: Path,
-) -> None:
-    manifest = execute_bound_run(
-        config=load_config(),
-        experiment=load_experiment(),
-        instruments=[_NonFiniteSignalInstrument()],
-        project_root=tmp_path,
-    )
-
-    assert manifest.status == "completed"
-    repository = sqlite_run_repository(tmp_path)
-    dataset_ref = dataset_storage_ref(manifest.datasets[0])
-    wire = "".join(
-        repository.read_text(
-            manifest.run_id,
-            f"{dataset_ref}/chunks/{index:020d}.json",
-        )
-        for index in range(3)
-    )
-    assert "NaN" in wire
-    assert "Infinity" in wire
-    assert "-Infinity" in wire
-    measurements = sqlite_run_repository(tmp_path).read_measurement_records(
-        manifest.run_id,
-        dataset_storage_ref(manifest.datasets[0]),
-    )
-    values = [
-        cast("Quantity", measurement.observables["signal"]).value
-        for measurement in measurements
-    ]
-    assert math.isnan(values[0])
-    assert values[1:] == [float("inf"), float("-inf")]
-
-
 class _OrderedAbiProblemProvider:
     provider_id = "tests.ordered_abi_provider"
 
     def __init__(self) -> None:
-        self.provide_called = False
+        self.connect_called = False
 
     def describe(
         self,
@@ -388,10 +350,10 @@ class _OrderedAbiProblemProvider:
         source_description = TestSignalInstrument().describe()
         source_description = source_description.model_copy(
             update={
-                "capabilities": [
-                    capability
-                    for capability in source_description.capabilities
-                    if capability.id != "scalar_signal"
+                "interfaces": [
+                    interface
+                    for interface in source_description.interfaces
+                    if interface.id != "test.scalar_signal/v1"
                 ]
             }
         )
@@ -413,20 +375,20 @@ class _OrderedAbiProblemProvider:
             ),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
+        self.connect_called = True
+        raise AssertionError("preflight must not connect an instrument")
 
 
 class _PartialDescriptionProvider:
     provider_id = "tests.partial_description_provider"
 
     def __init__(self) -> None:
-        self.provide_called = False
+        self.connect_called = False
 
     def describe(
         self,
@@ -443,13 +405,13 @@ class _PartialDescriptionProvider:
             instruments=(description,),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
+        self.connect_called = True
+        raise AssertionError("preflight must not connect an instrument")
 
 
 class _FailingDescriptionProvider:
@@ -457,7 +419,7 @@ class _FailingDescriptionProvider:
 
     def __init__(self, error: BaseException) -> None:
         self.error = error
-        self.provide_called = False
+        self.connect_called = False
 
     def describe(
         self,
@@ -466,13 +428,13 @@ class _FailingDescriptionProvider:
         del context
         raise self.error
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
+        self.connect_called = True
+        raise AssertionError("preflight must not connect an instrument")
 
 
 class _UnitAbiProvider:
@@ -481,14 +443,14 @@ class _UnitAbiProvider:
     def __init__(
         self,
         *,
-        product_unit: str | None,
+        result_unit: str | None,
         axis_unit: str | None = None,
         include_axis: bool = False,
     ) -> None:
-        self.product_unit = product_unit
+        self.result_unit = result_unit
         self.axis_unit = axis_unit
         self.include_axis = include_axis
-        self.provide_called = False
+        self.connect_called = False
 
     def describe(
         self,
@@ -496,17 +458,19 @@ class _UnitAbiProvider:
     ) -> InstrumentProviderDescription:
         del context
         description = TestSignalInstrument().describe()
-        capabilities: list[CapabilityDescription] = []
-        for capability in description.capabilities:
-            if capability.id != "scalar_signal":
-                capabilities.append(capability)
+        interfaces: list[InterfaceSpec] = []
+        for interface in description.interfaces:
+            if interface.id != "test.scalar_signal/v1":
+                interfaces.append(interface)
                 continue
-            advertised_product = capability.products[0].model_copy(
+            acquisition = interface.acquisitions[0]
+            assert isinstance(acquisition, FixedAcquisitionSpec)
+            advertised_result = acquisition.results[0].model_copy(
                 update={
-                    "unit": self.product_unit,
+                    "unit": self.result_unit,
                     "axes": (
                         [
-                            product_axis(
+                            acquisition_axis(
                                 "sample",
                                 kind="sample",
                                 size=2,
@@ -518,23 +482,29 @@ class _UnitAbiProvider:
                     ),
                 }
             )
-            capabilities.append(
-                capability.model_copy(update={"products": [advertised_product]})
+            interfaces.append(
+                interface.model_copy(
+                    update={
+                        "acquisitions": [
+                            acquisition.model_copy(
+                                update={"results": [advertised_result]}
+                            )
+                        ]
+                    }
+                )
             )
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
-            instruments=(
-                description.model_copy(update={"capabilities": capabilities}),
-            ),
+            instruments=(description.model_copy(update={"interfaces": interfaces}),),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
+        context: InstrumentConnectionContext,
+    ) -> Never:
         del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
+        self.connect_called = True
+        raise AssertionError("preflight must not connect an instrument")
 
 
 def _lower_test_host_binding(
@@ -544,19 +514,28 @@ def _lower_test_host_binding(
     *,
     planning_problems: tuple[Problem, ...] = (),
 ):
-    preflight = preflight_instrument_provider(
+    catalog = resolve_instrument_contract_catalog(
         config=config,
-        instrument_provider=provider,
+        provider_id=provider.provider_id,
+        describe=provider.describe,
     )
+    if catalog.problems and not catalog.instruments:
+        raise ProviderContractError((*planning_problems, *catalog.problems))
+    provider_id = catalog.provider_id
+    if provider_id is None:
+        raise AssertionError("provider resolution must retain its identity")
     program = RunHostBinding(
         resource_order=plan.resource_order,
-        provider_id=preflight.provider_id,
-        advertised_descriptions=preflight.advertised_descriptions,
+        provider_id=provider_id,
+        advertised_descriptions={
+            description.instrument_id: description
+            for description in catalog.instruments
+        },
     )
     return validate_run_host_binding(
         host=program,
         effect_blocks=(tuple(effect.operation for effect in plan.effects),),
-        problems=(*planning_problems, *preflight.problems),
+        problems=(*planning_problems, *catalog.problems),
     )
 
 
@@ -591,9 +570,9 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
         "provider_abi_warning",
         "instrument_provider_id_mismatch",
         "instrument_not_in_config",
-        "instrument_product_unsupported",
+        "instrument_acquisition_result_unsupported",
     ]
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -613,7 +592,7 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
         "instrument_not_in_config",
         "missing_instrument_description",
     ]
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -632,17 +611,17 @@ def test_provider_description_exception_fails_at_preflight_boundary(
     assert [problem.code for problem in captured.value.problems] == [
         "instrument_provider_description_failed"
     ]
-    assert captured.value.__cause__ is failure
-    assert not provider.provide_called
+    assert captured.value.__cause__ is None
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 @pytest.mark.parametrize("advertised_unit", [None, "GHz"])
-def test_provider_product_unit_mismatch_is_rejected_before_run(
+def test_provider_acquisition_result_unit_mismatch_is_rejected_before_run(
     tmp_path: Path,
     advertised_unit: str | None,
 ) -> None:
-    provider = _UnitAbiProvider(product_unit=advertised_unit)
+    provider = _UnitAbiProvider(result_unit=advertised_unit)
     config = load_config()
     plan = materialize_local_execution(
         link_program(load_experiment(), build_config_environment(config))
@@ -654,7 +633,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
 
     problem = captured.value.problems[0]
     assert len(captured.value.problems) == 1
-    assert problem.code == "instrument_product_unit_mismatch"
+    assert problem.code == "instrument_acquisition_result_unit_mismatch"
     assert problem.location == model_location(
         "execution_program",
         "operations",
@@ -663,17 +642,17 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
         "signal",
         "unit",
     )
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 @pytest.mark.parametrize("advertised_unit", [None, "GHz"])
-def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
+def test_provider_acquisition_axis_unit_mismatch_is_rejected_before_run(
     tmp_path: Path,
     advertised_unit: str | None,
 ) -> None:
     provider = _UnitAbiProvider(
-        product_unit="ratio",
+        result_unit="ratio",
         axis_unit=advertised_unit,
         include_axis=True,
     )
@@ -707,7 +686,7 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
 
     problem = captured.value.problems[0]
     assert len(captured.value.problems) == 1
-    assert problem.code == "instrument_product_axis_unit_mismatch"
+    assert problem.code == "instrument_acquisition_result_axis_unit_mismatch"
     assert problem.location == model_location(
         "execution_program",
         "operations",
@@ -718,7 +697,7 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         0,
         "unit",
     )
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -744,7 +723,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
     with pytest.raises(KeyboardInterrupt, match="description cancelled"):
         _lower_test_host_binding(plan, config, provider)
 
-    assert not provider.provide_called
+    assert not provider.connect_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
@@ -771,7 +750,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     acquisition = instrument_acquisition(
         product,
         resource_port_id="source",
-        capability="scalar_signal",
+        interface="test.scalar_signal/v1",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -797,15 +776,16 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                capabilities=("play_program", "scalar_signal"),
+                interfaces=("test.play_program/v1", "test.scalar_signal/v1"),
             ),
         ),
-        state=[
-            set_state_field(
+        invocations=[
+            instrument_invocation(
+                id="play-program",
                 resource_port_id=logical_resource_port_id("source"),
-                capability_id="play_program",
-                field_path="program",
-                value=compute_result("build-program"),
+                interface="test.play_program/v1",
+                operation="play",
+                arguments={"program": compute_result("build-program")},
             )
         ],
         product_defs=[product],
@@ -838,14 +818,16 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         ],
     )
     config = config_with_physical_resources(
-        {"source-0": ("play_program", "scalar_signal")}
+        {"source-0": ("test.play_program/v1", "test.scalar_signal/v1")}
     )
     instrument = SignalInstrumentDriver()
+    payload_codecs = json_payload_codecs("pulse_program")
     manifest = execute_bound_run(
         config=config,
         experiment=spec,
         instruments=[instrument],
         project_root=tmp_path,
+        payload_codecs=payload_codecs,
     )
 
     assert manifest.status == "completed"
@@ -857,7 +839,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         Quantity(value=5.1, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
-    assert len(instrument.applied) == 6
+    assert len(instrument.invoked) == 6
     assert all(
         transition.stage != "compute"
         for transition in sqlite_execution_session(
@@ -865,37 +847,32 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
             manifest.run_id,
         ).journal.entries()
     )
-    payloads = [next(iter(command.payloads.values())) for command in instrument.applied]
-    payload_ids = [payload.id for payload in payloads]
-    assert len(set(payload_ids)) == 6
-    assert all(
-        payload_id.endswith(".compute.build-program.payload")
-        for payload_id in payload_ids
-    )
-    assert {payload.semantic_operation_id for payload in payloads} == {"build-program"}
-    assert [payload.implementation_id for payload in payloads] == [
-        "python.build-program.v1"
-    ] * 6
-    assert [payload.payload for payload in payloads] == [
-        {"value": Quantity(value=4.9, unit="GHz")},
-        {"value": Quantity(value=4.9, unit="GHz")},
-        {"value": Quantity(value=4.9, unit="GHz")},
-        {"value": Quantity(value=5.1, unit="GHz")},
-        {"value": Quantity(value=5.1, unit="GHz")},
-        {"value": Quantity(value=5.1, unit="GHz")},
+    arguments: list[DriverPayload] = []
+    for command in instrument.invoked:
+        [argument] = command.arguments.values()
+        assert isinstance(argument, DriverPayload)
+        arguments.append(argument)
+    assert [argument.schema_id for argument in arguments] == ["pulse_program"] * 6
+    assert [argument.value for argument in arguments] == [
+        {"value": {"value": 4.9, "unit": "GHz"}},
+        {"value": {"value": 4.9, "unit": "GHz"}},
+        {"value": {"value": 4.9, "unit": "GHz"}},
+        {"value": {"value": 5.1, "unit": "GHz"}},
+        {"value": {"value": 5.1, "unit": "GHz"}},
+        {"value": {"value": 5.1, "unit": "GHz"}},
     ]
 
 
-def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
+def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
     instrument = TestSignalInstrument()
     base_experiment = load_experiment()
     experiment = replace(
         base_experiment,
         effects=(
-            set_state_field(
+            set_state_property(
                 resource_port_id=logical_resource_port_id("source"),
-                capability_id="set_frequency",
-                field_path="frequency",
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
                 value=scalar_value_expr(
                     lit(Quantity(value=5.9, unit="GHz")),
                     expected_type=Scalar(QuantityType(unit="GHz")),
@@ -912,4 +889,4 @@ def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
     )
 
     assert manifest.status == "completed"
-    assert len(instrument.applied_commands) == 1
+    assert len(instrument.applied_requests) == 1

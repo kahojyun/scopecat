@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -140,16 +141,16 @@ class RoutingView:
         self,
         *,
         port_id: LogicalResourcePortId,
-        capabilities: Sequence[str],
+        interfaces: Sequence[InterfaceId],
     ) -> ResourcePortManifest:
-        """Freeze candidates satisfying the port's complete capability contract.
+        """Freeze candidates satisfying the port's complete interface contract.
 
-        Every selected entity must have every capability required by the logical
-        port on the same candidate instrument; partial capability matches are
+        Every selected entity must have every interface required by the logical
+        port on the same candidate instrument; partial interface matches are
         deliberately excluded.
         """
 
-        selected_capabilities = tuple(capabilities)
+        selected_interfaces = tuple(interfaces)
         instrument_ids = tuple(
             dict.fromkeys(binding.instrument_id for binding in self.bindings)
         )
@@ -158,7 +159,7 @@ class RoutingView:
             for instrument_id in instrument_ids
             if self._instrument_satisfies(
                 instrument_id,
-                capabilities=selected_capabilities,
+                interfaces=selected_interfaces,
                 entity_ids=(),
             )
         )
@@ -179,7 +180,7 @@ class RoutingView:
                         for instrument_id in instrument_ids
                         if self._instrument_satisfies(
                             instrument_id,
-                            capabilities=selected_capabilities,
+                            interfaces=selected_interfaces,
                             entity_ids=(entity_id,),
                         )
                     )
@@ -190,7 +191,7 @@ class RoutingView:
                 {
                     instrument_id: self._channel_bindings(
                         instrument_id,
-                        capabilities=selected_capabilities,
+                        interfaces=selected_interfaces,
                     )
                     for instrument_id in instrument_ids
                 }
@@ -201,16 +202,16 @@ class RoutingView:
         self,
         instrument_id: str,
         *,
-        capabilities: tuple[str, ...],
+        interfaces: tuple[InterfaceId, ...],
         entity_ids: tuple[str, ...],
     ) -> bool:
         instrument_bindings = self._bindings_for_instrument(instrument_id)
-        declared_capabilities = {binding.capability for binding in instrument_bindings}
-        if not all(capability in declared_capabilities for capability in capabilities):
+        declared_interfaces = {binding.interface_id for binding in instrument_bindings}
+        if not all(interface in declared_interfaces for interface in interfaces):
             return False
         if not entity_ids:
             return True
-        if not capabilities:
+        if not interfaces:
             served_entity_ids = {
                 binding.entity_id
                 for binding in instrument_bindings
@@ -219,10 +220,10 @@ class RoutingView:
             return all(entity_id in served_entity_ids for entity_id in entity_ids)
         return all(
             any(
-                binding.capability == capability and binding.entity_id == entity_id
+                binding.interface_id == interface and binding.entity_id == entity_id
                 for binding in instrument_bindings
             )
-            for capability in capabilities
+            for interface in interfaces
             for entity_id in entity_ids
         )
 
@@ -230,19 +231,19 @@ class RoutingView:
         self,
         instrument_id: str,
         *,
-        capabilities: tuple[str, ...],
+        interfaces: tuple[InterfaceId, ...],
     ) -> tuple[CommandChannelBinding, ...]:
         selected: list[CommandChannelBinding] = []
         for endpoint in self._bindings_for_instrument(instrument_id):
             if endpoint.entity_id is None or endpoint.channel_id is None:
                 continue
-            if capabilities and endpoint.capability not in capabilities:
+            if interfaces and endpoint.interface_id not in interfaces:
                 continue
             selected.append(
                 CommandChannelBinding(
                     entity_id=endpoint.entity_id,
                     channel_id=endpoint.channel_id,
-                    capability=endpoint.capability,
+                    interface_id=endpoint.interface_id,
                 )
             )
         return tuple(selected)

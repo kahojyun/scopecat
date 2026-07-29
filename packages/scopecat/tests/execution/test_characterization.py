@@ -27,40 +27,55 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductUse, ProductUseId, product_id
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.kernel.resource_identity import ResourceRequirement
+from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectCommand,
-    CollectProductRequest,
-    CollectReceipt,
+    DriverAcquisition,
+    DriverOutcome,
+    DriverPayload,
+    DriverReadback,
+    DriverRejected,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
+    DriverUnknown,
+    InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
-    InstrumentReadback,
-    InstrumentStateCommand,
-    InstrumentStateSnapshot,
+    InterfaceRef,
 )
+from scopecat.sdk.instruments.commands import CollectCommand, CollectResultRequest
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
-from tests.testkit.instrument_host import TestRunInstrumentHost
+from tests.testkit.instrument_host import (
+    TestRunInstrumentHost,
+    compose_test_instruments,
+)
 from tests.testkit.local_materialization import LocalEffectInspection
 from tests.testkit.materialized_effects import config_with_physical_resources
+from tests.testkit.payload_codecs import json_payload_codecs
 from tests.testkit.run_operations import complete_coverage_operations
 from tests.testkit.runtime import FakeExecutionJournal
+
+_PLAY_PROGRAM = InterfaceRef("test.play_program/v1")
+_PLAY_PROGRAM_PLAY = _PLAY_PROGRAM.operation("play")
+_PLAY_PROGRAM_ARGUMENT = _PLAY_PROGRAM_PLAY.argument("program")
 
 
 def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
     return LogicalPointId(PointDomainId(name, "root"), ordinal)
 
 
-def _claims(*instrument_ids: str) -> tuple[ResourceClaim, ...]:
-    return tuple(ResourceClaim(id=instrument_id) for instrument_id in instrument_ids)
+def _requirements(*instrument_ids: str) -> tuple[ResourceRequirement, ...]:
+    return tuple(
+        ResourceRequirement(id=instrument_id) for instrument_id in instrument_ids
+    )
 
 
 def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
@@ -108,12 +123,12 @@ class _SingleDriverProvider:
             instruments=(self.driver.describe(),),
         )
 
-    def provide(
+    def connect(
         self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        return InstrumentProviderResult(drivers=(self.driver,))
+        context: InstrumentConnectionContext,
+    ) -> SignalInstrumentDriver:
+        assert context.binding.id == self.driver.instrument_id
+        return self.driver
 
 
 def test_project_run_schedules_parent_compute_before_child_consumer(
@@ -138,13 +153,13 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     child = (
         sc.module_body(id="tests.compute_schedule.child")
         .inputs(program)
-        .resource("source", requires=("play_program",))
+        .resource("source", requires=(_PLAY_PROGRAM,))
         .computes(consume_program)
-        .bind_field(
-            "source",
-            capability="play_program",
-            field="program",
-            value=consume_program.output,
+        .invoke(
+            "play-program",
+            resource="source",
+            operation=_PLAY_PROGRAM_PLAY,
+            arguments={_PLAY_PROGRAM_ARGUMENT: consume_program.output},
         )
         .build()
     )
@@ -174,23 +189,30 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         kind="characterization",
     )(lambda: sc.experiment(parent()))
     driver = SignalInstrumentDriver()
+    payload_codecs = json_payload_codecs("pulse_program")
+    config = config_with_physical_resources({"source-0": ("test.play_program/v1",)})
+    composition = compose_test_instruments(
+        config=config,
+        provider=_SingleDriverProvider(driver),
+        payload_codecs=payload_codecs,
+    )
     lab = in_process_lab(
         tmp_path,
-        config=config_with_physical_resources({"source-0": ("play_program",)}),
-        system=sc.ExperimentSystem(provider=_SingleDriverProvider(driver)),
+        config=config,
+        system=composition.system,
+        instrument_backend=composition.backend,
     )
 
     run = lab.prepare(template).run()
 
     assert run.manifest.status == "completed"
     assert calls == ["produce", "consume"]
-    assert len(driver.applied) == 1
-    applied = driver.applied[0]
-    payload_ref = applied.fields[0].value.root
-    assert isinstance(payload_ref, PayloadRef)
-    command_payload = applied.payloads[payload_ref.payload_id]
-    assert command_payload.payload == {"consumed": {"source": "parent"}}
-    assert command_payload.content_hash
+    assert len(driver.invoked) == 1
+    invoked = driver.invoked[0]
+    [argument] = invoked.arguments.values()
+    assert isinstance(argument, DriverPayload)
+    assert argument.schema_id == "pulse_program"
+    assert argument.value == {"consumed": {"source": "parent"}}
 
 
 def test_compute_output_is_normalized_before_downstream_use() -> None:
@@ -233,7 +255,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
             ),
         ),
         resource_order=(),
-        resource_claims=(),
+        resource_requirements=(),
     )
 
     result = RunEffectInterpreter(
@@ -287,7 +309,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
             ),
         ),
         resource_order=(),
-        resource_claims=(),
+        resource_requirements=(),
     )
 
     result = RunEffectInterpreter(
@@ -303,10 +325,12 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
 
 class _BlockingStateDriver(SignalInstrumentDriver):
     @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        self.applied.append(command)
-        return ApplyReceipt(
-            status="not_applied",
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        self.applied.append(request)
+        return DriverRejected(
             problems=(
                 problem(
                     "instrument_driver_blocked",
@@ -320,10 +344,12 @@ class _BlockingStateDriver(SignalInstrumentDriver):
 
 class _UnknownAppliedStateDriver(SignalInstrumentDriver):
     @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        super().apply_state(command)
-        return ApplyReceipt(
-            status="unknown",
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        super().apply_state(request)
+        return DriverUnknown(
             problems=(
                 problem(
                     "instrument_driver_applied_with_error",
@@ -339,12 +365,12 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
     def __init__(self, *, instrument_id: str) -> None:
         super().__init__(instrument_id=instrument_id)
         self.abort_count = 0
-        self.close_count = 0
-        self.read_count_when_closed: int | None = None
+        self.disconnect_count = 0
+        self.read_count_when_disconnected: int | None = None
         self.read_count = 0
 
     @override
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         self.read_count += 1
         return super().read_state()
 
@@ -353,16 +379,16 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
         self.abort_count += 1
 
     @override
-    def close(self) -> None:
-        self.close_count += 1
-        self.read_count_when_closed = self.read_count
+    def disconnect(self) -> None:
+        self.disconnect_count += 1
+        self.read_count_when_disconnected = self.read_count
 
 
-class _CloseFailureDriver(_FinalizationTrackingDriver):
+class _DisconnectFailureDriver(_FinalizationTrackingDriver):
     @override
-    def close(self) -> None:
-        super().close()
-        raise RuntimeError("socket close failed")
+    def disconnect(self) -> None:
+        super().disconnect()
+        raise RuntimeError("socket disconnect failed")
 
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
@@ -377,20 +403,22 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         operation_id=operation_id,
         instrument_id=driver.instrument_id,
         command=CollectCommand(
-            operation_id=operation_id,
+            command_id=operation_id,
             instrument_id=driver.instrument_id,
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="signal",
-                    capability_id="scalar_signal",
+                    interface_id="test.scalar_signal/v1",
+                    acquisition_id="sample",
+                    result_id="signal",
                 )
             ],
         ),
         result_bindings=(
             CollectionResultBinding(
-                provider_key="signal",
+                request_id="signal",
                 product_use_ids=tuple(use.id for use in uses),
             ),
         ),
@@ -399,7 +427,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         point,
         (operation,),
         resource_order=(driver.instrument_id,),
-        resource_claims=_claims(driver.instrument_id),
+        resource_requirements=_requirements(driver.instrument_id),
     )
     observed_candidates: list[tuple[MeasurementValueCandidate, ...]] = []
     result = RunEffectInterpreter(
@@ -413,38 +441,53 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
-    assert len(driver.collect_commands) == 1
-    assert [request.id for request in driver.collect_commands[0].requests] == ["signal"]
-    assert observed_candidates == [
-        tuple(
-            MeasurementValueCandidate(
-                logical_point_id=point.logical_id,
-                product_use_id=use.id,
-                value=Quantity(value=1.0, unit="ratio"),
-            )
-            for use in uses
-        )
+    assert len(driver.collect_requests) == 1
+    assert [result.result_id for result in driver.collect_requests[0].results] == [
+        "signal"
     ]
+    [candidates] = observed_candidates
+    assert [
+        (candidate.logical_point_id, candidate.product_use_id, candidate.value)
+        for candidate in candidates
+    ] == [
+        (
+            point.logical_id,
+            use.id,
+            MeasurementScalar.create(
+                dtype="float64",
+                value=1.0,
+                unit="ratio",
+            ),
+        )
+        for use in uses
+    ]
+    evidence = candidates[0].evidence
+    assert evidence is not None
+    assert evidence.command_id == operation_id
+    assert evidence.instrument_id == driver.instrument_id
+    assert evidence.acquisition_id == "sample"
+    assert evidence.result_id == "signal"
+    assert all(candidate.evidence == evidence for candidate in candidates)
 
 
-def test_driver_close_failure_is_reported_after_terminal_read() -> None:
-    driver = _CloseFailureDriver(instrument_id="source-0")
+def test_driver_disconnect_failure_is_reported_after_terminal_read() -> None:
+    driver = _DisconnectFailureDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("close-failure-point"), {}),
+        RunPoint(_logical_point_id("disconnect-failure-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
-        resource_claims=_claims("source-0"),
+        resource_requirements=_requirements("source-0"),
     )
 
     result = RunEffectInterpreter(
-        run_id="close-failure-run",
+        run_id="disconnect-failure-run",
         coordinate_ids=tuple(program.points[0].coordinates),
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program), points=program.points)
 
-    assert driver.close_count == 1
-    assert driver.read_count_when_closed == 2
+    assert driver.disconnect_count == 1
+    assert driver.read_count_when_disconnected == 3
     assert "hardware_finalization_unknown" in {item.code for item in result.problems}
 
 
@@ -458,7 +501,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
             _gain_operation("source-b", 2.0),
         ),
         resource_order=("source-a", "source-b"),
-        resource_claims=_claims("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
     )
     engine = RunEffectInterpreter(
         run_id="blocking-state-run",
@@ -475,25 +518,37 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state == result.initial_state
+    assert result.final_state == result.prepared_state
 
 
-class _UnexpectedProductDriver(SignalInstrumentDriver):
+class _UnexpectedResultDriver(SignalInstrumentDriver):
     @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        self.collect_commands.append(command)
-        return CollectReceipt(
-            readback=InstrumentReadback(
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        self.collect_requests.append(request)
+        signal = request.target.result("signal")
+        return DriverSuccess(
+            DriverReadback(
                 values={
-                    "signal": Quantity(value=1.0, unit="ratio"),
-                    "unexpected": Quantity(value=2.0, unit="ratio"),
+                    signal: MeasurementScalar.create(
+                        dtype="float64",
+                        value=1.0,
+                        unit="ratio",
+                    ),
+                    request.target.result("unexpected"): MeasurementScalar.create(
+                        dtype="float64",
+                        value=2.0,
+                        unit="ratio",
+                    ),
                 }
-            )
+            ),
         )
 
 
-def test_unexpected_product_stops_later_collection() -> None:
-    first = _UnexpectedProductDriver(instrument_id="source-a")
+def test_unexpected_result_stops_later_collection() -> None:
+    first = _UnexpectedResultDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     point_uid = "blocking-collect-point"
     first_operation = _collect_operation(point_uid, "source-a", "first")
@@ -502,7 +557,7 @@ def test_unexpected_product_stops_later_collection() -> None:
         RunPoint(_logical_point_id(point_uid), {}),
         (first_operation, second_operation),
         resource_order=("source-a", "source-b"),
-        resource_claims=_claims("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
     )
     result = RunEffectInterpreter(
         run_id="blocking-collect-run",
@@ -515,8 +570,8 @@ def test_unexpected_product_stops_later_collection() -> None:
     assert [problem.code for problem in result.problems] == [
         "instrument_unexpected_product"
     ]
-    assert len(first.collect_commands) == 1
-    assert second.collect_commands == []
+    assert len(first.collect_requests) == 1
+    assert second.collect_requests == []
 
 
 def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
@@ -530,8 +585,8 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
                 instrument_id="source-a",
                 targets=(
                     StateTarget(
-                        capability_id="set_gain",
-                        field_path="gain",
+                        interface_id="test.set_gain/v1",
+                        property_id="gain",
                         value=StateValue(1.0),
                     ),
                 ),
@@ -541,15 +596,15 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
                 instrument_id="source-b",
                 targets=(
                     StateTarget(
-                        capability_id="set_gain",
-                        field_path="gain",
+                        interface_id="test.set_gain/v1",
+                        property_id="gain",
                         value=StateValue(2.0),
                     ),
                 ),
             ),
         ),
         resource_order=("source-a", "source-b"),
-        resource_claims=_claims("source-a", "source-b"),
+        resource_requirements=_requirements("source-a", "source-b"),
     )
     engine = RunEffectInterpreter(
         run_id="conflicting-applied-state-run",
@@ -566,8 +621,12 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state[0] != result.initial_state[0]
-    assert result.final_state[0].fields[0].value == StateValue(1.0)
+    assert result.final_state[0] != result.prepared_state[0]
+    assert next(
+        item.value
+        for item in result.final_state[0].properties
+        if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
+    ) == StateValue(1.0)
 
 
 def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:
@@ -576,8 +635,8 @@ def _gain_operation(instrument_id: str, value: float) -> ApplyStateOperation:
         instrument_id=instrument_id,
         targets=(
             StateTarget(
-                capability_id="set_gain",
-                field_path="gain",
+                interface_id="test.set_gain/v1",
+                property_id="gain",
                 value=StateValue(value),
             ),
         ),
@@ -595,20 +654,22 @@ def _collect_operation(
         operation_id=operation_id,
         instrument_id=instrument_id,
         command=CollectCommand(
-            operation_id=operation_id,
+            command_id=operation_id,
             instrument_id=instrument_id,
             point_index=0,
             point_count=1,
             requests=[
-                CollectProductRequest(
+                CollectResultRequest(
                     id="signal",
-                    capability_id="scalar_signal",
+                    interface_id="test.scalar_signal/v1",
+                    acquisition_id="sample",
+                    result_id="signal",
                 )
             ],
         ),
         result_bindings=(
             CollectionResultBinding(
-                provider_key="signal",
+                request_id="signal",
                 product_use_ids=(use.id,),
             ),
         ),

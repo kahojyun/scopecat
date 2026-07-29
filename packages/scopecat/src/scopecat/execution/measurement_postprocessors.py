@@ -18,6 +18,7 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     MeasurementValueCatalog,
 )
+from scopecat.records.measurement import MeasurementUnavailable
 
 
 def execute_measurement_postprocessors(
@@ -62,26 +63,43 @@ def execute_measurement_postprocessors(
                         ),
                     )
                 )
-            try:
-                outputs = postprocessor.kernel(source[0].value)
-            except Exception as error:
-                raise MeasurementPostprocessorExecutionError(
-                    (
-                        _execution_problem(
-                            "measurement_postprocessor_kernel_failed",
-                            f"measurement postprocessor "
-                            f"{postprocessor.id.qualified_name!r} raised",
-                            postprocessor=postprocessor,
-                            point_index=point.logical_ordinal,
-                            details={
-                                "exception_type": (
-                                    f"{type(error).__module__}."
-                                    f"{type(error).__qualname__}"
-                                )
-                            },
+            source_value = source[0].value
+            if isinstance(source_value, MeasurementUnavailable):
+                # The compiled graph owns lineage; value metadata carries source
+                # diagnostics through transformations that could not run.
+                outputs = {
+                    output.id: MeasurementUnavailable.create(
+                        reason=source_value.reason,
+                        dtype=product_by_id[output.product_id].dtype,
+                        unit=product_by_id[output.product_id].unit,
+                        shape=tuple(
+                            axis.size for axis in product_by_id[output.product_id].axes
                         ),
+                        metadata=source_value.metadata,
                     )
-                ) from error
+                    for output in postprocessor.outputs
+                }
+            else:
+                try:
+                    outputs = postprocessor.kernel(source_value)
+                except Exception as error:
+                    raise MeasurementPostprocessorExecutionError(
+                        (
+                            _execution_problem(
+                                "measurement_postprocessor_kernel_failed",
+                                f"measurement postprocessor "
+                                f"{postprocessor.id.qualified_name!r} raised",
+                                postprocessor=postprocessor,
+                                point_index=point.logical_ordinal,
+                                details={
+                                    "exception_type": (
+                                        f"{type(error).__module__}."
+                                        f"{type(error).__qualname__}"
+                                    )
+                                },
+                            ),
+                        )
+                    ) from error
 
             for output in postprocessor.outputs:
                 try:
@@ -128,6 +146,7 @@ def execute_measurement_postprocessors(
                         logical_point_id=point.logical_id,
                         product_use_id=use_id,
                         value=value,
+                        evidence=source[0].evidence,
                     )
                     for use_id in output.product_use_ids
                 )

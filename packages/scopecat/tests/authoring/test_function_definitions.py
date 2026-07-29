@@ -10,8 +10,11 @@ import pytest
 
 import scopecat as sc
 from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
+from scopecat.sdk.instruments import InterfaceRef
 
 _COUNT_TYPE = sc.IntType(minimum=0)
+_COUNTER = InterfaceRef("test.counter/v1")
+_COUNTER_COUNT = _COUNTER.property("count")
 
 
 @dataclass(frozen=True)
@@ -31,11 +34,10 @@ def test_module_decorator_closes_a_symbolic_function_once() -> None:
         count_ref = assert_type(sc.input_ref(count), sc.ValueRef)
         return (
             sc.module_body()
-            .resource("counter")
-            .bind_field(
-                "counter",
-                capability="counter",
-                field="count",
+            .resource("test.counter/v1", requires=(_COUNTER,))
+            .bind_property(
+                "test.counter/v1",
+                _COUNTER_COUNT,
                 value=count_ref,
             )
         )
@@ -75,11 +77,10 @@ def test_template_infers_identity_description_and_defaults() -> None:
     def count_source(count: Annotated[sc.Input[int], _COUNT_TYPE]):
         return (
             sc.module_body()
-            .resource("counter")
-            .bind_field(
-                "counter",
-                capability="counter",
-                field="count",
+            .resource("test.counter/v1", requires=(_COUNTER,))
+            .bind_property(
+                "test.counter/v1",
+                _COUNTER_COUNT,
                 value=count,
             )
         )
@@ -157,11 +158,10 @@ def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
     def count_source(value: Annotated[sc.Input[int], _COUNT_TYPE]):
         return (
             sc.module_body()
-            .resource("counter")
-            .bind_field(
-                "counter",
-                capability="counter",
-                field="count",
+            .resource("test.counter/v1", requires=(_COUNTER,))
+            .bind_property(
+                "test.counter/v1",
+                _COUNTER_COUNT,
                 value=value,
             )
         )

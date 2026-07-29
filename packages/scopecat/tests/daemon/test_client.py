@@ -6,27 +6,64 @@ import httpx2
 import pytest
 from pydantic import BaseModel
 
-from scopecat.control.models import (
-    ControlRun,
-    RunAdmissionRecord,
-    RunPlanSummary,
+from scopecat.config.inventory import InstrumentInventoryRekey
+from scopecat.config.registry.records import (
+    ConfigRegistryActivationRecord,
+    ConfigRegistryEntry,
+    DirectConfigRegistrySource,
 )
+from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import (
     DaemonClient,
     DaemonConflictError,
     DaemonNotFoundError,
 )
-from scopecat.daemon.views import RunSummary, RunSummaryPage
+from scopecat.daemon.views import (
+    RunAdmissionView,
+    RunControlView,
+    RunPlanView,
+    RunSummary,
+    RunSummaryPage,
+)
 from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
+    InstrumentContractCatalogRequest,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
+    InstrumentSessionLeaseReceipt,
+    PayloadObjectReceipt,
     RunAdmission,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
+from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.records.artifact import (
+    BlobPayloadBody,
+    InlinePayloadBody,
+    command_payload_from_bytes,
+)
+from scopecat.records.config import (
+    InstrumentBindingSpec,
+    VirtualInstrumentConnection,
+    config_content_hash,
+)
+from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.catalog import DriverCatalog
+from scopecat.sdk.instruments.commands import (
+    InstrumentOperationArgument,
+    InvokeCommand,
+    InvokeReceipt,
+)
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -75,6 +112,85 @@ def test_executor_start_rejects_receipt_for_another_run() -> None:
         )
 
 
+def test_resolve_instrument_contracts_posts_the_exact_config_snapshot() -> None:
+    requests: list[httpx2.Request] = []
+    config = load_config()
+    catalog = InstrumentContractCatalog(
+        config_content_hash=config_content_hash(config),
+        provider_id=None,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(catalog)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.resolve_instrument_contracts(config) == catalog
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/instrument-contracts/resolve"
+    assert InstrumentContractCatalogRequest.model_validate_json(request.content) == (
+        InstrumentContractCatalogRequest(config=config)
+    )
+
+
+def test_driver_catalog_reads_project_backend_metadata() -> None:
+    requests: list[httpx2.Request] = []
+    catalog = DriverCatalog(provider_id="tests.provider")
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(catalog)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.driver_catalog() == catalog
+    [request] = requests
+    assert request.method == "GET"
+    assert request.url.path == "/api/v1/instrument-drivers"
+
+
+def test_driver_probe_posts_the_candidate_binding() -> None:
+    requests: list[httpx2.Request] = []
+    command = InstrumentDriverProbeCommand(
+        binding=InstrumentBindingSpec(
+            id="source-0",
+            driver_id="tests.signal",
+            connection=VirtualInstrumentConnection(),
+        )
+    )
+    receipt = InstrumentDriverProbeReceipt(
+        status="connected",
+        description=InstrumentDescription(
+            instrument_id=command.binding.id,
+            implementation_id=command.binding.driver_id,
+            implementation_version="v1",
+        ),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.probe_driver(command) == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/instrument-drivers/probe"
+    assert InstrumentDriverProbeCommand.model_validate_json(request.content) == command
+
+
 def test_run_instrument_provision_retries_the_same_operation_after_response_loss() -> (
     None
 ):
@@ -109,6 +225,241 @@ def test_run_instrument_provision_retries_the_same_operation_after_response_loss
         RunInstrumentProvisionCommand.model_validate_json(request.content)
         for request in requests
     ] == [command, command]
+
+
+def test_apply_configured_defaults_posts_the_typed_command_to_the_instrument() -> None:
+    requests: list[httpx2.Request] = []
+    command = InstrumentConfiguredDefaultsApplyCommand(operation_id="defaults.apply-1")
+    receipt = InstrumentConfiguredDefaultsApplyReceipt(
+        session_id="session-1",
+        operation_id=command.operation_id,
+        instrument_id="source-0",
+        config_entry_id="baseline",
+        status="applied",
+        state=InstrumentStateSnapshot(instrument_id="source-0"),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert (
+        client.apply_instrument_configured_defaults(
+            "session-1",
+            "source-0",
+            command,
+        )
+        == receipt
+    )
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == (
+        "/api/v1/instrument-sessions/session-1/"
+        "instruments/source-0/configured-defaults/apply"
+    )
+    assert (
+        InstrumentConfiguredDefaultsApplyCommand.model_validate_json(request.content)
+        == command
+    )
+
+
+def test_renew_instrument_session_posts_an_empty_heartbeat() -> None:
+    requests: list[httpx2.Request] = []
+    receipt = InstrumentSessionLeaseReceipt(
+        session_id="session-1",
+        renewed_at=_NOW,
+        expires_at=_NOW + timedelta(minutes=1),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.renew_instrument_session("session-1") == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/instrument-sessions/session-1/heartbeat"
+    assert request.content == b""
+
+
+def test_migrate_instrument_inventory_posts_the_typed_command() -> None:
+    requests: list[httpx2.Request] = []
+    config = load_config()
+    command = InstrumentInventoryMigrationCommand(
+        config=config,
+        entry_id="inventory-v2",
+        changes=(
+            InstrumentInventoryRekey(
+                instrument_id="source-0",
+                from_exclusivity_key="source-0",
+                to_exclusivity_key="rack-a/source",
+            ),
+        ),
+        actor="operator",
+        expected_generation=1,
+        note="move source",
+    )
+    entry = ConfigRegistryEntry(
+        id=command.entry_id,
+        config_ref="config-registry/entries/inventory-v2/config.json",
+        content_hash=config_content_hash(config),
+        source=DirectConfigRegistrySource(),
+        actor=command.actor,
+    )
+    receipt = InstrumentInventoryMigrationReceipt(
+        entry=entry,
+        activation=ConfigRegistryActivationRecord(
+            generation=2,
+            action="inventory_migration",
+            entry_id=entry.id,
+            entry_content_hash=entry.content_hash,
+            actor=command.actor,
+        ),
+        changes=command.changes,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.migrate_instrument_inventory(command) == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/config-registry/instrument-inventory-migrations"
+    assert (
+        InstrumentInventoryMigrationCommand.model_validate_json(request.content)
+        == command
+    )
+
+
+def test_invoke_externalizes_inline_payload_before_command_post() -> None:
+    requests: list[httpx2.Request] = []
+    content = b"opaque-program"
+    payload = command_payload_from_bytes(
+        id="program-1",
+        schema_id="pulse_program",
+        codec_id="tests.raw",
+        codec_version=1,
+        media_type="application/octet-stream",
+        content=content,
+    )
+    command = InvokeCommand(
+        command_id="invoke-payload-1",
+        instrument_id="source-0",
+        resource_id="source-0",
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=[
+            InstrumentOperationArgument(
+                id="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            )
+        ],
+        payloads={payload.id: payload},
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "PUT":
+            return _model(
+                PayloadObjectReceipt(
+                    ref=payload.content_hash,
+                    content_hash=payload.content_hash,
+                    size_bytes=len(content),
+                ),
+                status_code=201,
+            )
+        return _model(InvokeReceipt(status="invoked"))
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert (
+        client.invoke_instrument("session-1", "source-0", command).status == "invoked"
+    )
+    assert [request.method for request in requests] == ["PUT", "POST"]
+    assert requests[0].url.path == (
+        "/api/v1/instrument-sessions/session-1/payload-objects/"
+        f"{payload.content_hash.removeprefix('sha256:')}"
+    )
+    assert requests[0].content == content
+    assert requests[1].url.path.endswith("/instruments/source-0/invoke")
+    posted = InvokeCommand.model_validate_json(requests[1].content)
+    posted_payload = posted.payloads[payload.id]
+    assert isinstance(payload.body, InlinePayloadBody)
+    assert isinstance(posted_payload.body, BlobPayloadBody)
+    assert posted_payload.body.ref == payload.content_hash
+
+
+def test_payload_object_put_retries_once_after_transport_failure() -> None:
+    requests: list[httpx2.Request] = []
+    content = b"retry-payload"
+    payload = command_payload_from_bytes(
+        id="retry-program",
+        schema_id="pulse_program",
+        codec_id="tests.raw",
+        codec_version=1,
+        media_type="application/octet-stream",
+        content=content,
+    )
+    command = InvokeCommand(
+        command_id="retry-invoke",
+        instrument_id="source-0",
+        resource_id="source-0",
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=[
+            InstrumentOperationArgument(
+                id="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            )
+        ],
+        payloads={payload.id: payload},
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx2.ReadError("response was lost", request=request)
+        if request.method == "PUT":
+            return _model(
+                PayloadObjectReceipt(
+                    ref=payload.content_hash,
+                    content_hash=payload.content_hash,
+                    size_bytes=len(content),
+                ),
+                status_code=201,
+            )
+        return _model(InvokeReceipt(status="invoked"))
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert (
+        client.invoke_instrument("session-1", "source-0", command).status == "invoked"
+    )
+    assert [request.method for request in requests] == ["PUT", "PUT", "POST"]
+    assert requests[0].url == requests[1].url
+    assert requests[0].content == requests[1].content == content
 
 
 def test_not_found_and_conflict_are_typed_and_other_http_errors_raise() -> None:
@@ -174,14 +525,12 @@ def _json(content: object, *, status_code: int = 200) -> httpx2.Response:
     return httpx2.Response(status_code, json=content)
 
 
-def _control_run() -> ControlRun:
-    return ControlRun(
+def _control_run() -> RunControlView:
+    return RunControlView(
         sequence=1,
-        admission=RunAdmissionRecord(
-            submission_id="submission-1",
-            submission_content_hash="1" * 64,
+        admission=RunAdmissionView(
             run_id="run-1",
-            plan=RunPlanSummary(
+            plan=RunPlanView(
                 experiment_id="scratch",
                 experiment_kind="scratch",
                 point_count=1,

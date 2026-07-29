@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.frontend.resolution import (
@@ -27,6 +27,11 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import AnalysisCandidateRunConfigSource, RunConfigSource
 
+type TestExperimentSystemBuilder = Callable[
+    [ConfigProfileSnapshot],
+    ExperimentSystem | None,
+]
+
 
 def plan_experiment(
     experiment: ExperimentInvocation,
@@ -34,6 +39,7 @@ def plan_experiment(
     services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     system: ExperimentSystem | None = None,
+    build_experiment_system: TestExperimentSystemBuilder | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
 ) -> PlannedRun:
@@ -48,14 +54,19 @@ def plan_experiment(
         services=services,
         config=config,
     )
+    selected_system = (
+        system
+        if build_experiment_system is None
+        else build_experiment_system(selected_config)
+    )
     environment = build_config_environment(selected_config)
     linked = resolve_compiled_invocation(compiled, environment=environment)
     return PlannedRun(
         config=selected_config,
         request=compiled.request,
-        program=compile_run_program(system, linked=linked),
+        program=compile_run_program(selected_system, linked=linked),
         config_source=config_source,
-        system=system,
+        system=selected_system,
     )
 
 
@@ -65,6 +76,7 @@ def check_experiment(
     services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     system: ExperimentSystem | None = None,
+    build_experiment_system: TestExperimentSystemBuilder | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
 ) -> ExperimentCheckResult:
@@ -83,6 +95,7 @@ def check_experiment(
         services=services,
         config=config,
         system=system,
+        build_experiment_system=build_experiment_system,
     )
 
 
@@ -92,11 +105,17 @@ def _check_compiled_experiment(
     services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig,
     system: ExperimentSystem | None,
+    build_experiment_system: TestExperimentSystemBuilder | None,
 ) -> ExperimentCheckResult:
     try:
         selected_config, _config_source = resolve_test_config(
             services=services,
             config=config,
+        )
+        selected_system = (
+            system
+            if build_experiment_system is None
+            else build_experiment_system(selected_config)
         )
         environment = build_config_environment(selected_config)
     except ProblemFailure as error:
@@ -106,7 +125,9 @@ def _check_compiled_experiment(
 
     try:
         linked = resolve_compiled_invocation(experiment, environment=environment)
-        preview = build_run_program_preview(compile_run_program(system, linked=linked))
+        preview = build_run_program_preview(
+            compile_run_program(selected_system, linked=linked)
+        )
         problems: tuple[Problem, ...] = ()
     except ProblemFailure as error:
         if not _problems_match_phase(error.problems, ProblemPhase.PLANNING):

@@ -9,6 +9,7 @@ from typing import cast
 
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
+    InvocationIntent,
     ResourcePort,
     ResourceSelector,
     prefix_resource_port,
@@ -24,6 +25,7 @@ from scopecat.authoring._module_ir import (
     ModuleBindingEffect,
     ModuleDomainEffect,
     ModuleInstanceIR,
+    ModuleInvokeEffect,
     ModuleIR,
 )
 from scopecat.authoring._parameter_contracts import (
@@ -67,7 +69,7 @@ from scopecat.compiler.frontend.semantic_elaboration import (
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireId,
-    AcquireProduct,
+    AcquireResult,
     LocalPythonImplementation,
     SemanticDomainExecution,
     SemanticGraphIR,
@@ -85,8 +87,12 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 
-type _FragmentEffect = ExperimentBindingIntent | LoweredDomainExecution | AcquireEffect
-type AssemblyEffect = ExperimentBindingIntent | SemanticDomainExecution | AcquireEffect
+type _FragmentEffect = (
+    ExperimentBindingIntent | InvocationIntent | LoweredDomainExecution | AcquireEffect
+)
+type AssemblyEffect = (
+    ExperimentBindingIntent | InvocationIntent | SemanticDomainExecution | AcquireEffect
+)
 
 
 @dataclass(frozen=True)
@@ -172,6 +178,12 @@ class SemanticExperimentIR(_ExperimentEnvelope):
             effect
             for effect in self.effects
             if isinstance(effect, SemanticDomainExecution | AcquireEffect)
+        )
+
+    @property
+    def invocations(self) -> tuple[InvocationIntent, ...]:
+        return tuple(
+            effect for effect in self.effects if isinstance(effect, InvocationIntent)
         )
 
     @property
@@ -385,12 +397,19 @@ def _elaborate_module_ir(
 
 
 def _lower_module_effect(
-    effect: ModuleBindingEffect | ModuleDomainEffect | ModuleAcquireEffect,
+    effect: (
+        ModuleBindingEffect
+        | ModuleInvokeEffect
+        | ModuleDomainEffect
+        | ModuleAcquireEffect
+    ),
     *,
     resolver: _ModuleValueResolver,
 ) -> _FragmentEffect:
     if isinstance(effect, ModuleBindingEffect):
         return _resolve_binding(effect.intent, resolver=resolver)
+    if isinstance(effect, ModuleInvokeEffect):
+        return _resolve_invocation(effect.intent, resolver=resolver)
     if isinstance(effect, ModuleDomainEffect):
         return _resolve_domain_execution(
             lower_domain_execution(effect.execution),
@@ -399,14 +418,16 @@ def _lower_module_effect(
     return AcquireEffect(
         id=AcquireId(SymbolId(local_id=effect.id)),
         resource_port_id=effect.resource_port_id,
-        capability_id=effect.capability_id,
-        products=tuple(
-            AcquireProduct(
-                product_id=product.product.product_id,
-                provider_key=product.provider_key,
-                metadata=product.metadata,
+        interface_id=effect.interface_id,
+        component_path=effect.component_path,
+        acquisition_id=effect.acquisition_id,
+        results=tuple(
+            AcquireResult(
+                product_id=result.product.product_id,
+                result_id=result.result_id,
+                metadata=result.metadata,
             )
-            for product in effect.products
+            for result in effect.results
         ),
     )
 
@@ -606,7 +627,7 @@ def _resolve_resource_port(
     return replace(
         port,
         selector=ResourceSelector(
-            capabilities=port.selector.capabilities,
+            interfaces=port.selector.interfaces,
             entity_inputs=tuple(
                 resolver.resolve(value) for value in port.selector.entity_inputs
             ),
@@ -625,6 +646,27 @@ def _resolve_binding(
             resolver.resolve(binding.value)
             if isinstance(binding.value, ValueRef)
             else binding.value
+        ),
+    )
+
+
+def _resolve_invocation(
+    invocation: InvocationIntent,
+    *,
+    resolver: _ModuleValueResolver,
+) -> InvocationIntent:
+    return replace(
+        invocation,
+        arguments=tuple(
+            replace(
+                argument,
+                value=(
+                    resolver.resolve(argument.value)
+                    if isinstance(argument.value, ValueRef)
+                    else argument.value
+                ),
+            )
+            for argument in invocation.arguments
         ),
     )
 
@@ -715,6 +757,12 @@ def _module_fragment_value_roots(
         for source in port.selector.entity_inputs
     )
     add_semantic_roots(binding.value for binding in fragment.bindings)
+    add_semantic_roots(
+        argument.value
+        for effect in fragment.effects
+        if isinstance(effect, InvocationIntent)
+        for argument in effect.arguments
+    )
     add_semantic_roots(
         value for operation in fragment.operations for _name, value in operation.inputs
     )
@@ -845,6 +893,14 @@ def _scope_fragment_effect(
             origin=origin,
             resource_ids=resource_ids,
         )
+    if isinstance(effect, InvocationIntent):
+        return _scope_invocation(
+            effect,
+            inputs,
+            scope=scope,
+            origin=origin,
+            resource_ids=resource_ids,
+        )
     if isinstance(effect, LoweredDomainExecution):
         return _scope_domain_execution(
             effect,
@@ -859,12 +915,12 @@ def _scope_fragment_effect(
             effect.resource_port_id,
             effect.resource_port_id,
         ),
-        products=tuple(
+        results=tuple(
             replace(
-                product,
-                product_id=product.product_id.prefixed(*scope),
+                result,
+                product_id=result.product_id.prefixed(*scope),
             )
-            for product in effect.products
+            for result in effect.results
         ),
     )
 
@@ -967,7 +1023,7 @@ def _scope_resource_ports(
         localized = replace(
             port,
             selector=ResourceSelector(
-                capabilities=port.selector.capabilities,
+                interfaces=port.selector.interfaces,
                 entity_inputs=tuple(entity_inputs),
             ),
         )
@@ -1021,6 +1077,37 @@ def _scope_binding(
             ),
         )
     return replace(binding, port_id=port_id)
+
+
+def _scope_invocation(
+    invocation: InvocationIntent,
+    inputs: Mapping[str, object],
+    *,
+    scope: tuple[str, ...],
+    origin: tuple[object, ...],
+    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
+) -> InvocationIntent:
+    return replace(
+        invocation,
+        scope=(*scope, *invocation.scope),
+        port_id=resource_ids.get(invocation.port_id, invocation.port_id),
+        arguments=tuple(
+            replace(
+                argument,
+                value=(
+                    _scope_value_ref(
+                        argument.value,
+                        inputs,
+                        scope=scope,
+                        origin=origin,
+                    )
+                    if isinstance(argument.value, ValueRef)
+                    else argument.value
+                ),
+            )
+            for argument in invocation.arguments
+        ),
+    )
 
 
 def _scope_operation(

@@ -16,15 +16,22 @@ from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview_models import ExperimentPreview
-from scopecat.planning.system import ExperimentSystem
+from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
+from scopecat.planning.system import ExperimentSystem, ExperimentSystemBuilder
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    config_content_hash,
+    instrument_bindings,
+)
 from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.selectors import RunSelector
-from scopecat.sdk.instruments.contracts import InstrumentProviderContext
+from scopecat.sdk.instruments import InstrumentBackend, InstrumentProviderContext
 from tests.testkit.instrument_host import provision_test_instrument_host
+from tests.testkit.planning import TestExperimentSystemBuilder
 from tests.testkit.runtime import (
     ServiceRunOperations,
     admit_test_run,
@@ -44,6 +51,7 @@ class InProcessPreparedExperiment:
     invocation: ExperimentInvocation
     config: str | ConfigProfileSnapshot | CandidateConfig
     system: ExperimentSystem | None
+    build_experiment_system: TestExperimentSystemBuilder | None
 
     def scan(
         self,
@@ -60,6 +68,7 @@ class InProcessPreparedExperiment:
             services=self.lab.services,
             config=self.config,
             system=self.system,
+            build_experiment_system=self.build_experiment_system,
         )
 
     def preview(self) -> ExperimentPreview:
@@ -74,6 +83,7 @@ class InProcessPreparedExperiment:
             services=self.lab.services,
             config=self.config,
             system=self.system,
+            build_experiment_system=self.build_experiment_system,
         )
         accepted = admit_test_run(
             config=planned.config,
@@ -87,11 +97,11 @@ class InProcessPreparedExperiment:
                 self.lab.project_root,
                 accepted.run_id,
                 instruments=provision_test_instrument_host(
-                    None if planned.system is None else planned.system.provider,
+                    self.lab.instrument_backend,
                     context=InstrumentProviderContext(
-                        config=planned.config,
-                        instrument_ids=planned.program.resource_order,
+                        bindings=instrument_bindings(planned.config)
                     ),
+                    instrument_ids=planned.program.resource_order,
                 ),
             ),
         )
@@ -106,6 +116,8 @@ class InProcessLab:
     services: ProjectStateServices
     config: str | ConfigProfileSnapshot = "active"
     system: ExperimentSystem | None = None
+    instrument_backend: InstrumentBackend | None = None
+    build_experiment_system: ExperimentSystemBuilder | None = None
     reviewer: str = "operator"
 
     @property
@@ -129,8 +141,22 @@ class InProcessLab:
             lab=self,
             invocation=invocation,
             config=selected_config,
-            system=self.system if system is None else system,
+            system=system,
+            build_experiment_system=(
+                self._system_for_config if system is None else None
+            ),
         )
+
+    def _system_for_config(
+        self,
+        config: ConfigProfileSnapshot,
+    ) -> ExperimentSystem | None:
+        catalog = _instrument_catalog(self.instrument_backend, config)
+        if self.build_experiment_system is not None:
+            return self.build_experiment_system(config, catalog)
+        if self.system is None:
+            return None
+        return replace(self.system, instrument_catalog=catalog)
 
     def resolve_config(
         self,
@@ -177,6 +203,8 @@ def in_process_lab(
     *,
     config: str | ConfigProfileSnapshot = "active",
     system: ExperimentSystem | None = None,
+    instrument_backend: InstrumentBackend | None = None,
+    build_experiment_system: ExperimentSystemBuilder | None = None,
 ) -> InProcessLab:
     from tests.testkit.runtime import sqlite_project_services
 
@@ -185,4 +213,21 @@ def in_process_lab(
         services=sqlite_project_services(project_root),
         config=config,
         system=system,
+        instrument_backend=instrument_backend,
+        build_experiment_system=build_experiment_system,
+    )
+
+
+def _instrument_catalog(
+    backend: InstrumentBackend | None,
+    config: ConfigProfileSnapshot,
+) -> InstrumentContractCatalog:
+    if backend is None:
+        return InstrumentContractCatalog(
+            config_content_hash=config_content_hash(config),
+        )
+    return resolve_instrument_contract_catalog(
+        config=config,
+        provider_id=backend.provider.provider_id,
+        describe=backend.provider.describe,
     )

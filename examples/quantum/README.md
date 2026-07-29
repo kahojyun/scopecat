@@ -48,7 +48,8 @@ connect to another loopback instance.
 | `support/src/quantum_lab_demo/workflows/drag_beta_experiment.py` | DRAG template and scan definition. |
 | `support/src/quantum_lab_demo/workflows/drag_beta_analysis.py` | Measurement fitting and candidate proposal. |
 | `support/src/quantum_lab_demo/workflows/production_drag_gate.py` | Production use of the accepted parameter. |
-| `support/src/quantum_lab_demo/application.py` | Demo daemon composition. |
+| `support/src/quantum_lab_demo/application.py` | Planning and bootstrap composition. |
+| `support/src/quantum_lab_demo/backend.py` | Worker-only virtual instrument composition. |
 | `config/` and `support/src/quantum_lab_demo/parameters.py` | User-owned system and bootstrap parameter sources. |
 
 The support package is copyable demo code, not a stable product API. The daemon

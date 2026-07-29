@@ -8,6 +8,7 @@ _PROJECT_FILES = {
     "scopecat.toml": """\
 [lab]
 application = "scopecat_lab.application:create_application"
+instrument_backend = "scopecat_lab.backend:create_backend"
 """,
     "src/scopecat_lab/__init__.py": '''\
 """User-owned composition for this Scopecat project."""
@@ -81,21 +82,41 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import scopecat as sc
 from scopecat.application import LabApplication
-from scopecat.sdk.instruments import (
-    InstrumentProviderContext,
-    InstrumentProviderDescription,
-    InstrumentProviderResult,
-)
 
 from .configuration import bootstrap_config
+
+
+def create_application(_project_root: Path) -> LabApplication:
+    """Compose version-controlled config and local execution capabilities."""
+
+    return LabApplication(bootstrap_config=bootstrap_config)
+
+
+__all__ = ["create_application"]
+''',
+    "src/scopecat_lab/backend.py": '''\
+"""Worker-only instrument backend composition for this project."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from scopecat.sdk.instruments import (
+    DriverCatalog,
+    InstrumentBackend,
+    InstrumentConnectionContext,
+    InstrumentDriver,
+    InstrumentProviderContext,
+    InstrumentProviderDescription,
+)
 
 
 class LocalProvider:
     """Let the starter experiment run before real instruments are connected."""
 
     provider_id = "scopecat-lab.local"
+    driver_catalog = DriverCatalog(provider_id=provider_id)
 
     def describe(
         self,
@@ -103,23 +124,22 @@ class LocalProvider:
     ) -> InstrumentProviderDescription:
         return InstrumentProviderDescription(provider_id=self.provider_id)
 
-    def provide(
+    def connect(
         self,
-        _context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        return InstrumentProviderResult(drivers=())
+        context: InstrumentConnectionContext,
+    ) -> InstrumentDriver:
+        raise RuntimeError(f"no instrument is configured: {context.binding.id}")
 
 
-def create_application(_project_root: Path) -> LabApplication:
-    """Compose version-controlled config and local execution capabilities."""
-
-    return LabApplication(
-        bootstrap_config=bootstrap_config,
-        build_system=lambda _config: sc.ExperimentSystem(provider=LocalProvider()),
+def create_backend(_project_root: Path) -> InstrumentBackend:
+    provider = LocalProvider()
+    return InstrumentBackend(
+        provider=provider,
+        driver_catalog=provider.driver_catalog,
     )
 
 
-__all__ = ["create_application"]
+__all__ = ["create_backend"]
 ''',
     "notebooks/01_first_run.py": '''\
 """Run the smallest scratch experiment through the project daemon."""

@@ -1,0 +1,1 @@
+"""Spawned instrument worker fixture."""

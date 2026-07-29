@@ -32,10 +32,14 @@ def build_run_program_preview(
         records=tuple(
             ExperimentPreviewRecord(
                 id=record.id,
+                role=record.role,
                 unit=record.unit,
                 dtype=record.dtype,
-                dims=tuple(record.dims),
-                shape=tuple(record.shape),
+                dims=("point", *(axis.id for axis in record.axes)),
+                shape=(
+                    len(catalog.points),
+                    *(axis.size for axis in record.axes),
+                ),
             )
             for record in selected.records
         ),

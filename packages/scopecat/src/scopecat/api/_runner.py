@@ -10,7 +10,11 @@ from uuid import uuid4
 
 from scopecat.authoring import MetadataValue
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.control.models import ResourceKey, RunPlanSummary
+from scopecat.control.models import (
+    RunDomainTargetRequirement,
+    RunPlanSummary,
+    RunResourceRequirement,
+)
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.execution import (
     ExecutorLeaseLostError,
@@ -41,7 +45,7 @@ from scopecat.records.run import (
 @dataclass(frozen=True, slots=True)
 class _DaemonRunner:
     client: DaemonClient
-    build_system: ExperimentSystemBuilder | None
+    build_experiment_system: ExperimentSystemBuilder | None
 
     def execute(
         self,
@@ -154,12 +158,14 @@ class _DaemonRunner:
             )
         else:
             selected_config = config
-        selected_system = build_experiment_system(
-            self.build_system,
+        instrument_catalog = self.client.resolve_instrument_contracts(
             selected_config,
         )
-        if selected_system is None:
-            raise ValueError("scratch execution requires an experiment system")
+        selected_system = build_experiment_system(
+            self.build_experiment_system,
+            selected_config,
+            instrument_catalog,
+        )
         selected_metadata = dict(metadata or {})
         if name is not None:
             selected_metadata["name"] = name
@@ -250,9 +256,21 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
             if host is None
             else instrument_contract_fingerprint(host.provider_id, descriptions)
         ),
-        run_resource_claims=tuple(
-            ResourceKey(id=claim.id, kind=claim.kind)
-            for claim in program.resource_claims
+        domain_target_requirement=(
+            None
+            if program.domain_target_requirement is None
+            else RunDomainTargetRequirement(
+                id=program.domain_target_requirement.id,
+                kind=program.domain_target_requirement.kind,
+                instrument_ids=program.domain_target_requirement.instrument_ids,
+            )
+        ),
+        run_resource_requirements=tuple(
+            RunResourceRequirement(
+                id=requirement.id,
+                kind=requirement.kind,
+            )
+            for requirement in program.resource_requirements
         ),
     )
 

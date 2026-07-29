@@ -14,13 +14,19 @@ from scopecat.compiler.frontend.resolution import (
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.service import plan_scratch_experiment
-from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    config_content_hash,
+    instrument_bindings,
+)
 from scopecat.runs.service import load_run_request
-from scopecat.sdk.instruments.contracts import InstrumentProviderContext
+from scopecat.sdk.instruments.provider import InstrumentProviderContext
 from tests.testkit.authoring import simple_template
 from tests.testkit.execution import execute_invocation_run
-from tests.testkit.instrument_host import provision_test_instrument_host
+from tests.testkit.instrument_host import (
+    compose_test_instruments,
+    provision_test_instrument_host,
+)
 from tests.testkit.runtime import (
     admit_test_run,
     check_experiment,
@@ -35,12 +41,16 @@ from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
     services = sqlite_project_services(tmp_path)
-    system = ExperimentSystem(provider=TestSignalInstrumentProvider())
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     planned = plan_experiment(
         load_invocation(),
-        config=load_config(),
+        config=config,
         services=services,
-        system=system,
+        system=composition.system,
     )
 
     assert list_test_runs(services.runs) == []
@@ -65,11 +75,11 @@ def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
             tmp_path,
             accepted.run_id,
             instruments=provision_test_instrument_host(
-                system.provider,
+                composition.backend,
                 context=InstrumentProviderContext(
-                    config=planned.config,
-                    instrument_ids=planned.program.resource_order,
+                    bindings=instrument_bindings(planned.config)
                 ),
+                instrument_ids=planned.program.resource_order,
             ),
         ),
     )
@@ -83,12 +93,16 @@ def test_admitted_execution_rejects_a_program_for_another_config(
     tmp_path: Path,
 ) -> None:
     services = sqlite_project_services(tmp_path)
-    system = ExperimentSystem(provider=TestSignalInstrumentProvider())
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
     planned = plan_experiment(
         load_invocation(),
-        config=load_config(),
+        config=config,
         services=services,
-        system=system,
+        system=composition.system,
     )
     accepted = admit_test_run(
         config=planned.config,
@@ -113,15 +127,20 @@ def test_check_and_test_execution_use_separate_paths(
 ) -> None:
     config = load_config()
     experiment = load_invocation()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
 
     result = check_experiment(
         config=config,
-        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        system=composition.system,
         experiment=experiment,
         services=sqlite_project_services(tmp_path / "preview"),
     )
     provider_run = execute_invocation_run(
-        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        system=composition.system,
+        instrument_backend=composition.backend,
         config=config,
         experiment=experiment,
         project_root=tmp_path / "provider",
@@ -175,12 +194,17 @@ def test_scratch_planning_compiles_authoring_before_config_validation(
         "build_config_environment",
         unexpected_config_validation,
     )
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
 
     with pytest.raises(CheckFailed) as error:
         plan_scratch_experiment(
-            config=load_config(),
+            config=config,
             experiment=simple_template().bind(),
-            system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
+            system=composition.system,
         )
 
     assert error.value.problems[0].code == "experiment_missing_input"

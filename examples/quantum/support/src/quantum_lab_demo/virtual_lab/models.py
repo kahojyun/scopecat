@@ -12,7 +12,7 @@ class VirtualDeviceProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    initial_state: dict[str, StateValue] = Field(default_factory=dict)
+    seed_state: dict[str, StateValue] = Field(default_factory=dict)
 
 
 class VirtualLabProfile(BaseModel):

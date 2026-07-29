@@ -78,7 +78,7 @@ class ConfigRegistryEntry(_FrozenRegistryModel):
 
 class ConfigRegistryActivationRecord(_FrozenRegistryModel):
     generation: int = Field(ge=1)
-    action: Literal["activation", "undo"]
+    action: Literal["activation", "inventory_migration", "undo"]
     entry_id: str
     entry_content_hash: ConfigContentHash
     previous_entry_id: str | None = None

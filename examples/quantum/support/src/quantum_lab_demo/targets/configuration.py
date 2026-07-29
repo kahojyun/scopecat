@@ -12,6 +12,8 @@ from scopecat_quantum.pulses import (
     ReadoutSignal,
 )
 
+from quantum_lab_demo.interfaces import ACQUIRE_IQ, PLAY_PULSE_PROGRAM, READOUT_PULSE
+
 FAKE_LIST_TARGET_KIND = "quantum_lab_demo.fake-list-mode"
 
 
@@ -20,7 +22,7 @@ class ConfiguredQuantumRoute:
     """One complete logical-signal route owned by the selected target."""
 
     instrument_id: str
-    capability: str
+    interface_id: str
     entity_id: str
     entity_kind: str
     channel_id: str
@@ -61,7 +63,7 @@ def configured_quantum_routes(
         routes.append(
             ConfiguredQuantumRoute(
                 instrument_id=binding.instrument_id,
-                capability=binding.capability,
+                interface_id=binding.interface_id,
                 entity_id=binding.entity_id,
                 entity_kind=entity.kind,
                 channel_id=binding.channel_id,
@@ -79,9 +81,9 @@ def configured_output_signal(
 
     if route.entity_kind == "logical_qubit":
         qubit = QubitId(route.entity_id)
-        if route.capability == "play_pulse_program":
+        if route.interface_id == PLAY_PULSE_PROGRAM.interface_id:
             return DriveSignal(qubit)
-        if route.capability == "readout_pulse":
+        if route.interface_id == READOUT_PULSE.interface_id:
             return ReadoutSignal(qubit)
     return None
 
@@ -91,7 +93,10 @@ def configured_acquisition_signal(
 ) -> AcquireSignal | None:
     """Project one configured route into a logical acquisition signal."""
 
-    if route.capability == "acquire_iq" and route.entity_kind == "logical_qubit":
+    if (
+        route.interface_id == ACQUIRE_IQ.interface_id
+        and route.entity_kind == "logical_qubit"
+    ):
         return AcquireSignal(QubitId(route.entity_id))
     return None
 

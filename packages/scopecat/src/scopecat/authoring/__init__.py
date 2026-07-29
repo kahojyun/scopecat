@@ -14,6 +14,7 @@ from scopecat.authoring._products import (
     entity_axis,
     product_axis,
     record_alias,
+    record_coordinate,
     record_product,
     shot_axis,
 )
@@ -148,6 +149,7 @@ __all__ = [
     "parameter_lookup",
     "product_axis",
     "record_alias",
+    "record_coordinate",
     "record_product",
     "scratch",
     "shot_axis",

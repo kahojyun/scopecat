@@ -36,7 +36,17 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         results={"counts": ("counts", "v1")},
     )
     module = sc.module_body(id="test.domain.view").product(
-        "counts", unit="count", dtype="int64"
+        "counts",
+        unit="count",
+        dtype="int64",
+        axes=(
+            sc.product_axis(
+                "shot",
+                size=8,
+                kind="shot",
+                shared_as="shot",
+            ),
+        ),
     )
     execution = sc.domain_execution(
         program,
@@ -85,6 +95,9 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     assert result.contract == ("counts", "v1")
     assert result.product.unit == "count"
     assert result.product.dtype == "int64"
+    assert result.product.axes[0].id == "shot"
+    assert result.product.axes[0].dimension_id == "shared/view/shot"
+    assert result.product.axes[0].dimension_label == "shot"
     product_use = result.require_one_product_use()
     assert isinstance(product_use, DomainProductUseRef)
     assert product_use.id == linked.program.product_uses[0].id.value
@@ -124,6 +137,8 @@ def test_domain_product_contract_view_recursively_snapshots_metadata() -> None:
         axes=(
             DomainProductAxisView(
                 id="shot",
+                dimension_id="product/capture/counts/shot",
+                dimension_label="shot",
                 kind="shot",
                 size=8,
                 metadata=axis_metadata,

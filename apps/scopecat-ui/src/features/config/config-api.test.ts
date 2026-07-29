@@ -198,7 +198,7 @@ describe("config snapshot import boundary", () => {
     expect(
       parseConfigProfileJson(
         JSON.stringify({
-          format_version: "scopecat.config_snapshot.v1",
+          format_version: "scopecat.config_snapshot.v5",
           ...config,
         }),
       ),
@@ -208,7 +208,7 @@ describe("config snapshot import boundary", () => {
       parseConfigProfileJson(
         JSON.stringify({
           ...config,
-          format_version: "scopecat.config_snapshot.v0",
+          format_version: "scopecat.config_snapshot.v4",
         }),
       ),
     ).toThrow("Unsupported config snapshot format");
@@ -260,8 +260,11 @@ function configProfile(id: string): ConfigProfileSnapshot {
         instruments: [
           {
             id: "signal",
+            exclusivity_key: "signal",
             driver_id: "virtual.signal_generator",
             connection: { kind: "virtual" },
+            default_state: [],
+            run_start: "preserve",
           },
         ],
       },

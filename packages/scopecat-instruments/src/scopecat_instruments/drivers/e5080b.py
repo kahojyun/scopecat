@@ -4,53 +4,62 @@ from __future__ import annotations
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import (
-    ComplexQuantity,
+    ComplexComponents,
     MeasurementArray,
     MeasurementValue,
 )
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectCommand,
-    CollectReceipt,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentDescription,
-    InstrumentStateCommand,
+)
+from scopecat.sdk.instruments.scpi import (
+    ScpiIdentity,
+    ScpiTransport,
+    format_number,
+    query_bool,
+    query_csv_floats,
+    query_float,
+    query_identity,
+    query_int,
+    query_string,
+    query_text,
 )
 
 from scopecat_instruments._support import (
     LinearSweepSettings,
     NetworkTrace,
-    ScpiIdentity,
     apply_unknown,
     collect_unknown,
-    format_number,
     int_value,
-    not_applied,
-    not_collected,
-    parse_bool,
-    parse_csv_floats,
-    parse_float,
-    parse_identity,
-    parse_int,
     quantity_value,
-    state_field,
     string_value,
-    strip_scpi_string,
-    validate_collect_command,
-    validate_writable_command,
+    unsupported_invoke,
 )
-from scopecat_instruments.capabilities import (
-    NETWORK_SWEEP,
-    network_sweep_capability,
+from scopecat_instruments.driver_ids import KEYSIGHT_E5080B
+from scopecat_instruments.interfaces import network_sweep_interface
+from scopecat_instruments.members import (
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_IF_BANDWIDTH,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER,
+    NETWORK_SWEEP_SOURCE_POWER,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
 )
-from scopecat_instruments.transport import ScpiTransport
 
 
 class KeysightE5080B:
     """Two-port linear sweep configuration and ASCII complex data retrieval."""
 
-    implementation_id = "scopecat.keysight.e5080b"
+    implementation_id = KEYSIGHT_E5080B
     implementation_version = "v1"
 
     def __init__(
@@ -80,120 +89,117 @@ class KeysightE5080B:
                 "existing standard measurement. Calibration management and "
                 "option-dependent applications are outside the v1 boundary."
             ),
-            capabilities=[network_sweep_capability()],
+            interfaces=[network_sweep_interface()],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
+        self._require_linear_sweep()
         settings = self.sweep_settings()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Keysight",
             "model": "E5080B",
             "channel": self.channel,
             "measurement": self.measurement,
-            "sweep_type": "linear",
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            fields=[
-                state_field(
-                    NETWORK_SWEEP,
-                    "start_frequency",
-                    Quantity(settings.start_frequency_hz, "Hz"),
+        return DriverState(
+            values={
+                NETWORK_SWEEP_START_FREQUENCY: Quantity(
+                    settings.start_frequency_hz, "Hz"
                 ),
-                state_field(
-                    NETWORK_SWEEP,
-                    "stop_frequency",
-                    Quantity(settings.stop_frequency_hz, "Hz"),
+                NETWORK_SWEEP_STOP_FREQUENCY: Quantity(
+                    settings.stop_frequency_hz, "Hz"
                 ),
-                state_field(NETWORK_SWEEP, "points", settings.points),
-                state_field(
-                    NETWORK_SWEEP,
-                    "if_bandwidth",
-                    Quantity(settings.if_bandwidth_hz, "Hz"),
-                ),
-                state_field(
-                    NETWORK_SWEEP,
-                    "source_power",
-                    Quantity(settings.source_power_dbm, "dBm"),
-                ),
-                state_field(
-                    NETWORK_SWEEP,
-                    "s_parameter",
-                    settings.s_parameter,
-                ),
-            ],
+                NETWORK_SWEEP_POINTS: settings.points,
+                NETWORK_SWEEP_IF_BANDWIDTH: Quantity(settings.if_bandwidth_hz, "Hz"),
+                NETWORK_SWEEP_SOURCE_POWER: Quantity(settings.source_power_dbm, "dBm"),
+                NETWORK_SWEEP_S_PARAMETER: settings.s_parameter,
+            },
             metadata=metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        problems = validate_writable_command(command, self.describe())
-        if problems:
-            return not_applied(problems)
-        fields = {field.field_path: field for field in command.fields}
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        properties = request.values
         try:
-            self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
-            if "start_frequency" in fields:
+            self._establish_linear_sweep()
+            if NETWORK_SWEEP_START_FREQUENCY in properties:
                 self.set_start_frequency(
-                    quantity_value(fields["start_frequency"].value, "Hz")
+                    quantity_value(
+                        properties[NETWORK_SWEEP_START_FREQUENCY],
+                        "Hz",
+                    )
                 )
-            if "stop_frequency" in fields:
+            if NETWORK_SWEEP_STOP_FREQUENCY in properties:
                 self.set_stop_frequency(
-                    quantity_value(fields["stop_frequency"].value, "Hz")
+                    quantity_value(
+                        properties[NETWORK_SWEEP_STOP_FREQUENCY],
+                        "Hz",
+                    )
                 )
-            if "points" in fields:
-                self.set_points(int_value(fields["points"].value))
-            if "if_bandwidth" in fields:
+            if NETWORK_SWEEP_POINTS in properties:
+                self.set_points(int_value(properties[NETWORK_SWEEP_POINTS]))
+            if NETWORK_SWEEP_IF_BANDWIDTH in properties:
                 self.set_if_bandwidth(
-                    quantity_value(fields["if_bandwidth"].value, "Hz")
+                    quantity_value(
+                        properties[NETWORK_SWEEP_IF_BANDWIDTH],
+                        "Hz",
+                    )
                 )
-            if "source_power" in fields:
+            if NETWORK_SWEEP_SOURCE_POWER in properties:
                 self.set_source_power(
-                    quantity_value(fields["source_power"].value, "dBm")
+                    quantity_value(
+                        properties[NETWORK_SWEEP_SOURCE_POWER],
+                        "dBm",
+                    )
                 )
-            if "s_parameter" in fields:
-                self.set_s_parameter(string_value(fields["s_parameter"].value))
-            return ApplyReceipt(status="applied", state=self.read_state())
+            if NETWORK_SWEEP_S_PARAMETER in properties:
+                self.set_s_parameter(
+                    string_value(properties[NETWORK_SWEEP_S_PARAMETER])
+                )
+            return DriverSuccess(self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        problems = validate_collect_command(command, self.describe())
-        if problems:
-            return not_collected(problems)
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        return unsupported_invoke(request, self.instrument_id)
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         try:
             trace = self.acquire_trace()
-            values: dict[str, MeasurementValue] = {}
-            for request in command.requests:
-                if request.id == "frequency":
-                    values[request.id] = MeasurementArray(
+            values: dict[AcquisitionResultRef, MeasurementValue] = {}
+            for result in request.results:
+                if result == NETWORK_SWEEP_FREQUENCY_RESULT:
+                    values[result] = MeasurementArray.create(
                         dtype="float64",
                         unit="Hz",
                         shape=[len(trace.frequencies_hz)],
-                        values=[
-                            Quantity(frequency_hz, "Hz")
-                            for frequency_hz in trace.frequencies_hz
-                        ],
+                        values=trace.frequencies_hz,
                     )
                 else:
-                    values[request.id] = MeasurementArray(
+                    values[result] = MeasurementArray.create(
                         dtype="complex128",
                         unit="ratio",
                         shape=[len(trace.values)],
                         values=[
-                            ComplexQuantity(
+                            ComplexComponents(
                                 real=value.real,
                                 imag=value.imag,
-                                unit="ratio",
                             )
                             for value in trace.values
                         ],
                     )
-            return CollectReceipt(
-                readback=InstrumentReadback(
+            return DriverSuccess(
+                DriverReadback(
                     values=values,
                     metadata={
                         "manufacturer": "Keysight",
@@ -202,7 +208,7 @@ class KeysightE5080B:
                         "measurement": self.measurement,
                         "transfer_format": "ASCII",
                     },
-                )
+                ),
             )
         except Exception as error:
             return collect_unknown(self.instrument_id, error)
@@ -214,7 +220,7 @@ class KeysightE5080B:
             )
         if settings.points < 2:
             raise ValueError("linear sweep requires at least two points")
-        self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
+        self._establish_linear_sweep()
         self.set_start_frequency(settings.start_frequency_hz)
         self.set_stop_frequency(settings.stop_frequency_hz)
         self.set_points(settings.points)
@@ -224,18 +230,22 @@ class KeysightE5080B:
 
     def sweep_settings(self) -> LinearSweepSettings:
         return LinearSweepSettings(
-            start_frequency_hz=parse_float(
-                self.transport.query(f"SENS{self.channel}:FREQ:STAR?")
+            start_frequency_hz=query_float(
+                self.transport,
+                f"SENS{self.channel}:FREQ:STAR?",
             ),
-            stop_frequency_hz=parse_float(
-                self.transport.query(f"SENS{self.channel}:FREQ:STOP?")
+            stop_frequency_hz=query_float(
+                self.transport,
+                f"SENS{self.channel}:FREQ:STOP?",
             ),
-            points=parse_int(self.transport.query(f"SENS{self.channel}:SWE:POIN?")),
-            if_bandwidth_hz=parse_float(
-                self.transport.query(f"SENS{self.channel}:BWID?")
+            points=query_int(self.transport, f"SENS{self.channel}:SWE:POIN?"),
+            if_bandwidth_hz=query_float(
+                self.transport,
+                f"SENS{self.channel}:BWID?",
             ),
-            source_power_dbm=parse_float(
-                self.transport.query(f"SOUR{self.channel}:POW?")
+            source_power_dbm=query_float(
+                self.transport,
+                f"SOUR{self.channel}:POW?",
             ),
             s_parameter=self.s_parameter(),
         )
@@ -269,8 +279,9 @@ class KeysightE5080B:
         )
 
     def s_parameter(self) -> str:
-        response = strip_scpi_string(
-            self.transport.query(f"CALC{self.channel}:MEAS{self.measurement}:PAR?")
+        response = query_string(
+            self.transport,
+            f"CALC{self.channel}:MEAS{self.measurement}:PAR?",
         )
         if response not in {"S11", "S21", "S12", "S22"}:
             raise ValueError(f"E5080B returned unsupported parameter {response!r}")
@@ -279,21 +290,15 @@ class KeysightE5080B:
     def single_trigger(self) -> None:
         self.transport.write(f"INIT{self.channel}:IMM;*WAI")
 
-    def set_continuous_trigger(self, enabled: bool) -> None:
-        self.transport.write(f"INIT{self.channel}:CONT {'ON' if enabled else 'OFF'}")
-
-    def continuous_trigger_enabled(self) -> bool:
-        return parse_bool(self.transport.query(f"INIT{self.channel}:CONT?"))
-
     def read_trace_ascii(self) -> NetworkTrace:
         self.transport.write("FORM:DATA ASC,0")
-        frequencies = parse_csv_floats(
-            self.transport.query(f"CALC{self.channel}:MEAS{self.measurement}:X?")
+        frequencies = query_csv_floats(
+            self.transport,
+            f"CALC{self.channel}:MEAS{self.measurement}:X?",
         )
-        interleaved = parse_csv_floats(
-            self.transport.query(
-                f"CALC{self.channel}:MEAS{self.measurement}:DATA:SDAT?"
-            )
+        interleaved = query_csv_floats(
+            self.transport,
+            f"CALC{self.channel}:MEAS{self.measurement}:DATA:SDAT?",
         )
         if len(interleaved) % 2:
             raise ValueError("E5080B returned an odd number of complex components")
@@ -304,18 +309,61 @@ class KeysightE5080B:
         return NetworkTrace(frequencies_hz=frequencies, values=values)
 
     def acquire_trace(self) -> NetworkTrace:
-        restore_continuous = self.continuous_trigger_enabled()
+        self._require_linear_sweep()
+        trigger_source = self._trigger_source()
         try:
-            if restore_continuous:
-                self.set_continuous_trigger(False)
-            self.single_trigger()
-            return self.read_trace_ascii()
+            self._set_trigger_source("MAN")
+            averaging_enabled = self._averaging_enabled()
+            try:
+                # v1 returns one fresh sweep; averaging is outside its contract.
+                if averaging_enabled:
+                    self._set_averaging(False)
+                self.single_trigger()
+                return self.read_trace_ascii()
+            finally:
+                if averaging_enabled:
+                    self._set_averaging(True)
         finally:
-            if restore_continuous:
-                self.set_continuous_trigger(True)
+            self._set_trigger_source(trigger_source)
+
+    def _establish_linear_sweep(self) -> None:
+        self.transport.write(f"SENS{self.channel}:SWE:TYPE LIN")
+
+    def _require_linear_sweep(self) -> None:
+        sweep_type = query_text(
+            self.transport,
+            f"SENS{self.channel}:SWE:TYPE?",
+        ).upper()
+        if sweep_type not in {"LIN", "LINEAR"}:
+            raise ValueError(
+                f"E5080B linear-sweep profile does not support {sweep_type!r}"
+            )
+
+    def _trigger_source(self) -> str:
+        response = query_string(self.transport, "TRIG:SOUR?").upper()
+        source = {
+            "EXTERNAL": "EXT",
+            "EXT": "EXT",
+            "IMMEDIATE": "IMM",
+            "IMM": "IMM",
+            "MANUAL": "MAN",
+            "MAN": "MAN",
+        }.get(response)
+        if source is None:
+            raise ValueError(f"E5080B returned unknown trigger source {response!r}")
+        return source
+
+    def _set_trigger_source(self, source: str) -> None:
+        self.transport.write(f"TRIG:SOUR {source}")
+
+    def _averaging_enabled(self) -> bool:
+        return query_bool(self.transport, f"SENS{self.channel}:AVER?")
+
+    def _set_averaging(self, enabled: bool) -> None:
+        self.transport.write(f"SENS{self.channel}:AVER {'ON' if enabled else 'OFF'}")
 
     def identify(self) -> ScpiIdentity:
-        identity = parse_identity(self.transport.query("*IDN?"))
+        identity = query_identity(self.transport)
         if (
             "KEYSIGHT" not in identity.manufacturer.upper()
             or identity.model.upper() != "E5080B"
@@ -324,10 +372,7 @@ class KeysightE5080B:
         self._identity = identity
         return identity
 
-    def cleanup(self) -> None:
-        """Do not alter the analyzer setup or RF source during normal cleanup."""
-
-    def close(self) -> None:
+    def disconnect(self) -> None:
         self.transport.close()
 
     def abort(self) -> None:

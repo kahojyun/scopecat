@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # %%
 import scopecat as sc
-from quantum_lab_demo import EXAMPLE_ROOT
+from quantum_lab_demo.configuration import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
 from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 from quantum_lab_demo.workflows.production_drag_gate import production_drag_template

@@ -29,16 +29,17 @@ class VirtualDcSourceState:
     voltage_protection_v: float = 10.0
     current_protection_a: float = 0.01
     output_enabled: bool = False
+    measurement_enabled: bool = True
+    integration_cycles: int = 1
+    measurement_delay_s: float = 0.0
 
 
 @dataclass
 class VirtualTemperatureState:
     scan_channel: int = 1
     autoscan_enabled: bool = False
-    reading_status: int = 0
     heater_output: float = 0.0
     heater_range: int = 0
-    heater_status: int = 0
 
 
 @dataclass
@@ -52,7 +53,7 @@ class VirtualVnaState:
 
 
 class VirtualLabWorld:
-    """State shared across driver sessions, with deterministic synthetic traces."""
+    """Device state shared across driver instances, with deterministic traces."""
 
     def __init__(
         self,

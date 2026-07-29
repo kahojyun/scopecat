@@ -1,8 +1,27 @@
 from __future__ import annotations
 
 from scopecat.kernel.quantity import Quantity
+from scopecat.sdk.instruments import (
+    DriverAcquisition,
+    DriverRejected,
+    DriverStatePatch,
+    DriverSuccess,
+)
 
 from scopecat_instruments._support import LinearSweepSettings
+from scopecat_instruments.members import (
+    DC_MONITOR_ACQUISITION,
+    DC_MONITOR_CURRENT_RESULT,
+    DC_MONITOR_INTEGRATION_CYCLES,
+    DC_MONITOR_MEASUREMENT_DELAY,
+    DC_MONITOR_MEASUREMENT_ENABLED,
+    DC_SOURCE_CURRENT_LEVEL,
+    DC_SOURCE_CURRENT_RANGE,
+    DC_SOURCE_MODE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE_LEVEL,
+    DC_SOURCE_VOLTAGE_RANGE,
+)
 from scopecat_instruments.virtual import (
     VirtualDcSource,
     VirtualLabWorld,
@@ -18,22 +37,105 @@ def _notch_frequency(
     return trace_frequencies[index]
 
 
-def test_virtual_state_survives_driver_session_close() -> None:
+def test_virtual_state_survives_driver_disconnect() -> None:
     world = VirtualLabWorld(seed=11)
     first = VirtualDcSource("flux", world)
     first.set_voltage_level(0.125)
     first.set_output(True)
-    first.close()
+    first.disconnect()
 
     second = VirtualDcSource("flux", world)
 
     assert second.output_enabled() is True
     assert world.flux_bias() == 0.5
-    level = {
-        field.field_path: field.value.root for field in second.read_state().fields
-    }["voltage_level"]
+    level = second.read_state().values[DC_SOURCE_VOLTAGE_LEVEL]
     assert isinstance(level, Quantity)
     assert level.value == 0.125
+
+
+def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
+    world = VirtualLabWorld(seed=13)
+    driver = VirtualDcSource("flux", world)
+
+    receipt = driver.apply_state(
+        DriverStatePatch(
+            values={
+                DC_SOURCE_MODE: "current",
+                DC_SOURCE_CURRENT_RANGE: Quantity(0.01, "A"),
+                DC_SOURCE_CURRENT_LEVEL: Quantity(0.001, "A"),
+                DC_SOURCE_OUTPUT_ENABLED: True,
+            },
+        )
+    )
+
+    assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is not None
+    property_targets = receipt.value.values
+    assert {
+        DC_SOURCE_CURRENT_RANGE,
+        DC_SOURCE_CURRENT_LEVEL,
+    } <= property_targets.keys()
+    assert {
+        DC_SOURCE_VOLTAGE_RANGE,
+        DC_SOURCE_VOLTAGE_LEVEL,
+    }.isdisjoint(property_targets)
+    assert world.flux_bias() == 0.5
+
+
+def test_virtual_dc_case_local_setters_do_not_switch_mode() -> None:
+    driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
+
+    driver.set_current_range(0.01)
+    driver.set_current_level(0.001)
+
+    assert driver.source_mode() == "voltage"
+
+
+def test_virtual_dc_monitor_configuration_round_trips_through_state() -> None:
+    driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
+
+    receipt = driver.apply_state(
+        DriverStatePatch(
+            values={
+                DC_MONITOR_MEASUREMENT_ENABLED: False,
+                DC_MONITOR_INTEGRATION_CYCLES: 5,
+                DC_MONITOR_MEASUREMENT_DELAY: Quantity(0.25, "s"),
+            }
+        )
+    )
+
+    assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is not None
+    properties = receipt.value.values
+    assert properties[DC_MONITOR_MEASUREMENT_ENABLED] is False
+    assert properties[DC_MONITOR_INTEGRATION_CYCLES] == 5
+    delay = properties[DC_MONITOR_MEASUREMENT_DELAY]
+    assert isinstance(delay, Quantity)
+    assert delay == Quantity(0.25, "s")
+
+
+def test_virtual_dc_monitor_requires_source_output_and_measurement_enabled() -> None:
+    driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
+    request = DriverAcquisition(
+        target=DC_MONITOR_ACQUISITION,
+        results=frozenset({DC_MONITOR_CURRENT_RESULT}),
+    )
+
+    driver.set_output(True)
+    assert isinstance(driver.collect(request), DriverSuccess)
+
+    driver.set_output(False)
+    receipt = driver.collect(request)
+
+    assert isinstance(receipt, DriverRejected)
+    assert receipt.problems[0].code == "virtual_dc_monitor_output_disabled"
+
+    driver.set_output(True)
+    driver.set_measurement_enabled(False)
+    receipt = driver.collect(request)
+
+    assert isinstance(receipt, DriverRejected)
+    assert receipt.problems[0].code == "virtual_dc_monitor_disabled"
 
 
 def test_virtual_network_noise_is_deterministic_for_seed() -> None:

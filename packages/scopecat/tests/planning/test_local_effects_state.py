@@ -19,12 +19,12 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
-    materialized_state_fields,
+    materialized_state_properties,
 )
 from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
 )
-from tests.testkit.relation_plans import state_field
+from tests.testkit.relation_plans import state_property
 from tests.testkit.typed_program import typed_program
 
 
@@ -59,14 +59,14 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("drive"),
-                capabilities=("drive",),
+                interfaces=("test.drive/v1",),
             ),
         ),
         state=[
-            state_field(
+            state_property(
                 "drive",
-                capability_id="drive",
-                field_path="carrier_frequency",
+                interface_id="test.drive/v1",
+                property_id="carrier_frequency",
                 value=Quantity(value=5.0, unit="GHz"),
                 bindings=_point_bindings(unchanged_points),
             )
@@ -87,21 +87,21 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("drive"),
-                capabilities=("drive",),
+                interfaces=("test.drive/v1",),
             ),
         ),
         state=[
-            state_field(
+            state_property(
                 "drive",
-                capability_id="drive",
-                field_path="carrier_frequency",
+                interface_id="test.drive/v1",
+                property_id="carrier_frequency",
                 value=point_col("frequency"),
                 bindings=_point_bindings(swept_points),
             )
         ],
     )
 
-    config = config_with_physical_resources({"drive-a": ("drive",)})
+    config = config_with_physical_resources({"drive-a": ("test.drive/v1",)})
     unchanged_preview = materialized_effects_contract(
         unchanged, _parameters(), config=config
     )
@@ -110,32 +110,34 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         (
             point_index,
             state.instrument_id,
-            f"{field.capability_id}.{field.field_path}",
-            _state_literal(field.value),
+            f"{target.interface_id}.{target.property_id}",
+            _state_literal(target.value),
         )
-        for point_index, state, field in materialized_state_fields(unchanged_preview)
+        for point_index, state, target in materialized_state_properties(
+            unchanged_preview
+        )
     ]
     swept_state = [
         (
             point_index,
             state.instrument_id,
-            f"{field.capability_id}.{field.field_path}",
-            _state_literal(field.value),
+            f"{target.interface_id}.{target.property_id}",
+            _state_literal(target.value),
         )
-        for point_index, state, field in materialized_state_fields(swept_preview)
+        for point_index, state, target in materialized_state_properties(swept_preview)
     ]
 
     assert unchanged_state == [
         (
             0,
             "drive-a",
-            "drive.carrier_frequency",
+            "test.drive/v1.carrier_frequency",
             Quantity(value=5.0, unit="GHz"),
         ),
         (
             1,
             "drive-a",
-            "drive.carrier_frequency",
+            "test.drive/v1.carrier_frequency",
             Quantity(value=5.0, unit="GHz"),
         ),
     ]
@@ -143,13 +145,13 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         (
             0,
             "drive-a",
-            "drive.carrier_frequency",
+            "test.drive/v1.carrier_frequency",
             Quantity(value=5.0, unit="GHz"),
         ),
         (
             1,
             "drive-a",
-            "drive.carrier_frequency",
+            "test.drive/v1.carrier_frequency",
             Quantity(value=5.1, unit="GHz"),
         ),
     ]

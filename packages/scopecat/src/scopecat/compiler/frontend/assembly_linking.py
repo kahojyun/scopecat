@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from scopecat.authoring._binding_intents import ExperimentBindingIntent
+from scopecat.authoring._binding_intents import (
+    ExperimentBindingIntent,
+    InvocationIntent,
+)
 from scopecat.authoring._parameter_contracts import (
     ParameterValueContract,
 )
@@ -19,6 +22,7 @@ from scopecat.compiler.frontend.assembly_lowering import (
 )
 from scopecat.compiler.frontend.binding_lowering import (
     build_resource_requirements,
+    lower_invocation,
     lower_state_binding,
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
@@ -140,6 +144,12 @@ def _bind_verified_assembly(
             type_bindings=type_bindings,
         )
         if isinstance(effect, ExperimentBindingIntent)
+        else lower_invocation(
+            effect,
+            inputs=inputs,
+            type_bindings=type_bindings,
+        )
+        if isinstance(effect, InvocationIntent)
         else effect
         if isinstance(effect, AcquireEffect)
         else domain_effects[effect.id]

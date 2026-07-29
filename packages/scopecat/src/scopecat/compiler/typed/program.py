@@ -25,6 +25,7 @@ from scopecat.compiler.semantic.value_expressions import (
     CompilerValue,
     ScalarValueExpr,
 )
+from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.state import (
@@ -38,6 +39,7 @@ from scopecat.graph.values import (
     OperationId,
     ValueId,
 )
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -57,6 +59,7 @@ from scopecat.measurements.products import (
     ProductDef,
 )
 from scopecat.measurements.records import RecordUse
+from scopecat.measurements.results import MeasurementVariableRole
 
 ValueT_co = TypeVar(
     "ValueT_co",
@@ -134,7 +137,7 @@ class TypedDomainExecution:
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
 
 
-type CoreEffect = SetStateSpec | TypedDomainExecution | AcquireEffect
+type CoreEffect = SetStateSpec | InvokeEffect | TypedDomainExecution | AcquireEffect
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,15 +176,15 @@ class TypedComputeNode:
 
 @dataclass(frozen=True, slots=True)
 class LogicalResourceRequirement:
-    """Stable logical capabilities plus point-local object selection.
+    """Stable logical interfaces plus point-local object selection.
 
-    ``capabilities`` is the compile-time contract for the logical port, while
+    ``interfaces`` is the compile-time contract for the logical port, while
     ``entity_uses`` selects its objects at each point. Physical instrument and
     channel identity enter only during target materialization.
     """
 
     port_id: LogicalResourcePortId
-    capabilities: tuple[str, ...] = ()
+    interfaces: tuple[InterfaceId, ...] = ()
     entity_uses: tuple[RelationUse[ScalarValueExpr], ...] = ()
 
 
@@ -225,19 +228,27 @@ def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
     )
 
 
-def set_state_field(
+def core_invocations(program: CoreProgram) -> tuple[InvokeEffect, ...]:
+    return tuple(
+        effect for effect in program.effects if isinstance(effect, InvokeEffect)
+    )
+
+
+def set_state_property(
     *,
     resource_port_id: LogicalResourcePortId,
-    capability_id: str,
-    field_path: str,
+    interface_id: InterfaceId,
+    property_id: str,
     value: ScalarValueExpr | ComputeResultRef,
+    component_path: tuple[str, ...] = (),
 ) -> SetStateSpec:
-    """Build desired state from orthogonal capability and field identities."""
+    """Build desired state from explicit interface and property identities."""
 
     return SetStateSpec(
         resource_target=LogicalStateResourceTarget(port_id=resource_port_id),
-        capability_id=capability_id,
-        field_path=field_path,
+        interface_id=interface_id,
+        component_path=component_path,
+        property_id=property_id,
         value_use=value if isinstance(value, ComputeResultRef) else relation_use(value),
     )
 
@@ -245,6 +256,8 @@ def set_state_field(
 def product_axis(
     id: str,
     *,
+    dimension_id: str,
+    dimension_label: str | None = None,
     size: int,
     kind: str | None = None,
     unit: str | None = None,
@@ -252,6 +265,8 @@ def product_axis(
 ) -> ProductAxisDef:
     return ProductAxisDef(
         id=id,
+        dimension_id=dimension_id,
+        dimension_label=dimension_label,
         kind=kind or id,
         size=size,
         unit=unit,
@@ -259,14 +274,21 @@ def product_axis(
     )
 
 
-def shot_axis(size: int) -> ProductAxisDef:
-    return product_axis("shot", size=size, kind="shot", unit="count")
+def shot_axis(size: int, *, dimension_id: str) -> ProductAxisDef:
+    return product_axis(
+        "shot",
+        dimension_id=dimension_id,
+        size=size,
+        kind="shot",
+        unit="count",
+    )
 
 
 def record_product(
     product: ProductDef | ProductId,
     *,
     record_id: str | None = None,
+    role: MeasurementVariableRole = "observable",
     metadata: Mapping[str, JsonValue] | None = None,
 ) -> tuple[ProductUse, RecordUse]:
     """Create one product-use occurrence and one durable record consumer."""
@@ -276,5 +298,6 @@ def record_product(
     return use, RecordUse(
         id=record_id or selected_id.qualified_name,
         product_use_id=use.id,
+        role=role,
         metadata=metadata or {},
     )

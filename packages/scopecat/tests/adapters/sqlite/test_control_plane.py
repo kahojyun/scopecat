@@ -9,6 +9,7 @@ import pytest
 
 from scopecat.adapters.sqlite import (
     ControlPlaneConflict,
+    ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
     InstrumentSessionNotActive,
     SQLiteControlPlane,
@@ -19,14 +20,19 @@ from scopecat.control.models import (
     DurableEvent,
     DurableEventInput,
     ExecutorLease,
+    InstrumentSession,
+    InventoryMigrationBlocker,
     ResourceClaim,
     ResourceKey,
     RunAdmissionRecord,
+    RunDomainTargetRequirement,
     RunPlanSummary,
+    RunResourceRequirement,
 )
 
 NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 SUBMISSION_HASH = "1" * 64
+SESSION_TTL = timedelta(minutes=5)
 
 
 def _store(path: Path) -> SQLiteControlPlane:
@@ -34,11 +40,45 @@ def _store(path: Path) -> SQLiteControlPlane:
     return SQLiteControlPlane(path)
 
 
+def _open_instrument_session(
+    store: SQLiteControlPlane,
+    name: str,
+    *,
+    ttl: timedelta = SESSION_TTL,
+    at: datetime = NOW,
+) -> InstrumentSession:
+    return store.open_instrument_session(
+        operation_id=f"open-{name}",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'a' * 64}",
+        instrument_ids=(name,),
+        exclusivity_keys=(f"visa:{name}",),
+        ttl=ttl,
+        expected_config_generation=0,
+        at=at,
+    )
+
+
 def _admission(
     run_id: str,
     *resources: ResourceKey,
     admitted_at: datetime = NOW,
 ) -> RunAdmissionRecord:
+    target_ids = tuple(
+        resource.id for resource in resources if resource.kind == "target"
+    )
+    domain_target_requirement = (
+        None
+        if not target_ids
+        else RunDomainTargetRequirement(
+            id=target_ids[0],
+            kind="tests.target",
+            instrument_ids=tuple(
+                resource.id for resource in resources if resource.kind == "instrument"
+            ),
+        )
+    )
     return RunAdmissionRecord(
         submission_id=f"submission:{run_id}",
         submission_content_hash=SUBMISSION_HASH,
@@ -47,8 +87,13 @@ def _admission(
             experiment_id=f"scratch:{run_id}",
             experiment_kind="scratch",
             point_count=3,
-            run_resource_claims=resources,
+            domain_target_requirement=domain_target_requirement,
+            run_resource_requirements=tuple(
+                RunResourceRequirement(kind=resource.kind, id=resource.id)
+                for resource in resources
+            ),
         ),
+        resource_claims=resources,
         admitted_at=admitted_at,
     )
 
@@ -56,9 +101,15 @@ def _admission(
 def _admit(
     store: SQLiteControlPlane,
     admission: RunAdmissionRecord,
+    *,
+    expected_config_generation: int = 0,
 ) -> ControlRun:
     with store.transaction() as connection:
-        return store.admit_run_in_transaction(connection, admission)
+        return store.admit_run_in_transaction(
+            connection,
+            admission,
+            expected_config_generation=expected_config_generation,
+        )
 
 
 def _start(
@@ -118,6 +169,17 @@ def _resource_claims(store: SQLiteControlPlane) -> tuple[ResourceClaim, ...]:
         return store.list_resource_claims_in_transaction(connection)
 
 
+def _inventory_migration_blockers(
+    store: SQLiteControlPlane,
+    *affected_keys: ResourceKey,
+) -> tuple[InventoryMigrationBlocker, ...]:
+    with store.transaction() as connection:
+        return store.inventory_migration_blockers_in_transaction(
+            connection,
+            affected_keys,
+        )
+
+
 def _release_run_resources(store: SQLiteControlPlane, run_id: str) -> int:
     with store.transaction() as connection:
         return store.release_run_resources_in_transaction(connection, run_id)
@@ -160,7 +222,11 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
             "admitted_at": NOW + timedelta(minutes=1),
         }
     )
-    assert _admit(store, retry) == store.get_run("run-0")
+    assert _admit(
+        store,
+        retry,
+        expected_config_generation=999,
+    ) == store.get_run("run-0")
     assert second.items[0].admission.submission_id == "submission:run-0"
     assert [event.kind for event in store.list_events(run_id="run-0").items] == [
         "run_admitted"
@@ -271,8 +337,12 @@ def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:
         executor_id="a",
     )
 
-    with pytest.raises(ControlPlaneConflict, match="resources are busy"):
+    with pytest.raises(
+        ControlPlaneConflict,
+        match="resources are busy",
+    ) as caught:
         _start(store, "run-b", executor_id="b")
+    assert "scope" not in str(caught.value)
     claims = _resource_claims(store)
     assert {claim.resource.id for claim in claims} == {"scope", "a"}
     assert {(claim.owner_kind, claim.owner_id) for claim in claims} == {
@@ -280,6 +350,164 @@ def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:
     }
     assert _executor_lease(store, "run-b") is None
     assert store.get_run("run-b").state == "queued"
+
+
+def test_inventory_migration_blockers_include_queued_run_reservations(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    _admit(store, _admission("queued", key))
+
+    assert _resource_claims(store) == ()
+    assert _inventory_migration_blockers(store, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="run",
+            owner_id="queued",
+            state="queued",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_deduplicate_leased_run_claims(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    _admit(store, _admission("leased", key))
+    _start(store, "leased", executor_id="kernel")
+
+    assert _inventory_migration_blockers(store, key, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="run",
+            owner_id="leased",
+            state="leased",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_prefer_attention_run_state(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    _admit(store, _admission("attention", key))
+    lease = _start(store, "attention", executor_id="kernel")
+    store.mark_executor_unknown(
+        "attention",
+        token=lease.token,
+        reason="instrument_apply_unknown",
+        at=NOW + timedelta(seconds=1),
+    )
+
+    assert _inventory_migration_blockers(store, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="run",
+            owner_id="attention",
+            state="attention_required",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_include_active_instrument_session(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    _admit(store, _admission("queued", key))
+    session = store.open_instrument_session(
+        operation_id="open-1",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'a' * 64}",
+        instrument_ids=("scope",),
+        exclusivity_keys=(key.id,),
+        ttl=SESSION_TTL,
+        expected_config_generation=0,
+        at=NOW,
+    )
+
+    assert _inventory_migration_blockers(store, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="instrument_session",
+            owner_id=session.session_id,
+            state="active",
+        ),
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="run",
+            owner_id="queued",
+            state="queued",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_include_quarantined_session_claim(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    key = ResourceKey.instrument("visa:scope")
+    session = store.open_instrument_session(
+        operation_id="open-1",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'a' * 64}",
+        instrument_ids=("scope",),
+        exclusivity_keys=(key.id,),
+        ttl=SESSION_TTL,
+        expected_config_generation=0,
+        at=NOW,
+    )
+    store.start_instrument_operation(
+        session.session_id,
+        instrument_id="scope",
+        operation_id="collect-1",
+        kind="collect",
+        at=NOW + timedelta(seconds=1),
+    )
+    store.reconcile_instrument_sessions_after_restart(at=NOW + timedelta(seconds=2))
+
+    assert _inventory_migration_blockers(store, key) == (
+        InventoryMigrationBlocker(
+            key=key,
+            owner_kind="instrument_session",
+            owner_id=session.session_id,
+            state="quarantined",
+        ),
+    )
+
+
+def test_inventory_migration_blockers_ignore_closed_runs_and_unaffected_keys(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    closed_key = ResourceKey.instrument("visa:closed")
+    _admit(store, _admission("closed", closed_key))
+    lease = _start(store, "closed", executor_id="kernel")
+    _close(
+        store,
+        "closed",
+        executor_token=lease.token,
+        at=NOW + timedelta(seconds=1),
+    )
+    _admit(
+        store,
+        _admission("unaffected", ResourceKey.instrument("visa:other")),
+    )
+
+    assert (
+        _inventory_migration_blockers(
+            store,
+            closed_key,
+            ResourceKey.instrument("visa:missing"),
+        )
+        == ()
+    )
+    assert _inventory_migration_blockers(store) == ()
 
 
 def test_concurrent_resource_claim_has_one_winner(tmp_path: Path) -> None:
@@ -454,18 +682,42 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
         config_entry_id="baseline",
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("scope",),
+        exclusivity_keys=("visa:scope",),
+        ttl=SESSION_TTL,
+        expected_config_generation=0,
         at=NOW,
     )
     retry = store.open_instrument_session(
         operation_id="open-1",
         actor="alice",
-        config_entry_id="baseline",
-        config_content_hash=f"sha256:{'a' * 64}",
+        config_entry_id="replacement",
+        config_content_hash=f"sha256:{'b' * 64}",
         instrument_ids=("scope",),
+        exclusivity_keys=("visa:replacement",),
+        ttl=SESSION_TTL,
+        expected_config_generation=None,
         at=NOW + timedelta(seconds=1),
     )
 
     assert retry == first
+    assert first.exclusivity_keys == ("visa:scope",)
+    [claim] = _resource_claims(store)
+    assert claim.resource == ResourceKey(kind="instrument", id="visa:scope")
+    opened = next(
+        event
+        for event in store.list_events().items
+        if event.kind == "instrument_session_opened"
+    )
+    assert opened.payload == {
+        "session_id": first.session_id,
+        "operation_id": "open-1",
+        "actor": "alice",
+        "instrument_ids": ["scope"],
+        "config_entry_id": "baseline",
+    }
+    assert store.get_instrument_session_by_open_operation_id("open-1") == first
+    with pytest.raises(ControlPlaneNotFound):
+        store.get_instrument_session_by_open_operation_id("missing")
     with pytest.raises(ControlPlaneConflict, match="different content"):
         store.open_instrument_session(
             operation_id="open-1",
@@ -473,6 +725,9 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
             config_entry_id="baseline",
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=("scope",),
+            exclusivity_keys=("visa:scope",),
+            ttl=SESSION_TTL,
+            expected_config_generation=None,
             at=NOW + timedelta(seconds=1),
         )
 
@@ -500,9 +755,147 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
     )
     assert closed.state == "closed"
     assert closed.end_status == "closed"
+    assert closed.exclusivity_keys == ("visa:scope",)
     assert _resource_claims(store) == ()
     with pytest.raises(InstrumentSessionNotActive):
         store.validate_instrument_session(first.session_id)
+
+
+def test_instrument_session_lease_renews_silently_and_expires_idle_session(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    opened = _open_instrument_session(
+        store,
+        "scope",
+        ttl=timedelta(seconds=10),
+    )
+
+    assert opened.acquired_at == NOW
+    assert opened.renewed_at == NOW
+    assert opened.expires_at == NOW + timedelta(seconds=10)
+    with pytest.raises(ValueError, match="expire after its renewal time"):
+        InstrumentSession.model_validate(
+            {
+                **opened.model_dump(),
+                "expires_at": opened.renewed_at,
+            }
+        )
+
+    events_before_renewal = store.list_events().items
+    renewed = store.renew_instrument_session(
+        opened.session_id,
+        ttl=timedelta(seconds=20),
+        at=NOW + timedelta(seconds=5),
+    )
+
+    assert renewed.acquired_at == NOW
+    assert renewed.renewed_at == NOW + timedelta(seconds=5)
+    assert renewed.expires_at == NOW + timedelta(seconds=25)
+    assert store.list_events().items == events_before_renewal
+    [claim] = _resource_claims(store)
+    assert claim.acquired_at == NOW
+    assert store.expired_instrument_sessions(at=NOW + timedelta(seconds=24)) == ()
+    assert store.expired_instrument_sessions(at=NOW + timedelta(seconds=25)) == (
+        renewed,
+    )
+
+    with pytest.raises(ControlPlaneConflict, match="has not expired"):
+        store.expire_instrument_session(
+            opened.session_id,
+            at=NOW + timedelta(seconds=24),
+        )
+    with pytest.raises(InstrumentSessionNotActive, match="expired"):
+        store.renew_instrument_session(
+            opened.session_id,
+            ttl=timedelta(minutes=1),
+            at=NOW + timedelta(seconds=25),
+        )
+    with pytest.raises(ControlPlaneConflict, match="open retry has expired"):
+        store.open_instrument_session(
+            operation_id="open-scope",
+            actor="alice",
+            config_entry_id="replacement",
+            config_content_hash=f"sha256:{'b' * 64}",
+            instrument_ids=("scope",),
+            exclusivity_keys=("visa:replacement",),
+            ttl=timedelta(minutes=1),
+            expected_config_generation=None,
+            at=NOW + timedelta(seconds=25),
+        )
+    assert store.get_instrument_session(opened.session_id) == renewed
+
+    closed = store.expire_instrument_session(
+        opened.session_id,
+        at=NOW + timedelta(seconds=25),
+    )
+
+    assert closed.state == "closed"
+    assert closed.end_status == "aborted"
+    assert _resource_claims(store) == ()
+    expired_event = store.list_events().items[-1]
+    assert expired_event.kind == "instrument_session_lease_expired"
+    assert expired_event.occurred_at == NOW + timedelta(seconds=25)
+    assert (
+        store.expire_instrument_session(
+            opened.session_id,
+            at=NOW + timedelta(seconds=26),
+        )
+        == closed
+    )
+
+
+def test_expired_instrument_session_fences_active_operations(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    ttl = timedelta(seconds=10)
+    validated = _open_instrument_session(store, "validated", ttl=ttl)
+    starting = _open_instrument_session(store, "starting", ttl=ttl)
+    finishing = _open_instrument_session(store, "finishing", ttl=ttl)
+    store.start_instrument_operation(
+        finishing.session_id,
+        instrument_id="finishing",
+        operation_id="collect-1",
+        kind="collect",
+        at=NOW + timedelta(seconds=9),
+    )
+
+    assert (
+        store.validate_instrument_session(
+            validated.session_id,
+            at=NOW + timedelta(seconds=9),
+        )
+        == validated
+    )
+    with pytest.raises(InstrumentSessionNotActive, match="expired"):
+        store.validate_instrument_session(
+            validated.session_id,
+            at=NOW + ttl,
+        )
+    with pytest.raises(InstrumentSessionNotActive, match="expired"):
+        store.start_instrument_operation(
+            starting.session_id,
+            instrument_id="starting",
+            operation_id="apply-1",
+            kind="apply",
+            at=NOW + ttl,
+        )
+    with pytest.raises(InstrumentSessionNotActive, match="expired"):
+        store.finish_instrument_operation(
+            finishing.session_id,
+            instrument_id="finishing",
+            operation_id="collect-1",
+            kind="collect",
+            status="collected",
+            at=NOW + ttl,
+        )
+    assert (
+        store.get_instrument_session(finishing.session_id).active_operation_id
+        == "collect-1"
+    )
+    with pytest.raises(ControlPlaneConflict, match="active operation"):
+        store.expire_instrument_session(finishing.session_id, at=NOW + ttl)
 
 
 def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
@@ -515,6 +908,9 @@ def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
         config_entry_id="baseline",
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("idle-scope",),
+        exclusivity_keys=("visa:idle-scope",),
+        ttl=timedelta(seconds=2),
+        expected_config_generation=0,
         at=NOW,
     )
     active = store.open_instrument_session(
@@ -523,6 +919,9 @@ def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
         config_entry_id="baseline",
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("active-scope",),
+        exclusivity_keys=("visa:active-scope",),
+        ttl=timedelta(seconds=2),
+        expected_config_generation=0,
         at=NOW,
     )
     store.start_instrument_operation(
@@ -557,16 +956,57 @@ def test_instrument_session_cannot_claim_a_run_owned_resource(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path / "control.sqlite3")
-    resource = ResourceKey(kind="instrument", id="scope")
+    resource = ResourceKey(kind="instrument", id="visa:scope")
     _admit(store, _admission("run-1", resource))
     _start(store, "run-1", executor_id="kernel")
 
-    with pytest.raises(ControlPlaneConflict, match="resources are busy"):
+    with pytest.raises(
+        ControlPlaneConflict,
+        match="resources are busy",
+    ) as caught:
         store.open_instrument_session(
             operation_id="open-1",
             actor="alice",
             config_entry_id="baseline",
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=("scope",),
+            exclusivity_keys=("visa:scope",),
+            ttl=SESSION_TTL,
+            expected_config_generation=0,
+            at=NOW,
+        )
+    assert "visa:scope" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("instrument_ids", "exclusivity_keys", "message"),
+    [
+        (("scope",), (), "equal length"),
+        (("scope",), ("",), "must be non-empty"),
+        (
+            ("scope-a", "scope-b"),
+            ("visa:scope", "visa:scope"),
+            "must be unique",
+        ),
+    ],
+)
+def test_instrument_session_rejects_invalid_exclusivity_keys(
+    tmp_path: Path,
+    instrument_ids: tuple[str, ...],
+    exclusivity_keys: tuple[str, ...],
+    message: str,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+
+    with pytest.raises(ValueError, match=message):
+        store.open_instrument_session(
+            operation_id="open-1",
+            actor="alice",
+            config_entry_id="baseline",
+            config_content_hash=f"sha256:{'a' * 64}",
+            instrument_ids=instrument_ids,
+            exclusivity_keys=exclusivity_keys,
+            ttl=SESSION_TTL,
+            expected_config_generation=0,
             at=NOW,
         )

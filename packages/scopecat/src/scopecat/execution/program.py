@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 
 from scopecat.compiler.typed.program import TypedMeasurementPostprocessor
 from scopecat.execution.local.program import LocalOperation
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.kernel.resource_identity import (
+    DomainTargetRequirement,
+    ResourceRequirement,
+)
 from scopecat.measurements.points import RunPointCatalog
 from scopecat.measurements.projection import MeasurementProjection
 from scopecat.records.config import ConfigContentHash
@@ -14,15 +17,21 @@ from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
 )
+from scopecat.sdk.payloads import PayloadCodecRegistry
 
 
 @dataclass(frozen=True, slots=True)
 class RunHostBinding:
-    """Advertised daemon-instrument contract referenced by a RunProgram."""
+    """Logical instruments hosted by one daemon backend."""
 
     resource_order: tuple[str, ...]
     provider_id: str
     advertised_descriptions: dict[str, InstrumentDescription] = field(repr=False)
+    payload_codecs: PayloadCodecRegistry = field(
+        default_factory=PayloadCodecRegistry,
+        repr=False,
+        compare=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +68,7 @@ class RunProgram:
     Logical point identity and measurement correlation are independent of how
     ``coverage`` partitions physical work. Coverage and domain preparations are
     complete and repeatedly inspectable before the daemon provisions the
-    admitted instrument claims.
+    admitted instrument requirements.
     """
 
     config_content_hash: ConfigContentHash
@@ -67,7 +76,8 @@ class RunProgram:
     coverage: tuple[RunCoveredOperation, ...] = field(repr=False, compare=False)
     points: RunPointCatalog = field(repr=False)
     measurements: MeasurementProjection = field(repr=False)
-    resource_claims: tuple[ResourceClaim, ...]
+    resource_requirements: tuple[ResourceRequirement, ...]
+    domain_target_requirement: DomainTargetRequirement | None
     measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = field(
         default=(),
         repr=False,

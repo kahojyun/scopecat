@@ -13,7 +13,7 @@ that should remain useful as the implementation changes.
   connection UX, notebook APIs, driver boundaries, and the shared virtual lab.
 
 Keep implementation architecture, package inventories, completed migration
-plans, and current capability lists close to the code and tests that own them.
+plans, and current interface lists close to the code and tests that own them.
 Use focused docstrings when an implementation decision needs local context.
 
 Add another document when lasting product direction is better explained beyond

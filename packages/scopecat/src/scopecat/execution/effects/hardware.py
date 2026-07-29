@@ -6,13 +6,18 @@ from collections.abc import Callable, Sequence
 
 from scopecat.execution.effects.compute import PointEffectState
 from scopecat.execution.effects.journaled import JournaledEffectBoundary
-from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    CollectOperation,
+    InvokeOperation,
+)
 from scopecat.execution.ports.instruments import (
     RunHardwareAction,
     RunHardwareApply,
     RunHardwareBatch,
     RunHardwareCollect,
     RunHardwareCollectBinding,
+    RunHardwareInvoke,
     RunInstrumentHost,
 )
 from scopecat.execution.program import RunCoverageEffect
@@ -106,6 +111,7 @@ class HardwareEffectExecutor:
                     logical_point_id=frame.logical_id,
                     product_use_id=product_use_id,
                     value=value.value,
+                    evidence=value.evidence,
                 )
             )
         return not self.problems.problems
@@ -118,25 +124,38 @@ def _action(
 ) -> RunHardwareAction:
     operation = effect.operation
     if isinstance(operation, ApplyStateOperation):
-        fields = tuple(
-            target.command_field(resource_id=operation.instrument_id)
+        assignments = tuple(
+            target.command_assignment(resource_id=operation.instrument_id)
             for target in operation.targets
         )
-        payload_ids = {
-            value.payload_id
-            for field in fields
-            if isinstance((value := field.value.root), PayloadRef)
-        }
         return RunHardwareApply(
             effect_id=operation.operation_id,
             point_index=effect.point_index,
             instrument_id=operation.instrument_id,
-            fields=fields,
+            assignments=assignments,
+        )
+    if isinstance(operation, InvokeOperation):
+        payload_ids = {
+            value.payload_id
+            for argument in operation.arguments
+            if isinstance((value := argument.value.root), PayloadRef)
+        }
+        return RunHardwareInvoke(
+            effect_id=operation.effect_id,
+            point_index=effect.point_index,
+            instrument_id=operation.instrument_id,
+            resource_id=operation.resource_id,
+            interface_id=operation.interface_id,
+            component_path=operation.component_path,
+            operation_id=operation.operation_id,
+            arguments=operation.arguments,
             payloads={
                 payload_id: frame.payloads[payload_id]
                 for payload_id in payload_ids
                 if payload_id in frame.payloads
             },
+            entity_ids=operation.entity_ids,
+            channel_bindings=operation.channel_bindings,
         )
     if isinstance(operation, CollectOperation):
         command = operation.command
@@ -148,7 +167,7 @@ def _action(
             requests=tuple(command.requests),
             bindings=tuple(
                 RunHardwareCollectBinding(
-                    provider_key=binding.provider_key,
+                    request_id=binding.request_id,
                     product_use_ids=tuple(
                         product_use_id.value
                         for product_use_id in binding.product_use_ids

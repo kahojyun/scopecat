@@ -27,6 +27,7 @@ from scopecat.compiler.typed.program import (
     CoreEffect,
     TypedDomainExecution,
     core_domain_executions,
+    core_invocations,
     core_state,
 )
 from scopecat.execution.program import (
@@ -44,19 +45,21 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.kernel.resource_identity import (
+    DomainTargetRequirement,
+    ResourceRequirement,
+)
 from scopecat.measurements.projection import select_measurement_projection
+from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.local_effects import (
     MaterializedLocalEffects,
-    local_operation_resource_claims,
+    local_operation_resource_requirements,
 )
 from scopecat.planning.local_materialization import (
     materialize_local_execution,
     prepare_local_target,
 )
 from scopecat.planning.provider_binding import (
-    InstrumentProviderPreflight,
-    preflight_instrument_provider,
     validate_run_host_binding,
 )
 from scopecat.records.config import (
@@ -72,28 +75,25 @@ from scopecat.sdk.domain.compiler import (
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.view import DomainCallView
-from scopecat.sdk.instruments.contracts import InstrumentProvider
+from scopecat.sdk.payloads import PayloadCodecRegistry
 
 
 @dataclass(frozen=True, slots=True)
 class ExperimentSystem:
-    """The physical capabilities used to lower one experiment definition.
+    """The physical interfaces used to lower one experiment definition.
 
-    Pairing the host provider with an optional domain compiler lets the same
-    experiment definition be lowered against one coherent capability and
-    resource environment. ``compile`` remains free of provider effects and
-    uses the same configuration snapshot accepted during linking. The singular
-    domain compiler owns dispatch for every supported domain program in that
-    environment; lower-level target compilers remain its implementation detail.
+    The daemon-resolved instrument catalog is immutable planning input. Domain
+    compilers and payload codecs remain local code because they lower and encode
+    author-authored values without opening instrument connections.
     """
 
-    provider: InstrumentProvider | None = field(default=None, repr=False)
+    instrument_catalog: InstrumentContractCatalog = field(repr=False)
     domain_compiler: DomainCompiler | None = field(default=None, repr=False)
-
-    def __post_init__(self) -> None:
-        if self.provider is None and self.domain_compiler is None:
-            msg = "experiment system requires a provider or domain compiler"
-            raise ValueError(msg)
+    payload_codecs: PayloadCodecRegistry = field(
+        default_factory=PayloadCodecRegistry,
+        repr=False,
+        compare=False,
+    )
 
     def compile(
         self,
@@ -105,18 +105,27 @@ class ExperimentSystem:
         )
 
 
-type ExperimentSystemBuilder = Callable[[ConfigProfileSnapshot], ExperimentSystem]
+type ExperimentSystemBuilder = Callable[
+    [ConfigProfileSnapshot, InstrumentContractCatalog],
+    ExperimentSystem,
+]
 
 
 def build_experiment_system(
     builder: ExperimentSystemBuilder | None,
     config: ConfigProfileSnapshot,
-) -> ExperimentSystem | None:
-    """Build config-bound capabilities at the planning boundary."""
+    instrument_catalog: InstrumentContractCatalog,
+) -> ExperimentSystem:
+    """Build a config-bound experiment system at the planning boundary."""
 
     if builder is None:
-        return None
-    return builder(config)
+        return ExperimentSystem(instrument_catalog=instrument_catalog)
+    system = builder(config, instrument_catalog)
+    if system.instrument_catalog != instrument_catalog:
+        raise ValueError(
+            "experiment system builder must retain the daemon instrument catalog"
+        )
+    return system
 
 
 def _compile_system_program(
@@ -125,6 +134,26 @@ def _compile_system_program(
     linked: LinkedPlan,
 ) -> RunProgram:
     config = linked.environment.config
+    catalog = system.instrument_catalog
+    expected_config_hash = config_content_hash(config)
+    if catalog.config_content_hash != expected_config_hash:
+        raise ProviderContractError(
+            (
+                problem(
+                    "instrument_catalog_config_mismatch",
+                    "instrument contracts do not match the planning configuration",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location(
+                        "instrument_catalog",
+                        "config_content_hash",
+                    ),
+                    details={
+                        "expected": expected_config_hash,
+                        "actual": catalog.config_content_hash,
+                    },
+                ),
+            )
+        )
     domain_result_closures = {
         execution.id: domain_result_closure(linked.program, execution.id)
         for execution in core_domain_executions(linked.program)
@@ -137,11 +166,12 @@ def _compile_system_program(
         )
         for execution_id, result_closure in domain_result_closures.items()
     }
-    domain_footprint = _domain_target_footprint(
+    domain_target_requirement = _domain_target_requirement(
         system,
         config=config,
         has_domain_calls=bool(domain_calls),
     )
+    domain_footprint = _domain_target_footprint(domain_target_requirement)
     domain_owned_product_use_ids = frozenset(
         use_id
         for result_closure in domain_result_closures.values()
@@ -163,17 +193,20 @@ def _compile_system_program(
         local_product_use_ids
         or linked.program.compute_nodes
         or core_state(linked.program)
+        or core_invocations(linked.program)
     )
     implementation_problems = list(
         _implementation_problems(
             has_domain_call=bool(core_domain_executions(linked.program)),
             has_domain_compiler=system.domain_compiler is not None,
             local_required=local_required,
-            has_local_provider=system.provider is not None,
+            has_local_instrument_catalog=catalog.provider_id is not None,
         )
     )
     if implementation_problems:
         raise CheckFailed(implementation_problems)
+    if local_required and catalog.problems:
+        raise ProviderContractError(catalog.problems)
     linked_points = materialize_linked_points(linked)
     point_domain = linked_points.point_domain
     point_count = len(point_domain.points)
@@ -186,23 +219,11 @@ def _compile_system_program(
         measurement_catalog,
         linked.program.record_uses,
     )
-    preflight = (
-        preflight_instrument_provider(
-            config=config,
-            instrument_provider=system.provider,
-        )
-        if local_required and system.provider is not None
-        else None
-    )
-    if preflight is not None and bool(preflight.problems):
-        raise ProviderContractError(preflight.problems)
     local_target = (
         prepare_local_target(
             linked,
             product_use_ids=frozenset(local_product_use_ids),
-            instrument_order=preflight.instrument_order
-            if preflight is not None
-            else (),
+            instrument_order=tuple(item.instrument_id for item in catalog.instruments),
         )
         if local_required
         else None
@@ -215,9 +236,9 @@ def _compile_system_program(
         if local_target is not None
         else None
     )
-    local_claims = _local_resource_claims(local_effects)
+    local_requirements = _local_resource_requirements(local_effects)
     _reject_local_domain_overlap(
-        local_claims=local_claims,
+        local_requirements=local_requirements,
         domain_footprint=domain_footprint,
     )
     coverage = _compile_coverage(
@@ -228,9 +249,17 @@ def _compile_system_program(
         domain_calls=domain_calls,
         local_effects=local_effects,
     )
-    resource_claims = _sorted_claims((*local_claims, *domain_footprint))
-    local_instrument_ids = frozenset(claim.id for claim in local_claims)
-    host = _host_binding(preflight, instrument_ids=local_instrument_ids)
+    resource_requirements = _sorted_requirements(
+        (*local_requirements, *domain_footprint)
+    )
+    local_instrument_ids = frozenset(
+        requirement.id for requirement in local_requirements
+    )
+    host = _host_binding(
+        catalog,
+        instrument_ids=local_instrument_ids,
+        payload_codecs=system.payload_codecs,
+    )
     if host is not None:
         validate_run_host_binding(
             host=host,
@@ -257,35 +286,44 @@ def _compile_system_program(
         points=point_catalog,
         measurements=measurements,
         measurement_postprocessors=linked.program.measurement_postprocessors,
-        resource_claims=resource_claims,
+        resource_requirements=resource_requirements,
+        domain_target_requirement=domain_target_requirement,
     )
 
 
 def _host_binding(
-    preflight: InstrumentProviderPreflight | None,
+    catalog: InstrumentContractCatalog,
     *,
     instrument_ids: frozenset[str],
+    payload_codecs: PayloadCodecRegistry,
 ) -> RunHostBinding | None:
-    if preflight is None or not instrument_ids:
+    provider_id = catalog.provider_id
+    if provider_id is None or not instrument_ids:
         return None
     instrument_order = tuple(
-        item for item in preflight.instrument_order if item in instrument_ids
+        description.instrument_id
+        for description in catalog.instruments
+        if description.instrument_id in instrument_ids
     )
     return RunHostBinding(
         resource_order=instrument_order,
-        provider_id=preflight.provider_id,
-        advertised_descriptions=preflight.advertised_descriptions,
+        provider_id=provider_id,
+        advertised_descriptions={
+            description.instrument_id: description
+            for description in catalog.instruments
+        },
+        payload_codecs=payload_codecs,
     )
 
 
-def _domain_target_footprint(
+def _domain_target_requirement(
     system: ExperimentSystem,
     *,
     config: ConfigProfileSnapshot,
     has_domain_calls: bool,
-) -> tuple[ResourceClaim, ...]:
+) -> DomainTargetRequirement | None:
     if not has_domain_calls or system.domain_compiler is None:
-        return ()
+        return None
     compiler = system.domain_compiler
     target = config.domain_target
     if target is None:
@@ -325,50 +363,73 @@ def _domain_target_footprint(
                 )
             ]
         )
-    return _sorted_claims(
+    return DomainTargetRequirement(
+        id=target.id,
+        kind=target.kind,
+        instrument_ids=tuple(sorted(target.instrument_ids)),
+    )
+
+
+def _domain_target_footprint(
+    target: DomainTargetRequirement | None,
+) -> tuple[ResourceRequirement, ...]:
+    if target is None:
+        return ()
+    return _sorted_requirements(
         (
-            ResourceClaim(target.id, "target"),
+            ResourceRequirement(target.id, "target"),
             *(
-                ResourceClaim(instrument_id, "instrument")
+                ResourceRequirement(instrument_id, "instrument")
                 for instrument_id in target.instrument_ids
             ),
         )
     )
 
 
-def _sorted_claims(claims: tuple[ResourceClaim, ...]) -> tuple[ResourceClaim, ...]:
-    return tuple(sorted(set(claims), key=lambda claim: (claim.kind, claim.id)))
+def _sorted_requirements(
+    requirements: tuple[ResourceRequirement, ...],
+) -> tuple[ResourceRequirement, ...]:
+    return tuple(
+        sorted(
+            set(requirements),
+            key=lambda requirement: (requirement.kind, requirement.id),
+        )
+    )
 
 
-def _local_resource_claims(
+def _local_resource_requirements(
     local_effects: MaterializedLocalEffects | None,
-) -> tuple[ResourceClaim, ...]:
+) -> tuple[ResourceRequirement, ...]:
     if local_effects is None:
         return ()
-    return _sorted_claims(
+    return _sorted_requirements(
         tuple(
-            claim
+            requirement
             for effect in (
                 *local_effects.compute_operations,
                 *(item for group in local_effects.effect_operations for item in group),
             )
-            for claim in local_operation_resource_claims(effect.operation)
+            for requirement in local_operation_resource_requirements(effect.operation)
         )
     )
 
 
 def _reject_local_domain_overlap(
     *,
-    local_claims: tuple[ResourceClaim, ...],
-    domain_footprint: tuple[ResourceClaim, ...],
+    local_requirements: tuple[ResourceRequirement, ...],
+    domain_footprint: tuple[ResourceRequirement, ...],
 ) -> None:
     """Keep one owner for every physical instrument during a Run."""
 
     local_instruments = {
-        claim.id for claim in local_claims if claim.kind == "instrument"
+        requirement.id
+        for requirement in local_requirements
+        if requirement.kind == "instrument"
     }
     domain_instruments = {
-        claim.id for claim in domain_footprint if claim.kind == "instrument"
+        requirement.id
+        for requirement in domain_footprint
+        if requirement.kind == "instrument"
     }
     overlap = sorted(local_instruments & domain_instruments)
     if overlap:
@@ -519,7 +580,7 @@ def _implementation_problems(
     has_domain_call: bool,
     has_domain_compiler: bool,
     local_required: bool,
-    has_local_provider: bool,
+    has_local_instrument_catalog: bool,
 ) -> tuple[Problem, ...]:
     """Report missing effect/dataflow implementations directly from typed edges."""
 
@@ -531,11 +592,11 @@ def _implementation_problems(
                 "the typed domain call has no configured compiler",
             )
         )
-    if local_required and not has_local_provider:
+    if local_required and not has_local_instrument_catalog:
         problems.append(
             _planning_problem(
-                "local_instrument_provider_missing",
-                "local effects or products require an instrument provider",
+                "local_instrument_catalog_missing",
+                "local effects or products require an instrument contract catalog",
             )
         )
     return tuple(problems)

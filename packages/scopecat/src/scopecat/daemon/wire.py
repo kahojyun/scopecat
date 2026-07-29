@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.config.inventory import InstrumentInventoryChange
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
@@ -30,10 +31,11 @@ from scopecat.execution.ports.instruments import RunHardwareBatch
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.records.artifact import RunContentEntry
+from scopecat.records.artifact import RunContentEntry, Sha256ContentHash
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
+    InstrumentBindingSpec,
 )
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -120,6 +122,23 @@ class ConfigPublishReceipt(_WireModel):
     entry: ConfigRegistryEntry
     deltas: tuple[ParameterValueDelta, ...] = ()
     activation: ConfigRegistryActivationRecord
+
+
+class InstrumentInventoryMigrationCommand(_WireModel):
+    """Publish a complete config through an explicitly drained migration."""
+
+    config: ConfigProfileSnapshot
+    entry_id: NonEmptyText
+    changes: tuple[InstrumentInventoryChange, ...] = Field(min_length=1)
+    actor: NonEmptyText
+    expected_generation: int = Field(ge=1)
+    note: str = ""
+
+
+class InstrumentInventoryMigrationReceipt(_WireModel):
+    entry: ConfigRegistryEntry
+    activation: ConfigRegistryActivationRecord
+    changes: tuple[InstrumentInventoryChange, ...] = Field(min_length=1)
 
 
 class ConfigEntryActivationCommand(_WireModel):
@@ -232,8 +251,26 @@ class RunAttachmentCommand(_WireModel):
         return self
 
 
+class PayloadObjectReceipt(_WireModel):
+    """One immutable command-payload body accepted by the daemon."""
+
+    ref: Sha256ContentHash
+    content_hash: Sha256ContentHash
+    size_bytes: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> PayloadObjectReceipt:
+        if self.ref != self.content_hash:
+            raise ValueError("payload object ref must equal its content hash")
+        return self
+
+
 class RunSubmission(_WireModel):
-    """Admit a plan while retaining its executable Python in the client."""
+    """Admit a client-planned run while retaining executable Python in the client.
+
+    Admission authorizes declared resources; it cannot infer work omitted by the
+    client planner.
+    """
 
     submission_id: NonEmptyText
     config: ConfigProfileSnapshot
@@ -301,28 +338,40 @@ class _FencedOperationCommand(_FencedCommand):
 
 
 class RunInstrumentProvisionCommand(_FencedOperationCommand):
-    """Provision daemon-owned drivers from the admitted run snapshot."""
+    """Acquire daemon-owned instrument epochs from the admitted run snapshot."""
 
 
 class RunInstrumentProvisionReceipt(_WireModel):
+    """State evidence around run preparation for daemon-owned instruments.
+
+    ``observed_state`` is read after exclusive ownership is acquired.
+    ``prepared_state`` is the execution baseline after the run policy is applied.
+    """
+
     run_id: NonEmptyText
     operation_id: NonEmptyText
     status: Literal["ready", "rejected"]
     instrument_ids: tuple[NonEmptyText, ...] = ()
     problems: tuple[Problem, ...] = ()
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
-    initial_state: tuple[InstrumentStateSnapshot, ...] = ()
+    observed_state: tuple[InstrumentStateSnapshot, ...] = ()
+    prepared_state: tuple[InstrumentStateSnapshot, ...] = ()
 
     @model_validator(mode="after")
     def validate_result(self) -> RunInstrumentProvisionReceipt:
         if len(self.instrument_ids) != len(set(self.instrument_ids)):
             raise ValueError("run instrument provisioning ids must be unique")
         if self.status == "ready":
-            if tuple(state.instrument_id for state in self.initial_state) != (
+            if tuple(state.instrument_id for state in self.observed_state) != (
                 self.instrument_ids
             ):
                 raise ValueError(
-                    "ready run initial state must match instrument ids in order"
+                    "ready run observed state must match instrument ids in order"
+                )
+            if tuple(state.instrument_id for state in self.prepared_state) != (
+                self.instrument_ids
+            ):
+                raise ValueError(
+                    "ready run prepared state must match instrument ids in order"
                 )
             if self.problems:
                 raise ValueError(
@@ -330,9 +379,9 @@ class RunInstrumentProvisionReceipt(_WireModel):
                 )
         elif not self.problems:
             raise ValueError("rejected run instrument provisioning requires a problem")
-        elif self.initial_state:
+        elif self.observed_state or self.prepared_state:
             raise ValueError(
-                "rejected run instrument provisioning cannot expose initial state"
+                "rejected run instrument provisioning cannot expose state evidence"
             )
         return self
 
@@ -384,8 +433,36 @@ class AttentionResolutionReceipt(_WireModel):
     released_resource_count: int = Field(ge=0)
 
 
+class InstrumentContractCatalogRequest(_WireModel):
+    """Resolve the exact contracts advertised for one config snapshot."""
+
+    config: ConfigProfileSnapshot
+
+
+class InstrumentDriverProbeCommand(_WireModel):
+    """Open, identify, and close one candidate instrument binding."""
+
+    binding: InstrumentBindingSpec
+
+
+class InstrumentDriverProbeReceipt(_WireModel):
+    status: Literal["connected", "rejected"]
+    description: InstrumentDescription | None = None
+    problems: tuple[Problem, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> InstrumentDriverProbeReceipt:
+        if self.status == "connected":
+            valid = self.description is not None and not self.problems
+        else:
+            valid = self.description is None and bool(self.problems)
+        if not valid:
+            raise ValueError("driver probe status and outcome disagree")
+        return self
+
+
 class InstrumentSessionOpenCommand(_WireModel):
-    """Acquire and connect one or more instruments against the active config."""
+    """Acquire and synchronize instruments against the active config."""
 
     operation_id: NonEmptyText
     actor: NonEmptyText
@@ -399,6 +476,17 @@ class InstrumentSessionOpenCommand(_WireModel):
         return value
 
 
+class InstrumentSessionLeaseReceipt(_WireModel):
+    session_id: NonEmptyText
+    renewed_at: datetime
+    expires_at: datetime
+
+    @model_validator(mode="after")
+    def validate_lease(self) -> InstrumentSessionLeaseReceipt:
+        _validate_instrument_session_lease(self.renewed_at, self.expires_at)
+        return self
+
+
 class InstrumentSessionOpenReceipt(_WireModel):
     """Daemon-owned direct-control session opened against one config revision."""
 
@@ -407,12 +495,17 @@ class InstrumentSessionOpenReceipt(_WireModel):
     config_entry_id: NonEmptyText
     config_content_hash: ConfigContentHash
     instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+    configured_default_instrument_ids: tuple[NonEmptyText, ...]
     descriptions: tuple[InstrumentDescription, ...]
+    observed_state: tuple[InstrumentStateSnapshot, ...]
     opened_at: datetime
+    renewed_at: datetime
+    expires_at: datetime
 
     @model_validator(mode="after")
-    def validate_descriptions(self) -> InstrumentSessionOpenReceipt:
+    def validate_contents(self) -> InstrumentSessionOpenReceipt:
         _aware_datetime(self.opened_at, field_name="opened_at")
+        _validate_instrument_session_lease(self.renewed_at, self.expires_at)
         described_ids = tuple(
             description.instrument_id for description in self.descriptions
         )
@@ -420,6 +513,55 @@ class InstrumentSessionOpenReceipt(_WireModel):
             raise ValueError(
                 "instrument session descriptions must match instrument_ids in order"
             )
+        observed_ids = tuple(state.instrument_id for state in self.observed_state)
+        if observed_ids != self.instrument_ids:
+            raise ValueError(
+                "instrument session observed state must match instrument_ids in order"
+            )
+        configured = set(self.configured_default_instrument_ids)
+        if self.configured_default_instrument_ids != tuple(
+            instrument_id
+            for instrument_id in self.instrument_ids
+            if instrument_id in configured
+        ):
+            raise ValueError(
+                "configured default ids must be an ordered subset of instrument_ids"
+            )
+        return self
+
+
+class InstrumentConfiguredDefaultsApplyCommand(_WireModel):
+    """Reconcile one session instrument with its pinned configured defaults."""
+
+    operation_id: NonEmptyText
+
+
+class InstrumentConfiguredDefaultsApplyReceipt(_WireModel):
+    session_id: NonEmptyText
+    operation_id: NonEmptyText
+    instrument_id: NonEmptyText
+    config_entry_id: NonEmptyText
+    status: Literal["applied", "unchanged", "rejected"]
+    problems: tuple[Problem, ...] = ()
+    state: InstrumentStateSnapshot | None = None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> InstrumentConfiguredDefaultsApplyReceipt:
+        if self.status in {"applied", "unchanged"}:
+            if self.problems:
+                raise ValueError(
+                    "successful configured-default apply cannot contain problems"
+                )
+            if self.state is None:
+                raise ValueError(
+                    "successful configured-default apply requires synchronized state"
+                )
+        elif not self.problems:
+            raise ValueError("rejected configured-default apply requires a problem")
+        elif self.state is not None:
+            raise ValueError("rejected configured-default apply cannot report state")
+        if self.state is not None and self.state.instrument_id != self.instrument_id:
+            raise ValueError("configured-default state must match instrument_id")
         return self
 
 
@@ -432,6 +574,16 @@ def _aware_datetime(value: datetime, *, field_name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must include a UTC offset")
     return value
+
+
+def _validate_instrument_session_lease(
+    renewed_at: datetime,
+    expires_at: datetime,
+) -> None:
+    renewed_at = _aware_datetime(renewed_at, field_name="renewed_at")
+    expires_at = _aware_datetime(expires_at, field_name="expires_at")
+    if expires_at <= renewed_at:
+        raise ValueError("expires_at must follow renewed_at")
 
 
 def _validated_base64(value: str) -> str:
@@ -463,12 +615,21 @@ __all__ = [
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",
+    "InstrumentConfiguredDefaultsApplyCommand",
+    "InstrumentConfiguredDefaultsApplyReceipt",
+    "InstrumentContractCatalogRequest",
+    "InstrumentDriverProbeCommand",
+    "InstrumentDriverProbeReceipt",
+    "InstrumentInventoryMigrationCommand",
+    "InstrumentInventoryMigrationReceipt",
     "InstrumentSessionEndReceipt",
+    "InstrumentSessionLeaseReceipt",
     "InstrumentSessionOpenCommand",
     "InstrumentSessionOpenReceipt",
     "ManualConfigDraftRevisionSource",
     "MeasurementAppendCommand",
     "MeasurementSealCommand",
+    "PayloadObjectReceipt",
     "RunAdmission",
     "RunAttachmentCommand",
     "RunInstrumentProvisionCommand",

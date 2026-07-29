@@ -8,9 +8,18 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from scopecat.application.lab import LabApplication
+    from scopecat.application.lab import (
+        BootstrapConfigFactory,
+        LabApplication,
+    )
 
-_EXPORTS = {"LabApplication": ("scopecat.application.lab", "LabApplication")}
+_EXPORTS = {
+    "BootstrapConfigFactory": (
+        "scopecat.application.lab",
+        "BootstrapConfigFactory",
+    ),
+    "LabApplication": ("scopecat.application.lab", "LabApplication"),
+}
 
 
 def __getattr__(name: str) -> object:

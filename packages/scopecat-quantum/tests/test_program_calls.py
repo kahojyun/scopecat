@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import Annotated, assert_type, cast
 
 import pytest
 import scopecat as sc
+from scopecat.compiler.frontend.resolution import (
+    compile_invocation,
+    resolve_compiled_invocation,
+)
+from scopecat.config.documents import load_config_snapshot_document
+from scopecat.config.environment import build_config_environment
 
 from scopecat_quantum import authoring
 from scopecat_quantum.gates import GateCall, GateParameterKind
@@ -13,6 +20,8 @@ from scopecat_quantum.measurement_postprocessors import (
     IqCentroid,
     binary_iq_probability_postprocessor,
 )
+
+_REPO_ROOT = Path(__file__).parents[3]
 
 
 def test_program_decorator_infers_ports_identity_description_and_results() -> None:
@@ -289,6 +298,49 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
     invocation = experiment()
     assert invocation.definition.record_selections[0].product_id.qualified_name == (
         "call/iq_shots"
+    )
+
+
+def test_program_results_share_one_explicit_shot_dimension() -> None:
+    @authoring.program(id="test.quantum.multi-result")
+    def declaration(
+        first: authoring.Qubit,
+        second: authoring.Qubit,
+    ) -> authoring.QuantumFragment:
+        return authoring.parallel(
+            authoring.measure(first, result="first_iq"),
+            authoring.measure(second, result="second_iq"),
+        )
+
+    call = declaration("q0", "q1").with_shots(16)
+
+    @sc.template(id="test.quantum.multi-result", kind="quantum")
+    def experiment() -> sc.ExperimentBody:
+        return sc.experiment(call).record_product(
+            call.results.first_iq,
+            call.results.second_iq,
+        )
+
+    linked = resolve_compiled_invocation(
+        compile_invocation(experiment()),
+        environment=build_config_environment(
+            load_config_snapshot_document(
+                _REPO_ROOT
+                / "fixtures"
+                / "core"
+                / "simple_scan"
+                / "config-snapshot.json"
+            )
+        ),
+    )
+
+    dimensions = [
+        product.axes[0].dimension_id for product in linked.program.product_defs
+    ]
+    assert len(set(dimensions)) == 1
+    assert all(
+        product.axes[0].dimension_label == "shot"
+        for product in linked.program.product_defs
     )
 
 

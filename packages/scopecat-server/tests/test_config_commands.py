@@ -331,7 +331,12 @@ class _FakeLab:
 def _project(root: Path) -> Project:
     manifest = root / "scopecat.toml"
     manifest.write_text("[lab]\n", encoding="utf-8")
-    return Project(root=root, manifest=manifest, application_spec=None)
+    return Project(
+        root=root,
+        manifest=manifest,
+        application_spec=None,
+        instrument_backend_spec=None,
+    )
 
 
 def _patch_project(

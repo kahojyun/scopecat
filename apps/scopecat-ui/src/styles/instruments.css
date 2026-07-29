@@ -17,8 +17,8 @@
 
 .instruments-toolbar h2,
 .instruments-toolbar p,
-.capability-heading h3,
-.capability-card h4 {
+.interface-heading h3,
+.interface-card h4 {
   margin: 0;
 }
 
@@ -36,39 +36,6 @@
   margin-top: 4px;
   color: var(--text-dim);
   font-size: 0.66rem;
-}
-
-.instrument-config-identity {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 3px 10px;
-  align-items: baseline;
-  min-width: 230px;
-  padding-left: 18px;
-  border-left: 1px solid var(--line);
-  text-align: right;
-}
-
-.instrument-config-identity > span {
-  grid-column: 1 / -1;
-  color: var(--text-dim);
-  font-size: 0.55rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.instrument-config-identity code {
-  overflow: hidden;
-  color: var(--text-soft);
-  font-size: 0.64rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.instrument-config-identity small {
-  color: var(--text-dim);
-  font-size: 0.57rem;
 }
 
 .instruments-layout {
@@ -112,6 +79,11 @@
   margin-top: 2px;
   color: var(--text-dim);
   font-size: 0.58rem;
+}
+
+.instrument-browser-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .instrument-browser-heading .icon-button {
@@ -215,10 +187,6 @@
   font-size: 0.57rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.instrument-list-owner code {
-  color: inherit;
 }
 
 .instrument-availability {
@@ -425,16 +393,12 @@
 
 .session-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 7px;
+  justify-content: flex-end;
 }
 
-.instrument-actor-field {
-  display: grid;
-  gap: 4px;
-}
-
-.instrument-actor-field > span,
-.instrument-connection-form label > span,
+.instrument-config-form label > span,
 .instrument-config-audit label > span,
 .instrument-connection-fields label > span {
   color: var(--text-dim);
@@ -442,18 +406,6 @@
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-}
-
-.instrument-actor-field input {
-  width: 150px;
-  min-height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  outline: 0;
-  color: var(--text);
-  background: var(--bg);
-  font-size: 0.66rem;
 }
 
 .instrument-busy-panel,
@@ -490,27 +442,9 @@
 }
 
 .instrument-owner {
-  display: flex;
-  gap: 18px;
-  margin: 8px 0 0;
-}
-
-.instrument-owner > div {
-  display: flex;
-  gap: 5px;
-  align-items: baseline;
-}
-
-.instrument-owner dt {
+  display: block;
+  margin-top: 7px;
   color: var(--text-dim);
-  font-size: 0.52rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.instrument-owner dd {
-  margin: 0;
-  color: var(--text-soft);
   font-size: 0.59rem;
 }
 
@@ -572,47 +506,35 @@
   margin: 2px 0 0;
 }
 
-.capability-heading {
+.interface-heading {
   display: flex;
   align-items: end;
   justify-content: space-between;
   margin-top: 3px;
 }
 
-.capability-heading .eyebrow {
+.interface-heading .eyebrow {
   margin-bottom: 3px;
 }
 
-.capability-heading h3 {
+.interface-heading h3 {
   font-size: 0.9rem;
   font-weight: 650;
 }
 
-.capability-heading > div:last-child {
-  display: flex;
-  gap: 7px;
-  align-items: baseline;
-  color: var(--text-dim);
-  font-size: 0.57rem;
-}
-
-.capability-heading code {
-  color: var(--text-soft);
-}
-
-.capability-list {
+.interface-list {
   display: grid;
   gap: 10px;
 }
 
-.capability-card {
+.interface-card {
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--panel-soft);
 }
 
-.capability-card > header {
+.interface-card > header {
   display: flex;
   gap: 14px;
   align-items: flex-start;
@@ -622,19 +544,12 @@
   background: rgb(255 255 255 / 1%);
 }
 
-.capability-card h4 {
+.interface-card h4 {
   font-size: 0.77rem;
   font-weight: 680;
 }
 
-.capability-card header code {
-  display: inline-block;
-  margin-top: 3px;
-  color: var(--text-dim);
-  font-size: 0.55rem;
-}
-
-.capability-card header p {
+.interface-card header p {
   max-width: 760px;
   margin: 6px 0 0;
   color: var(--text-dim);
@@ -642,7 +557,58 @@
   line-height: 1.45;
 }
 
-.capability-collect-action {
+.interface-component {
+  border-top: 1px solid var(--line);
+}
+
+.interface-component > header {
+  padding: 10px 13px;
+  background: var(--panel-strong);
+}
+
+.interface-component h5 {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.67rem;
+}
+
+.interface-component > header > small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: 0.51rem;
+}
+
+.acquisition-list,
+.operation-list {
+  display: grid;
+}
+
+.acquisition-control,
+.operation-control {
+  border-top: 1px solid var(--line);
+}
+
+.acquisition-control > header,
+.operation-control > header {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.acquisition-control > header strong,
+.operation-control > header strong {
+  color: var(--text-soft);
+  font-size: 0.66rem;
+}
+
+.operation-control > header .secondary-button {
+  flex: none;
+}
+
+.acquisition-collect-action {
   display: grid;
   flex: none;
   gap: 6px;
@@ -650,28 +616,15 @@
   max-width: 320px;
 }
 
-.collection-blocked-reason {
-  display: flex;
-  gap: 5px;
-  align-items: flex-start;
-  color: var(--yellow);
-  font-size: 0.54rem;
-  line-height: 1.4;
-  text-align: right;
-}
-
-.collection-blocked-reason > svg {
-  flex: none;
-  margin-top: 1px;
-}
-
-.capability-fields {
+.interface-properties,
+.operation-arguments {
   display: grid;
   grid-template-columns: repeat(2, minmax(230px, 1fr));
   gap: 0;
 }
 
-.capability-field {
+.interface-property,
+.operation-argument {
   position: relative;
   display: grid;
   grid-template-columns: minmax(130px, 1fr) minmax(140px, 0.85fr);
@@ -684,16 +637,17 @@
   background: transparent;
 }
 
-.capability-field:nth-child(2n) {
+.interface-property:nth-child(2n),
+.operation-argument:nth-child(2n) {
   border-right: 0;
 }
 
-.capability-field.staged {
+.interface-property.staged {
   background: var(--accent-soft);
   box-shadow: inset 2px 0 var(--accent);
 }
 
-.field-label {
+.property-label {
   display: flex;
   gap: 8px;
   align-items: flex-start;
@@ -701,12 +655,12 @@
   min-width: 0;
 }
 
-.field-label > span {
+.property-label > span {
   display: grid;
   min-width: 0;
 }
 
-.field-label strong {
+.property-label strong {
   overflow: hidden;
   font-size: 0.66rem;
   font-weight: 670;
@@ -714,13 +668,7 @@
   white-space: nowrap;
 }
 
-.field-label code {
-  margin-top: 3px;
-  color: var(--text-dim);
-  font-size: 0.51rem;
-}
-
-.field-label > small {
+.property-label > small {
   flex: none;
   color: var(--text-dim);
   font-size: 0.49rem;
@@ -729,11 +677,14 @@
   text-transform: uppercase;
 }
 
-.capability-field input[type="text"],
-.capability-field input[type="number"],
-.capability-field select,
-.instrument-connection-form input,
-.instrument-connection-form select {
+.interface-property input[type="text"],
+.interface-property input[type="number"],
+.interface-property select,
+.operation-argument input[type="text"],
+.operation-argument input[type="number"],
+.operation-argument select,
+.instrument-config-form input,
+.instrument-config-form select {
   width: 100%;
   min-width: 0;
   min-height: 34px;
@@ -746,21 +697,26 @@
   font-size: 0.64rem;
 }
 
-.capability-field input:focus,
-.capability-field select:focus,
-.instrument-connection-form input:focus,
-.instrument-connection-form select:focus {
+.interface-property input:focus,
+.interface-property select:focus,
+.operation-argument input:focus,
+.operation-argument select:focus,
+.instrument-config-form input:focus,
+.instrument-config-form select:focus {
   border-color: var(--accent);
 }
 
-.capability-field input:disabled,
-.capability-field select:disabled {
+.interface-property input:disabled,
+.interface-property select:disabled,
+.operation-argument input:disabled,
+.operation-argument select:disabled {
   color: var(--text-dim);
   cursor: not-allowed;
   opacity: 0.72;
 }
 
-.capability-field input[aria-invalid="true"] {
+.interface-property input[aria-invalid="true"],
+.operation-argument input[aria-invalid="true"] {
   border-color: var(--red);
 }
 
@@ -801,14 +757,24 @@
   font-size: 0.57rem;
 }
 
-.field-description {
+.number-unit-editor.number-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.number-unit-editor .operation-unit-input {
+  min-width: 64px;
+  border-left: 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.property-description {
   grid-column: 1 / -1;
   color: var(--text-dim);
   font-size: 0.53rem;
   line-height: 1.4;
 }
 
-.field-reset {
+.property-reset {
   position: absolute;
   right: 12px;
   bottom: 3px;
@@ -820,7 +786,12 @@
   font-size: 0.49rem;
 }
 
-.capability-products {
+.operation-control > .instrument-receipt {
+  border-width: 1px 0 0;
+  border-radius: 0;
+}
+
+.acquisition-results {
   display: flex;
   gap: 7px;
   align-items: center;
@@ -829,7 +800,7 @@
   border-top: 1px solid var(--line);
 }
 
-.capability-products > span:first-child {
+.acquisition-results > span:first-child {
   margin-right: 3px;
   color: var(--text-dim);
   font-size: 0.51rem;
@@ -838,7 +809,7 @@
   text-transform: uppercase;
 }
 
-.product-chip {
+.result-chip {
   display: inline-flex;
   gap: 7px;
   align-items: baseline;
@@ -849,7 +820,7 @@
   font-size: 0.56rem;
 }
 
-.product-chip small {
+.result-chip small {
   color: var(--text-dim);
   font-size: 0.5rem;
 }
@@ -894,14 +865,18 @@
   font-size: 0.61rem;
 }
 
-.instrument-receipt.applied {
+.instrument-receipt.applied,
+.instrument-receipt.unchanged,
+.instrument-receipt.invoked {
   color: var(--accent);
   border-color: rgb(var(--accent-rgb) / 24%);
   background: var(--accent-soft);
 }
 
 .instrument-receipt.unknown,
-.instrument-receipt.not_applied {
+.instrument-receipt.not_applied,
+.instrument-receipt.rejected,
+.instrument-receipt.not_invoked {
   color: var(--yellow);
   border-color: rgb(207 173 104 / 25%);
   background: var(--yellow-soft);
@@ -931,31 +906,25 @@
   font-size: 0.54rem;
 }
 
-.collect-preview.not_collected strong,
-.collect-preview.unknown strong {
+.collect-unavailable-summary {
+  display: flex;
+  gap: 7px;
+  align-items: center;
   color: var(--yellow);
 }
 
-.collect-preview details {
-  color: var(--text-dim);
-  font-size: 0.56rem;
+.collect-unavailable-summary span {
+  font-size: 0.58rem;
+  font-weight: 650;
 }
 
-.collect-preview summary {
-  cursor: pointer;
+.collect-unavailable-summary small {
+  color: inherit;
 }
 
-.collect-preview pre {
-  overflow: auto;
-  max-height: 260px;
-  margin: 8px 0 0;
-  padding: 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--text-soft);
-  background: var(--panel-soft);
-  font-size: 0.55rem;
-  line-height: 1.45;
+.collect-preview.not_collected strong,
+.collect-preview.unknown strong {
+  color: var(--yellow);
 }
 
 .instrument-trace {
@@ -1010,11 +979,11 @@
   line-height: 1.5;
 }
 
-.instrument-connection-modal {
-  width: min(620px, 100%);
+.instrument-config-modal {
+  width: min(680px, 100%);
 }
 
-.connection-scope-note {
+.instrument-config-note {
   margin: 0;
   padding: 9px 10px;
   border: 1px solid rgb(var(--accent-rgb) / 20%);
@@ -1025,53 +994,22 @@
   line-height: 1.5;
 }
 
-.instrument-connection-identity {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.instrument-connection-identity > div {
-  display: grid;
-  gap: 5px;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel-soft);
-}
-
-.instrument-connection-identity span {
-  color: var(--text-dim);
-  font-size: 0.52rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.instrument-connection-identity code,
-.instrument-connection-identity strong {
-  overflow: hidden;
-  color: var(--text-soft);
-  font-size: 0.62rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.instrument-connection-form {
+.instrument-config-form {
   gap: 12px;
 }
 
-.instrument-connection-form > label,
+.instrument-config-form > label,
 .instrument-config-audit label,
 .instrument-connection-fields label {
   display: grid;
   gap: 5px;
 }
 
-.instrument-connection-form select {
+.instrument-config-form select {
   appearance: auto;
 }
 
+.instrument-config-fields,
 .instrument-connection-fields,
 .instrument-config-audit {
   display: grid;
@@ -1079,12 +1017,210 @@
   gap: 10px;
 }
 
-.instrument-connection-fields.two-column {
+.instrument-config-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.instrument-driver-options {
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.instrument-driver-options legend {
+  padding: 0 5px;
+  color: var(--text-dim);
+  font-size: 0.53rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.instrument-option-fields {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.instrument-option-fields label:not(.instrument-option-toggle) {
+  display: grid;
+  gap: 5px;
+}
+
+.instrument-option-toggle {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-height: 34px;
+}
+
+.instrument-option-toggle input {
+  width: 15px;
+  min-height: 15px;
+}
+
+.instrument-option-toggle span {
+  color: var(--text-soft);
+  font-size: 0.62rem;
+}
+
+.instrument-probe-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+}
+
+.instrument-probe-result {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--text-dim);
+  font-size: 0.6rem;
+  line-height: 1.4;
+}
+
+.instrument-probe-result.connected {
+  color: var(--accent);
+}
+
+.instrument-probe-result.rejected {
+  color: var(--red);
+}
+
+.instrument-defaults-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.instrument-defaults-editor > header {
+  display: flex;
+  gap: 14px;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.instrument-defaults-editor > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.instrument-defaults-editor > header strong {
+  color: var(--text-soft);
+  font-size: 0.66rem;
+}
+
+.instrument-defaults-editor > header small,
+.instrument-defaults-unavailable {
+  color: var(--text-dim);
+  font-size: 0.56rem;
+  line-height: 1.5;
+}
+
+.instrument-defaults-editor > header label {
+  display: grid;
+  min-width: 210px;
+  gap: 5px;
+}
+
+.instrument-default-scopes {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  max-height: 330px;
+  padding-right: 3px;
+  scrollbar-color: #344252 transparent;
+  scrollbar-width: thin;
+}
+
+.instrument-default-scope {
+  display: grid;
+  gap: 7px;
+}
+
+.instrument-default-scope .instrument-default-scope {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.instrument-default-scope h5 {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.instrument-default-properties {
+  display: grid;
+  gap: 6px;
+}
+
+.instrument-default-property {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(170px, 0.9fr);
+  gap: 10px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+}
+
+.instrument-default-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.instrument-default-toggle > input {
+  flex: none;
+  width: 15px;
+  min-height: 15px !important;
+  padding: 0 !important;
+  accent-color: var(--accent);
+}
+
+.instrument-default-toggle > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.instrument-default-toggle strong {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 0.61rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instrument-default-toggle small {
+  color: var(--yellow);
+  font-size: 0.51rem;
+}
+
+.instrument-default-property .boolean-editor input {
+  min-height: 15px;
+  padding: 0;
+}
+
+.instrument-defaults-unavailable {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
 }
 
 .instrument-config-audit {
-  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1.3fr);
+  grid-template-columns: minmax(0, 1fr);
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }

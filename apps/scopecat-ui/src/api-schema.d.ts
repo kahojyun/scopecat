@@ -158,6 +158,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-drivers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Driver Catalog */
+        get: operations["get_driver_catalog_api_v1_instrument_drivers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-drivers/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Probe Driver */
+        post: operations["probe_driver_api_v1_instrument_drivers_probe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instrument-sessions": {
         parameters: {
             query?: never;
@@ -226,6 +260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-sessions/{session_id}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renew Instrument Session */
+        post: operations["renew_instrument_session_api_v1_instrument_sessions__session_id__heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect": {
         parameters: {
             query?: never;
@@ -237,6 +288,40 @@ export interface paths {
         put?: never;
         /** Collect Instrument */
         post: operations["collect_instrument_api_v1_instrument_sessions__session_id__instruments__instrument_id__collect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Instrument Configured Defaults */
+        post: operations["apply_instrument_configured_defaults_api_v1_instrument_sessions__session_id__instruments__instrument_id__configured_defaults_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Invoke Instrument */
+        post: operations["invoke_instrument_api_v1_instrument_sessions__session_id__instruments__instrument_id__invoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -493,7 +578,6 @@ export interface components {
              */
             type: "bool";
         };
-        _CapabilityScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_PayloadWire"];
         _Choices: [
             string,
             ...string[]
@@ -544,6 +628,8 @@ export interface components {
             /** Unit */
             unit?: string | null;
         };
+        _InstrumentOperationScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"] | components["schemas"]["_PayloadWire"];
+        _InstrumentPropertyScalarModel: components["schemas"]["_BoolWire"] | components["schemas"]["_IntWire"] | components["schemas"]["_FiniteFloatWire"] | components["schemas"]["_StringWire"] | components["schemas"]["_FiniteQuantityWire"];
         /** _IntWire */
         _IntWire: {
             /** Maximum */
@@ -558,6 +644,7 @@ export interface components {
         };
         _NonEmptyId: string;
         _NonEmptyString: string;
+        _NonEmptyText: string;
         _ParameterId: string;
         /** _PayloadWire */
         _PayloadWire: {
@@ -609,6 +696,59 @@ export interface components {
              */
             type: "string";
         };
+        AcquisitionAxisSize: number | components["schemas"]["StatePropertyRef"];
+        /** AcquisitionAxisSpec */
+        AcquisitionAxisSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            kind: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            size: components["schemas"]["AcquisitionAxisSize"];
+            /** Unit */
+            unit?: string | null;
+        };
+        /** AcquisitionCaseSpec */
+        AcquisitionCaseSpec: {
+            /** Preconditions */
+            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
+            /** Results */
+            results: [
+                components["schemas"]["AcquisitionResultSpec"],
+                ...components["schemas"]["AcquisitionResultSpec"][]
+            ];
+            value: components["schemas"]["_NonEmptyId"];
+        };
+        /**
+         * AcquisitionPreconditionSpec
+         * @description One public state value required before an acquisition can start.
+         */
+        AcquisitionPreconditionSpec: {
+            property: components["schemas"]["StatePropertyRef"];
+            unavailable_reason: components["schemas"]["_NonEmptyId"];
+            /** Value */
+            value: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"];
+        };
+        /** AcquisitionResultSpec */
+        AcquisitionResultSpec: {
+            /** Axes */
+            axes?: components["schemas"]["AcquisitionAxisSpec"][];
+            /** Description */
+            description?: string | null;
+            /**
+             * Dtype
+             * @default float64
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            /** Unit */
+            unit?: string | null;
+        };
+        AcquisitionSpec: components["schemas"]["FixedAcquisitionSpec"] | components["schemas"]["StateDiscriminatedAcquisitionSpec"];
         /**
          * ActiveConfigView
          * @description The active registry identity and its resolved immutable snapshot.
@@ -714,6 +854,18 @@ export interface components {
              */
             state: "closed";
         };
+        /**
+         * BlobPayloadBody
+         * @description Content-addressed locator resolved by the payload transport boundary.
+         */
+        BlobPayloadBody: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "blob";
+            ref: components["schemas"]["Sha256ContentHash"];
+        };
         /** CandidateConfigRegistrySource */
         CandidateConfigRegistrySource: {
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
@@ -736,90 +888,6 @@ export interface components {
             kind: "candidate_config";
             proposal_id: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
-        };
-        /** CapabilityDescription */
-        CapabilityDescription: {
-            /** Description */
-            description?: string | null;
-            /** Fields */
-            fields?: components["schemas"]["CapabilityField"][];
-            /** Id */
-            id: string;
-            /** Label */
-            label?: string | null;
-            /** Products */
-            products?: components["schemas"]["ProductDescription"][];
-        };
-        /** CapabilityField */
-        CapabilityField: {
-            /**
-             * Access
-             * @default read_write
-             * @enum {string}
-             */
-            access: "read_only" | "write_only" | "read_write";
-            /** Description */
-            description?: string | null;
-            /** Id */
-            id: string;
-            /** Label */
-            label?: string | null;
-            value_type: components["schemas"]["CapabilityScalarWire"];
-        };
-        CapabilityScalarWire: components["schemas"]["_CapabilityScalarModel"];
-        /** CollectAxisRequest */
-        CollectAxisRequest: {
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Size */
-            size: number;
-            /** Unit */
-            unit?: string | null;
-        };
-        /** CollectCommand */
-        CollectCommand: {
-            /** Instrument Id */
-            instrument_id: string;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Operation Id */
-            operation_id?: string | null;
-            /** Point Count */
-            point_count: number;
-            /** Point Index */
-            point_index: number;
-            /** Requests */
-            requests?: components["schemas"]["CollectProductRequest"][];
-        };
-        /**
-         * CollectProductRequest
-         * @description One explicitly capability-scoped provider product request.
-         *
-         *     Capability identity is required because a provider must not infer ownership
-         *     from a product key or from accidental global uniqueness. Planning derives
-         *     it from the same logical resource contract used for physical binding.
-         */
-        CollectProductRequest: {
-            capability_id: components["schemas"]["_NonEmptyId"];
-            /** Channel Bindings */
-            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            /** Dimensions */
-            dimensions?: components["schemas"]["CollectAxisRequest"][];
-            /**
-             * Dtype
-             * @default float64
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
-            /** Entity Ids */
-            entity_ids?: components["schemas"]["_NonEmptyId"][];
-            /** Id */
-            id: string;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Unit */
-            unit?: string | null;
         };
         /**
          * CollectReceipt
@@ -846,45 +914,58 @@ export interface components {
         };
         /** CommandChannelBinding */
         CommandChannelBinding: {
-            capability?: components["schemas"]["_NonEmptyId"] | null;
             channel_id: components["schemas"]["_NonEmptyId"];
             entity_id: components["schemas"]["_NonEmptyId"];
+            interface_id?: components["schemas"]["InterfaceId"] | null;
         };
         /**
          * CommandPayload
-         * @description Runtime command payload referenced by instrument state commands.
+         * @description Process-safe encoded payload referenced by an instrument command.
+         *
+         *     ``content_hash`` identifies the exact codec output bytes, before base64 or
+         *     blob transport. The schema identifies domain meaning while the codec pair
+         *     identifies the byte representation. Arbitrary Python objects are never part
+         *     of this wire model.
          */
         CommandPayload: {
-            /** Content Hash */
-            content_hash?: string | null;
-            /** Id */
-            id: string;
-            /** Implementation Id */
-            implementation_id?: string | null;
-            /** Media Type */
-            media_type?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Operation Id */
-            operation_id?: string | null;
-            /** Payload */
-            payload?: unknown | null;
-            /** Point Index */
-            point_index?: number | null;
-            /** Schema Id */
-            schema_id: string;
-            /** Semantic Operation Id */
-            semantic_operation_id?: string | null;
-            /** Uri */
-            uri?: string | null;
+            body: components["schemas"]["CommandPayloadBody"];
+            codec_id: components["schemas"]["_NonEmptyText"];
+            /** Codec Version */
+            codec_version: number;
+            content_hash: components["schemas"]["Sha256ContentHash"];
+            id: components["schemas"]["_NonEmptyText"];
+            media_type: components["schemas"]["_NonEmptyText"];
+            schema_id: components["schemas"]["_NonEmptyText"];
+            /** Size Bytes */
+            size_bytes: number;
         };
-        /** ComplexQuantity */
-        ComplexQuantity: {
+        CommandPayloadBody: components["schemas"]["InlinePayloadBody"] | components["schemas"]["BlobPayloadBody"];
+        /** ComplexComponents */
+        ComplexComponents: {
             /** Imag */
             imag: number;
             /** Real */
             real: number;
-            /** Unit */
-            unit: string;
+        };
+        /**
+         * ComponentSpec
+         * @description One stable role nested below an interface endpoint.
+         */
+        ComponentSpec: {
+            /** Acquisitions */
+            acquisitions?: components["schemas"]["AcquisitionSpec"][];
+            /** Components */
+            components?: components["schemas"]["ComponentSpec"][];
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            /** Operations */
+            operations?: components["schemas"]["OperationSpec"][];
+            /** Properties */
+            properties?: components["schemas"]["PropertySpec"][];
+            state?: components["schemas"]["DiscriminatedStateSpec"] | null;
         };
         /** ConfigActivationHistoryView */
         ConfigActivationHistoryView: {
@@ -1014,7 +1095,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "activation" | "undo";
+            action: "activation" | "inventory_migration" | "undo";
             /** Actor */
             actor: string;
             entry_content_hash: components["schemas"]["ConfigContentHash"];
@@ -1102,23 +1183,6 @@ export interface components {
              */
             note: string;
         };
-        /**
-         * ControlRun
-         * @description Current scheduler state plus the immutable admission record.
-         */
-        ControlRun: {
-            admission: components["schemas"]["RunAdmissionRecord"];
-            /** Attention Reason */
-            attention_reason?: string | null;
-            /** Sequence */
-            sequence: number;
-            state: components["schemas"]["ControlRunState"];
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
         /** @enum {string} */
         ControlRunState: "queued" | "leased" | "attention_required" | "closed";
         /**
@@ -1172,6 +1236,21 @@ export interface components {
             kind: "direct_config_profile";
         };
         /**
+         * DiscriminatedStateSpec
+         * @description An exhaustive property partition selected by one persistent property.
+         */
+        DiscriminatedStateSpec: {
+            /** Cases */
+            cases: [
+                components["schemas"]["StateCaseSpec"],
+                components["schemas"]["StateCaseSpec"],
+                ...components["schemas"]["StateCaseSpec"][]
+            ];
+            /** Common Property Ids */
+            common_property_ids?: components["schemas"]["_NonEmptyId"][];
+            discriminator_property_id: components["schemas"]["_NonEmptyId"];
+        };
+        /**
          * DomainTargetBinding
          * @description The one target instance and adapter family selected by a system.
          */
@@ -1182,6 +1261,36 @@ export interface components {
             instrument_ids?: string[];
             /** Kind */
             kind: string;
+        };
+        /** DriverCatalog */
+        DriverCatalog: {
+            /**
+             * Drivers
+             * @default []
+             */
+            drivers: components["schemas"]["DriverSpec"][];
+            provider_id: components["schemas"]["_NonEmptyText"];
+        };
+        /** DriverConnectionSpec */
+        DriverConnectionSpec: {
+            kind: components["schemas"]["InstrumentConnectionKind"];
+            /** Options Schema */
+            options_schema: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
+        };
+        /** DriverSpec */
+        DriverSpec: {
+            /** Connections */
+            connections: [
+                components["schemas"]["DriverConnectionSpec"],
+                ...components["schemas"]["DriverConnectionSpec"][]
+            ];
+            driver_id: components["schemas"]["_NonEmptyText"];
+            implementation_version: components["schemas"]["_NonEmptyText"];
+            label: components["schemas"]["_NonEmptyText"];
+            manufacturer?: components["schemas"]["_NonEmptyText"] | null;
+            model?: components["schemas"]["_NonEmptyText"] | null;
         };
         /** DurableEvent */
         DurableEvent: {
@@ -1258,10 +1367,43 @@ export interface components {
             /** Uri */
             uri: string;
         };
+        /** FixedAcquisitionSpec */
+        FixedAcquisitionSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fixed";
+            /** Label */
+            label?: string | null;
+            /** Preconditions */
+            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
+            /** Results */
+            results: [
+                components["schemas"]["AcquisitionResultSpec"],
+                ...components["schemas"]["AcquisitionResultSpec"][]
+            ];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InlinePayloadBody
+         * @description Base64 wire representation of one complete encoded payload.
+         */
+        InlinePayloadBody: {
+            /** Content Base64 */
+            content_base64: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "inline";
         };
         /**
          * InsertParameterRows
@@ -1284,12 +1426,49 @@ export interface components {
                 }[]
             ];
         };
+        /**
+         * InstrumentBindingSpec
+         * @description Provider-visible identity and connection for one configured instrument.
+         */
+        InstrumentBindingSpec: {
+            connection: components["schemas"]["InstrumentConnection-Input"];
+            /** Driver Id */
+            driver_id: string;
+            /** Id */
+            id: string;
+        };
+        /**
+         * InstrumentConfiguredDefaultsApplyCommand
+         * @description Reconcile one session instrument with its pinned configured defaults.
+         */
+        InstrumentConfiguredDefaultsApplyCommand: {
+            operation_id: components["schemas"]["NonEmptyText"];
+        };
+        /** InstrumentConfiguredDefaultsApplyReceipt */
+        InstrumentConfiguredDefaultsApplyReceipt: {
+            config_entry_id: components["schemas"]["NonEmptyText"];
+            instrument_id: components["schemas"]["NonEmptyText"];
+            operation_id: components["schemas"]["NonEmptyText"];
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            session_id: components["schemas"]["NonEmptyText"];
+            state?: components["schemas"]["InstrumentStateSnapshot"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "applied" | "unchanged" | "rejected";
+        };
         "InstrumentConnection-Input": components["schemas"]["VirtualInstrumentConnection-Input"] | components["schemas"]["TcpipSocketInstrumentConnection-Input"];
         "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"];
+        /** @enum {string} */
+        InstrumentConnectionKind: "virtual" | "tcpip_socket";
+        InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"];
         /** InstrumentDescription */
         InstrumentDescription: {
-            /** Capabilities */
-            capabilities?: components["schemas"]["CapabilityDescription"][];
             /** Description */
             description?: string | null;
             /** Implementation Id */
@@ -1298,12 +1477,34 @@ export interface components {
             implementation_version: string;
             /** Instrument Id */
             instrument_id: string;
+            /** Interfaces */
+            interfaces?: components["schemas"]["InterfaceSpec"][];
             /** Label */
             label?: string | null;
         };
+        /**
+         * InstrumentDriverProbeCommand
+         * @description Open, identify, and close one candidate instrument binding.
+         */
+        InstrumentDriverProbeCommand: {
+            binding: components["schemas"]["InstrumentBindingSpec"];
+        };
+        /** InstrumentDriverProbeReceipt */
+        InstrumentDriverProbeReceipt: {
+            description?: components["schemas"]["InstrumentDescription"] | null;
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "connected" | "rejected";
+        };
         /** InstrumentListView */
         InstrumentListView: {
-            config_content_hash: components["schemas"]["ConfigContentHash"];
             /** Config Entry Id */
             config_entry_id: string;
             /**
@@ -1317,6 +1518,24 @@ export interface components {
              */
             problems: components["schemas"]["Problem-Output"][];
         };
+        /** InstrumentOperationArgument */
+        InstrumentOperationArgument: {
+            id: components["schemas"]["_NonEmptyId"];
+            value: components["schemas"]["StateValue"];
+        };
+        InstrumentOperationScalarWire: components["schemas"]["_InstrumentOperationScalarModel"];
+        InstrumentPropertyScalarWire: components["schemas"]["_InstrumentPropertyScalarModel"];
+        /**
+         * InstrumentPropertyState
+         * @description One physical persistent-property value.
+         */
+        InstrumentPropertyState: {
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+            property_id: components["schemas"]["_NonEmptyId"];
+            value: components["schemas"]["StateValue"];
+        };
         /** InstrumentReadback */
         InstrumentReadback: {
             metadata?: components["schemas"]["JsonMetadata-Output"];
@@ -1325,16 +1544,24 @@ export interface components {
                 [key: string]: components["schemas"]["MeasurementValue-Output"];
             };
         };
-        /** InstrumentRegistry */
+        /**
+         * InstrumentRegistry
+         * @description Logical instruments with one owner for each physical access domain.
+         */
         "InstrumentRegistry-Input": {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Input"][];
         };
-        /** InstrumentRegistry */
+        /**
+         * InstrumentRegistry
+         * @description Logical instruments with one owner for each physical access domain.
+         */
         "InstrumentRegistry-Output": {
             /** Instruments */
             instruments: components["schemas"]["InstrumentSpec-Output"][];
         };
+        /** @enum {string} */
+        InstrumentRunStartPolicy: "preserve" | "apply_default_state";
         /** InstrumentSessionEndReceipt */
         InstrumentSessionEndReceipt: {
             session_id: components["schemas"]["NonEmptyText"];
@@ -1344,9 +1571,23 @@ export interface components {
              */
             status: "closed" | "aborted";
         };
+        /** InstrumentSessionLeaseReceipt */
+        InstrumentSessionLeaseReceipt: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Renewed At
+             * Format: date-time
+             */
+            renewed_at: string;
+            session_id: components["schemas"]["NonEmptyText"];
+        };
         /**
          * InstrumentSessionOpenCommand
-         * @description Acquire and connect one or more instruments against the active config.
+         * @description Acquire and synchronize instruments against the active config.
          */
         InstrumentSessionOpenCommand: {
             actor: components["schemas"]["NonEmptyText"];
@@ -1365,86 +1606,108 @@ export interface components {
             actor: components["schemas"]["NonEmptyText"];
             config_content_hash: components["schemas"]["ConfigContentHash"];
             config_entry_id: components["schemas"]["NonEmptyText"];
+            /** Configured Default Instrument Ids */
+            configured_default_instrument_ids: components["schemas"]["NonEmptyText"][];
             /** Descriptions */
             descriptions: components["schemas"]["InstrumentDescription"][];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
             /** Instrument Ids */
             instrument_ids: [
                 components["schemas"]["NonEmptyText"],
                 ...components["schemas"]["NonEmptyText"][]
             ];
+            /** Observed State */
+            observed_state: components["schemas"]["InstrumentStateSnapshot"][];
             /**
              * Opened At
              * Format: date-time
              */
             opened_at: string;
+            /**
+             * Renewed At
+             * Format: date-time
+             */
+            renewed_at: string;
             session_id: components["schemas"]["NonEmptyText"];
         };
-        /** InstrumentSpec */
+        /**
+         * InstrumentSpec
+         * @description Configured instrument with a stable physical access domain.
+         *
+         *     Defaults are sparse patches over freshly observed state.
+         */
         "InstrumentSpec-Input": {
             connection: components["schemas"]["InstrumentConnection-Input"];
+            /** Default State */
+            default_state?: components["schemas"]["InstrumentPropertyState"][];
             /** Driver Id */
             driver_id: string;
+            /** Exclusivity Key */
+            exclusivity_key: string;
             /** Id */
             id: string;
+            run_start: components["schemas"]["InstrumentRunStartPolicy"];
         };
-        /** InstrumentSpec */
+        /**
+         * InstrumentSpec
+         * @description Configured instrument with a stable physical access domain.
+         *
+         *     Defaults are sparse patches over freshly observed state.
+         */
         "InstrumentSpec-Output": {
             connection: components["schemas"]["InstrumentConnection-Output"];
+            /** Default State */
+            default_state?: components["schemas"]["InstrumentPropertyState"][];
             /** Driver Id */
             driver_id: string;
+            /** Exclusivity Key */
+            exclusivity_key: string;
             /** Id */
             id: string;
+            run_start: components["schemas"]["InstrumentRunStartPolicy"];
         };
-        /** InstrumentStateCommand */
-        InstrumentStateCommand: {
-            /** Fields */
-            fields?: components["schemas"]["InstrumentStateCommandField"][];
-            /** Instrument Id */
-            instrument_id: string;
-            /** Operation Id */
-            operation_id?: string | null;
-            /** Payloads */
-            payloads?: {
-                [key: string]: components["schemas"]["CommandPayload"];
-            };
-        };
-        /** InstrumentStateCommandField */
-        InstrumentStateCommandField: {
-            /** Capability Id */
-            capability_id: string;
+        /** InstrumentStateAssignment */
+        InstrumentStateAssignment: {
             /** Channel Bindings */
             channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
             /** Entity Ids */
             entity_ids?: components["schemas"]["_NonEmptyId"][];
-            /** Field Path */
-            field_path: string;
+            interface_id: components["schemas"]["InterfaceId"];
+            property_id: components["schemas"]["_NonEmptyId"];
             /** Resource Id */
             resource_id: string;
             value: components["schemas"]["StateValue"];
         };
-        /** InstrumentStateField */
-        InstrumentStateField: {
-            /** Capability Id */
-            capability_id: string;
-            /** Channel Bindings */
-            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            /** Entity Ids */
-            entity_ids?: components["schemas"]["_NonEmptyId"][];
-            /** Field Path */
-            field_path: string;
-            value: components["schemas"]["StateValue"];
+        /** InstrumentStateCommand */
+        InstrumentStateCommand: {
+            /** Assignments */
+            assignments: [
+                components["schemas"]["InstrumentStateAssignment"],
+                ...components["schemas"]["InstrumentStateAssignment"][]
+            ];
+            command_id: components["schemas"]["_NonEmptyId"];
+            instrument_id: components["schemas"]["_NonEmptyId"];
         };
-        /** InstrumentStateSnapshot */
+        /**
+         * InstrumentStateSnapshot
+         * @description Complete observable persistent state for one physical instrument.
+         */
         InstrumentStateSnapshot: {
-            /** Fields */
-            fields?: components["schemas"]["InstrumentStateField"][];
             /** Instrument Id */
             instrument_id: string;
             metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Properties */
+            properties?: components["schemas"]["InstrumentPropertyState"][];
         };
         /**
          * InstrumentView
-         * @description Configured instrument, pure driver ABI, and current exclusive ownership.
+         * @description Instrument status without exposing configuration policy or driver options.
          */
         InstrumentView: {
             /**
@@ -1452,7 +1715,12 @@ export interface components {
              * @enum {string}
              */
             availability: "available" | "active" | "quarantined" | "unavailable";
+            connection: components["schemas"]["InstrumentConnectionSummary"];
             description?: components["schemas"]["InstrumentDescription"] | null;
+            /** Driver Id */
+            driver_id: string;
+            /** Instrument Id */
+            instrument_id: string;
             /** Owner Actor */
             owner_actor?: string | null;
             /** Owner Id */
@@ -1463,10 +1731,80 @@ export interface components {
              * @default []
              */
             problems: components["schemas"]["Problem-Output"][];
-            spec: components["schemas"]["InstrumentSpec-Output"];
         };
-        "JsonMetadata-Input": {
-            [key: string]: components["schemas"]["JsonValue-Input"];
+        /**
+         * InteractiveCollectIntent
+         * @description State-independent acquisition selection for one direct interaction.
+         */
+        InteractiveCollectIntent: {
+            acquisition_id: components["schemas"]["_NonEmptyId"];
+            command_id: components["schemas"]["_NonEmptyId"];
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            instrument_id: components["schemas"]["_NonEmptyId"];
+            interface_id: components["schemas"]["InterfaceId"];
+            /** Result Ids */
+            result_ids?: components["schemas"]["_NonEmptyId"][];
+        };
+        InterfaceId: string;
+        /**
+         * InterfaceSpec
+         * @description Versioned behavior contract implemented by an instrument endpoint.
+         */
+        InterfaceSpec: {
+            /** Acquisitions */
+            acquisitions?: components["schemas"]["AcquisitionSpec"][];
+            /** Components */
+            components?: components["schemas"]["ComponentSpec"][];
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["InterfaceId"];
+            /** Label */
+            label?: string | null;
+            /** Operations */
+            operations?: components["schemas"]["OperationSpec"][];
+            /** Properties */
+            properties?: components["schemas"]["PropertySpec"][];
+            state?: components["schemas"]["DiscriminatedStateSpec"] | null;
+        };
+        /** InvokeCommand */
+        InvokeCommand: {
+            /** Arguments */
+            arguments?: components["schemas"]["InstrumentOperationArgument"][];
+            /** Channel Bindings */
+            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
+            command_id: components["schemas"]["_NonEmptyId"];
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            /** Entity Ids */
+            entity_ids?: components["schemas"]["_NonEmptyId"][];
+            instrument_id: components["schemas"]["_NonEmptyId"];
+            interface_id: components["schemas"]["InterfaceId"];
+            operation_id: components["schemas"]["_NonEmptyId"];
+            /** Payloads */
+            payloads?: {
+                [key: string]: components["schemas"]["CommandPayload"];
+            };
+            resource_id: components["schemas"]["_NonEmptyId"];
+        };
+        /**
+         * InvokeReceipt
+         * @description Outcome reported after one atomic instrument operation.
+         */
+        InvokeReceipt: {
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /**
+             * Problems
+             * @default []
+             */
+            problems: components["schemas"]["Problem-Output"][];
+            state?: components["schemas"]["InstrumentStateSnapshot"] | null;
+            /**
+             * Status
+             * @default invoked
+             * @enum {string}
+             */
+            status: "invoked" | "not_invoked" | "unknown";
         };
         "JsonMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
@@ -1507,6 +1845,11 @@ export interface components {
              * @enum {string}
              */
             dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "array";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Shape */
             shape: [
@@ -1530,13 +1873,13 @@ export interface components {
             /** Dataset Id */
             dataset_id: string;
             /** Dimensions */
-            dimensions?: components["schemas"]["MeasurementDimension"][];
+            dimensions: components["schemas"]["MeasurementDimension"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v1
+             * @default scopecat.measurement_dataset_schema.v4
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v1";
+            format_version: "scopecat.measurement_dataset_schema.v4";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -1544,13 +1887,17 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v1
+             * @default scopecat.measurement_record.v4
+             * @constant
              */
-            record_schema: string;
+            record_schema: "scopecat.measurement_record.v4";
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable"][];
         };
-        /** MeasurementDimension */
+        /**
+         * MeasurementDimension
+         * @description One concrete extent; physical coordinate values are variables.
+         */
         MeasurementDimension: {
             /** Id */
             id: string;
@@ -1560,9 +1907,7 @@ export interface components {
             label?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Size */
-            size?: number | null;
-            /** Unit */
-            unit?: string | null;
+            size: number;
         };
         /**
          * MeasurementPage
@@ -1578,11 +1923,62 @@ export interface components {
             next_offset?: number | null;
         };
         "MeasurementRecord-Output": unknown;
-        "MeasurementValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["ComplexQuantity"] | components["schemas"]["MeasurementArray-Output"];
-        /** MeasurementVariable */
+        /** MeasurementScalar */
+        "MeasurementScalar-Output": {
+            /**
+             * Dtype
+             * @default float64
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "scalar";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Unit */
+            unit?: string | null;
+            value: components["schemas"]["MeasurementScalarData"];
+        };
+        MeasurementScalarData: boolean | number | string | components["schemas"]["ComplexComponents"];
+        /**
+         * MeasurementUnavailable
+         * @description A complete scalar or array result with no usable value.
+         */
+        "MeasurementUnavailable-Output": {
+            /**
+             * Dtype
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "unavailable";
+            metadata: components["schemas"]["JsonMetadata-Output"];
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "missing" | "invalid" | "overload";
+            /** Shape */
+            shape: number[];
+            /** Unit */
+            unit: string | null;
+        };
+        "MeasurementValue-Output": components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray-Output"] | components["schemas"]["MeasurementUnavailable-Output"];
+        /**
+         * MeasurementVariable
+         * @description A point-local variable whose shape is derived from its dimensions.
+         */
         MeasurementVariable: {
             /** Dims */
-            dims?: string[];
+            dims: [
+                string,
+                ...string[]
+            ];
             /**
              * Dtype
              * @enum {string}
@@ -1598,8 +1994,7 @@ export interface components {
              * @enum {string}
              */
             role: "coordinate" | "observable";
-            /** Shape */
-            shape?: number[];
+            source_product_id?: components["schemas"]["_NonEmptyText"] | null;
             /** Unit */
             unit?: string | null;
         };
@@ -1622,6 +2017,25 @@ export interface components {
             root: string;
         };
         NonEmptyText: string;
+        /** OperationArgumentSpec */
+        OperationArgumentSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+            value_type: components["schemas"]["InstrumentOperationScalarWire"];
+        };
+        /** OperationSpec */
+        OperationSpec: {
+            /** Arguments */
+            arguments?: components["schemas"]["OperationArgumentSpec"][];
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
+            /** Label */
+            label?: string | null;
+        };
         "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string;
         "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string;
         /**
@@ -1786,39 +2200,20 @@ export interface components {
          * @enum {string}
          */
         ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis";
-        /** ProductAxisDescription */
-        ProductAxisDescription: {
-            /** Description */
-            description?: string | null;
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Label */
-            label?: string | null;
-            /** Size */
-            size?: number | null;
-            /** Unit */
-            unit?: string | null;
-        };
-        /** ProductDescription */
-        ProductDescription: {
-            /** Axes */
-            axes?: components["schemas"]["ProductAxisDescription"][];
-            /** Description */
-            description?: string | null;
+        /** PropertySpec */
+        PropertySpec: {
             /**
-             * Dtype
-             * @default float64
+             * Access
+             * @default read_write
              * @enum {string}
              */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
-            /** Key */
-            key: string;
+            access: "read_only" | "write_only" | "read_write";
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
-            /** Unit */
-            unit?: string | null;
+            value_type: components["schemas"]["InstrumentPropertyScalarWire"];
         };
         pydantic__types__JsonValue: unknown;
         /**
@@ -1832,16 +2227,6 @@ export interface components {
              */
             kind: "replace_parameter";
             value: components["schemas"]["StoredParameterValue-Input"];
-        };
-        /**
-         * ResourceKey
-         * @description Canonical exclusive resource identity used by the scheduler.
-         */
-        ResourceKey: {
-            /** Id */
-            id: string;
-            /** @default instrument */
-            kind: components["schemas"]["ResourceKind"];
         };
         /** @enum {string} */
         ResourceKind: "target" | "instrument";
@@ -1857,20 +2242,19 @@ export interface components {
          *     ownership fact.
          */
         RoutingEndpointBinding: {
-            /** Capability */
-            capability: string;
             /** Channel Id */
             channel_id?: string | null;
             /** Entity Id */
             entity_id?: string | null;
             /** Instrument Id */
             instrument_id: string;
+            interface_id: components["schemas"]["InterfaceId"];
         };
         /**
          * RoutingGraph
          * @description Finite static endpoint index stored in an accepted system snapshot.
          *
-         *     Planning may project logical capability and entity selections through this
+         *     Planning may project logical interface and entity selections through this
          *     index, but it never uses it for live availability, load balancing, or
          *     implicit failover.
          */
@@ -1878,23 +2262,16 @@ export interface components {
             /** Bindings */
             bindings?: components["schemas"]["RoutingEndpointBinding"][];
         };
-        /**
-         * RunAdmissionRecord
-         * @description Scheduler facts committed with an accepted run skeleton.
-         */
-        RunAdmissionRecord: {
+        /** RunAdmissionView */
+        RunAdmissionView: {
             /**
              * Admitted At
              * Format: date-time
              */
-            admitted_at?: string;
-            plan: components["schemas"]["RunPlanSummary"];
+            admitted_at: string;
+            plan: components["schemas"]["RunPlanView"];
             /** Run Id */
             run_id: string;
-            /** Submission Content Hash */
-            submission_content_hash: string;
-            /** Submission Id */
-            submission_id: string;
         };
         /** RunAnalysisListView */
         RunAnalysisListView: {
@@ -1962,11 +2339,28 @@ export interface components {
             title?: string | null;
         };
         /**
+         * RunControlView
+         * @description Run state without durable scheduler internals.
+         */
+        RunControlView: {
+            admission: components["schemas"]["RunAdmissionView"];
+            /** Attention Reason */
+            attention_reason?: string | null;
+            /** Sequence */
+            sequence: number;
+            state: components["schemas"]["ControlRunState"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
          * RunDetail
          * @description Run summary with scheduler resource state.
          */
         RunDetail: {
-            control: components["schemas"]["ControlRun"];
+            control: components["schemas"]["RunControlView"];
             manifest: components["schemas"]["RunManifest"];
             /**
              * Resources
@@ -2029,10 +2423,10 @@ export interface components {
             run_id: string;
         };
         /**
-         * RunPlanSummary
-         * @description Bounded scheduling and presentation facts for an in-process plan.
+         * RunPlanView
+         * @description Experiment facts without scheduler or backend identities.
          */
-        RunPlanSummary: {
+        RunPlanView: {
             /**
              * Coordinate Ids
              * @default []
@@ -2042,15 +2436,6 @@ export interface components {
             experiment_id: string;
             /** Experiment Kind */
             experiment_kind: string;
-            /** Host Contract Fingerprint */
-            host_contract_fingerprint?: string | null;
-            /**
-             * Host Instrument Order
-             * @default []
-             */
-            host_instrument_order: string[];
-            /** Host Provider Id */
-            host_provider_id?: string | null;
             /** Point Count */
             point_count: number;
             /**
@@ -2059,10 +2444,10 @@ export interface components {
              */
             record_ids: string[];
             /**
-             * Run Resource Claims
+             * Run Resource Requirements
              * @default []
              */
-            run_resource_claims: components["schemas"]["ResourceKey"][];
+            run_resource_requirements: components["schemas"]["RunResourceRequirement"][];
         };
         /** RunRecordJsonResult */
         RunRecordJsonResult: {
@@ -2073,13 +2458,23 @@ export interface components {
             record: components["schemas"]["RunContentEntry-Output"];
         };
         /**
+         * RunResourceRequirement
+         * @description Logical resource identity requested by a run plan.
+         */
+        RunResourceRequirement: {
+            /** Id */
+            id: string;
+            /** @default instrument */
+            kind: components["schemas"]["ResourceKind"];
+        };
+        /**
          * RunResourceView
-         * @description Resource state without exposing an executor's authority token.
+         * @description Logical resource state without scheduler identity or authority.
          */
         RunResourceView: {
             /** Expires At */
             expires_at?: string | null;
-            resource: components["schemas"]["ResourceKey"];
+            resource: components["schemas"]["RunResourceRequirement"];
             /**
              * Status
              * @enum {string}
@@ -2091,7 +2486,7 @@ export interface components {
          * @description Scheduler projection paired with the accepted run snapshot.
          */
         RunSummary: {
-            control: components["schemas"]["ControlRun"];
+            control: components["schemas"]["RunControlView"];
             manifest: components["schemas"]["RunManifest"];
         };
         /**
@@ -2165,7 +2560,51 @@ export interface components {
             /** Value */
             value: number;
         };
+        Sha256ContentHash: string;
+        /**
+         * StateCaseSpec
+         * @description Properties available for one discriminator value.
+         */
+        StateCaseSpec: {
+            /** Property Ids */
+            property_ids?: components["schemas"]["_NonEmptyId"][];
+            /** Required On Entry Property Ids */
+            required_on_entry_property_ids?: components["schemas"]["_NonEmptyId"][];
+            value: components["schemas"]["_NonEmptyId"];
+        };
+        /** StateDiscriminatedAcquisitionSpec */
+        StateDiscriminatedAcquisitionSpec: {
+            /** Cases */
+            cases: [
+                components["schemas"]["AcquisitionCaseSpec"],
+                components["schemas"]["AcquisitionCaseSpec"],
+                ...components["schemas"]["AcquisitionCaseSpec"][]
+            ];
+            /** Description */
+            description?: string | null;
+            discriminator: components["schemas"]["StatePropertyRef"];
+            id: components["schemas"]["_NonEmptyId"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "state_discriminated";
+            /** Label */
+            label?: string | null;
+            /** Preconditions */
+            preconditions?: components["schemas"]["AcquisitionPreconditionSpec"][];
+        };
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
+        /**
+         * StatePropertyRef
+         * @description One observable persistent property used by an acquisition contract.
+         */
+        StatePropertyRef: {
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+            property_id: components["schemas"]["_NonEmptyId"];
+        };
         /**
          * StateValue
          * @description A concrete primitive, finite quantity, or command-local payload reference.
@@ -2299,6 +2738,18 @@ export interface components {
              */
             timeout_seconds: number;
         };
+        /** TcpipSocketInstrumentConnectionSummary */
+        TcpipSocketInstrumentConnectionSummary: {
+            /** Host */
+            host: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tcpip_socket";
+            /** Port */
+            port: number;
+        };
         /** Topology */
         "Topology-Input": {
             /** Entities */
@@ -2365,6 +2816,14 @@ export interface components {
             options?: {
                 [key: string]: components["schemas"]["pydantic__types__JsonValue"];
             };
+        };
+        /** VirtualInstrumentConnectionSummary */
+        VirtualInstrumentConnectionSummary: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "virtual";
         };
     };
     responses: never;
@@ -2652,6 +3111,59 @@ export interface operations {
             };
         };
     };
+    get_driver_catalog_api_v1_instrument_drivers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DriverCatalog"];
+                };
+            };
+        };
+    };
+    probe_driver_api_v1_instrument_drivers_probe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentDriverProbeCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentDriverProbeReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     open_instrument_session_api_v1_instrument_sessions_post: {
         parameters: {
             query?: never;
@@ -2778,6 +3290,37 @@ export interface operations {
             };
         };
     };
+    renew_instrument_session_api_v1_instrument_sessions__session_id__heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentSessionLeaseReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     collect_instrument_api_v1_instrument_sessions__session_id__instruments__instrument_id__collect_post: {
         parameters: {
             query?: never;
@@ -2790,7 +3333,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CollectCommand"];
+                "application/json": components["schemas"]["InteractiveCollectIntent"];
             };
         };
         responses: {
@@ -2801,6 +3344,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_instrument_configured_defaults_api_v1_instrument_sessions__session_id__instruments__instrument_id__configured_defaults_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentConfiguredDefaultsApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentConfiguredDefaultsApplyReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invoke_instrument_api_v1_instrument_sessions__session_id__instruments__instrument_id__invoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvokeCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvokeReceipt"];
                 };
             };
             /** @description Validation Error */

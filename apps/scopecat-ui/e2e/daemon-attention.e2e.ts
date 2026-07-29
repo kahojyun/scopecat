@@ -14,6 +14,9 @@ interface ProjectDaemon {
 }
 
 interface ActiveConfigView {
+  activation: {
+    generation: number;
+  };
   config: Record<string, unknown>;
 }
 
@@ -113,7 +116,7 @@ test("handles naturally expired executors from the GUI", async ({ daemon, page }
     await page.request.get(`${daemon.baseUrl}/api/v1/config-registry/active`),
     "GET",
   );
-  const run = await startAbandonedRun(page, daemon.baseUrl, active.config, "expired");
+  const run = await startAbandonedRun(page, daemon.baseUrl, active, "expired");
 
   await expect(page.getByTitle(`Inspect run ${run.runId}`)).toContainText("Running");
   await assertResourceStatus(page, run, "Active");
@@ -150,23 +153,58 @@ test("handles naturally expired executors from the GUI", async ({ daemon, page }
 async function startAbandonedRun(
   page: Page,
   baseUrl: string,
-  config: Record<string, unknown>,
+  active: ActiveConfigView,
   suffix: string,
 ): Promise<AbandonedRun> {
   const experimentId = `scopecat.e2e.${suffix}`;
   const resourceId = `scope-${suffix}`;
   const executorId = `e2e-${suffix}`;
+  const config = active.config;
+  const system = config.system as Record<string, unknown>;
+  const registry = system.instrument_registry as Record<string, unknown>;
+  const runConfig = {
+    ...config,
+    system: {
+      ...system,
+      instrument_registry: {
+        ...registry,
+        instruments: [
+          {
+            id: resourceId,
+            exclusivity_key: `rack-a/${resourceId}`,
+            driver_id: "tests.e2e.instrument",
+            connection: { kind: "virtual" },
+            run_start: "preserve",
+          },
+        ],
+      },
+    },
+  };
+  await expectResponseOk(
+    await page.request.post(`${baseUrl}/api/v1/config-registry/default`, {
+      data: {
+        source: {
+          kind: "direct_config_profile",
+          config: runConfig,
+        },
+        actor: "e2e",
+        expected_generation: active.activation.generation,
+        entry_id: `e2e-${suffix}`,
+      },
+    }),
+    "POST",
+  );
   const admission = await checkedJson<RunAdmission>(
     await page.request.post(`${baseUrl}/api/v1/runs`, {
       data: {
         submission_id: `e2e-${suffix}`,
-        config,
+        config: runConfig,
         request: {},
         plan: {
           experiment_id: experimentId,
           experiment_kind: "scratch",
           point_count: 1,
-          run_resource_claims: [
+          run_resource_requirements: [
             {
               id: resourceId,
               kind: "instrument",

@@ -33,12 +33,14 @@ from scopecat.execution.ports.instruments import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.kernel.state import StateValue
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
 )
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
@@ -48,6 +50,7 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
@@ -99,6 +102,9 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                     run_id="run-1",
                     operation_id=command.operation_id,
                     status="ready",
+                    instrument_ids=("source-0",),
+                    observed_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
+                    prepared_state=(InstrumentStateSnapshot(instrument_id="source-0"),),
                 )
             )
         if path.endswith("/hardware/execute"):
@@ -157,6 +163,12 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
     journal = session.journal
     measurements = session.measurements
     instruments = session.instruments
+    assert instruments.observed_state == (
+        InstrumentStateSnapshot(instrument_id="source-0"),
+    )
+    assert instruments.prepared_state == (
+        InstrumentStateSnapshot(instrument_id="source-0"),
+    )
 
     batch = RunHardwareBatch(
         operation_id="hardware.batch-1",
@@ -165,7 +177,14 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> Non
                 effect_id="point-0.apply.source-0",
                 point_index=0,
                 instrument_id="source-0",
-                fields=(),
+                assignments=(
+                    InstrumentStateAssignment(
+                        resource_id="source-0",
+                        interface_id="test.set_frequency/v1",
+                        property_id="frequency",
+                        value=StateValue(Quantity(5.0, "GHz")),
+                    ),
+                ),
             ),
         ),
     )
@@ -314,7 +333,13 @@ def _measurement() -> MeasurementRecord:
         logical_point_id="point-0",
         point_index=0,
         coordinates={},
-        observables={"signal": Quantity(value=1.25, unit="ratio")},
+        observables={
+            "signal": MeasurementScalar.create(
+                dtype="float64",
+                value=1.25,
+                unit="ratio",
+            )
+        },
     )
 
 

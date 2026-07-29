@@ -29,15 +29,20 @@ def test_problem_is_deeply_frozen_and_json_round_trips() -> None:
         "authoring.missing_input",
         "required input is missing",
         phase=ProblemPhase.AUTHORING,
-        location=model_location("template", "inputs", "drive.frequency"),
-        related_locations=(model_location("module", "inputs", "drive.frequency"),),
-        details={"input_id": "drive.frequency", "accepted": ["float", "quantity"]},
+        location=model_location("template", "inputs", "test.drive_frequency/v1"),
+        related_locations=(
+            model_location("module", "inputs", "test.drive_frequency/v1"),
+        ),
+        details={
+            "input_id": "test.drive_frequency/v1",
+            "accepted": ["float", "quantity"],
+        },
         occurrence_id="problem-1",
     )
 
     assert selected.location == ModelLocation(
         root="template",
-        path=("inputs", "drive.frequency"),
+        path=("inputs", "test.drive_frequency/v1"),
     )
     assert selected.details["accepted"] == ("float", "quantity")
     with pytest.raises(TypeError, match="immutable"):
@@ -53,7 +58,7 @@ def test_problem_is_deeply_frozen_and_json_round_trips() -> None:
     assert restored == selected
     assert copied.details["nested"] == (1, 2)
     assert restored.model_dump(mode="json")["details"] == {
-        "input_id": "drive.frequency",
+        "input_id": "test.drive_frequency/v1",
         "accepted": ["float", "quantity"],
     }
 

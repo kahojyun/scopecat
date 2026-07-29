@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import cast
 
+from pydantic import JsonValue as WireJsonValue
+
+from scopecat.graph.relations.model import CellValue
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (
@@ -25,15 +31,18 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
 )
 from scopecat.records.measurement import (
-    CoordinateValue,
+    InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,
     MeasurementRecord,
+    MeasurementScalar,
+    MeasurementValue,
+    MeasurementVariableRole,
 )
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class MeasurementProjection:
-    """Closed pre-effect plan for observable measurement records."""
+    """Closed pre-effect plan for durable measurement variables."""
 
     catalog: MeasurementValueCatalog = field(repr=False)
     _records: tuple[RecordPlan, ...] = field(repr=False)
@@ -74,10 +83,7 @@ class MeasurementProjection:
         return expected_dataset_schema(
             experiment_id=self.catalog.point_contract.experiment_id,
             points=selected,
-            records=tuple(
-                replace(record, shape=(len(selected), *record.shape[1:]))
-                for record in self.records
-            ),
+            records=self.records,
         )
 
 
@@ -154,7 +160,6 @@ def select_measurement_projection(
             product_defs,
             product_uses,
             selected_records,
-            point_count=0,
         )
     )
     record_problems = validate_record_plan(
@@ -195,14 +200,26 @@ def project_measurement_records(
                 run_id=run_id,
                 logical_point_id=point.logical_id.value,
                 point_index=point.logical_ordinal,
-                coordinates=_point_coordinates(point.row, projection.coordinate_ids),
-                observables={
-                    record.id: values.value_for_output(
-                        point.logical_id,
-                        record.product_use_id,
-                    ).value
-                    for record in record_plans
+                coordinates={
+                    **_point_coordinates(point.row, projection.coordinate_ids),
+                    **_projected_values(
+                        record_plans,
+                        role="coordinate",
+                        product_values=values,
+                        point=point,
+                    ),
                 },
+                observables=_projected_values(
+                    record_plans,
+                    role="observable",
+                    product_values=values,
+                    point=point,
+                ),
+                acquisition_evidence=_projected_acquisition_evidence(
+                    record_plans,
+                    product_values=values,
+                    point=point,
+                ),
             )
             for point in points
         )
@@ -222,15 +239,47 @@ def _projection_contract_fingerprint(
     return stable_content_hash(
         content_fingerprint(
             {
-                "schema": "scopecat.measurements.projection_contract.v2",
+                "schema": "scopecat.measurements.projection_contract.v4",
                 "catalog_fingerprint": catalog_fingerprint,
-                "records": tuple(
-                    replace(record, shape=(0, *record.shape[1:])) for record in records
-                ),
+                "records": tuple(records),
                 "coordinate_ids": tuple(coordinate_ids),
             }
         )
     )
+
+
+def _projected_values(
+    records: Sequence[RecordPlan],
+    *,
+    role: MeasurementVariableRole,
+    product_values: ClosedMeasurementProductValues,
+    point: RunPoint,
+) -> dict[str, MeasurementValue]:
+    return {
+        record.id: product_values.value_for_output(
+            point.logical_id,
+            record.product_use_id,
+        ).value
+        for record in records
+        if record.role == role
+    }
+
+
+def _projected_acquisition_evidence(
+    records: Sequence[RecordPlan],
+    *,
+    product_values: ClosedMeasurementProductValues,
+    point: RunPoint,
+) -> dict[str, InstrumentAcquisitionEvidence]:
+    acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = {}
+    for record in records:
+        evidence = product_values.value_for_output(
+            point.logical_id,
+            record.product_use_id,
+        ).evidence
+        if evidence is not None:
+            acquisition_evidence[record.id] = evidence
+    return acquisition_evidence
 
 
 def _snapshot_measurement_records(
@@ -251,14 +300,45 @@ def _record_product_exists(
 
 
 def _point_coordinates(
-    row: Mapping[str, object],
+    row: Mapping[str, CellValue],
     coordinate_ids: Sequence[str],
-) -> dict[str, CoordinateValue]:
-    coordinates: dict[str, CoordinateValue] = {}
-    for coordinate_id in coordinate_ids:
-        value = row[coordinate_id]
-        coordinates[coordinate_id] = cast("CoordinateValue", deepcopy(value))
-    return coordinates
+) -> dict[str, MeasurementValue]:
+    return {
+        coordinate_id: _measurement_coordinate(row[coordinate_id])
+        for coordinate_id in coordinate_ids
+    }
+
+
+def _measurement_coordinate(value: CellValue) -> MeasurementScalar:
+    if isinstance(value, Quantity):
+        return MeasurementScalar.create(
+            dtype="float64",
+            unit=value.unit,
+            value=value.value,
+        )
+    if isinstance(value, EntityRef):
+        entity: dict[str, WireJsonValue] = {}
+        if value.kind is not None:
+            entity["kind"] = value.kind
+        if value.metadata:
+            entity["metadata"] = cast(
+                "WireJsonValue",
+                thaw_json_value(value.metadata),
+            )
+        return MeasurementScalar.create(
+            dtype="string",
+            value=value.id,
+            metadata={"entity": entity},
+        )
+    if isinstance(value, bool):
+        return MeasurementScalar.create(dtype="bool", value=value)
+    if isinstance(value, int):
+        return MeasurementScalar.create(dtype="int64", value=value)
+    if isinstance(value, float):
+        return MeasurementScalar.create(dtype="float64", value=value)
+    if isinstance(value, str):
+        return MeasurementScalar.create(dtype="string", value=value)
+    raise TypeError(f"unsupported persisted point coordinate: {type(value).__name__}")
 
 
 def _projection_problem(

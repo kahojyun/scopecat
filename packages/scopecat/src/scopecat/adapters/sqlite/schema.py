@@ -4,7 +4,7 @@ from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 14
+PROJECT_SCHEMA_VERSION = 17
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS scheduler_runs (
 CREATE INDEX IF NOT EXISTS scheduler_runs_state_sequence
 ON scheduler_runs(state, sequence);
 
-CREATE TABLE IF NOT EXISTS run_resource_requirements (
+CREATE TABLE IF NOT EXISTS run_resource_claims (
     run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
     resource_kind TEXT NOT NULL,
     resource_id TEXT NOT NULL,
@@ -93,15 +93,18 @@ CREATE TABLE IF NOT EXISTS instrument_sessions (
     config_entry_id TEXT NOT NULL,
     config_content_hash TEXT NOT NULL,
     instrument_ids_json TEXT NOT NULL,
+    exclusivity_keys_json TEXT NOT NULL,
     state TEXT NOT NULL CHECK (
         state IN ('active', 'attention_required', 'closed')
     ),
     acquired_at TEXT NOT NULL,
+    renewed_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
     attention_reason TEXT,
     active_operation_id TEXT,
     active_operation_kind TEXT CHECK (
         active_operation_kind IS NULL
-        OR active_operation_kind IN ('apply', 'collect')
+        OR active_operation_kind IN ('apply', 'invoke', 'collect')
     ),
     end_status TEXT CHECK (
         end_status IS NULL OR end_status IN ('closed', 'aborted')

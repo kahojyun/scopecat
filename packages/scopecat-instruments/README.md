@@ -3,11 +3,11 @@
 `scopecat-instruments` supplies Scopecat's config-driven provider for a focused
 set of real and virtual laboratory instruments. Device access is owned by the
 project daemon so notebooks, the GUI, and experiment runs share the same
-exclusive leases, capability validation, operation receipts, and audit trail.
+exclusive claims, interface validation, operation receipts, and audit trail.
 
 The configured connection kinds are:
 
-- `virtual`, for an in-process simulated device selected by `driver_id`;
+- `virtual`, for a deterministic simulated device selected by `driver_id`;
 - `tcpip_socket`, for a configured host, port, and timeout.
 
 ## Notebook use
@@ -17,39 +17,91 @@ required for direct instrument work:
 
 ```python
 import scopecat as sc
+from scopecat_instruments.members import (
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
+)
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
-        print(item.spec.id, item.availability)
+        print(item.instrument_id, item.availability)
 
     with lab.instruments.open("readout-vna") as vna:
         print(vna.describe())
-        print(vna.read_state())
+        print(vna.observed_state())
         vna.apply(
-            "network_sweep",
-            start_frequency=sc.Quantity(5.9, "GHz"),
-            stop_frequency=sc.Quantity(6.1, "GHz"),
-            points=401,
+            {
+                NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(5.9, "GHz"),
+                NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(6.1, "GHz"),
+                NETWORK_SWEEP_POINTS: 401,
+            }
         )
-        trace = vna.collect("network_sweep", "frequency", "s_parameter")
+        trace = vna.collect(
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_FREQUENCY_RESULT,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
+        )
 ```
 
-The context manager opens a renewable daemon-owned session and closes it on
-exit. Runs and interactive sessions compete for the same instrument lease.
-Consequential calls accept an explicit `operation_id` when a caller needs to
-retry the same logical operation.
+The member catalog carries interface, component, and member identity together.
+Public experiment authoring, Notebook, and driver call sites use these refs.
+Specs and serialized IR lower them to raw ids.
+
+The context manager opens a durable daemon-owned session and closes it on exit.
+Runs and interactive sessions compete for the same exclusive resource claim.
+Consequential calls retain their replay identity automatically while retrying a
+transient transport failure.
 
 ## Configuration
+
+The Instruments workspace reads the provider's driver catalog to add or
+configure a device. It exposes only supported connection kinds and typed driver
+options, can test a candidate connection before publishing it, and derives
+sparse startup-default fields from the probed interface description.
 
 Virtual instrument:
 
 ```json
 {
   "id": "flux",
+  "exclusivity_key": "flux",
   "driver_id": "scopecat.virtual.dc_source",
   "connection": {
     "kind": "virtual"
-  }
+  },
+  "default_state": [
+    {
+      "interface_id": "scopecat.dc_source/v2",
+      "property_id": "source_mode",
+      "value": "voltage"
+    },
+    {
+      "interface_id": "scopecat.dc_source/v2",
+      "property_id": "voltage_range",
+      "value": {
+        "value": 1,
+        "unit": "V"
+      }
+    },
+    {
+      "interface_id": "scopecat.dc_source/v2",
+      "property_id": "voltage_level",
+      "value": {
+        "value": 0,
+        "unit": "V"
+      }
+    },
+    {
+      "interface_id": "scopecat.dc_source/v2",
+      "property_id": "output_enabled",
+      "value": false
+    }
+  ],
+  "run_start": "apply_default_state"
 }
 ```
 
@@ -58,38 +110,62 @@ TCP/IP instrument:
 ```json
 {
   "id": "readout-lo",
+  "exclusivity_key": "readout-lo",
   "driver_id": "scopecat.rohde_schwarz.sgs100a",
   "connection": {
     "kind": "tcpip_socket",
     "host": "192.0.2.10",
     "port": 5025,
     "timeout_seconds": 5
-  }
+  },
+  "run_start": "preserve"
 }
 ```
 
-Connection `options` are intentionally narrow:
+Every run first synchronizes the device. `preserve` retains that observed
+state; `apply_default_state` then applies the saved partial public state.
+Unspecified and private driver settings remain untouched.
 
-- Yokogawa GS200: `monitor_option` (`bool`, default `false`);
+Driver snapshots contain complete public physical state. Experiment entity and
+channel bindings are routing provenance, not fields a driver reads back.
+
+The DC monitor acquisition is selected by DC source mode: voltage-source mode
+returns monitored current, while current-source mode returns monitored voltage.
+
+Each registered driver declares its connection kind and a strict options model.
+Unknown fields and coerced scalar values are rejected during configuration
+discovery:
+
+- Yokogawa GS200: `monitor_option` requests `/MON` support (`bool`, default
+  `false`) and is verified with `*OPT?` when the connection opens;
+- Yokogawa GS200: `remote_sense` and `guard_enabled` (`bool`, both default
+  `false`) declare the expected physical wiring profile. The driver verifies
+  them and never switches either setting automatically. Remote sense rejects
+  voltage ranges below 1 V;
 - Keysight E5080B: `channel` and `measurement` (positive integers, default `1`);
 - the other included drivers accept no options.
 
 The package supports these driver IDs:
 
-| Driver ID | Capability |
+| Driver ID | Interface |
 | --- | --- |
-| `scopecat.yokogawa.gs200` | DC source state and optional monitor readback |
-| `scopecat.rohde_schwarz.sgs100a` | CW RF source state |
-| `scopecat.lakeshore.372` | Read-only temperature and heater telemetry |
-| `scopecat.keysight.e5080b` | Linear S-parameter sweep and complex trace |
-| `scopecat.virtual.rf_source` | Virtual CW RF source |
-| `scopecat.virtual.dc_source` | Virtual DC source |
-| `scopecat.virtual.temperature_monitor` | Virtual temperature monitor |
-| `scopecat.virtual.vna` | Virtual network analyzer |
+| `scopecat.yokogawa.gs200` | `scopecat.dc_source/v2`; optional `scopecat.dc_monitor/v3` |
+| `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v1` |
+| `scopecat.lakeshore.372` | `scopecat.temperature_readout/v1` |
+| `scopecat.keysight.e5080b` | `scopecat.network_sweep/v1` |
+| `scopecat.virtual.rf_source` | `scopecat.rf_output/v1` |
+| `scopecat.virtual.dc_source` | `scopecat.dc_source/v2`, `scopecat.dc_monitor/v3` |
+| `scopecat.virtual.temperature_monitor` | `scopecat.temperature_readout/v1` |
+| `scopecat.virtual.vna` | `scopecat.network_sweep/v1` |
 
 The real-device implementations are deliberately minimal. Verify firmware,
 installed options, limits, cabling, and interlocks for the specific laboratory
 before enabling hardware outputs.
+
+SCPI drivers depend on the transport protocol and typed query helpers in
+`scopecat.sdk.instruments.scpi`; this package supplies the concrete TCP
+transport. Parsing failures therefore retain the command that produced the
+invalid response.
 
 ## Application composition
 
@@ -107,11 +183,18 @@ sessions.
 
 ## Driver tests
 
+Driver implementations exchange `DriverState`, `DriverStatePatch`,
+`DriverOperation`, `DriverAcquisition`, and `DriverReadback`. They return
+`DriverSuccess`, `DriverRejected`, or `DriverUnknown`; the worker owns
+snapshot/readback envelopes, receipt status strings, and collection request
+IDs. This keeps the authoring contract unchanged when drivers move between
+local and isolated worker hosts.
+
 Transcript helpers live in the explicit testing module:
 
 ```python
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 ```
 
-`ScriptedTransport` asserts an ordered command/response transcript, while
-`RecordingTransport` records traffic around another test transport.
+`ScriptedTransport` asserts an ordered command/response transcript and verifies
+that every expected exchange was consumed.

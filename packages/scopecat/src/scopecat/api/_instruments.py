@@ -3,29 +3,100 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
+from threading import Event, Lock, Thread
 from types import TracebackType
 from typing import Self
 from uuid import uuid4
+from weakref import finalize
 
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
-from scopecat.kernel.state import StateLiteral, StateValue
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.state import PayloadRef, StateLiteral, StateValue
+from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
-    CollectAxisRequest,
-    CollectCommand,
-    CollectProductRequest,
     CollectReceipt,
-    InstrumentDescription,
+    InstrumentOperationArgument,
+    InstrumentStateAssignment,
     InstrumentStateCommand,
-    InstrumentStateCommandField,
+    InteractiveCollectIntent,
+    InvokeCommand,
+    InvokeReceipt,
 )
+from scopecat.sdk.instruments.contracts import InstrumentDescription
+from scopecat.sdk.instruments.members import (
+    AcquisitionRef,
+    AcquisitionResultRef,
+    OperationArgumentRef,
+    OperationRef,
+    PropertyRef,
+)
+
+type OperationArgumentValue = (
+    bool | int | float | str | Quantity | StateValue | CommandPayload
+)
+
+_HEARTBEAT_JOIN_SECONDS = 0.2
+
+
+class _InstrumentSessionHeartbeat:
+    def __init__(
+        self,
+        client: DaemonClient,
+        session: InstrumentSessionOpenReceipt,
+    ) -> None:
+        self._client = client
+        self._session_id = session.session_id
+        self._initial_renewal_at = (
+            session.renewed_at + (session.expires_at - session.renewed_at) / 3
+        )
+        self._stop = Event()
+        self._lock = Lock()
+        self._failure: Exception | None = None
+        self._thread = Thread(
+            target=self._run,
+            name="scopecat-instrument-session-heartbeat",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def require_live(self) -> None:
+        with self._lock:
+            failure = self._failure
+        if failure is not None:
+            raise RuntimeError("instrument session lease renewal failed") from failure
+
+    def request_stop(self) -> None:
+        self._stop.set()
+
+    def close(self) -> None:
+        self.request_stop()
+        self._thread.join(timeout=_HEARTBEAT_JOIN_SECONDS)
+
+    def _run(self) -> None:
+        renewal_at = self._initial_renewal_at
+        while not self._stop.wait(
+            max((renewal_at - datetime.now(UTC)).total_seconds(), 0.0)
+        ):
+            try:
+                lease = self._client.renew_instrument_session(self._session_id)
+            except Exception as error:
+                with self._lock:
+                    self._failure = error
+                return
+            renewal_at = lease.renewed_at + (lease.expires_at - lease.renewed_at) / 3
 
 
 class LabInstrumentOperations:
@@ -46,28 +117,20 @@ class LabInstrumentOperations:
     def get(self, instrument_id: str) -> InstrumentView:
         return self._client.get_instrument(instrument_id)
 
-    def abort_session(self, session_id: str) -> InstrumentSessionEndReceipt:
-        """Abort and release a daemon-owned session by id."""
-
-        return self._client.abort_instrument_session(session_id)
-
     def open(
         self,
         instrument_id: str,
         *additional_instrument_ids: str,
-        actor: str | None = None,
-        operation_id: str | None = None,
     ) -> InstrumentSessionHandle:
         return InstrumentSessionHandle(
             client=self._client,
             instrument_ids=(instrument_id, *additional_instrument_ids),
-            actor=actor or self._operator,
-            open_operation_id=operation_id,
+            actor=self._operator,
         )
 
 
 class InstrumentSessionHandle:
-    """Context-managed direct access to one or more live drivers."""
+    """Context-managed direct ownership of one or more instruments."""
 
     def __init__(
         self,
@@ -75,7 +138,6 @@ class InstrumentSessionHandle:
         client: DaemonClient,
         instrument_ids: tuple[str, ...],
         actor: str,
-        open_operation_id: str | None = None,
     ) -> None:
         if not instrument_ids or any(not item for item in instrument_ids):
             raise ValueError("direct interaction requires non-empty instrument ids")
@@ -86,12 +148,10 @@ class InstrumentSessionHandle:
         self._client = client
         self._instrument_ids = instrument_ids
         self._actor = actor
-        self._open_operation_id = _select_operation_id(
-            open_operation_id,
-            kind="open",
-            subject=instrument_ids[0],
-        )
+        self._open_operation_id = _new_command_id("open", instrument_ids[0])
         self._session: InstrumentSessionOpenReceipt | None = None
+        self._heartbeat: _InstrumentSessionHeartbeat | None = None
+        self._heartbeat_finalizer: finalize[[], Self] | None = None
         self._ended = False
 
     def __enter__(self) -> Self:
@@ -114,10 +174,6 @@ class InstrumentSessionHandle:
     def instrument_ids(self) -> tuple[str, ...]:
         return self._instrument_ids
 
-    @property
-    def session_id(self) -> str:
-        return self._require_session().session_id
-
     def describe(
         self,
         instrument_id: str | None = None,
@@ -128,6 +184,20 @@ class InstrumentSessionHandle:
             description
             for description in session.descriptions
             if description.instrument_id == selected
+        )
+
+    def observed_state(
+        self,
+        instrument_id: str | None = None,
+    ) -> InstrumentStateSnapshot:
+        """Return the state observed when this session opened."""
+
+        selected = self._selected_instrument_id(instrument_id)
+        session = self._require_session()
+        return next(
+            state.model_copy(deep=True)
+            for state in session.observed_state
+            if state.instrument_id == selected
         )
 
     def read_state(
@@ -141,41 +211,48 @@ class InstrumentSessionHandle:
             selected,
         )
 
+    def apply_configured_defaults(
+        self,
+        *,
+        instrument_id: str | None = None,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        """Apply sparse defaults pinned at session open without resetting hardware."""
+
+        selected = self._selected_instrument_id(instrument_id)
+        session = self._require_session()
+        return self._client.apply_instrument_configured_defaults(
+            session.session_id,
+            selected,
+            InstrumentConfiguredDefaultsApplyCommand(
+                operation_id=_new_command_id("configured_defaults", selected)
+            ),
+        )
+
     def apply(
         self,
-        capability_id: str,
-        values: Mapping[str, StateLiteral | StateValue] | None = None,
+        values: Mapping[PropertyRef, StateLiteral | StateValue],
         /,
         *,
         instrument_id: str | None = None,
-        operation_id: str | None = None,
-        **fields: StateLiteral | StateValue,
     ) -> ApplyReceipt:
-        if values is not None and fields:
-            raise ValueError("pass state fields as a mapping or keyword values")
-        selected_values = dict(values or fields)
-        if not selected_values:
-            raise ValueError("interactive apply requires at least one field")
+        if not values:
+            raise ValueError("interactive apply requires at least one property")
         selected = self._selected_instrument_id(instrument_id)
         session = self._require_session()
-        selected_operation_id = _select_operation_id(
-            operation_id,
-            kind="apply",
-            subject=selected,
-        )
         command = InstrumentStateCommand(
-            operation_id=selected_operation_id,
+            command_id=_new_command_id("apply", selected),
             instrument_id=selected,
-            fields=[
-                InstrumentStateCommandField(
+            assignments=[
+                InstrumentStateAssignment(
                     resource_id=selected,
-                    capability_id=capability_id,
-                    field_path=field_path,
+                    interface_id=target.interface_id,
+                    component_path=list(target.component_path),
+                    property_id=target.property_id,
                     value=(
                         value if isinstance(value, StateValue) else StateValue(value)
                     ),
                 )
-                for field_path, value in selected_values.items()
+                for target, value in values.items()
             ],
         )
         return self._client.apply_instrument_state(
@@ -184,68 +261,83 @@ class InstrumentSessionHandle:
             command,
         )
 
+    def invoke(
+        self,
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, OperationArgumentValue] | None = None,
+        /,
+        *,
+        instrument_id: str | None = None,
+    ) -> InvokeReceipt:
+        selected_arguments = dict(arguments or {})
+        if any(target.operation != operation for target in selected_arguments):
+            raise ValueError(
+                "operation arguments must belong to the selected operation"
+            )
+        selected = self._selected_instrument_id(instrument_id)
+        session = self._require_session()
+        payloads: dict[str, CommandPayload] = {}
+        for value in selected_arguments.values():
+            if not isinstance(value, CommandPayload):
+                continue
+            previous = payloads.setdefault(value.id, value)
+            if previous != value:
+                raise ValueError(
+                    f"operation payload id {value.id!r} has different content"
+                )
+        command = InvokeCommand(
+            command_id=_new_command_id("invoke", selected),
+            instrument_id=selected,
+            resource_id=selected,
+            interface_id=operation.interface_id,
+            component_path=list(operation.component_path),
+            operation_id=operation.operation_id,
+            arguments=[
+                InstrumentOperationArgument(
+                    id=target.argument_id,
+                    value=(
+                        value
+                        if isinstance(value, StateValue)
+                        else (
+                            StateValue(PayloadRef(payload_id=value.id))
+                            if isinstance(value, CommandPayload)
+                            else StateValue(value)
+                        )
+                    ),
+                )
+                for target, value in selected_arguments.items()
+            ],
+            payloads=payloads,
+        )
+        return self._client.invoke_instrument(
+            session.session_id,
+            selected,
+            command,
+        )
+
     def collect(
         self,
-        capability_id: str,
-        *product_ids: str,
+        acquisition: AcquisitionRef,
+        *results: AcquisitionResultRef,
         instrument_id: str | None = None,
-        operation_id: str | None = None,
     ) -> CollectReceipt:
         selected = self._selected_instrument_id(instrument_id)
-        description = self.describe(selected)
-        capability = next(
-            (item for item in description.capabilities if item.id == capability_id),
-            None,
-        )
-        if capability is None:
-            raise ValueError(
-                f"instrument {selected} has no capability {capability_id!r}"
-            )
-        products = {item.key: item for item in capability.products}
-        selected_product_ids = product_ids or tuple(products)
-        missing = tuple(
-            product_id
-            for product_id in selected_product_ids
-            if product_id not in products
-        )
-        if missing:
-            raise ValueError(
-                f"capability {capability_id!r} has no products: {', '.join(missing)}"
-            )
+        if any(result.acquisition != acquisition for result in results):
+            raise ValueError("collect results must belong to the selected acquisition")
+
         session = self._require_session()
-        command = CollectCommand(
-            operation_id=_select_operation_id(
-                operation_id,
-                kind="collect",
-                subject=selected,
-            ),
+        intent = InteractiveCollectIntent(
+            command_id=_new_command_id("collect", selected),
             instrument_id=selected,
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectProductRequest(
-                    id=product_id,
-                    capability_id=capability_id,
-                    unit=products[product_id].unit,
-                    dtype=products[product_id].dtype,
-                    dimensions=[
-                        CollectAxisRequest(
-                            id=axis.id,
-                            kind=axis.kind,
-                            size=axis.size,
-                            unit=axis.unit,
-                        )
-                        for axis in products[product_id].axes
-                        if axis.size is not None
-                    ],
-                )
-                for product_id in selected_product_ids
-            ],
+            interface_id=acquisition.interface_id,
+            component_path=list(acquisition.component_path),
+            acquisition_id=acquisition.acquisition_id,
+            result_ids=[result.result_id for result in results],
         )
         return self._client.collect_instrument(
             session.session_id,
             selected,
-            command,
+            intent,
         )
 
     def close(
@@ -275,20 +367,42 @@ class InstrumentSessionHandle:
             else self._client.close_instrument_session(session.session_id)
         )
         self._ended = True
+        self._stop_heartbeat()
         return receipt
 
     def _ensure_open(self) -> InstrumentSessionOpenReceipt:
         if self._ended:
             raise RuntimeError("instrument session is already closed")
-        if self._session is None:
-            self._session = self._client.open_instrument_session(
+        session = self._session
+        if session is None:
+            session = self._client.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id=self._open_operation_id,
                     actor=self._actor,
                     instrument_ids=self._instrument_ids,
                 )
             )
-        return self._session
+            heartbeat = _InstrumentSessionHeartbeat(self._client, session)
+            self._session = session
+            self._heartbeat = heartbeat
+            self._heartbeat_finalizer = finalize(self, heartbeat.request_stop)
+            heartbeat.start()
+        else:
+            heartbeat = self._heartbeat
+            assert heartbeat is not None
+            heartbeat.require_live()
+        return session
+
+    def _stop_heartbeat(self) -> None:
+        heartbeat = self._heartbeat
+        if heartbeat is None:
+            return
+        heartbeat.close()
+        finalizer = self._heartbeat_finalizer
+        if finalizer is not None:
+            finalizer.detach()
+        self._heartbeat = None
+        self._heartbeat_finalizer = None
 
     def _require_session(self) -> InstrumentSessionOpenReceipt:
         return self._ensure_open()
@@ -303,24 +417,12 @@ class InstrumentSessionHandle:
         return instrument_id
 
 
-def _operation_id(kind: str, subject: str) -> str:
+def _new_command_id(kind: str, subject: str) -> str:
     return f"interactive.{kind}.{subject}.{uuid4().hex}"
-
-
-def _select_operation_id(
-    requested: str | None,
-    *,
-    kind: str,
-    subject: str,
-) -> str:
-    if requested is None:
-        return _operation_id(kind, subject)
-    if not requested:
-        raise ValueError("instrument operation id must be non-empty")
-    return requested
 
 
 __all__ = [
     "InstrumentSessionHandle",
     "LabInstrumentOperations",
+    "OperationArgumentValue",
 ]

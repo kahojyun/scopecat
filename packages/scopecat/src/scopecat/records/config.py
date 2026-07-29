@@ -16,6 +16,11 @@ from pydantic import (
 )
 
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.records.instrument import (
+    InstrumentPropertyState,
+    property_target_identity,
+)
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterSnapshot,
@@ -83,15 +88,62 @@ type InstrumentConnection = Annotated[
 ]
 
 
-class InstrumentSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class InstrumentBindingSpec(BaseModel):
+    """Provider-visible identity and connection for one configured instrument."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: Annotated[str, Field(min_length=1)]
     driver_id: Annotated[str, Field(min_length=1)]
     connection: InstrumentConnection
 
 
+type InstrumentRunStartPolicy = Literal["preserve", "apply_default_state"]
+
+
+class InstrumentSpec(BaseModel):
+    """Configured instrument with a stable physical access domain.
+
+    Defaults are sparse patches over freshly observed state.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: Annotated[str, Field(min_length=1)]
+    exclusivity_key: Annotated[str, Field(min_length=1)]
+    driver_id: Annotated[str, Field(min_length=1)]
+    connection: InstrumentConnection
+    default_state: list[InstrumentPropertyState] = Field(default_factory=list)
+    run_start: InstrumentRunStartPolicy
+
+    @field_validator("default_state")
+    @classmethod
+    def validate_unique_default_targets(
+        cls,
+        value: list[InstrumentPropertyState],
+    ) -> list[InstrumentPropertyState]:
+        identities = [
+            property_target_identity(
+                item.interface_id,
+                item.component_path,
+                item.property_id,
+            )
+            for item in value
+        ]
+        if len(identities) != len(set(identities)):
+            raise ValueError("default state property targets must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def validate_run_start(self) -> InstrumentSpec:
+        if self.run_start == "apply_default_state" and not self.default_state:
+            raise ValueError("apply_default_state requires a non-empty default state")
+        return self
+
+
 class InstrumentRegistry(BaseModel):
+    """Logical instruments with one owner for each physical access domain."""
+
     model_config = ConfigDict(extra="forbid")
 
     instruments: list[InstrumentSpec]
@@ -99,7 +151,11 @@ class InstrumentRegistry(BaseModel):
     @field_validator("instruments")
     @classmethod
     def validate_instruments(cls, value: list[InstrumentSpec]) -> list[InstrumentSpec]:
-        return _ensure_unique(value, "instrument")
+        instruments = _ensure_unique(value, "instrument")
+        exclusivity_keys = [instrument.exclusivity_key for instrument in instruments]
+        if len(exclusivity_keys) != len(set(exclusivity_keys)):
+            raise ValueError("instrument exclusivity keys must be unique")
+        return instruments
 
 
 class RoutingEndpointBinding(BaseModel):
@@ -114,7 +170,7 @@ class RoutingEndpointBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instrument_id: str = Field(min_length=1)
-    capability: str = Field(min_length=1)
+    interface_id: InterfaceId
     entity_id: str | None = None
     channel_id: str | None = None
 
@@ -122,7 +178,7 @@ class RoutingEndpointBinding(BaseModel):
 class RoutingGraph(BaseModel):
     """Finite static endpoint index stored in an accepted system snapshot.
 
-    Planning may project logical capability and entity selections through this
+    Planning may project logical interface and entity selections through this
     index, but it never uses it for live availability, load balancing, or
     implicit failover.
     """
@@ -140,7 +196,7 @@ class RoutingGraph(BaseModel):
         for binding in value:
             identity = (
                 binding.instrument_id,
-                binding.capability,
+                binding.interface_id,
                 binding.entity_id,
                 binding.channel_id,
             )
@@ -148,7 +204,7 @@ class RoutingGraph(BaseModel):
                 msg = (
                     "duplicate routing endpoint binding: "
                     f"instrument={binding.instrument_id}, "
-                    f"capability={binding.capability}, "
+                    f"interface={binding.interface_id}, "
                     f"entity={binding.entity_id}, channel={binding.channel_id}"
                 )
                 raise ValueError(msg)
@@ -237,6 +293,21 @@ class ConfigProfileSnapshot(BaseModel):
     @property
     def parameter_catalog(self) -> ParameterCatalog:
         return self.system.parameter_catalog
+
+
+def instrument_bindings(
+    config: ConfigProfileSnapshot,
+) -> tuple[InstrumentBindingSpec, ...]:
+    """Project configured instruments onto the provider-visible binding ABI."""
+
+    return tuple(
+        InstrumentBindingSpec(
+            id=instrument.id,
+            driver_id=instrument.driver_id,
+            connection=instrument.connection.model_copy(deep=True),
+        )
+        for instrument in config.instrument_registry.instruments
+    )
 
 
 def snapshot_config_profile(

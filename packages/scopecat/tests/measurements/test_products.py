@@ -31,6 +31,7 @@ from scopecat.measurements.records import (
     RecordUse,
     validate_record_plan,
 )
+from scopecat.measurements.results import MeasurementDType
 from scopecat.records.config import RoutingGraph
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
@@ -48,6 +49,67 @@ def _product(name: str = "signal") -> ProductDef:
     )
 
 
+@pytest.mark.parametrize("dtype", ["bool", "string"])
+def test_bool_and_string_products_reject_units(
+    dtype: MeasurementDType,
+) -> None:
+    with pytest.raises(ValueError, match="cannot have a unit"):
+        ProductDef(
+            id=product_id("invalid"),
+            dtype=dtype,
+            unit="ratio",
+        )
+
+
+def test_product_axes_require_distinct_non_point_dimensions() -> None:
+    first = ProductAxisDef(
+        id="i",
+        dimension_id="shared/sample",
+        kind="sample",
+        size=2,
+    )
+    second = ProductAxisDef(
+        id="q",
+        dimension_id="shared/sample",
+        kind="sample",
+        size=2,
+    )
+
+    with pytest.raises(ValueError, match="distinct dataset dimensions"):
+        ProductDef(
+            id=product_id("invalid"),
+            axes=(first, second),
+        )
+    with pytest.raises(ValueError, match="dimension id point is reserved"):
+        ProductAxisDef(
+            id="sample",
+            dimension_id="point",
+            kind="sample",
+            size=2,
+        )
+
+
+def test_product_axes_require_distinct_acquisition_local_ids() -> None:
+    with pytest.raises(ValueError, match="distinct acquisition-local ids"):
+        ProductDef(
+            id=product_id("invalid"),
+            axes=(
+                ProductAxisDef(
+                    id="sample",
+                    dimension_id="product/invalid/first",
+                    kind="sample",
+                    size=2,
+                ),
+                ProductAxisDef(
+                    id="sample",
+                    dimension_id="product/invalid/second",
+                    kind="sample",
+                    size=2,
+                ),
+            ),
+        )
+
+
 def _program(
     *,
     products: tuple[ProductDef, ...],
@@ -55,13 +117,13 @@ def _program(
     uses: tuple[ProductUse, ...] = (),
     records: tuple[RecordUse, ...] = (),
 ) -> CoreProgram:
-    capabilities_by_port: dict[LogicalResourcePortId, set[str]] = {}
+    interfaces_by_port: dict[LogicalResourcePortId, set[str]] = {}
     for acquisition in acquisitions:
-        capabilities = capabilities_by_port.setdefault(
+        interfaces = interfaces_by_port.setdefault(
             acquisition.resource_port_id,
             set(),
         )
-        capabilities.add(acquisition.capability_id)
+        interfaces.add(acquisition.interface_id)
     return CoreProgram(
         id="product-ir",
         kind="compiler_test",
@@ -69,9 +131,9 @@ def _program(
         resource_requirements=tuple(
             LogicalResourceRequirement(
                 port_id=port_id,
-                capabilities=tuple(sorted(capabilities)),
+                interfaces=tuple(sorted(interfaces)),
             )
-            for port_id, capabilities in capabilities_by_port.items()
+            for port_id, interfaces in interfaces_by_port.items()
         ),
         effects=acquisitions,
         product_defs=products,
@@ -87,6 +149,8 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
     }
     axis = ProductAxisDef(
         id="shot",
+        dimension_id="product/signal/shot",
+        dimension_label="shot",
         kind="shot",
         size=2,
         metadata=metadata,
@@ -98,13 +162,14 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
     )
     acquisition = instrument_acquisition(
         product,
-        capability="scalar_signal",
+        interface="test.scalar_signal/v1",
         metadata=metadata,
     )
     use = product_use(product.id)
     record_use = RecordUse(id="signal", product_use_id=use.id, metadata=metadata)
     record_axis = RecordAxisPlan(
-        id="shot",
+        id="product/signal/shot",
+        label="shot",
         kind="shot",
         size=2,
         metadata=metadata,
@@ -123,7 +188,7 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
     for selected in (
         axis.metadata,
         product.metadata,
-        acquisition.products[0].metadata,
+        acquisition.results[0].metadata,
         record_use.metadata,
         record_axis.metadata,
         record_plan.metadata,
@@ -159,11 +224,36 @@ def test_record_plan_boundary_rejects_duplicate_and_coordinate_ids() -> None:
     ]
 
 
+def test_record_plan_rejects_variable_and_inner_dimension_collision() -> None:
+    product = _product()
+    use = product_use(product.id)
+    record = RecordPlan(
+        id="signal",
+        product_use_id=use.id,
+        product_id=product.id,
+        dtype=product.dtype,
+        axes=(
+            RecordAxisPlan(
+                id="signal",
+                label="sample",
+                kind="sample",
+                size=2,
+            ),
+        ),
+    )
+
+    problems = validate_record_plan((record,))
+
+    assert [problem.code for problem in problems] == [
+        "experiment_record_dimension_collision"
+    ]
+
+
 def test_record_aliases_share_one_product_realization() -> None:
     product = _product()
     acquisition = instrument_acquisition(
         product,
-        capability="scalar_signal",
+        interface="test.scalar_signal/v1",
         metadata={"producer": "signal"},
     )
     use = product_use(product.id)
@@ -200,8 +290,8 @@ def test_one_provider_result_fans_out_to_every_use_of_the_product() -> None:
     product = _product()
     acquisition = instrument_acquisition(
         product,
-        capability="scalar_signal",
-        provider_key="raw-signal",
+        interface="test.scalar_signal/v1",
+        result_id="raw-signal",
     )
     direct_use = ProductUse(product_id=product.id, id=ProductUseId("direct"))
     postprocessor_use = ProductUse(
@@ -233,19 +323,21 @@ def test_multi_product_acquisition_lowers_to_one_instrument_command() -> None:
     first_acquisition = instrument_acquisition(
         first,
         id="read-both",
-        capability="scalar_signal",
-        provider_key="first-key",
+        interface="test.scalar_signal/v1",
+        result_id="first-key",
     )
     second_acquisition = instrument_acquisition(
         second,
-        capability="scalar_signal",
-        provider_key="second-key",
+        interface="test.scalar_signal/v1",
+        result_id="second-key",
     )
     acquisition = AcquireEffect(
         id=first_acquisition.id,
         resource_port_id=first_acquisition.resource_port_id,
-        capability_id="scalar_signal",
-        products=(*first_acquisition.products, *second_acquisition.products),
+        interface_id="test.scalar_signal/v1",
+        component_path=(),
+        acquisition_id="sample",
+        results=(*first_acquisition.results, *second_acquisition.results),
     )
     first_use = product_use(first.id)
     second_use = product_use(second.id)
@@ -286,12 +378,12 @@ def test_ordered_acquisitions_on_one_instrument_have_distinct_operation_ids() ->
                     instrument_acquisition(
                         first,
                         id="before",
-                        capability="scalar_signal",
+                        interface="test.scalar_signal/v1",
                     ),
                     instrument_acquisition(
                         second,
                         id="after",
-                        capability="scalar_signal",
+                        interface="test.scalar_signal/v1",
                     ),
                 ),
                 uses=(first_use, second_use),
@@ -309,7 +401,7 @@ def test_ordered_acquisitions_on_one_instrument_have_distinct_operation_ids() ->
 
 def test_record_policy_does_not_change_collection_request() -> None:
     product = _product()
-    acquisition = instrument_acquisition(product, capability="scalar_signal")
+    acquisition = instrument_acquisition(product, interface="test.scalar_signal/v1")
     use = product_use(product.id)
     first = _program(
         products=(product,),
@@ -341,7 +433,7 @@ def test_record_policy_does_not_change_collection_request() -> None:
 
 def test_unused_product_acquisition_is_linked_without_collection() -> None:
     product = _product()
-    acquisition = instrument_acquisition(product, capability="scalar_signal")
+    acquisition = instrument_acquisition(product, interface="test.scalar_signal/v1")
     config = load_config()
     config = config.model_copy(
         update={"system": config.system.model_copy(update={"routing": RoutingGraph()})}
@@ -363,7 +455,7 @@ def test_unused_product_acquisition_is_linked_without_collection() -> None:
 
 def test_unrecorded_product_use_is_still_realized_once() -> None:
     product = _product()
-    acquisition = instrument_acquisition(product, capability="scalar_signal")
+    acquisition = instrument_acquisition(product, interface="test.scalar_signal/v1")
     use = product_use(product.id)
 
     plan = materialize_local_execution(

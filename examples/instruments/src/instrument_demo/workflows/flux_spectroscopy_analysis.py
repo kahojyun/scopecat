@@ -12,10 +12,14 @@ from instrument_demo.configuration import (
     RESONANCE_FREQUENCY_PARAMETER_ID,
     RESONATOR_LINEWIDTH_PARAMETER_ID,
 )
+from scopecat.measurements.results import (
+    MeasurementDataset,
+    Trace,
+    measurement_traces,
+)
 from scopecat.records.measurement import (
-    ComplexQuantity,
-    MeasurementArray,
     MeasurementRecord,
+    MeasurementScalar,
 )
 
 FLUX_SPECTROSCOPY_ANALYSIS_ID = "instrument_demo.flux_spectroscopy.analysis"
@@ -43,20 +47,16 @@ class ResonatorTraceFit:
 
 
 def fit_resonator_trace(
-    frequencies: Sequence[sc.Quantity],
-    samples: Sequence[ComplexQuantity],
+    frequencies_hz: Sequence[float],
+    samples: Sequence[complex],
     *,
     dc_bias: sc.Quantity,
     temperature: sc.Quantity,
 ) -> ResonatorTraceFit:
     """Extract a notch center and loaded linewidth from one complex trace."""
 
-    frequency_hz = tuple(_quantity_value(value, "Hz") for value in frequencies)
-    complex_samples = tuple(
-        complex(value.real, value.imag) for value in samples if value.unit == "ratio"
-    )
-    if len(complex_samples) != len(samples):
-        raise ValueError("S-parameter samples must use the ratio unit")
+    frequency_hz = tuple(float(value) for value in frequencies_hz)
+    complex_samples = tuple(complex(value) for value in samples)
     if len(frequency_hz) != len(complex_samples):
         raise ValueError("frequency and S-parameter arrays must have equal length")
     if len(frequency_hz) < 7:
@@ -105,13 +105,21 @@ def fit_resonator_trace(
 
 
 def fit_flux_spectroscopy(
-    records: Sequence[MeasurementRecord],
+    dataset: MeasurementDataset,
 ) -> tuple[ResonatorTraceFit, ...]:
     """Fit every persisted bias point in one spectroscopy dataset."""
 
-    if not records:
+    if not dataset.records:
         raise ValueError("flux spectroscopy analysis requires measurement records")
-    return tuple(_fit_record(record) for record in records)
+    records = {record.point_index: record for record in dataset.records}
+    return tuple(
+        _fit_record(records[trace.point_index], trace)
+        for trace in measurement_traces(
+            dataset,
+            coordinate="frequency",
+            observable="s_parameter",
+        )
+    )
 
 
 @sc.analysis_step(id=FLUX_SPECTROSCOPY_ANALYSIS_ID)
@@ -119,7 +127,7 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     """Fit the resonator curve and propose reviewed readout parameters."""
 
     measurements = context.data.measurements()
-    fits = fit_flux_spectroscopy(measurements.dataset.records)
+    fits = fit_flux_spectroscopy(measurements.dataset)
     sweet_spot = max(
         fits,
         key=lambda fit: _quantity_value(fit.resonance_frequency, "Hz"),
@@ -170,63 +178,35 @@ def flux_spectroscopy_analysis(context: sc.AnalysisContext) -> sc.Analysis:
     )
 
 
-def _fit_record(record: MeasurementRecord) -> ResonatorTraceFit:
+def _fit_record(record: MeasurementRecord, trace: Trace) -> ResonatorTraceFit:
     try:
         dc_bias = record.coordinates["dc_bias"]
-        frequency = record.observables["frequency"]
-        s_parameter = record.observables["s_parameter"]
         temperature = record.observables["temperature"]
     except KeyError as error:
         raise ValueError(
             "run does not contain the flux-spectroscopy measurement schema"
         ) from error
-    if not isinstance(dc_bias, sc.Quantity):
-        raise TypeError("dc_bias coordinates must be quantities")
-    if not isinstance(temperature, sc.Quantity):
-        raise TypeError("temperature observations must be quantities")
-    frequencies = _quantity_array(frequency, dtype="float64", unit="Hz")
-    samples = _complex_array(s_parameter, unit="ratio")
+    if not isinstance(dc_bias, MeasurementScalar):
+        raise TypeError("dc_bias coordinates must be measurement scalars")
+    if not isinstance(temperature, MeasurementScalar):
+        raise TypeError("temperature observations must be measurement scalars")
     return fit_resonator_trace(
-        frequencies,
-        samples,
-        dc_bias=dc_bias,
-        temperature=temperature,
+        tuple(float(value) for value in trace.x),
+        tuple(complex(value) for value in trace.y),
+        dc_bias=_measurement_quantity(dc_bias, "dc_bias"),
+        temperature=_measurement_quantity(temperature, "temperature"),
     )
 
 
-def _quantity_array(
-    value: object,
-    *,
-    dtype: str,
-    unit: str,
-) -> tuple[sc.Quantity, ...]:
-    if not isinstance(value, MeasurementArray):
-        raise TypeError("frequency observations must be measurement arrays")
-    if value.dtype != dtype or value.unit != unit or len(value.shape) != 1:
-        raise TypeError("frequency observations have the wrong array contract")
-    selected: list[sc.Quantity] = []
-    for item in value.values:
-        if not isinstance(item, sc.Quantity):
-            raise TypeError("frequency array leaves must be quantities")
-        selected.append(item)
-    return tuple(selected)
-
-
-def _complex_array(
-    value: object,
-    *,
-    unit: str,
-) -> tuple[ComplexQuantity, ...]:
-    if not isinstance(value, MeasurementArray):
-        raise TypeError("S-parameter observations must be measurement arrays")
-    if value.dtype != "complex128" or value.unit != unit or len(value.shape) != 1:
-        raise TypeError("S-parameter observations have the wrong array contract")
-    selected: list[ComplexQuantity] = []
-    for item in value.values:
-        if not isinstance(item, ComplexQuantity):
-            raise TypeError("S-parameter array leaves must be complex quantities")
-        selected.append(item)
-    return tuple(selected)
+def _measurement_quantity(value: MeasurementScalar, name: str) -> sc.Quantity:
+    if (
+        value.dtype not in {"float64", "int64"}
+        or isinstance(value.value, bool)
+        or not isinstance(value.value, int | float)
+        or value.unit is None
+    ):
+        raise TypeError(f"{name} must be a numeric scalar with a unit")
+    return sc.Quantity(float(value.value), value.unit)
 
 
 def _fit_row(fit: ResonatorTraceFit) -> dict[str, object]:

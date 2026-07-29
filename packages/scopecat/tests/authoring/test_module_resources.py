@@ -16,27 +16,42 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
+from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.materialized_effects import config_with_physical_resources
+
+_SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
+_SET_FREQUENCY_VALUE_PATH = _SET_FREQUENCY.property("value.path")
+_SET_FREQUENCY_SAMPLE_SIGNAL = _SET_FREQUENCY.acquisition("sample").result("signal")
+_MEASURE_IQ = InterfaceRef("test.measure_iq/v1")
+_MEASURE_IQ_SAMPLE_EXPORTED = _MEASURE_IQ.acquisition("sample").result("exported")
+_MEASURE_PHASE_SAMPLE_FIXED = (
+    InterfaceRef("test.measure_phase/v1").acquisition("sample").result("fixed")
+)
+_MEASURE_POPULATION_SAMPLE_EXPORTED = (
+    InterfaceRef("test.measure_population/v1").acquisition("sample").result("exported")
+)
+_SET_OFFSET = InterfaceRef("test.set_offset/v1")
+_SET_OFFSET_VALUE = _SET_OFFSET.property("value")
+_SET_OFFSET_VALUE_PATH = _SET_OFFSET.property("value.path")
+_SET_POWER_VALUE = InterfaceRef("test.set_power/v1").property("value")
 
 
 def _resource_module() -> sc.ExperimentModule[...]:
     frequency = sc.Quantity(value=5.0, unit="GHz")
     return (
         sc.module_body(id="test.resources.child")
-        .resource("drive.v1", requires=("set.frequency",))
-        .bind_field(
+        .resource("drive.v1", requires=(_SET_FREQUENCY,))
+        .bind_property(
             "drive.v1",
-            capability="set.frequency",
-            field="value.path",
+            _SET_FREQUENCY_VALUE_PATH,
             value=frequency,
         )
         .product("signal")
         .acquire(
             "read-signal",
-            "signal",
             resource="drive.v1",
-            capability="set.frequency",
+            results={_SET_FREQUENCY_SAMPLE_SIGNAL: "signal"},
         )
         .build()
     )
@@ -65,11 +80,11 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
         logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
     )
-    assert [binding.capability_id for binding in assembly.bindings] == [
-        "set.frequency",
-        "set.frequency",
+    assert [binding.interface_id for binding in assembly.bindings] == [
+        "test.set_frequency/v1",
+        "test.set_frequency/v1",
     ]
-    assert [binding.field_path for binding in assembly.bindings] == [
+    assert [binding.property_id for binding in assembly.bindings] == [
         "value.path",
         "value.path",
     ]
@@ -88,15 +103,15 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
         config_profile=load_config(),
     )
     assert [
-        state.capability_id
+        state.interface_id
         for state in core_state(resolved.program)
         if isinstance(state, SetStateSpec)
     ] == [
-        "set.frequency",
-        "set.frequency",
+        "test.set_frequency/v1",
+        "test.set_frequency/v1",
     ]
     assert [
-        state.field_path
+        state.property_id
         for state in core_state(resolved.program)
         if isinstance(state, SetStateSpec)
     ] == [
@@ -112,7 +127,7 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
     )
     root = (
         sc.module_body(id="test.resources.bound-root")
-        .resource("shared", requires=("set.frequency",))
+        .resource("shared", requires=(_SET_FREQUENCY,))
         .use(child)
         .build()
     )
@@ -159,11 +174,10 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     )
     child_builder = (
         sc.module_body(id="test.effects.child")
-        .resource("drive.v1", requires=("set.frequency",))
-        .bind_field(
+        .resource("drive.v1", requires=(_SET_FREQUENCY,))
+        .bind_property(
             "drive.v1",
-            capability="set.frequency",
-            field="value.path",
+            _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         .domain(sc.domain_execution(program, id="call"))
@@ -172,9 +186,8 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     child = (
         child_builder.acquire(
             "read-signal",
-            "signal",
             resource="drive.v1",
-            capability="set.frequency",
+            results={_SET_FREQUENCY_SAMPLE_SIGNAL: "signal"},
         )
         .build()
         .instantiate(
@@ -184,18 +197,16 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     )
     root_builder = (
         sc.module_body(id="test.effects.root")
-        .resource("drive.v1", requires=("set.frequency",))
-        .bind_field(
+        .resource("drive.v1", requires=(_SET_FREQUENCY,))
+        .bind_property(
             "drive.v1",
-            capability="set.frequency",
-            field="value.path",
+            _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         .use(child)
-        .bind_field(
+        .bind_property(
             "drive.v1",
-            capability="set.frequency",
-            field="value.path",
+            _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
         .domain(sc.domain_execution(program, id="root-call"))
@@ -203,9 +214,8 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     )
     module = root_builder.acquire(
         "root-read",
-        "root-signal",
         resource="drive.v1",
-        capability="set.frequency",
+        results={_SET_FREQUENCY_SAMPLE_SIGNAL: "root-signal"},
     ).build()
     assembly = elaborate_module(module.ir)
 
@@ -295,9 +305,8 @@ def test_acquire_resource_references_are_checked_before_linking() -> None:
             .product("exported")
             .acquire(
                 "read-exported",
-                "exported",
                 resource="missing",
-                capability="measure.iq",
+                results={_MEASURE_IQ_SAMPLE_EXPORTED: "exported"},
             )
             .build()
         )
@@ -307,22 +316,20 @@ def test_acquire_resource_references_are_checked_before_linking() -> None:
     ]
 
 
-def test_acquire_resource_capabilities_are_checked_before_linking() -> None:
+def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
     module = (
-        sc.module_body(id="test.resources.missing-record-capability")
-        .resource("readout", requires=("measure.iq",))
+        sc.module_body(id="test.resources.missing-record-interface")
+        .resource("readout", requires=(_MEASURE_IQ,))
         .product("fixed", "exported")
         .acquire(
             "read-fixed",
-            "fixed",
             resource="readout",
-            capability="measure.phase",
+            results={_MEASURE_PHASE_SAMPLE_FIXED: "fixed"},
         )
         .acquire(
             "read-exported",
-            "exported",
             resource="readout",
-            capability="measure.population",
+            results={_MEASURE_POPULATION_SAMPLE_EXPORTED: "exported"},
         )
         .build()
     )
@@ -331,8 +338,8 @@ def test_acquire_resource_capabilities_are_checked_before_linking() -> None:
         verify_assembly_graph(elaborate_module(module.ir))
 
     assert [problem.code for problem in error.value.problems] == [
-        "module_resource_port_capability_missing",
-        "module_resource_port_capability_missing",
+        "module_resource_port_interface_missing",
+        "module_resource_port_interface_missing",
     ]
     assert [problem.location for problem in error.value.problems] == [
         model_location("acquisitions", 0, "resource_port"),
@@ -344,10 +351,9 @@ def test_state_resource_references_are_checked_before_linking() -> None:
     with pytest.raises(CheckFailed) as error:
         (
             sc.module_body(id="test.resources.missing-state-port")
-            .bind_field(
+            .bind_property(
                 "missing-binding",
-                capability="set.offset",
-                field="value",
+                _SET_OFFSET_VALUE,
                 value=1.0,
             )
             .build()
@@ -358,14 +364,13 @@ def test_state_resource_references_are_checked_before_linking() -> None:
     ]
 
 
-def test_state_resource_capabilities_are_checked_before_linking() -> None:
+def test_state_resource_interfaces_are_checked_before_linking() -> None:
     module = (
-        sc.module_body(id="test.resources.missing-state-capability")
-        .resource("drive", requires=("set.frequency",))
-        .bind_field(
+        sc.module_body(id="test.resources.missing-state-interface")
+        .resource("drive", requires=(_SET_FREQUENCY,))
+        .bind_property(
             "drive",
-            capability="set.power",
-            field="value",
+            _SET_POWER_VALUE,
             value=1.0,
         )
         .build()
@@ -375,18 +380,17 @@ def test_state_resource_capabilities_are_checked_before_linking() -> None:
         verify_assembly_graph(elaborate_module(module.ir))
 
     assert [problem.code for problem in error.value.problems] == [
-        "module_resource_port_capability_missing",
+        "module_resource_port_interface_missing",
     ]
 
 
-def test_state_binding_keeps_dotted_capability_and_field_ids_structured() -> None:
+def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
     child = (
         sc.module_body(id="test.resources.structured-state")
-        .resource("source", requires=("set.offset",))
-        .bind_field(
+        .resource("source", requires=(_SET_OFFSET,))
+        .bind_property(
             "source",
-            capability="set.offset",
-            field="value.path",
+            _SET_OFFSET_VALUE_PATH,
             value=1.0,
         )
         .build()
@@ -403,10 +407,12 @@ def test_state_binding_keeps_dotted_capability_and_field_ids_structured() -> Non
 
     resolved = link_invocation(
         template_definition(),
-        config_profile=config_with_physical_resources({"source-0": ("set.offset",)}),
+        config_profile=config_with_physical_resources(
+            {"source-0": ("test.set_offset/v1",)}
+        ),
     )
 
     state = core_state(resolved.program)[0]
     assert isinstance(state, SetStateSpec)
-    assert state.capability_id == "set.offset"
-    assert state.field_path == "value.path"
+    assert state.interface_id == "test.set_offset/v1"
+    assert state.property_id == "value.path"

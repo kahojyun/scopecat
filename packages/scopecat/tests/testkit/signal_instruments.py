@@ -11,22 +11,27 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
+from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectCommand,
-    CollectReceipt,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverScalar,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
+    InstrumentBindingSpec,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
-    InstrumentReadback,
-    InstrumentStateCommand,
-    InstrumentStateField,
-    InstrumentStateSnapshot,
-    capability,
-    product,
-    quantity_field,
+    PropertyRef,
+    acquisition,
+    acquisition_result,
+    interface,
+    quantity_property,
 )
 
 
@@ -35,65 +40,55 @@ class TestSignalInstrumentProvider:
     __test__ = False
 
     instrument_id: str | None = None
-    additional_product_keys: tuple[str, ...] = ()
+    additional_result_ids: tuple[str, ...] = ()
     provider_id: str = "tests.signal_instrument_provider"
 
     def describe(
         self, context: InstrumentProviderContext
     ) -> InstrumentProviderDescription:
-        instrument_id, problems = self._resolve_instrument_id(context)
+        bindings, problems = self._select_bindings(context)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
-            instruments=(
-                (
-                    TestSignalInstrument(
-                        instrument_id=instrument_id,
-                        additional_product_keys=self.additional_product_keys,
-                    ).describe(),
-                )
-                if not problems
-                else ()
+            instruments=tuple(
+                TestSignalInstrument(
+                    instrument_id=binding.id,
+                    additional_result_ids=self.additional_result_ids,
+                ).describe()
+                for binding in bindings
             ),
             problems=tuple(problems),
         )
 
-    def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
-        instrument_id, problems = self._resolve_instrument_id(context)
+    def connect(self, context: InstrumentConnectionContext) -> TestSignalInstrument:
+        bindings, problems = self._select_bindings(
+            InstrumentProviderContext(bindings=(context.binding,))
+        )
         if problems:
-            return InstrumentProviderResult(
-                drivers=(),
-                problems=tuple(problems),
-                metadata={"provider_id": self.provider_id},
+            raise ValueError(
+                "; ".join(provider_problem.message for provider_problem in problems)
             )
-        return InstrumentProviderResult(
-            drivers=(
-                TestSignalInstrument(
-                    instrument_id=instrument_id,
-                    additional_product_keys=self.additional_product_keys,
-                ),
-            ),
-            metadata={
-                "provider_id": self.provider_id,
-                "instrument_id": instrument_id,
-            },
+        [binding] = bindings
+        return TestSignalInstrument(
+            instrument_id=binding.id,
+            additional_result_ids=self.additional_result_ids,
         )
 
-    def _resolve_instrument_id(
+    def _select_bindings(
         self, context: InstrumentProviderContext
-    ) -> tuple[str, list[Problem]]:
-        instruments = context.config.instrument_registry.instruments
-        routable_instrument_ids = {
-            binding.instrument_id
-            for binding in context.config.routing.bindings
-            if binding.capability == "set_frequency"
-        }
+    ) -> tuple[tuple[InstrumentBindingSpec, ...], list[Problem]]:
+        bindings = context.bindings
+        supported = tuple(
+            binding
+            for binding in bindings
+            if binding.driver_id == TestSignalInstrument.implementation_id
+        )
         if self.instrument_id is not None:
-            instrument = next(
-                (item for item in instruments if item.id == self.instrument_id),
+            binding = next(
+                (item for item in bindings if item.id == self.instrument_id),
                 None,
             )
-            if instrument is None:
-                return self.instrument_id, [
+            if binding is None:
+                return (), [
                     _problem(
                         "test_signal_provider_unknown_instrument",
                         "test signal provider instrument is not in config: "
@@ -101,39 +96,28 @@ class TestSignalInstrumentProvider:
                         "instrument_id",
                     )
                 ]
-            if self.instrument_id not in routable_instrument_ids:
-                return self.instrument_id, [
+            if binding not in supported:
+                return (), [
                     _problem(
                         "test_signal_provider_unsupported_instrument",
-                        "test signal provider instrument must be routable for "
-                        "set_frequency: "
+                        "test signal provider does not support configured driver "
+                        f"{binding.driver_id!r} for "
                         f"{self.instrument_id}",
                         "instrument_id",
                     )
                 ]
-            return self.instrument_id, []
+            return (binding,), []
 
-        config_instrument_ids = {instrument.id for instrument in instruments}
-        matches = sorted(routable_instrument_ids & config_instrument_ids)
-        if not matches:
-            return "", [
+        if not supported:
+            return (), [
                 _problem(
                     "test_signal_provider_missing_instrument",
-                    "test signal provider requires one routable instrument exposing "
-                    "set_frequency",
-                    "config.system.routing.bindings",
+                    "test signal provider requires one configured "
+                    f"{TestSignalInstrument.implementation_id!r} binding",
+                    "bindings",
                 )
             ]
-        if len(matches) > 1:
-            return "", [
-                _problem(
-                    "test_signal_provider_ambiguous_instrument",
-                    "test signal provider found multiple set_frequency instruments: "
-                    f"{', '.join(matches)}",
-                    "config.system.routing.bindings",
-                )
-            ]
-        return matches[0], []
+        return supported, []
 
 
 class TestSignalInstrument:
@@ -146,96 +130,110 @@ class TestSignalInstrument:
         self,
         *,
         instrument_id: str = "source-0",
-        additional_product_keys: tuple[str, ...] = (),
+        additional_result_ids: tuple[str, ...] = (),
     ) -> None:
         self.instrument_id = instrument_id
-        self.product_keys = ("signal", *additional_product_keys)
-        self._state: dict[tuple[str, str], StateValue] = {}
-        self.applied_commands: list[InstrumentStateCommand] = []
-        self.collect_commands: list[CollectCommand] = []
+        self.result_ids = ("signal", *additional_result_ids)
+        self._state: dict[tuple[str, str], DriverScalar] = {
+            ("test.set_frequency/v1", "frequency"): Quantity(value=5.0, unit="GHz")
+        }
+        self.applied_requests: list[DriverStatePatch] = []
+        self.invoked_requests: list[DriverOperation] = []
+        self.collect_requests: list[DriverAcquisition] = []
 
     def describe(self) -> InstrumentDescription:
         return InstrumentDescription(
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
             implementation_version=self.implementation_version,
-            capabilities=[
-                capability(
-                    "set_frequency",
-                    fields=[quantity_field("frequency", unit="GHz")],
+            interfaces=[
+                interface(
+                    "test.set_frequency/v1",
+                    properties=[quantity_property("frequency", unit="GHz")],
                 ),
-                capability(
-                    "scalar_signal",
-                    products=[
-                        product(product_key, unit="ratio")
-                        for product_key in self.product_keys
+                interface(
+                    "test.scalar_signal/v1",
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[
+                                acquisition_result(result_id, unit="ratio")
+                                for result_id in self.result_ids
+                            ],
+                        )
                     ],
                 ),
             ],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            fields=[
-                InstrumentStateField(
-                    capability_id=capability_id,
-                    field_path=field_path,
-                    value=value,
-                )
-                for (capability_id, field_path), value in sorted(self._state.items())
-            ],
+    def read_state(self) -> DriverState:
+        return DriverState(
+            values={
+                PropertyRef(interface_id, (), property_id): value
+                for (interface_id, property_id), value in self._state.items()
+            },
             metadata={"mode": "test_offline"},
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        self.applied_commands.append(command)
-        for field in command.fields:
-            self._state[(field.capability_id, field.field_path)] = field.value
-        return ApplyReceipt(status="applied")
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        self.applied_requests.append(request)
+        for target, value in request.values.items():
+            self._state[(target.interface_id, target.property_id)] = value
+        return DriverSuccess(None)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        self.collect_commands.append(command)
-        requested_product_keys = tuple(
-            request.id
-            for request in command.requests
-            if request.id in self.product_keys
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        self.invoked_requests.append(request)
+        return DriverSuccess(self.read_state())
+
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        self.collect_requests.append(request)
+        requested_results = tuple(
+            result for result in request.results if result.result_id in self.result_ids
         )
-        if not requested_product_keys:
-            return CollectReceipt(readback=InstrumentReadback())
-        value = Quantity(
-            value=_test_signal(
-                command.point_index,
-                command.point_count,
-            ),
+        if not requested_results:
+            return DriverSuccess(DriverReadback(values={}))
+        value = MeasurementScalar.create(
+            dtype="float64",
+            value=_test_signal(self._frequency_ghz()),
             unit="ratio",
         )
-        return CollectReceipt(
-            readback=InstrumentReadback(
-                values=dict.fromkeys(requested_product_keys, value),
+        values: dict[AcquisitionResultRef, MeasurementValue] = dict.fromkeys(
+            requested_results, value
+        )
+        return DriverSuccess(
+            DriverReadback(
+                values=values,
                 metadata={
                     "instrument": self.instrument_id,
                     "implementation": self.implementation_id,
                     "test_offline": True,
                 },
-            )
+            ),
         )
 
-    def close(self) -> None:
-        return None
+    def _frequency_ghz(self) -> float:
+        value = self._state[("test.set_frequency/v1", "frequency")]
+        assert isinstance(value, Quantity)
+        return value.to("GHz").value
 
-    def cleanup(self) -> None:
+    def disconnect(self) -> None:
         return None
 
     def abort(self) -> None:
         return None
 
 
-def _test_signal(point_index: int, point_count: int) -> float:
-    if point_count <= 1:
-        return 1.0
-    center = (point_count - 1) / 2
-    distance = abs(point_index - center) / center
+def _test_signal(frequency_ghz: float) -> float:
+    distance = abs(frequency_ghz - 5.0) / 0.1
     return round(1.0 - 0.5 * distance, 12)
 
 

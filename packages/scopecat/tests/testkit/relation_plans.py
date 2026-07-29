@@ -14,7 +14,7 @@ from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     verify_scalar_value_expr,
 )
-from scopecat.compiler.typed.program import set_state_field
+from scopecat.compiler.typed.program import set_state_property
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.graph.relations.model import (
     CellValue,
@@ -46,24 +46,26 @@ def scalar_value_expr(
     )
 
 
-def state_field(
+def state_property(
     resource_port: LogicalResourcePortId | str,
     *,
-    capability_id: str,
-    field_path: str,
+    interface_id: str,
+    property_id: str,
+    component_path: tuple[str, ...] = (),
     value: object | ComputeResultRef,
     bindings: RelationTypeBindings | None = None,
     value_type: Scalar | None = None,
 ) -> SetStateSpec:
     selected_bindings = bindings or RelationTypeBindings()
-    return set_state_field(
+    return set_state_property(
         resource_port_id=(
             resource_port
             if isinstance(resource_port, LogicalResourcePortId)
             else logical_resource_port_id(resource_port)
         ),
-        capability_id=capability_id,
-        field_path=field_path,
+        interface_id=interface_id,
+        component_path=component_path,
+        property_id=property_id,
         value=(
             value
             if isinstance(value, ComputeResultRef)
@@ -97,5 +99,5 @@ def evaluate_scalar(
 __all__ = [
     "evaluate_scalar",
     "scalar_value_expr",
-    "state_field",
+    "state_property",
 ]

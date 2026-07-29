@@ -18,14 +18,26 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentContractCatalogRequest,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
+    InstrumentSessionLeaseReceipt,
     RunAdmission,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    InstrumentBindingSpec,
+    VirtualInstrumentConnection,
+    config_content_hash,
+)
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.catalog import DriverCatalog
+from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 from scopecat_server import (
     BackendConflict,
@@ -131,6 +143,36 @@ class FakeExecutor:
 class FakeInstruments:
     def __init__(self) -> None:
         self.last_run_provision: tuple[str, RunInstrumentProvisionCommand] | None = None
+        self.last_contract_config: ConfigProfileSnapshot | None = None
+        self.last_driver_probe: InstrumentDriverProbeCommand | None = None
+        self.last_renewed_session_id: str | None = None
+
+    def resolve_instrument_contracts(
+        self,
+        config: ConfigProfileSnapshot,
+    ) -> InstrumentContractCatalog:
+        self.last_contract_config = config
+        return InstrumentContractCatalog(
+            config_content_hash=config_content_hash(config),
+            provider_id=None,
+        )
+
+    def driver_catalog(self) -> DriverCatalog:
+        return DriverCatalog(provider_id="tests.fake")
+
+    def probe_driver(
+        self,
+        command: InstrumentDriverProbeCommand,
+    ) -> InstrumentDriverProbeReceipt:
+        self.last_driver_probe = command
+        return InstrumentDriverProbeReceipt(
+            status="connected",
+            description=InstrumentDescription(
+                instrument_id=command.binding.id,
+                implementation_id=command.binding.driver_id,
+                implementation_version="v1",
+            ),
+        )
 
     def provision_run(
         self,
@@ -142,6 +184,14 @@ class FakeInstruments:
             run_id=run_id,
             operation_id=command.operation_id,
             status="ready",
+        )
+
+    def renew_session(self, session_id: str) -> InstrumentSessionLeaseReceipt:
+        self.last_renewed_session_id = session_id
+        return InstrumentSessionLeaseReceipt(
+            session_id=session_id,
+            renewed_at=_NOW,
+            expires_at=_NOW + timedelta(minutes=1),
         )
 
 
@@ -235,6 +285,67 @@ def test_run_instrument_provision_route_preserves_fencing_command() -> None:
         "ready"
     )
     assert backend.instruments.last_run_provision == ("run-1", command)
+
+
+def test_instrument_contract_route_resolves_the_exact_config_body() -> None:
+    backend = FakeApplication()
+    client = TestClient(_create_test_app(backend))
+    command = InstrumentContractCatalogRequest(config=_config())
+
+    response = client.post(
+        "/api/v1/instrument-contracts/resolve",
+        json=command.model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    catalog = InstrumentContractCatalog.model_validate(response.json())
+    assert catalog.config_content_hash == config_content_hash(command.config)
+    assert backend.instruments.last_contract_config == command.config
+
+
+def test_driver_catalog_route_returns_project_backend_catalog() -> None:
+    client = TestClient(_create_test_app(FakeApplication()))
+
+    response = client.get("/api/v1/instrument-drivers")
+
+    assert response.status_code == 200
+    assert DriverCatalog.model_validate_json(response.content) == DriverCatalog(
+        provider_id="tests.fake"
+    )
+
+
+def test_driver_probe_route_forwards_the_candidate_binding() -> None:
+    backend = FakeApplication()
+    client = TestClient(_create_test_app(backend))
+    command = InstrumentDriverProbeCommand(
+        binding=InstrumentBindingSpec(
+            id="source-0",
+            driver_id="tests.signal",
+            connection=VirtualInstrumentConnection(),
+        )
+    )
+
+    response = client.post(
+        "/api/v1/instrument-drivers/probe",
+        json=command.model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    receipt = InstrumentDriverProbeReceipt.model_validate_json(response.content)
+    assert receipt.status == "connected"
+    assert backend.instruments.last_driver_probe == command
+
+
+def test_instrument_session_heartbeat_renews_the_lease() -> None:
+    backend = FakeApplication()
+    client = TestClient(_create_test_app(backend))
+
+    response = client.post("/api/v1/instrument-sessions/session-1/heartbeat")
+
+    assert response.status_code == 200
+    receipt = InstrumentSessionLeaseReceipt.model_validate(response.json())
+    assert receipt.session_id == "session-1"
+    assert backend.instruments.last_renewed_session_id == "session-1"
 
 
 def test_static_dist_serves_files_and_spa_without_shadowing_api(

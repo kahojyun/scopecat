@@ -5,8 +5,12 @@ from typing import Literal
 
 import pytest
 from pydantic import ValidationError
-from scopecat import MeasurementPostprocessor, Quantity
-from scopecat.measurements.results import ComplexQuantity, MeasurementArray
+from scopecat import MeasurementPostprocessor
+from scopecat.measurements.results import (
+    ComplexComponents,
+    MeasurementArray,
+    MeasurementScalar,
+)
 
 from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
@@ -27,13 +31,12 @@ def _discriminator(
 
 
 def _iq_shots(*values: complex) -> MeasurementArray:
-    return MeasurementArray(
+    return MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
         shape=[len(values)],
         values=[
-            ComplexQuantity(real=value.real, imag=value.imag, unit="ratio")
-            for value in values
+            ComplexComponents(real=value.real, imag=value.imag) for value in values
         ],
     )
 
@@ -78,8 +81,16 @@ def test_binary_iq_postprocessor_classifies_one_point(
         _iq_shots(-1.0 + 0.0j, -0.8 + 0.0j, 1.0 + 0.0j, 0.0 + 0.0j)
     )
     assert outputs == {
-        "probability_0": Quantity(expected[0], "ratio"),
-        "probability_1": Quantity(expected[1], "ratio"),
+        "probability_0": MeasurementScalar.create(
+            dtype="float64",
+            value=expected[0],
+            unit="ratio",
+        ),
+        "probability_1": MeasurementScalar.create(
+            dtype="float64",
+            value=expected[1],
+            unit="ratio",
+        ),
     }
 
 
@@ -93,4 +104,6 @@ def test_binary_iq_postprocessor_rejects_non_iq_input() -> None:
     )
 
     with pytest.raises(TypeError, match="MeasurementArray"):
-        postprocessor.kernel(Quantity(0.0, "ratio"))
+        postprocessor.kernel(
+            MeasurementScalar.create(dtype="float64", value=0.0, unit="ratio")
+        )

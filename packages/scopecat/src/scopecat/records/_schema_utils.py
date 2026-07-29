@@ -21,10 +21,3 @@ def ensure_unique_ids(ids: Sequence[str], message: str) -> None:
 
 def missing_references(values: Sequence[str], known: set[str]) -> list[str]:
     return [value for value in values if value not in known]
-
-
-def validate_shape_rank(
-    *, shape: Sequence[int], dims: Sequence[str], message: str
-) -> None:
-    if len(shape) != len(dims):
-        raise ValueError(message)

@@ -27,14 +27,27 @@ snapshot.
 ## Execution boundary
 
 The notebook keeps its transient `RunProgram` and Python closures, while the
-daemon admits the plan, hosts live drivers, and persists execution results.
-Hardware effects cross the boundary as ordered batches. The daemon reconciles
-desired state against its own current-state snapshot, executes driver calls,
+daemon admits the plan, hosts process-long instrument actors, and persists
+execution results. A backend endpoint owns raw drivers behind opaque connection
+handles, keeping provider and driver details out of actors and services.
+The daemon projects accepted configuration to per-device bindings before
+calling that endpoint; worker providers cannot inspect topology, parameters,
+routing, or run-start policy.
+Hardware effects cross the boundary as ordered batches. The daemon acquires an
+owner epoch, freshly observes hardware, reconciles desired state against that
+baseline, validates and lowers complete commands to the driver backend ABI,
 deduplicates whole batches, records concise command and receipt evidence, and
-owns final cleanup or abort. Admission binds the expected provider and
-instrument-description fingerprint; provisioning verifies that contract before
-opening drivers. Renewable executor leases carry a unique fencing identity, so
-an expired client cannot continue writing.
+owns abort-on-failure, terminal readback, and connection retirement. Lowering
+finishes before a batch is recorded as started; driver requests contain no run,
+point, product, retry identity, or public payload transport body. Opaque payload
+bytes are carried separately from their worker-wire JSON descriptors, then
+decoded inside the worker before entering the driver API. Admission binds the
+expected provider and instrument-description fingerprint;
+provisioning verifies that contract before the first write. Renewable executor
+leases carry a unique fencing identity, so an expired client cannot continue
+writing. Collection arrays cross the same process boundary in the other
+direction as hash-checked binary attachments; the bounded control response
+contains only their typed descriptors and the rest of the receipt.
 
 Admission and resource claims are durable before hardware access. The executor
 atomically acquires its control lease; all later journal, measurement, and
@@ -57,12 +70,15 @@ set once and holds it across provider provisioning and all coverage blocks;
 there are no nested block leases or channel/group scheduler claims.
 
 `sc.open_project(...).connect()` returns the normal notebook `LabClient`. It
-loads the same application composition as the daemon, resolves the accepted
-config, and provides `prepare(...).preview()` and `prepare(...).run()`.
-Transient scratch invocations are planned and executed in the notebook when
-their closures or interactive objects cannot be reconstructed reliably in
-another process. Every durable effect still passes through the daemon, so the
-notebook never becomes a second writer.
+loads only the application's planning composition, resolves the accepted
+config, and asks the daemon for the serializable instrument-contract catalog
+bound to that exact snapshot. Concrete providers, transports, codecs, and
+drivers are constructed once in a spawned project instrument worker and never
+enter the notebook process. The daemon control plane retains only serializable
+catalogs and opaque connection handles. Transient scratch invocations are
+planned and executed in the notebook when their closures or interactive objects
+cannot be reconstructed reliably in another process. Every durable effect still
+passes through the daemon, so the notebook never becomes a second writer.
 
 The same project client exposes event replay and attention resolution through
 `lab.control`. Execution remains an internal implementation of
@@ -75,6 +91,10 @@ with arbitrary local Python state, but `Analysis.save()`,
 `lab.config.accept(...)`, and `lab.config.set_default(...)` cross into durable
 daemon commands rather than writing storage directly. Acceptance authority may
 be a person or a named, versioned automatic policy.
+Physical device removal and rekeying use
+`lab.config.migrate_instrument_inventory(...)`, a separate command that must
+declare the destructive diff and is rejected until the affected domains are
+drained.
 
 A candidate may be used for one run without changing the default. That run
 records the producing run, analysis records, proposal ids, base config hash,
@@ -105,34 +125,41 @@ source of truth.
 
 A single process-owner lock prevents two daemons opening the same lab instance.
 Inside that boundary, SQLite transactions and fencing tokens coordinate all
-durable executor effects. Interactive instrument drivers already run inside
-the daemon and use explicit daemon-owned sessions instead of a second lease.
+durable executor effects. Interactive and experiment instrument calls share
+daemon-owned sessions, while concrete drivers live in one project instrument
+worker.
 
 The process-owner lock answers only “which daemon owns this lab instance?” It is
 not a run coordination mechanism. Resource claims coordinate experiments and
-direct sessions, executor leases fence external run execution, and SQLite
-transactions make durable commits atomic.
+direct sessions, renewable ownership leases reclaim abandoned clients, executor
+tokens fence external run execution, and SQLite transactions make durable
+commits atomic.
 
 The default transport is a same-user local control plane. It binds to loopback
 and restricts accepted host names; it is not an authenticated remote service.
 Remote or multi-user access needs a separate security boundary.
 
-Each project has a `scopecat.toml` pointing at its version-controlled Python
-application:
+Each project has a `scopecat.toml` pointing separately at its version-controlled
+control-plane application and worker backend:
 
 ```toml
 [lab]
 application = "my_lab.application:create_application"
+instrument_backend = "my_lab.backend:create_backend"
 ```
 
 The application may lazily construct an initial `ConfigProfileSnapshot` with
-Python. The daemon resolves and imports it only if the registry has no entries;
-ordinary notebook connections do not read bootstrap inputs. After that point
-the registry is authoritative: importing another snapshot creates an immutable
-entry, activation changes an explicit generation, and restart never silently
-restores the application seed. User code and editable config inputs belong in
-Git; runs, accepted snapshots, activation history, measurements, and artifacts
-belong to the daemon.
+Python. The daemon loads the application at startup but invokes its bootstrap
+factory only if the registry has no entries; ordinary notebook connections do
+not read bootstrap inputs. After that point the registry is authoritative:
+importing another snapshot creates an immutable entry, activation changes an
+explicit generation, and restart never silently restores the application seed.
+User code and editable config inputs belong in Git; runs, accepted snapshots,
+activation history, measurements, and artifacts belong to the daemon.
+
+The backend entry is imported only by the instrument worker. The daemon sees
+its serializable catalog and opaque handles, not provider, transport, codec, or
+driver objects.
 
 | Owner | Contents |
 |---|---|

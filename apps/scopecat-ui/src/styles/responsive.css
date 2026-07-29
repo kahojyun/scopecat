@@ -45,12 +45,15 @@
     grid-template-columns: minmax(280px, 315px) minmax(0, 1fr);
   }
 
-  .capability-fields {
+  .interface-properties,
+  .operation-arguments {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .capability-field,
-  .capability-field:nth-child(2n) {
+  .interface-property,
+  .interface-property:nth-child(2n),
+  .operation-argument,
+  .operation-argument:nth-child(2n) {
     border-right: 0;
   }
 }
@@ -291,10 +294,6 @@
     align-items: flex-start;
   }
 
-  .instrument-config-identity {
-    min-width: 190px;
-  }
-
   .instrument-inspector {
     padding: 16px 13px;
   }
@@ -312,20 +311,14 @@
     flex-basis: 100%;
   }
 
-  .instrument-actor-field {
-    flex: 1;
-  }
-
-  .instrument-actor-field input {
-    width: 100%;
-  }
-
-  .capability-field {
+  .interface-property {
     grid-template-columns: minmax(120px, 1fr) minmax(125px, 0.9fr);
   }
 
+  .instrument-config-fields,
   .instrument-connection-fields,
-  .instrument-connection-fields.two-column {
+  .instrument-option-fields,
+  .instrument-default-property {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -543,14 +536,6 @@
     display: grid;
   }
 
-  .instrument-config-identity {
-    width: 100%;
-    padding: 10px 0 0;
-    border-top: 1px solid var(--line);
-    border-left: 0;
-    text-align: left;
-  }
-
   .instrument-list {
     grid-auto-columns: minmax(260px, 86vw);
   }
@@ -571,22 +556,20 @@
     flex: 1;
   }
 
-  .instrument-owner {
-    display: grid;
-    gap: 5px;
-  }
-
-  .capability-card > header,
-  .capability-heading {
+  .interface-card > header,
+  .interface-heading {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .capability-card > header {
+  .interface-card > header,
+  .acquisition-control > header,
+  .operation-control > header {
     display: flex;
   }
 
-  .capability-field {
+  .interface-property,
+  .operation-argument {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -598,10 +581,21 @@
     grid-column: 1 / -1;
   }
 
+  .instrument-config-fields,
   .instrument-connection-fields,
-  .instrument-connection-fields.two-column,
+  .instrument-option-fields,
+  .instrument-default-property,
   .instrument-config-audit {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .instrument-defaults-editor > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .instrument-defaults-editor > header label {
+    min-width: 0;
   }
 }
 

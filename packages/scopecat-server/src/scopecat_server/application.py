@@ -17,7 +17,8 @@ from .admission_service import AdmissionService
 from .config_service import ConfigService
 from .executor_service import ExecutorService
 from .instrument_service import InstrumentService
-from .lease_supervisor import ExecutorLeaseSupervisor
+from .lease_supervisor import OwnershipLeaseSupervisor
+from .payload_service import CommandPayloadService
 from .run_service import RunService
 
 
@@ -35,7 +36,8 @@ class DaemonApplication:
         admission: AdmissionService,
         executor: ExecutorService,
         instruments: InstrumentService,
-        lease_supervisor: ExecutorLeaseSupervisor,
+        payloads: CommandPayloadService,
+        lease_supervisor: OwnershipLeaseSupervisor,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.project_id = project_id
@@ -45,13 +47,18 @@ class DaemonApplication:
         self._admission = admission
         self.executor = executor
         self.instruments = instruments
+        self.payloads = payloads
         self._lease_supervisor = lease_supervisor
 
     def start(self) -> None:
         self._lease_supervisor.start()
 
     def close(self) -> None:
-        self._lease_supervisor.close()
+        self._lease_supervisor.request_stop()
+        try:
+            self.instruments.shutdown()
+        finally:
+            self._lease_supervisor.close()
 
     def health(self) -> DaemonHealth:
         try:
@@ -59,7 +66,11 @@ class DaemonApplication:
         except Exception:
             status: Literal["ok", "degraded"] = "degraded"
         else:
-            status = "ok" if self._lease_supervisor.healthy else "degraded"
+            status = (
+                "ok"
+                if self._lease_supervisor.healthy and self.instruments.healthy
+                else "degraded"
+            )
         return DaemonHealth(
             status=status,
             project_id=self.project_id,

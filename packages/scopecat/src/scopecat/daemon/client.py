@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import TracebackType
 from typing import Self
 from urllib.parse import quote
@@ -46,11 +47,20 @@ from scopecat.daemon.wire import (
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
+    InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentConfiguredDefaultsApplyReceipt,
+    InstrumentContractCatalogRequest,
+    InstrumentDriverProbeCommand,
+    InstrumentDriverProbeReceipt,
+    InstrumentInventoryMigrationCommand,
+    InstrumentInventoryMigrationReceipt,
     InstrumentSessionEndReceipt,
+    InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
     MeasurementSealCommand,
+    PayloadObjectReceipt,
     RunAdmission,
     RunAttachmentCommand,
     RunHardwareBatchCommand,
@@ -63,8 +73,17 @@ from scopecat.daemon.wire import (
 from scopecat.execution.ports.instruments import (
     RunHardwareBatchReceipt,
     RunHardwareFinalizationReceipt,
+    RunHardwareInvoke,
 )
-from scopecat.records.artifact import RunContentEntry
+from scopecat.kernel.content_identity import sha256_content_hash
+from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.records.artifact import (
+    BlobPayloadBody,
+    CommandPayload,
+    InlinePayloadBody,
+    RunContentEntry,
+)
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
@@ -75,14 +94,20 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.catalog import DriverCatalog
+from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
     InstrumentStateCommand,
+    InteractiveCollectIntent,
+    InvokeCommand,
+    InvokeReceipt,
 )
 
 _API_PREFIX = "/api/v1"
+# The daemon owns operation deadlines; a read timeout would make a completed
+# hardware command ambiguous to its caller.
+_DEFAULT_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
 
 
 class DaemonClientError(RuntimeError):
@@ -109,7 +134,7 @@ class DaemonClient:
         self,
         base_url: str,
         *,
-        timeout: float | httpx2.Timeout | None = 10.0,
+        timeout: float | httpx2.Timeout | None = _DEFAULT_TIMEOUT,
         transport: httpx2.BaseTransport | None = None,
     ) -> None:
         self._http = httpx2.Client(
@@ -169,6 +194,16 @@ class DaemonClient:
             ConfigPublishReceipt,
         )
 
+    def migrate_instrument_inventory(
+        self,
+        command: InstrumentInventoryMigrationCommand,
+    ) -> InstrumentInventoryMigrationReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/config-registry/instrument-inventory-migrations",
+            command,
+            InstrumentInventoryMigrationReceipt,
+        )
+
     def preview_config_draft(
         self,
         command: ConfigDraftCommand,
@@ -205,10 +240,36 @@ class DaemonClient:
             InstrumentListView,
         )
 
+    def driver_catalog(self) -> DriverCatalog:
+        return self._get_model(
+            f"{_API_PREFIX}/instrument-drivers",
+            DriverCatalog,
+        )
+
+    def probe_driver(
+        self,
+        command: InstrumentDriverProbeCommand,
+    ) -> InstrumentDriverProbeReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/instrument-drivers/probe",
+            command,
+            InstrumentDriverProbeReceipt,
+        )
+
     def get_instrument(self, instrument_id: str) -> InstrumentView:
         return self._get_model(
             f"{_API_PREFIX}/instruments/{quote(instrument_id, safe='')}",
             InstrumentView,
+        )
+
+    def resolve_instrument_contracts(
+        self,
+        config: ConfigProfileSnapshot,
+    ) -> InstrumentContractCatalog:
+        return self._post_model(
+            f"{_API_PREFIX}/instrument-contracts/resolve",
+            InstrumentContractCatalogRequest(config=config),
+            InstrumentContractCatalog,
         )
 
     def open_instrument_session(
@@ -219,6 +280,18 @@ class DaemonClient:
             f"{_API_PREFIX}/instrument-sessions",
             command,
             InstrumentSessionOpenReceipt,
+        )
+
+    def renew_instrument_session(
+        self,
+        session_id: str,
+    ) -> InstrumentSessionLeaseReceipt:
+        return self._post_empty_idempotent_model(
+            (
+                f"{_API_PREFIX}/instrument-sessions/"
+                f"{quote(session_id, safe='')}/heartbeat"
+            ),
+            InstrumentSessionLeaseReceipt,
         )
 
     def read_instrument_state(
@@ -251,11 +324,44 @@ class DaemonClient:
             ApplyReceipt,
         )
 
+    def apply_instrument_configured_defaults(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentConfiguredDefaultsApplyCommand,
+    ) -> InstrumentConfiguredDefaultsApplyReceipt:
+        return self._post_idempotent_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "configured-defaults/apply",
+            ),
+            command,
+            InstrumentConfiguredDefaultsApplyReceipt,
+        )
+
+    def invoke_instrument(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InvokeCommand,
+    ) -> InvokeReceipt:
+        command = self._externalize_invoke_command(session_id, command)
+        return self._post_idempotent_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "invoke",
+            ),
+            command,
+            InvokeReceipt,
+        )
+
     def collect_instrument(
         self,
         session_id: str,
         instrument_id: str,
-        command: CollectCommand,
+        intent: InteractiveCollectIntent,
     ) -> CollectReceipt:
         return self._post_idempotent_model(
             self._instrument_session_path(
@@ -263,7 +369,7 @@ class DaemonClient:
                 instrument_id,
                 "collect",
             ),
-            command,
+            intent,
             CollectReceipt,
         )
 
@@ -555,6 +661,11 @@ class DaemonClient:
         run_id: str,
         command: RunHardwareBatchCommand,
     ) -> RunHardwareBatchReceipt:
+        command = self._externalize_hardware_command(
+            run_id,
+            command.lease_id,
+            command,
+        )
         return self._post_idempotent_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/hardware/execute",
             command,
@@ -626,6 +737,132 @@ class DaemonClient:
         response = self._request("GET", path, params=params)
         return model.model_validate_json(response.content)
 
+    def _externalize_invoke_command(
+        self,
+        session_id: str,
+        command: InvokeCommand,
+    ) -> InvokeCommand:
+        return command.model_copy(
+            update={
+                "payloads": self._externalize_payloads(
+                    command.payloads,
+                    upload_object=lambda content, content_hash: (
+                        self._put_session_payload_object(
+                            session_id,
+                            content,
+                            content_hash=content_hash,
+                        )
+                    ),
+                )
+            }
+        )
+
+    def _externalize_hardware_command(
+        self,
+        run_id: str,
+        lease_id: str,
+        command: RunHardwareBatchCommand,
+    ) -> RunHardwareBatchCommand:
+        uploaded: dict[str, PayloadObjectReceipt] = {}
+        actions = tuple(
+            action.model_copy(
+                update={
+                    "payloads": self._externalize_payloads(
+                        action.payloads,
+                        upload_object=lambda content, content_hash: (
+                            self._put_run_payload_object(
+                                run_id,
+                                lease_id,
+                                content,
+                                content_hash=content_hash,
+                            )
+                        ),
+                        uploaded=uploaded,
+                    )
+                }
+            )
+            if isinstance(action, RunHardwareInvoke)
+            else action
+            for action in command.batch.actions
+        )
+        return command.model_copy(
+            update={"batch": command.batch.model_copy(update={"actions": actions})}
+        )
+
+    def _externalize_payloads(
+        self,
+        payloads: dict[str, CommandPayload],
+        *,
+        upload_object: Callable[[bytes, str], PayloadObjectReceipt],
+        uploaded: dict[str, PayloadObjectReceipt] | None = None,
+    ) -> dict[str, CommandPayload]:
+        externalized: dict[str, CommandPayload] = {}
+        uploaded_by_hash = uploaded if uploaded is not None else {}
+        for payload_id, payload in payloads.items():
+            if not isinstance(payload.body, InlinePayloadBody):
+                externalized[payload_id] = payload
+                continue
+            receipt = uploaded_by_hash.get(payload.content_hash)
+            if receipt is None:
+                content = payload.inline_bytes()
+                receipt = upload_object(content, payload.content_hash)
+                uploaded_by_hash[payload.content_hash] = receipt
+            externalized[payload_id] = payload.model_copy(
+                update={"body": BlobPayloadBody(ref=receipt.ref)}
+            )
+        return externalized
+
+    def _put_session_payload_object(
+        self,
+        session_id: str,
+        content: bytes,
+        *,
+        content_hash: str,
+    ) -> PayloadObjectReceipt:
+        return self._put_payload_object(
+            (
+                f"{_API_PREFIX}/instrument-sessions/"
+                f"{quote(session_id, safe='')}/payload-objects"
+            ),
+            content,
+            content_hash=content_hash,
+        )
+
+    def _put_run_payload_object(
+        self,
+        run_id: str,
+        lease_id: str,
+        content: bytes,
+        *,
+        content_hash: str,
+    ) -> PayloadObjectReceipt:
+        return self._put_payload_object(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/payload-objects",
+            content,
+            content_hash=content_hash,
+            headers={"X-Scopecat-Lease-ID": lease_id},
+        )
+
+    def _put_payload_object(
+        self,
+        scope_path: str,
+        content: bytes,
+        *,
+        content_hash: str,
+        headers: dict[str, str] | None = None,
+    ) -> PayloadObjectReceipt:
+        """Publish one immutable payload through an authorized scope."""
+
+        actual_hash = sha256_content_hash(content)
+        if content_hash != actual_hash:
+            raise ValueError("payload content does not match content_hash")
+        path = f"{scope_path}/{actual_hash.removeprefix('sha256:')}"
+        response = self._put_payload_content(path, content, headers=headers)
+        receipt = PayloadObjectReceipt.model_validate_json(response.content)
+        if receipt.content_hash != content_hash or receipt.size_bytes != len(content):
+            raise ValueError("daemon payload object receipt does not match upload")
+        return receipt
+
     @staticmethod
     def _instrument_session_path(
         session_id: str,
@@ -663,6 +900,34 @@ class DaemonClient:
         except httpx2.TransportError:
             return self._post_model(path, body, model)
 
+    def _put_payload_content(
+        self,
+        path: str,
+        content: bytes,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> httpx2.Response:
+        """Retry one transport failure against an immutable content PUT."""
+
+        request_headers = {
+            "Content-Type": "application/octet-stream",
+            **(headers or {}),
+        }
+        try:
+            return self._request(
+                "PUT",
+                path,
+                content=content,
+                headers=request_headers,
+            )
+        except httpx2.TransportError:
+            return self._request(
+                "PUT",
+                path,
+                content=content,
+                headers=request_headers,
+            )
+
     def _post_empty_idempotent_model[ModelT: BaseModel](
         self,
         path: str,
@@ -683,8 +948,17 @@ class DaemonClient:
         *,
         params: dict[str, str | int] | None = None,
         json: object | None = None,
+        content: bytes | None = None,
+        headers: dict[str, str] | None = None,
     ) -> httpx2.Response:
-        response = self._http.request(method, path, params=params, json=json)
+        response = self._http.request(
+            method,
+            path,
+            params=params,
+            json=json,
+            content=content,
+            headers=headers,
+        )
         if response.status_code == 404:
             raise DaemonNotFoundError(_error_detail(response), response=response)
         if response.status_code == 409:

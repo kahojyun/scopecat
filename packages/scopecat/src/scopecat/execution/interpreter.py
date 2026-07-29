@@ -54,6 +54,7 @@ from scopecat.runs.repository import (
     RunModelWrite,
     TerminalRunCommit,
 )
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS
 from scopecat.sdk.runtime_problems import (
     contextualize_problems,
     problem_from_exception,
@@ -283,7 +284,8 @@ def _execute_instrument_effects(
     if not instruments.ready:
         return RunEffectResult(
             problems=tuple(setup_problems),
-            initial_state=(),
+            observed_state=(),
+            prepared_state=(),
             final_state=(),
         )
 
@@ -308,7 +310,8 @@ def _execute_instrument_effects(
             release_unknown = True
         return RunEffectResult(
             problems=(*setup_problems, *release_problems),
-            initial_state=(),
+            observed_state=(),
+            prepared_state=(),
             final_state=(),
             indeterminate=release_unknown,
         )
@@ -319,6 +322,11 @@ def _execute_instrument_effects(
         instruments=instruments,
         journal=session.journal,
         coverage_observer=coverage_observer,
+        payload_codecs=(
+            EMPTY_PAYLOAD_CODECS
+            if program.host is None
+            else program.host.payload_codecs
+        ),
     )
     return engine.run(
         program.coverage,

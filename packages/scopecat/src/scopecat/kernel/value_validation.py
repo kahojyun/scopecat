@@ -112,7 +112,10 @@ def _coerce_atom(atom: AtomType, value: object, *, path: ValuePath) -> object:
     if isinstance(atom, Float):
         if not isinstance(value, int | float) or isinstance(value, bool):
             raise ValueValidationError(path, f"expected float, got {value!r}")
-        numeric_value = float(value)
+        try:
+            numeric_value = float(value)
+        except OverflowError as error:
+            raise ValueValidationError(path, "expected a finite float") from error
         if atom.finite and not math.isfinite(numeric_value):
             raise ValueValidationError(path, "expected a finite float")
         _validate_numeric_value(
@@ -157,7 +160,14 @@ def _coerce_quantity(
                 path,
                 "numeric quantity literal requires a declared unit",
             )
-        selected = QuantityValue(value=float(value), unit=atom.unit)
+        try:
+            numeric_value = float(value)
+        except OverflowError as error:
+            raise ValueValidationError(
+                path,
+                "expected a finite quantity",
+            ) from error
+        selected = QuantityValue(value=numeric_value, unit=atom.unit)
     elif isinstance(value, Mapping):
         try:
             selected = QuantityValue.model_validate(value)

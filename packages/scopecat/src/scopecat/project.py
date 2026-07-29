@@ -17,23 +17,24 @@ from scopecat.planning.system import ExperimentSystemBuilder
 
 if TYPE_CHECKING:
     from scopecat.api.lab import LabClient
+    from scopecat.sdk.instruments import InstrumentBackend
 
 type LabApplicationFactory = Callable[[Path], LabApplication]
 
 _MANIFEST_NAME = "scopecat.toml"
-_LAB_KEYS = frozenset({"application"})
+_LAB_KEYS = frozenset({"application", "instrument_backend"})
 
 
 class ProjectManifestError(ValueError):
-    """A discovered project manifest cannot define a lab application."""
+    """A discovered project manifest cannot define its lab composition."""
 
 
-class ProjectApplicationLoadError(RuntimeError):
-    """Project application code conflicts with this process's loaded project."""
+class ProjectCodeLoadError(RuntimeError):
+    """Project code conflicts with this process's loaded project."""
 
 
-_application_import_lock = RLock()
-_loaded_application_project_root: Path | None = None
+_project_import_lock = RLock()
+_loaded_project_code_root: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +44,7 @@ class Project:
     root: Path
     manifest: Path
     application_spec: str | None
+    instrument_backend_spec: str | None
 
     def load_application(self) -> LabApplication:
         """Load the version-controlled composition declared by this project."""
@@ -55,15 +57,18 @@ class Project:
         self,
         daemon: str | None = None,
         *,
-        build_system: ExperimentSystemBuilder | None = None,
+        build_experiment_system: ExperimentSystemBuilder | None = None,
         operator: str = "operator",
     ) -> LabClient:
         """Open the project's high-level notebook client."""
 
         endpoint = resolve_daemon_endpoint(self.root, explicit=daemon)
         application = self.load_application()
-        if build_system is not None:
-            application = replace(application, build_system=build_system)
+        if build_experiment_system is not None:
+            application = replace(
+                application,
+                build_experiment_system=build_experiment_system,
+            )
         return application.connect(endpoint, operator=operator)
 
 
@@ -109,10 +114,12 @@ def load_project(manifest: str | Path) -> Project:
         raise ProjectManifestError(f"unknown [lab] field(s): {fields}")
 
     application = _optional_text(lab, "application")
+    instrument_backend = _optional_text(lab, "instrument_backend")
     return Project(
         root=selected.parent,
         manifest=selected,
         application_spec=application,
+        instrument_backend_spec=instrument_backend,
     )
 
 
@@ -122,57 +129,94 @@ def load_application_factory(
 ) -> LabApplicationFactory:
     """Load ``MODULE:CALLABLE`` and bind this process to its project root."""
 
+    return cast(
+        "LabApplicationFactory",
+        _load_project_factory(
+            spec,
+            project_root,
+            subject="lab application",
+        ),
+    )
+
+
+def load_instrument_backend_factory(
+    spec: str,
+    project_root: str | Path,
+) -> Callable[[Path], InstrumentBackend]:
+    """Load a project-owned backend factory for the instrument worker."""
+
+    return cast(
+        "Callable[[Path], InstrumentBackend]",
+        _load_project_factory(
+            spec,
+            project_root,
+            subject="instrument backend",
+        ),
+    )
+
+
+def _load_project_factory(
+    spec: str,
+    project_root: str | Path,
+    *,
+    subject: str,
+) -> Callable[[Path], object]:
     module_name, separator, attribute_name = spec.partition(":")
     if not separator or not module_name or not attribute_name:
-        raise ValueError("lab application must use MODULE:CALLABLE")
+        raise ValueError(f"{subject} must use MODULE:CALLABLE")
 
     root = Path(project_root).resolve()
-    with _application_import_lock:
+    with _project_import_lock:
         _require_available_project(root)
-        _require_unshadowed_module(module_name, root)
+        _require_unshadowed_module(module_name, root, subject=subject)
         before = frozenset(sys.modules)
         inserted_paths = _add_project_import_paths(root)
         try:
             module = import_module(module_name)
             if not _module_belongs_to_project(module, root):
-                raise ProjectApplicationLoadError(
-                    f"project application module {module_name!r} resolved outside "
+                raise ProjectCodeLoadError(
+                    f"project {subject} module {module_name!r} resolved outside "
                     f"project {root}: {_module_locations_text(module)}"
                 )
             factory = cast("object", getattr(module, attribute_name))
             if not callable(factory):
-                raise ProjectApplicationLoadError(
-                    f"project application {spec!r} does not name a callable"
+                raise ProjectCodeLoadError(
+                    f"project {subject} {spec!r} does not name a callable"
                 )
         except BaseException:
             _remove_new_project_modules(root, module_name, before)
             _remove_import_paths(inserted_paths)
             raise
 
-        global _loaded_application_project_root
-        _loaded_application_project_root = root
+        global _loaded_project_code_root
+        _loaded_project_code_root = root
 
-    return cast("LabApplicationFactory", factory)
+    return cast("Callable[[Path], object]", factory)
 
 
 def _require_available_project(root: Path) -> None:
-    loaded = _loaded_application_project_root
+    loaded = _loaded_project_code_root
     if loaded is None or loaded == root:
         return
-    raise ProjectApplicationLoadError(
-        f"this process already loaded project application code from {loaded}; "
+    raise ProjectCodeLoadError(
+        f"this process already loaded project code from {loaded}; "
         f"cannot also load {root}. Run each Scopecat project in a separate process."
     )
 
 
-def _require_unshadowed_module(module_name: str, root: Path) -> None:
+def _require_unshadowed_module(
+    module_name: str,
+    root: Path,
+    *,
+    subject: str,
+) -> None:
     parts = module_name.split(".")
     for index in range(1, len(parts) + 1):
         loaded_name = ".".join(parts[:index])
         loaded = sys.modules.get(loaded_name)
         if loaded is not None and not _module_belongs_to_project(loaded, root):
-            raise ProjectApplicationLoadError(
-                f"cannot load project application {module_name!r} from {root}: "
+            raise ProjectCodeLoadError(
+                f"cannot load project {subject} {module_name!r} from {root}: "
                 f"module {loaded_name!r} is already loaded from outside this "
                 f"project ({_module_locations_text(loaded)})"
             )
@@ -250,9 +294,10 @@ def _optional_text(table: dict[str, object], field: str) -> str | None:
 __all__ = [
     "LabApplicationFactory",
     "Project",
-    "ProjectApplicationLoadError",
+    "ProjectCodeLoadError",
     "ProjectManifestError",
     "load_application_factory",
+    "load_instrument_backend_factory",
     "load_project",
     "open_project",
 ]

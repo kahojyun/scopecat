@@ -1,19 +1,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ConfigProfileSnapshot,
-  InstrumentCapability,
+  InstrumentAcquisition,
   InstrumentConnection,
+  InstrumentOperation,
   InstrumentSession,
 } from "../../api-contract";
 import { setConfigDefault } from "../config/config-api";
 import {
+  applyInstrumentConfiguredDefaults,
   applyInstrumentState,
   closeInstrumentSession,
-  collectInstrumentCapability,
+  collectInstrumentAcquisition as sendInstrumentAcquisition,
   connectionSummary,
+  getDriverCatalog,
+  invokeInstrumentOperation,
   openInstrumentSession,
-  publishInstrumentConnection,
+  probeInstrumentDriver,
+  publishInstrumentSpec,
+  renewInstrumentSession,
   type ActiveConfig,
+  type InstrumentAcquisitionTarget,
 } from "./instrument-api";
 
 vi.mock("../config/config-api", () => ({
@@ -38,10 +45,13 @@ describe("instrument configuration publishing", () => {
       options: { termination: "lf" },
     };
 
-    await publishInstrumentConnection({
+    await publishInstrumentSpec({
       active,
-      instrumentId: "vna-1",
-      connection,
+      spec: {
+        ...active.config.system.instrument_registry.instruments[0]!,
+        connection,
+      },
+      originalInstrumentId: "vna-1",
       actor: "Ada",
       note: "Move to the instrument VLAN",
     });
@@ -65,13 +75,26 @@ describe("instrument configuration publishing", () => {
     expect(command.source.config.system.instrument_registry.instruments).toEqual([
       {
         id: "vna-1",
+        exclusivity_key: "vna-1",
         driver_id: "keysight.pna",
         connection,
+        default_state: [
+          {
+            interface_id: "scopecat.network_sweep/v1",
+            component_path: [],
+            property_id: "center_frequency",
+            value: { value: 6.2, unit: "GHz" },
+          },
+        ],
+        run_start: "apply_default_state",
       },
       {
         id: "fridge",
+        exclusivity_key: "fridge",
         driver_id: "virtual.temperature",
         connection: { kind: "virtual" },
+        default_state: [],
+        run_start: "preserve",
       },
     ]);
     expect(command.source.config.parameter_snapshot.values).toEqual([
@@ -83,23 +106,219 @@ describe("instrument configuration publishing", () => {
       port: 5025,
       timeout_seconds: 5,
     });
+    expect(active.config.system.instrument_registry.instruments[0]?.default_state).toEqual([
+      {
+        interface_id: "scopecat.network_sweep/v1",
+        component_path: [],
+        property_id: "center_frequency",
+        value: { value: 6.2, unit: "GHz" },
+      },
+    ]);
+    expect(active.config.system.instrument_registry.instruments[0]?.run_start).toBe(
+      "apply_default_state",
+    );
   });
 
-  it("summarizes a TCP endpoint without rendering driver options", () => {
+  it("adds a complete instrument spec without mutating the active snapshot", async () => {
+    const randomUUID = vi.fn(() => "123e4567-e89b-12d3-a456-426614174000");
+    vi.stubGlobal("crypto", { randomUUID });
+    const active = activeConfig();
+
+    await publishInstrumentSpec({
+      active,
+      spec: {
+        id: "source-1",
+        exclusivity_key: "source-1",
+        driver_id: "virtual.rf_source",
+        connection: { kind: "virtual", options: {} },
+        default_state: [],
+        run_start: "preserve",
+      },
+      actor: "Ada",
+      note: "",
+    });
+
+    const command = vi.mocked(setConfigDefault).mock.calls[0]![0];
+    if (command.source.kind !== "direct_config_profile") {
+      throw new Error("Expected a direct config profile revision.");
+    }
+    expect(command.source.config.system.instrument_registry.instruments.at(-1)).toEqual({
+      id: "source-1",
+      exclusivity_key: "source-1",
+      driver_id: "virtual.rf_source",
+      connection: { kind: "virtual", options: {} },
+      default_state: [],
+      run_start: "preserve",
+    });
+    expect(active.config.system.instrument_registry.instruments).toHaveLength(2);
+  });
+
+  it("summarizes a TCP endpoint", () => {
     expect(
       connectionSummary({
         kind: "tcpip_socket",
         host: "192.0.2.24",
         port: 5025,
-        timeout_seconds: 5,
-        options: { termination: "lf" },
       }),
     ).toBe("TCP/IP · 192.0.2.24:5025");
   });
 });
 
+describe("instrument driver catalog", () => {
+  it("reads the catalog and probes a candidate binding", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            provider_id: "scopecat.instruments.configured",
+            drivers: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "connected", problems: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getDriverCatalog()).resolves.toEqual({
+      provider_id: "scopecat.instruments.configured",
+      drivers: [],
+    });
+    await expect(
+      probeInstrumentDriver({
+        binding: {
+          id: "source-1",
+          driver_id: "virtual.rf_source",
+          connection: { kind: "virtual" },
+        },
+      }),
+    ).resolves.toMatchObject({ status: "connected" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/instrument-drivers");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("/api/v1/instrument-drivers/probe");
+    expect(requestBody(fetchMock.mock.calls[1]?.[1])).toEqual({
+      binding: {
+        id: "source-1",
+        driver_id: "virtual.rf_source",
+        connection: { kind: "virtual" },
+      },
+    });
+  });
+});
+
+describe("instrument session lease", () => {
+  it("renews with an empty heartbeat request", async () => {
+    const renewed = {
+      session_id: "session-1",
+      renewed_at: "2026-07-27T08:00:10Z",
+      expires_at: "2026-07-27T08:01:10Z",
+    };
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(JSON.stringify(renewed), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(renewInstrumentSession("session-1")).resolves.toEqual(renewed);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/instrument-sessions/session-1/heartbeat",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBeUndefined();
+  });
+});
+
 describe("interactive collection request shaping", () => {
-  it("leaves a wholly dynamic product unspecified until every axis is known", async () => {
+  it("applies configured defaults without exposing assignments to the browser", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            session_id: "session-1",
+            operation_id: "defaults-retry",
+            instrument_id: "vna-1",
+            config_entry_id: "lab-default",
+            status: "unchanged",
+            problems: [],
+            state: { instrument_id: "vna-1", properties: [] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await applyInstrumentConfiguredDefaults(session(), "vna-1", "defaults-retry");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/instrument-sessions/session-1/instruments/vna-1/configured-defaults/apply",
+    );
+    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
+      operation_id: "defaults-retry",
+    });
+  });
+
+  it("shapes GUI operation arguments without exposing a payload map", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "invoked",
+            problems: [],
+            state: { instrument_id: "vna-1", properties: [] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const operation: InstrumentOperation = {
+      id: "recalibrate",
+      arguments: [
+        {
+          id: "delay",
+          value_type: { type: "quantity", finite: true, unit: "s" },
+        },
+      ],
+    };
+
+    await invokeInstrumentOperation(
+      session(),
+      "vna-1",
+      {
+        interfaceId: "scopecat.network_sweep/v1",
+        componentPath: ["source"],
+        operation,
+      },
+      [{ id: "delay", value: { value: 0.25, unit: "s" } }],
+      "invoke-retry",
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/instrument-sessions/session-1/instruments/vna-1/invoke",
+    );
+    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
+      command_id: "invoke-retry",
+      instrument_id: "vna-1",
+      resource_id: "vna-1",
+      interface_id: "scopecat.network_sweep/v1",
+      component_path: ["source"],
+      operation_id: "recalibrate",
+      arguments: [{ id: "delay", value: { value: 0.25, unit: "s" } }],
+    });
+  });
+
+  it("sends only acquisition identity for daemon-side planning", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
         new Response(
@@ -113,92 +332,49 @@ describe("interactive collection request shaping", () => {
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const capability: InstrumentCapability = {
-      id: "network_sweep",
-      fields: [],
-      products: [
-        {
-          key: "trace",
-          dtype: "float64",
-          axes: [{ id: "frequency", kind: "frequency", unit: "Hz" }],
-        },
-      ],
+    const target: InstrumentAcquisitionTarget = {
+      interfaceId: "scopecat.network_sweep/v1",
+      componentPath: ["readout"],
+      acquisition: {
+        kind: "fixed",
+        id: "sweep",
+        results: [
+          {
+            id: "trace",
+            dtype: "float64",
+            axes: [
+              {
+                id: "frequency",
+                kind: "frequency",
+                size: {
+                  interface_id: "scopecat.sweep_control/v1",
+                  component_path: ["sweep"],
+                  property_id: "points",
+                },
+                unit: "Hz",
+              },
+            ],
+          },
+        ],
+      },
     };
 
-    await collectInstrumentCapability(session(), "vna-1", capability);
-    await collectInstrumentCapability(session(), "vna-1", capability, {
-      instrument_id: "vna-1",
-      fields: [
-        {
-          capability_id: "network_sweep",
-          field_path: "points",
-          value: 201,
-        },
-      ],
-    });
-
-    const firstBody = requestBody(fetchMock.mock.calls[0]?.[1]);
-    expect(firstBody.requests?.[0]!.dimensions).toEqual([]);
-    const secondBody = requestBody(fetchMock.mock.calls[1]?.[1]);
-    expect(secondBody.requests?.[0]!.dimensions).toEqual([
-      { id: "frequency", kind: "frequency", size: 201, unit: "Hz" },
-    ]);
-  });
-
-  it("rejects a mixed static and unresolved dynamic product before HTTP", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const capability: InstrumentCapability = {
-      id: "network_sweep",
-      fields: [],
-      products: [
-        {
-          key: "trace",
-          label: "S-parameter trace",
-          dtype: "float64",
-          axes: [
-            { id: "frequency", label: "Frequency", kind: "frequency", unit: "Hz" },
-            { id: "receiver", kind: "receiver", size: 2 },
-          ],
-        },
-      ],
-    };
-
-    await expect(collectInstrumentCapability(session(), "vna-1", capability)).rejects.toThrow(
-      "Collect is unavailable until S-parameter trace has a positive point count for Frequency.",
-    );
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: "collected",
-          problems: [],
-          readback: { values: {} },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
-    await collectInstrumentCapability(session(), "vna-1", capability, {
-      instrument_id: "vna-1",
-      fields: [
-        {
-          capability_id: "network_sweep",
-          field_path: "points",
-          value: 201,
-        },
-      ],
-    });
+    await sendInstrumentAcquisition(session(), "vna-1", target, "collect-retry");
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const body = requestBody(fetchMock.mock.calls[0]?.[1]);
-    expect(body.requests?.[0]!.dimensions).toEqual([
-      { id: "frequency", kind: "frequency", size: 201, unit: "Hz" },
-      { id: "receiver", kind: "receiver", size: 2 },
-    ]);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/v1/instrument-sessions/session-1/instruments/vna-1/collect",
+    );
+    expect(requestBody(fetchMock.mock.calls[0]?.[1])).toEqual({
+      command_id: "collect-retry",
+      instrument_id: "vna-1",
+      interface_id: "scopecat.network_sweep/v1",
+      component_path: ["readout"],
+      acquisition_id: "sweep",
+      result_ids: [],
+    });
   });
-
-  it("uses the caller operation id across repeated mutating requests", async () => {
+  it("uses caller idempotency ids across repeated mutating requests", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
         new Response("{}", {
@@ -208,35 +384,63 @@ describe("interactive collection request shaping", () => {
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const capability: InstrumentCapability = {
-      id: "network_sweep",
-      fields: [],
-      products: [],
+    const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
+      id: "sweep",
+      results: [{ id: "trace", dtype: "float64", axes: [] }],
+    };
+    const target = {
+      interfaceId: "scopecat.network_sweep/v1",
+      componentPath: [],
+      acquisition,
+    };
+    const operationTarget = {
+      interfaceId: "scopecat.network_sweep/v1",
+      componentPath: [],
+      operation: { id: "recalibrate", arguments: [] },
     };
 
     await openInstrumentSession("vna-1", "Ada", "open-retry");
     await openInstrumentSession("vna-1", "Ada", "open-retry");
-    await applyInstrumentState(session(), "vna-1", [], "apply-retry");
-    await applyInstrumentState(session(), "vna-1", [], "apply-retry");
-    await collectInstrumentCapability(session(), "vna-1", capability, undefined, "collect-retry");
-    await collectInstrumentCapability(session(), "vna-1", capability, undefined, "collect-retry");
+    const properties = [
+      {
+        interfaceId: "scopecat.network_sweep/v1",
+        componentPath: [],
+        propertyId: "points",
+        value: 201,
+      },
+    ];
+    await applyInstrumentState(session(), "vna-1", properties, "apply-retry");
+    await applyInstrumentState(session(), "vna-1", properties, "apply-retry");
+    await invokeInstrumentOperation(session(), "vna-1", operationTarget, [], "invoke-retry");
+    await invokeInstrumentOperation(session(), "vna-1", operationTarget, [], "invoke-retry");
+    await sendInstrumentAcquisition(session(), "vna-1", target, "collect-retry");
+    await sendInstrumentAcquisition(session(), "vna-1", target, "collect-retry");
     await closeInstrumentSession("session-1");
     await closeInstrumentSession("session-1");
 
-    const bodies = fetchMock.mock.calls.slice(0, 6).map(([, init]) => requestBody(init));
+    const bodies = fetchMock.mock.calls.slice(0, 8).map(([, init]) => requestBody(init));
     expect(bodies.slice(0, 2).map((body) => body.operation_id)).toEqual([
       "open-retry",
       "open-retry",
     ]);
-    expect(bodies.slice(2, 4).map((body) => body.operation_id)).toEqual([
+    expect(bodies.slice(2, 4).map((body) => body.command_id)).toEqual([
       "apply-retry",
       "apply-retry",
+    ]);
+    expect(bodies.slice(4, 6).map((body) => body.command_id)).toEqual([
+      "invoke-retry",
+      "invoke-retry",
     ]);
     expect(bodies.slice(4, 6).map((body) => body.operation_id)).toEqual([
+      "recalibrate",
+      "recalibrate",
+    ]);
+    expect(bodies.slice(6, 8).map((body) => body.command_id)).toEqual([
       "collect-retry",
       "collect-retry",
     ]);
-    expect(fetchMock.mock.calls.slice(6, 8).map(([input]) => String(input))).toEqual([
+    expect(fetchMock.mock.calls.slice(8, 10).map(([input]) => String(input))).toEqual([
       "/api/v1/instrument-sessions/session-1/close",
       "/api/v1/instrument-sessions/session-1/close",
     ]);
@@ -254,6 +458,7 @@ function activeConfig(): ActiveConfig {
         instruments: [
           {
             id: "vna-1",
+            exclusivity_key: "vna-1",
             driver_id: "keysight.pna",
             connection: {
               kind: "tcpip_socket",
@@ -261,11 +466,23 @@ function activeConfig(): ActiveConfig {
               port: 5025,
               timeout_seconds: 5,
             },
+            default_state: [
+              {
+                interface_id: "scopecat.network_sweep/v1",
+                component_path: [],
+                property_id: "center_frequency",
+                value: { value: 6.2, unit: "GHz" },
+              },
+            ],
+            run_start: "apply_default_state",
           },
           {
             id: "fridge",
+            exclusivity_key: "fridge",
             driver_id: "virtual.temperature",
             connection: { kind: "virtual" },
+            default_state: [],
+            run_start: "preserve",
           },
         ],
       },
@@ -314,18 +531,26 @@ function session(): InstrumentSession {
     config_entry_id: "lab-default",
     config_content_hash: "sha256:active",
     instrument_ids: ["vna-1"],
+    configured_default_instrument_ids: [],
     descriptions: [],
+    observed_state: [],
     opened_at: "2026-07-27T08:00:00Z",
+    renewed_at: "2026-07-27T08:00:00Z",
+    expires_at: "2026-07-27T08:01:00Z",
   };
 }
 
 function requestBody(init: RequestInit | undefined): {
+  command_id?: string;
   operation_id?: string;
-  requests?: Array<{ dimensions: unknown[] }>;
+  [key: string]: unknown;
+  requests?: Array<{ dimensions: unknown[]; result_id?: string }>;
 } {
   if (typeof init?.body !== "string") throw new Error("Expected a JSON request body.");
   return JSON.parse(init.body) as {
+    command_id?: string;
     operation_id?: string;
-    requests?: Array<{ dimensions: unknown[] }>;
+    [key: string]: unknown;
+    requests?: Array<{ dimensions: unknown[]; result_id?: string }>;
   };
 }

@@ -4,26 +4,32 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CapabilityDescription,
-    CollectCommand,
-    CollectReceipt,
+    DriverAcquisition,
+    DriverCatalog,
+    DriverConnectionSpec,
     DriverFault,
+    DriverOperation,
+    DriverOutcome,
+    DriverPayload,
+    DriverReadback,
+    DriverScalar,
+    DriverSpec,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
+    InstrumentBindingSpec,
+    InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentProviderResult,
-    InstrumentReadback,
-    InstrumentStateCommand,
-    InstrumentStateField,
-    InstrumentStateSnapshot,
-    capability,
-    payload_field,
+    InterfaceSpec,
+    PropertyRef,
+    VirtualInstrumentConnection,
 )
 from scopecat.sdk.problems import (
     Problem,
@@ -32,8 +38,17 @@ from scopecat.sdk.problems import (
     problem,
 )
 
+from quantum_lab_demo.interfaces import (
+    acquire_iq_interface,
+    play_pulse_program_interface,
+    readout_pulse_interface,
+)
+from quantum_lab_demo.payloads import DecodedPulseProgram
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile
 from quantum_lab_demo.virtual_lab.profiles import load_virtual_lab_profile
+
+_DRIVE_STACK_DRIVER_ID = "quantum_lab_demo.virtual_lab.drive_stack"
+_READOUT_STACK_DRIVER_ID = "quantum_lab_demo.virtual_lab.readout_stack"
 
 
 class _VirtualInstrumentDriver:
@@ -43,19 +58,19 @@ class _VirtualInstrumentDriver:
         self,
         *,
         profile: VirtualDeviceProfile,
-        capabilities: Sequence[CapabilityDescription],
+        interfaces: Sequence[InterfaceSpec],
     ) -> None:
         self.instrument_id = profile.id
         self.implementation_id = self._implementation_id
         self.implementation_version = "v0"
-        self._capabilities = list(capabilities)
+        self._interfaces = list(interfaces)
         self._metadata: dict[str, JsonValue] = {
             "mode": "virtual_lab",
             "source": "quantum-lab-demo",
         }
         self._state = {
-            _decode_state_key(key): value
-            for key, value in profile.initial_state.items()
+            _decode_property_key(key): cast("DriverScalar", value.root)
+            for key, value in profile.seed_state.items()
         }
 
     def describe(self) -> InstrumentDescription:
@@ -63,49 +78,53 @@ class _VirtualInstrumentDriver:
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
             implementation_version=self.implementation_version,
-            capabilities=list(self._capabilities),
+            interfaces=list(self._interfaces),
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            fields=[
-                InstrumentStateField(
-                    capability_id=capability_id,
-                    field_path=field_path,
-                    value=value,
-                )
-                for (capability_id, field_path), value in sorted(self._state.items())
-            ],
+    def read_state(self) -> DriverState:
+        return DriverState(
+            values={
+                PropertyRef(interface_id, (), property_id): value
+                for (interface_id, property_id), value in self._state.items()
+            },
             metadata=self._metadata,
         )
 
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        if command.instrument_id != self.instrument_id:
-            raise DriverFault(
-                problem(
-                    "virtual_lab_device_mismatch",
-                    f"{self.instrument_id} cannot apply command for "
-                    f"{command.instrument_id}",
-                    phase=ProblemPhase.EXECUTION,
-                    location=model_location(
-                        "instrument_state_command",
-                        "instrument_id",
-                    ),
-                )
-            )
-        for field in command.fields:
-            self._state[(field.capability_id, field.field_path)] = field.value
-        return ApplyReceipt(status="applied")
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        for target, value in request.values.items():
+            self._state[(target.interface_id, target.property_id)] = value
+        return DriverSuccess(None)
 
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        del command
-        return CollectReceipt(readback=InstrumentReadback())
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        programs = tuple(
+            cast("DecodedPulseProgram", argument.value)
+            for argument in request.arguments.values()
+            if isinstance(argument, DriverPayload)
+        )
+        documents = tuple(program.document for program in programs)
+        return DriverSuccess(
+            None,
+            metadata={
+                "interface_id": request.target.interface_id,
+                "operation_id": request.target.operation_id,
+                "payload_count": len(documents),
+            },
+        )
 
-    def cleanup(self) -> None:
-        return None
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        del request
+        return DriverSuccess(DriverReadback(values={}))
 
-    def close(self) -> None:
+    def disconnect(self) -> None:
         return None
 
     def abort(self) -> None:
@@ -113,96 +132,131 @@ class _VirtualInstrumentDriver:
 
 
 class QuantumDriveStack(_VirtualInstrumentDriver):
-    _implementation_id = "quantum_lab_demo.virtual_lab.drive_stack"
+    _implementation_id = _DRIVE_STACK_DRIVER_ID
 
     def __init__(self, *, profile: VirtualDeviceProfile) -> None:
         super().__init__(
             profile=profile,
-            capabilities=[
-                capability(
-                    "play_pulse_program",
-                    fields=[payload_field("program", schema_id="pulse_program")],
-                ),
-            ],
+            interfaces=[play_pulse_program_interface()],
         )
 
 
 class QuantumReadoutStack(_VirtualInstrumentDriver):
-    _implementation_id = "quantum_lab_demo.virtual_lab.readout_stack"
+    _implementation_id = _READOUT_STACK_DRIVER_ID
 
     def __init__(self, *, profile: VirtualDeviceProfile) -> None:
         super().__init__(
             profile=profile,
-            capabilities=[
-                capability("readout_pulse"),
-                capability("acquire_iq"),
+            interfaces=[
+                readout_pulse_interface(),
+                acquire_iq_interface(),
             ],
         )
 
 
 class QuantumLabVirtualProvider:
     provider_id = "quantum_lab_demo.virtual_lab.provider"
+    driver_catalog = DriverCatalog(
+        provider_id=provider_id,
+        drivers=(
+            DriverSpec(
+                driver_id=_DRIVE_STACK_DRIVER_ID,
+                implementation_version="v0",
+                label="Virtual quantum drive stack",
+                connections=(
+                    DriverConnectionSpec(
+                        kind="virtual",
+                        options_schema={
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    ),
+                ),
+            ),
+            DriverSpec(
+                driver_id=_READOUT_STACK_DRIVER_ID,
+                implementation_version="v0",
+                label="Virtual quantum readout stack",
+                connections=(
+                    DriverConnectionSpec(
+                        kind="virtual",
+                        options_schema={
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
 
     def __init__(
         self,
         profile: str | Path,
     ) -> None:
         self.profile = load_virtual_lab_profile(profile)
-        self._metadata: dict[str, JsonValue] = {
-            "mode": "virtual_lab",
-            "category": "experiment_system",
-            "virtual_lab_profile": self.profile.id,
-        }
 
     def describe(
         self, context: InstrumentProviderContext
     ) -> InstrumentProviderDescription:
-        del context
         problems: list[Problem] = []
-        try:
-            instruments = tuple(
-                driver.describe() for driver in self._build_virtual_instruments()
-            )
-        except DriverFault as error:
-            problems.append(error.problem)
-            instruments = ()
+        instruments: list[InstrumentDescription] = []
+        for binding in context.bindings:
+            try:
+                instruments.append(self._build_virtual_instrument(binding).describe())
+            except DriverFault as error:
+                problems.append(error.problem)
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
-            instruments=instruments,
+            instruments=tuple(instruments),
             problems=tuple(problems),
         )
 
-    def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
-        problems: list[Problem] = []
-        try:
-            selected = set(context.instrument_ids)
-            drivers = tuple(
-                driver
-                for driver in self._build_virtual_instruments()
-                if not selected or driver.instrument_id in selected
+    def connect(self, context: InstrumentConnectionContext) -> InstrumentDriver:
+        return self._build_virtual_instrument(context.binding)
+
+    def _build_virtual_instrument(
+        self,
+        binding: InstrumentBindingSpec,
+    ) -> InstrumentDriver:
+        if not isinstance(binding.connection, VirtualInstrumentConnection):
+            raise DriverFault(
+                problem(
+                    "virtual_lab_connection_invalid",
+                    f"{binding.id} requires a virtual connection",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location(
+                        "instrument_connection",
+                        "binding",
+                        "connection",
+                    ),
+                    details={"instrument_id": binding.id},
+                )
             )
-        except DriverFault as error:
-            problems.append(error.problem)
-            drivers = ()
-        return InstrumentProviderResult(
-            drivers=drivers,
-            problems=tuple(problems),
-            metadata={
-                "provider_id": self.provider_id,
-                **self._metadata,
-            },
-        )
-
-    def _build_virtual_instruments(self) -> Sequence[InstrumentDriver]:
         profiles = {profile.id: profile for profile in self.profile.devices}
-        return [
-            QuantumDriveStack(
-                profile=_required_profile(profiles, "drive-stack"),
+        profile = _required_profile(profiles, binding.id)
+        if binding.driver_id == _DRIVE_STACK_DRIVER_ID:
+            return QuantumDriveStack(profile=profile)
+        if binding.driver_id == _READOUT_STACK_DRIVER_ID:
+            return QuantumReadoutStack(profile=profile)
+        raise DriverFault(
+            problem(
+                "virtual_lab_unknown_driver",
+                f"virtual lab does not support driver {binding.driver_id}",
+                phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                location=model_location(
+                    "instrument_connection",
+                    "binding",
+                    "driver_id",
+                ),
+                details={
+                    "instrument_id": binding.id,
+                    "driver_id": binding.driver_id,
+                },
             ),
-            QuantumReadoutStack(
-                profile=_required_profile(profiles, "readout-stack"),
-            ),
-        ]
+        )
 
 
 def _required_profile(
@@ -223,13 +277,13 @@ def _required_profile(
         ) from error
 
 
-def _decode_state_key(key: str) -> tuple[str, str]:
-    capability_id, separator, field_path = key.partition(".")
-    if not separator or not capability_id or not field_path:
+def _decode_property_key(key: str) -> tuple[str, str]:
+    interface_id, separator, property_id = key.partition("::")
+    if not separator or not interface_id or not property_id:
         raise ValueError(
-            "virtual device initial_state keys must use '<capability_id>.<field_path>'"
+            "virtual device seed_state keys must use '<interface_id>::<property_id>'"
         )
-    return capability_id, field_path
+    return interface_id, property_id
 
 
 __all__ = [
