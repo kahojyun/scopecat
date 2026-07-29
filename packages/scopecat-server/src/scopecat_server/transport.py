@@ -86,9 +86,9 @@ from scopecat.runs.data import (
 )
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
     InstrumentStateCommand,
+    InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
 )
@@ -300,12 +300,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def collect_instrument(
         session_id: str,
         instrument_id: str,
-        command: CollectCommand,
+        intent: InteractiveCollectIntent,
     ) -> CollectReceipt:
         return application.instruments.collect(
             session_id,
             instrument_id,
-            command,
+            intent,
         )
 
     @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/close")

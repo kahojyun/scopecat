@@ -93,9 +93,9 @@ from scopecat.runs.data import (
 )
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
     InstrumentStateCommand,
+    InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
 )
@@ -326,7 +326,7 @@ class DaemonClient:
         self,
         session_id: str,
         instrument_id: str,
-        command: CollectCommand,
+        intent: InteractiveCollectIntent,
     ) -> CollectReceipt:
         return self._post_idempotent_model(
             self._instrument_session_path(
@@ -334,7 +334,7 @@ class DaemonClient:
                 instrument_id,
                 "collect",
             ),
-            command,
+            intent,
             CollectReceipt,
         )
 

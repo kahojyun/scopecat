@@ -22,21 +22,14 @@ from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
-    CollectResultRequest,
-    ComponentSpec,
     InstrumentDescription,
     InstrumentOperationArgument,
     InstrumentStateAssignment,
     InstrumentStateCommand,
-    InterfaceSpec,
+    InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
-    StatePropertyRef,
-    acquisition_results,
-    evaluate_acquisition_readiness,
-    resolve_acquisition_dimensions,
 )
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
@@ -49,7 +42,6 @@ from scopecat.sdk.instruments.members import (
 type OperationArgumentValue = (
     bool | int | float | str | Quantity | StateValue | CommandPayload
 )
-type _CollectIntent = tuple[str, AcquisitionRef, tuple[str, ...]]
 
 
 class LabInstrumentOperations:
@@ -117,7 +109,6 @@ class InstrumentSessionHandle:
         )
         self._session: InstrumentSessionOpenReceipt | None = None
         self._ended = False
-        self._collect_commands: dict[str, tuple[_CollectIntent, CollectCommand]] = {}
 
     def __enter__(self) -> Self:
         self._ensure_open()
@@ -308,171 +299,26 @@ class InstrumentSessionHandle:
         command_id: str | None = None,
     ) -> CollectReceipt:
         selected = self._selected_instrument_id(instrument_id)
-        description = self.describe(selected)
-        interface = next(
-            (
-                item
-                for item in description.interfaces
-                if item.id == acquisition.interface_id
-            ),
-            None,
-        )
-        if interface is None:
-            raise ValueError(
-                f"instrument {selected} has no interface {acquisition.interface_id!r}"
-            )
-        component: InterfaceSpec | ComponentSpec = interface
-        for component_id in acquisition.component_path:
-            nested = next(
-                (item for item in component.components if item.id == component_id),
-                None,
-            )
-            if nested is None:
-                raise ValueError(
-                    f"interface {acquisition.interface_id!r} has no component path "
-                    f"{'/'.join(acquisition.component_path)!r}"
-                )
-            component = nested
-        acquisition_spec = next(
-            (
-                item
-                for item in component.acquisitions
-                if item.id == acquisition.acquisition_id
-            ),
-            None,
-        )
-        if acquisition_spec is None:
-            raise ValueError(
-                f"interface {acquisition.interface_id!r} has no acquisition "
-                f"{acquisition.acquisition_id!r}"
-            )
         if any(result.acquisition != acquisition for result in results):
             raise ValueError("collect results must belong to the selected acquisition")
 
-        requested_result_ids = tuple(result.result_id for result in results)
-        if (
-            command_id is not None
-            and not requested_result_ids
-            and acquisition_spec.kind == "state_discriminated"
-        ):
-            raise ValueError(
-                "state-discriminated collection with command_id requires "
-                "an explicit result"
-            )
-        intent: _CollectIntent = (selected, acquisition, requested_result_ids)
-        if command_id is not None:
-            selected_command_id = _select_command_id(
+        session = self._require_session()
+        intent = InteractiveCollectIntent(
+            command_id=_select_command_id(
                 command_id,
                 kind="collect",
                 subject=selected,
-            )
-            cached = self._collect_commands.get(selected_command_id)
-            if cached is not None:
-                cached_intent, cached_command = cached
-                if cached_intent != intent:
-                    raise ValueError(
-                        f"instrument command id {selected_command_id!r} has "
-                        "different collect content"
-                    )
-                session = self._require_session()
-                return self._client.collect_instrument(
-                    session.session_id,
-                    selected,
-                    cached_command,
-                )
-        else:
-            selected_command_id = _select_command_id(
-                None,
-                kind="collect",
-                subject=selected,
-            )
-        declared_results = {
-            item.id: item for item in acquisition_results(acquisition_spec)
-        }
-        selected_results = declared_results
-        state: InstrumentStateSnapshot | None = None
-        state_required = (
-            acquisition_spec.kind == "state_discriminated"
-            or bool(acquisition_spec.preconditions)
-            or any(
-                isinstance(axis.size, StatePropertyRef)
-                for result_spec in declared_results.values()
-                for axis in result_spec.axes
-                if not requested_result_ids or result_spec.id in requested_result_ids
-            )
-        )
-        if state_required:
-            state = self.read_state(selected)
-            readiness = evaluate_acquisition_readiness(
-                description=description,
-                acquisition=acquisition_spec,
-                state=state,
-            )
-            if readiness.status != "ready":
-                reasons = "; ".join(
-                    dict.fromkeys(issue.reason for issue in readiness.issues)
-                )
-                if readiness.status == "blocked":
-                    message = (
-                        f"acquisition {acquisition.acquisition_id!r} is unavailable"
-                    )
-                else:
-                    message = (
-                        f"acquisition {acquisition.acquisition_id!r} "
-                        "readiness is unknown"
-                    )
-                raise ValueError(f"{message}: {reasons}" if reasons else message)
-            selected_results = {item.id: item for item in readiness.results}
-        selected_result_ids = requested_result_ids or tuple(selected_results)
-        inactive = tuple(
-            result_id
-            for result_id in selected_result_ids
-            if result_id not in selected_results
-        )
-        if inactive:
-            raise ValueError(
-                f"acquisition {acquisition.acquisition_id!r} has no active results: "
-                f"{', '.join(inactive)}"
-            )
-        session = self._require_session()
-        requests: list[CollectResultRequest] = []
-        for result_id in selected_result_ids:
-            result_spec = selected_results[result_id]
-            dimensions = resolve_acquisition_dimensions(
-                description=description,
-                result=result_spec,
-                state=state,
-            )
-            if dimensions is None:
-                raise ValueError(
-                    f"acquisition {acquisition.acquisition_id!r} result "
-                    f"{result_id!r} axis size state is not synchronized"
-                )
-            requests.append(
-                CollectResultRequest(
-                    id=result_id,
-                    interface_id=acquisition.interface_id,
-                    component_path=list(acquisition.component_path),
-                    acquisition_id=acquisition.acquisition_id,
-                    result_id=result_id,
-                    unit=result_spec.unit,
-                    dtype=result_spec.dtype,
-                    dimensions=list(dimensions),
-                )
-            )
-        command = CollectCommand(
-            command_id=selected_command_id,
+            ),
             instrument_id=selected,
-            point_index=0,
-            point_count=1,
-            requests=requests,
+            interface_id=acquisition.interface_id,
+            component_path=list(acquisition.component_path),
+            acquisition_id=acquisition.acquisition_id,
+            result_ids=[result.result_id for result in results],
         )
-        if command_id is not None:
-            self._collect_commands[selected_command_id] = (intent, command)
         return self._client.collect_instrument(
             session.session_id,
             selected,
-            command,
+            intent,
         )
 
     def close(

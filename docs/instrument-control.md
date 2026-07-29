@@ -145,9 +145,10 @@ roles:
 A fixed acquisition always exposes the same results. A state-discriminated
 acquisition references one physical state discriminator and declares a result
 set for every mode. Acquisition- and case-level preconditions declare the
-observable public state required before a trigger. Interactive clients use a
-synchronized snapshot for readiness, and batch preflight uses projected state
-to reject an incoherent plan before its first side effect.
+observable public state required before a trigger. The daemon resolves an
+interactive collect intent from a fresh hardware snapshot, while batch
+preflight uses projected state to reject an incoherent plan before its first
+side effect.
 
 Every array axis has either a fixed size or an observable integer state
 property as its size source. Executable collect commands always freeze concrete
@@ -155,11 +156,12 @@ dimensions; state references remain in the interface contract and never enter
 the driver request. Truly ragged or event-shaped results require a distinct
 result contract rather than an omitted axis size.
 
-Readiness is advisory at the hardware boundary. The daemon never rejects a
-direct collect solely from its assumed state, because a user may have changed
-the front panel while the connection was idle. The driver rechecks live mode
-and preconditions before the first trigger; implementation-specific constraints
-that are not part of every interface implementation remain driver guards.
+Interactive replay is checked before touching hardware. On the first attempt,
+the daemon synchronizes state, selects the active results, resolves every axis,
+and freezes the resulting concrete command. A rejection is also replayed
+without another state read. The driver still rechecks live mode and
+preconditions before the trigger because the front panel can change after the
+snapshot; implementation-specific constraints remain driver guards.
 
 A driver implementation may expose several interfaces. Multi-device
 calibration, feedback, and analysis remain experiment procedures rather than
@@ -417,21 +419,23 @@ The handle is synchronous to match the existing notebook API. It generates a
 new command id for every apply, invoke, or collect unless the caller supplies
 one, and closes or aborts through the daemon when leaving the context. If an
 HTTP response is lost, retry with the same `command_id`: the daemon returns the
-recorded receipt instead of touching the device again. The complete command
-must remain identical. A high-level state-discriminated collect therefore
-requires explicit result refs when the caller supplies `command_id`; replay
-bypasses client readiness checks and reaches the daemon ledger. The daemon
-client automatically retries one transport failure with the same complete
-command.
+recorded receipt instead of touching the device again. The complete retry
+request must remain identical. For collect, that identity is the high-level
+target and optional result selection, not a client-built hardware command.
+Omitting result refs asks the daemon to select all active results from the first
+synchronized snapshot; replay keeps that frozen choice even if the device mode
+later changes. The daemon client automatically retries one transport failure
+with the same intent.
+
 Opening has a separate retry identity and replays the config resolution from
 its first successful attempt, even if the active config changes. Close and
 abort are naturally idempotent because the daemon records the session's
 terminal status.
 
-A state-dependent notebook collection refreshes once before building its
-request. The same readiness evaluator chooses default results and rejects an
-explicit inactive result or unmet precondition. The driver remains
-authoritative if hardware changes after that refresh.
+The Notebook API does not read state or resolve acquisition schema locally.
+The daemon performs one fresh synchronization after a replay miss, chooses
+default results, rejects an inactive explicit result or unmet precondition, and
+freezes concrete dimensions before calling the driver.
 
 Opaque values such as compiled pulse programs are operation arguments, never
 persistent properties. A registered codec converts the in-memory value to an

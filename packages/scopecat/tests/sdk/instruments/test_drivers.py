@@ -50,11 +50,14 @@ from scopecat.sdk.instruments import (
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InteractiveCollectIntent,
     InterfaceRef,
     InvokeCommand,
     OperationArgumentSpec,
     PropertyRef,
     PropertySpec,
+    RejectedInteractiveCollect,
+    ResolvedInteractiveCollect,
     StateDiscriminatedAcquisitionSpec,
     StatePropertyRef,
     acquisition,
@@ -75,6 +78,7 @@ from scopecat.sdk.instruments import (
     operation_argument,
     quantity_property,
     resolve_acquisition_dimensions,
+    resolve_interactive_collect,
     state_case,
     state_discriminated_acquisition,
     string_property,
@@ -112,6 +116,9 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
         "InstrumentReadback": RecordInstrumentReadback,
         "InstrumentPropertyState": RecordInstrumentPropertyState,
         "InstrumentStateSnapshot": RecordInstrumentStateSnapshot,
+        "InteractiveCollectIntent": InteractiveCollectIntent,
+        "RejectedInteractiveCollect": RejectedInteractiveCollect,
+        "ResolvedInteractiveCollect": ResolvedInteractiveCollect,
         "StateDiscriminatedAcquisitionSpec": StateDiscriminatedAcquisitionSpec,
         "StatePropertyRef": StatePropertyRef,
     }
@@ -1879,6 +1886,39 @@ def test_state_snapshot_and_projection_preserve_one_active_case() -> None:
     assert validate_state_snapshot(snapshot=observed, description=description) == []
 
 
+def _interactive_collect_intent(
+    *,
+    command_id: str = "collect-signal",
+    instrument_id: str = "source-0",
+    interface_id: str = "test.trace/v1",
+    component_path: tuple[str, ...] = (),
+    acquisition_id: str = "sample",
+    result_ids: tuple[str, ...] = (),
+) -> InteractiveCollectIntent:
+    return InteractiveCollectIntent(
+        command_id=command_id,
+        instrument_id=instrument_id,
+        interface_id=interface_id,
+        component_path=list(component_path),
+        acquisition_id=acquisition_id,
+        result_ids=list(result_ids),
+    )
+
+
+def _interactive_monitor_intent(
+    *,
+    command_id: str,
+    result_ids: tuple[str, ...] = (),
+) -> InteractiveCollectIntent:
+    return InteractiveCollectIntent(
+        command_id=command_id,
+        instrument_id="source-0",
+        interface_id="test.monitor/v1",
+        acquisition_id="monitor",
+        result_ids=list(result_ids),
+    )
+
+
 def test_acquisition_result_rejects_duplicate_axis_ids() -> None:
     with pytest.raises(
         ValidationError,
@@ -1891,6 +1931,273 @@ def test_acquisition_result_rejects_duplicate_axis_ids() -> None:
                 acquisition_axis("frequency", size=3, kind="frequency"),
             ],
         )
+
+
+def test_interactive_collect_intent_requires_unique_result_ids() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="interactive collect result ids must be unique",
+    ):
+        InteractiveCollectIntent(
+            command_id="collect-duplicate",
+            instrument_id="source-0",
+            interface_id="test.trace/v1",
+            acquisition_id="sample",
+            result_ids=["signal", "signal"],
+        )
+
+
+def test_interactive_collect_resolves_all_or_explicit_fixed_results() -> None:
+    description = InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.interactive_collect",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                "test.trace/v1",
+                acquisitions=[
+                    acquisition(
+                        "sample",
+                        results=[
+                            acquisition_result("signal", unit="V"),
+                            acquisition_result("phase", unit="rad"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    state = InstrumentStateSnapshot(instrument_id="source-0")
+
+    all_results = resolve_interactive_collect(
+        intent=_interactive_collect_intent(command_id="collect-all"),
+        description=description,
+        state=state,
+    )
+    explicit = resolve_interactive_collect(
+        intent=_interactive_collect_intent(
+            command_id="collect-phase",
+            result_ids=("phase",),
+        ),
+        description=description,
+        state=state,
+    )
+
+    assert isinstance(all_results, ResolvedInteractiveCollect)
+    assert all_results.command.point_index == 0
+    assert all_results.command.point_count == 1
+    assert [
+        (request.id, request.result_id, request.unit)
+        for request in all_results.command.requests
+    ] == [
+        ("signal", "signal", "V"),
+        ("phase", "phase", "rad"),
+    ]
+    assert isinstance(explicit, ResolvedInteractiveCollect)
+    assert [request.result_id for request in explicit.command.requests] == ["phase"]
+    assert (
+        validate_collect_plan(
+            command=explicit.command,
+            description=description,
+            baseline=state,
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("intent", "code", "path"),
+    [
+        (
+            _interactive_collect_intent(instrument_id="other"),
+            "instrument_driver_mismatch",
+            ("instrument_id",),
+        ),
+        (
+            _interactive_collect_intent(interface_id="test.missing/v1"),
+            "instrument_driver_unsupported_interface",
+            ("interface_id",),
+        ),
+        (
+            _interactive_collect_intent(component_path=("missing",)),
+            "instrument_driver_unsupported_component",
+            ("component_path",),
+        ),
+        (
+            _interactive_collect_intent(acquisition_id="missing"),
+            "instrument_driver_unsupported_acquisition",
+            ("acquisition_id",),
+        ),
+        (
+            _interactive_collect_intent(result_ids=("missing",)),
+            "instrument_driver_unsupported_acquisition_result",
+            ("result_ids", 0),
+        ),
+    ],
+    ids=("instrument", "interface", "component", "acquisition", "result"),
+)
+def test_interactive_collect_rejects_unsupported_targets(
+    intent: InteractiveCollectIntent,
+    code: str,
+    path: tuple[str | int, ...],
+) -> None:
+    resolution = resolve_interactive_collect(
+        intent=intent,
+        description=_collect_description(),
+        state=InstrumentStateSnapshot(instrument_id="source-0"),
+    )
+
+    assert isinstance(resolution, RejectedInteractiveCollect)
+    [problem] = resolution.problems
+    assert problem.code == code
+    assert problem.location == ModelLocation(
+        root="interactive_collect_intent",
+        path=path,
+    )
+
+
+def test_interactive_collect_selects_the_fresh_discriminated_results() -> None:
+    description = _state_discriminated_collect_description()
+    voltage = resolve_interactive_collect(
+        intent=_interactive_monitor_intent(command_id="collect-voltage"),
+        description=description,
+        state=_state_discriminated_collect_snapshot("voltage"),
+    )
+    current = resolve_interactive_collect(
+        intent=_interactive_monitor_intent(command_id="collect-current"),
+        description=description,
+        state=_state_discriminated_collect_snapshot("current"),
+    )
+
+    assert isinstance(voltage, ResolvedInteractiveCollect)
+    assert isinstance(current, ResolvedInteractiveCollect)
+    assert [request.result_id for request in voltage.command.requests] == [
+        "monitored_current"
+    ]
+    assert [request.result_id for request in current.command.requests] == [
+        "monitored_voltage"
+    ]
+
+
+def test_interactive_collect_reports_inactive_results_and_blocked_state() -> None:
+    description = _state_discriminated_collect_description()
+    inactive = resolve_interactive_collect(
+        intent=_interactive_monitor_intent(
+            command_id="collect-inactive",
+            result_ids=("monitored_voltage",),
+        ),
+        description=description,
+        state=_state_discriminated_collect_snapshot("voltage"),
+    )
+    blocked_description = _state_discriminated_collect_description(
+        preconditions=(
+            acquisition_precondition(
+                InterfaceRef("test.source/v1")
+                .component("output")
+                .property("output_enabled"),
+                operator="equal",
+                value=True,
+                unavailable_reason="Source output is disabled.",
+            ),
+        )
+    )
+    blocked = resolve_interactive_collect(
+        intent=_interactive_monitor_intent(command_id="collect-blocked"),
+        description=blocked_description,
+        state=_state_discriminated_collect_snapshot("voltage"),
+    )
+
+    assert isinstance(inactive, RejectedInteractiveCollect)
+    [inactive_problem] = inactive.problems
+    assert inactive_problem.code == "instrument_driver_inactive_acquisition_result"
+    assert inactive_problem.location == ModelLocation(
+        root="interactive_collect_intent",
+        path=("result_ids", 0),
+    )
+    assert inactive_problem.details == {
+        "result_id": "monitored_voltage",
+        "active_case": "voltage",
+    }
+    assert isinstance(blocked, RejectedInteractiveCollect)
+    assert [problem.code for problem in blocked.problems] == [
+        "instrument_driver_acquisition_precondition_not_met"
+    ]
+    assert blocked.problems[0].related_locations == (
+        ModelLocation(
+            root="instrument_state",
+            path=("test.source/v1", "output", "output_enabled"),
+        ),
+    )
+
+
+def test_interactive_collect_reports_unknown_discriminator_state() -> None:
+    resolution = resolve_interactive_collect(
+        intent=_interactive_monitor_intent(command_id="collect-unknown"),
+        description=_state_discriminated_collect_description(),
+        state=InstrumentStateSnapshot(instrument_id="source-0"),
+    )
+
+    assert isinstance(resolution, RejectedInteractiveCollect)
+    [problem] = resolution.problems
+    assert problem.code == "instrument_driver_acquisition_state_unknown"
+    assert problem.location == ModelLocation(
+        root="interactive_collect_intent",
+        path=("acquisition_id",),
+    )
+    assert problem.related_locations == (
+        ModelLocation(
+            root="instrument_state",
+            path=("test.source/v1", "output", "mode"),
+        ),
+    )
+
+
+def test_interactive_collect_freezes_state_sized_axes() -> None:
+    description = _state_sized_collect_description()
+    resolved = resolve_interactive_collect(
+        intent=_interactive_collect_intent(command_id="collect-sized"),
+        description=description,
+        state=_state_sized_collect_snapshot(17),
+    )
+    unresolved = resolve_interactive_collect(
+        intent=_interactive_collect_intent(command_id="collect-unsized"),
+        description=description,
+        state=InstrumentStateSnapshot(instrument_id="other"),
+    )
+
+    assert isinstance(resolved, ResolvedInteractiveCollect)
+    assert resolved.command.requests[0].dimensions == [
+        CollectAxisRequest(id="channel", kind="channel", size=2),
+        CollectAxisRequest(
+            id="frequency",
+            kind="frequency",
+            size=17,
+            unit="Hz",
+        ),
+    ]
+    assert isinstance(unresolved, RejectedInteractiveCollect)
+    [problem] = unresolved.problems
+    assert problem.code == "instrument_driver_acquisition_axis_state_unknown"
+    assert problem.location == ModelLocation(
+        root="interactive_collect_intent",
+        path=("acquisition_id",),
+    )
+    assert problem.related_locations == (
+        ModelLocation(
+            root="instrument_state",
+            path=("test.sweep/v1", "points"),
+        ),
+    )
+    assert problem.details == {
+        "result_id": "signal",
+        "axis_id": "frequency",
+        "axis_index": 1,
+        "state_property": {
+            "interface_id": "test.sweep/v1",
+            "component_path": (),
+            "property_id": "points",
+        },
+    }
 
 
 def test_acquisition_axis_requires_an_explicit_size_contract() -> None:

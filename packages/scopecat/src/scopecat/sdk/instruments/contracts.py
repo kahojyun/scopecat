@@ -554,6 +554,25 @@ class CollectResultRequest(BaseModel):
         return self
 
 
+class InteractiveCollectIntent(BaseModel):
+    """State-independent acquisition selection for one direct interaction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    command_id: _NonEmptyId
+    instrument_id: _NonEmptyId
+    interface_id: InterfaceId
+    component_path: list[_NonEmptyId] = Field(default_factory=list)
+    acquisition_id: _NonEmptyId
+    result_ids: list[_NonEmptyId] = Field(default_factory=list)
+
+    @field_validator("result_ids")
+    @classmethod
+    def validate_unique_results(cls, value: list[str]) -> list[str]:
+        _require_unique(value, "interactive collect result ids")
+        return value
+
+
 class CollectCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -582,6 +601,26 @@ class CollectCommand(BaseModel):
         if len(acquisition_targets) != 1:
             raise ValueError("collect command must target exactly one acquisition")
         return self
+
+
+class ResolvedInteractiveCollect(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["resolved"] = "resolved"
+    command: CollectCommand
+
+
+class RejectedInteractiveCollect(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["rejected"] = "rejected"
+    problems: tuple[Problem, ...] = Field(min_length=1)
+
+
+type InteractiveCollectResolution = Annotated[
+    ResolvedInteractiveCollect | RejectedInteractiveCollect,
+    Field(discriminator="kind"),
+]
 
 
 class InstrumentOperationArgument(BaseModel):
@@ -1804,6 +1843,222 @@ def validate_invoke_command(
             )
         )
     return problems
+
+
+def resolve_interactive_collect(
+    *,
+    intent: InteractiveCollectIntent,
+    description: InstrumentDescription,
+    state: _InstrumentStateSnapshot,
+) -> InteractiveCollectResolution:
+    """Freeze one direct acquisition intent against synchronized hardware state."""
+
+    if intent.instrument_id != description.instrument_id:
+        return RejectedInteractiveCollect(
+            problems=(
+                _interactive_collect_problem(
+                    "instrument_driver_mismatch",
+                    f"{description.instrument_id} cannot collect for "
+                    f"{intent.instrument_id}",
+                    "instrument_id",
+                ),
+            )
+        )
+    interface_spec = next(
+        (
+            interface
+            for interface in description.interfaces
+            if interface.id == intent.interface_id
+        ),
+        None,
+    )
+    if interface_spec is None:
+        return RejectedInteractiveCollect(
+            problems=(
+                _interactive_collect_problem(
+                    "instrument_driver_unsupported_interface",
+                    f"{intent.instrument_id} does not support {intent.interface_id}",
+                    "interface_id",
+                ),
+            )
+        )
+    component_spec = _resolve_component(interface_spec, intent.component_path)
+    if component_spec is None:
+        return RejectedInteractiveCollect(
+            problems=(
+                _interactive_collect_problem(
+                    "instrument_driver_unsupported_component",
+                    f"{intent.instrument_id} does not support component "
+                    f"{'/'.join(intent.component_path)!r}",
+                    "component_path",
+                ),
+            )
+        )
+    acquisition_spec = next(
+        (
+            acquisition
+            for acquisition in component_spec.acquisitions
+            if acquisition.id == intent.acquisition_id
+        ),
+        None,
+    )
+    if acquisition_spec is None:
+        return RejectedInteractiveCollect(
+            problems=(
+                _interactive_collect_problem(
+                    "instrument_driver_unsupported_acquisition",
+                    f"{intent.instrument_id} does not support acquisition "
+                    f"{intent.acquisition_id} under {intent.interface_id}",
+                    "acquisition_id",
+                ),
+            )
+        )
+
+    declared_results = {
+        result.id: result for result in acquisition_results(acquisition_spec)
+    }
+    unsupported_results = tuple(
+        _interactive_collect_problem(
+            "instrument_driver_unsupported_acquisition_result",
+            f"{intent.instrument_id} acquisition {intent.acquisition_id} "
+            f"has no result {result_id}",
+            "result_ids",
+            result_index,
+        )
+        for result_index, result_id in enumerate(intent.result_ids)
+        if result_id not in declared_results
+    )
+    if unsupported_results:
+        return RejectedInteractiveCollect(problems=unsupported_results)
+
+    readiness = _evaluate_acquisition_readiness(
+        description=description,
+        acquisition=acquisition_spec,
+        state=state,
+    )
+    if readiness.status == "unknown":
+        unknown_problems: list[Problem] = []
+        if any(issue.precondition is None for issue in readiness.issues):
+            assert isinstance(
+                acquisition_spec,
+                StateDiscriminatedAcquisitionSpec,
+            )
+            unknown_problems.append(
+                _interactive_collect_state_reference_problem(
+                    "instrument_driver_acquisition_state_unknown",
+                    f"{intent.instrument_id} acquisition "
+                    f"{intent.acquisition_id} requires a complete observed "
+                    "discriminator state",
+                    reference=acquisition_spec.discriminator,
+                    observed_value=readiness.active_case,
+                )
+            )
+        unknown_problems.extend(
+            _interactive_collect_precondition_problem(
+                "instrument_driver_acquisition_precondition_state_unknown",
+                f"{intent.instrument_id} acquisition "
+                f"{intent.acquisition_id} requires synchronized state: "
+                f"{issue.reason}",
+                issue=issue,
+            )
+            for issue in readiness.issues
+            if issue.kind == "state_unknown" and issue.precondition is not None
+        )
+        return RejectedInteractiveCollect(problems=tuple(unknown_problems))
+
+    active_result_ids = frozenset(result.id for result in readiness.results)
+    plan_problems = (
+        [
+            _interactive_collect_inactive_result_problem(
+                intent=intent,
+                result_id=result_id,
+                result_index=result_index,
+                active_case=readiness.active_case,
+            )
+            for result_index, result_id in enumerate(intent.result_ids)
+            if result_id not in active_result_ids
+        ]
+        if not isinstance(acquisition_spec, StateDiscriminatedAcquisitionSpec)
+        or readiness.results
+        else []
+    )
+    plan_problems.extend(
+        _interactive_collect_precondition_problem(
+            "instrument_driver_acquisition_precondition_not_met",
+            f"{intent.instrument_id} acquisition "
+            f"{intent.acquisition_id} is unavailable: {issue.reason}",
+            issue=issue,
+        )
+        for issue in readiness.issues
+        if issue.kind == "precondition_not_met"
+    )
+    if plan_problems:
+        return RejectedInteractiveCollect(problems=tuple(plan_problems))
+
+    active_results = {result.id: result for result in readiness.results}
+    selected_result_ids = tuple(intent.result_ids) or tuple(active_results)
+    requests: list[CollectResultRequest] = []
+    dimension_problems: list[Problem] = []
+    state_is_usable = _acquisition_state_is_usable(state, description)
+    for result_index, result_id in enumerate(selected_result_ids):
+        result = active_results[result_id]
+        dimensions = _resolve_acquisition_dimensions(
+            description=description,
+            result=result,
+            state=state,
+        )
+        if dimensions is None:
+            for axis_index, axis in enumerate(result.axes):
+                if not isinstance(axis.size, StatePropertyRef):
+                    continue
+                observed = (
+                    _state_value_for_reference(state, axis.size)
+                    if state_is_usable
+                    else None
+                )
+                observed_size = (
+                    observed.root
+                    if observed is not None
+                    and not isinstance(observed.root, bool)
+                    and isinstance(observed.root, int)
+                    and observed.root > 0
+                    else None
+                )
+                if observed_size is None:
+                    dimension_problems.append(
+                        _interactive_collect_axis_state_problem(
+                            intent=intent,
+                            result_id=result_id,
+                            result_index=(result_index if intent.result_ids else None),
+                            axis=axis,
+                            axis_index=axis_index,
+                            observed_value=observed,
+                        )
+                    )
+            continue
+        requests.append(
+            CollectResultRequest(
+                id=result_id,
+                interface_id=intent.interface_id,
+                component_path=list(intent.component_path),
+                acquisition_id=intent.acquisition_id,
+                result_id=result_id,
+                unit=result.unit,
+                dtype=result.dtype,
+                dimensions=list(dimensions),
+            )
+        )
+    if dimension_problems:
+        return RejectedInteractiveCollect(problems=tuple(dimension_problems))
+    return ResolvedInteractiveCollect(
+        command=CollectCommand(
+            command_id=intent.command_id,
+            instrument_id=intent.instrument_id,
+            point_index=0,
+            point_count=1,
+            requests=requests,
+        )
+    )
 
 
 def validate_collect_command(
@@ -3223,6 +3478,137 @@ def _invoke_problem(
         message,
         phase=ProblemPhase.EXECUTION,
         location=model_location("instrument_invoke_command", *path),
+    )
+
+
+def _interactive_collect_problem(
+    code: str,
+    message: str,
+    *path: LocationPathItem,
+    related_locations: Sequence[ModelLocation] = (),
+    details: Mapping[str, object] | None = None,
+) -> Problem:
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location("interactive_collect_intent", *path),
+        related_locations=related_locations,
+        details=details,
+    )
+
+
+def _interactive_collect_precondition_problem(
+    code: str,
+    message: str,
+    *,
+    issue: AcquisitionReadinessIssue,
+) -> Problem:
+    precondition = issue.precondition
+    assert precondition is not None
+    details: dict[str, object] = {
+        "precondition": precondition.model_dump(mode="json"),
+    }
+    if issue.observed_value is not None:
+        details["observed_value"] = issue.observed_value.model_dump(mode="json")
+    target = precondition.property
+    return _interactive_collect_problem(
+        code,
+        message,
+        "acquisition_id",
+        related_locations=(
+            _state_property_location(
+                target.interface_id,
+                target.component_path,
+                target.property_id,
+            ),
+        ),
+        details=details,
+    )
+
+
+def _interactive_collect_state_reference_problem(
+    code: str,
+    message: str,
+    *,
+    reference: StatePropertyRef,
+    observed_value: str | None,
+) -> Problem:
+    details: dict[str, object] = {
+        "state_property": reference.model_dump(mode="json"),
+    }
+    if observed_value is not None:
+        details["observed_value"] = observed_value
+    return _interactive_collect_problem(
+        code,
+        message,
+        "acquisition_id",
+        related_locations=(
+            _state_property_location(
+                reference.interface_id,
+                reference.component_path,
+                reference.property_id,
+            ),
+        ),
+        details=details,
+    )
+
+
+def _interactive_collect_inactive_result_problem(
+    *,
+    intent: InteractiveCollectIntent,
+    result_id: str,
+    result_index: int,
+    active_case: str | None,
+) -> Problem:
+    details: dict[str, object] = {"result_id": result_id}
+    if active_case is not None:
+        details["active_case"] = active_case
+    return _interactive_collect_problem(
+        "instrument_driver_inactive_acquisition_result",
+        f"{intent.instrument_id} acquisition {intent.acquisition_id} result "
+        f"{result_id} is inactive in state case {active_case!r}",
+        "result_ids",
+        result_index,
+        details=details,
+    )
+
+
+def _interactive_collect_axis_state_problem(
+    *,
+    intent: InteractiveCollectIntent,
+    result_id: str,
+    result_index: int | None,
+    axis: AcquisitionAxisSpec,
+    axis_index: int,
+    observed_value: StateValue | None,
+) -> Problem:
+    reference = axis.size
+    assert isinstance(reference, StatePropertyRef)
+    details: dict[str, object] = {
+        "result_id": result_id,
+        "axis_id": axis.id,
+        "axis_index": axis_index,
+        "state_property": reference.model_dump(mode="json"),
+    }
+    if observed_value is not None:
+        details["observed_value"] = observed_value.model_dump(mode="json")
+    path: tuple[LocationPathItem, ...] = (
+        ("acquisition_id",) if result_index is None else ("result_ids", result_index)
+    )
+    return _interactive_collect_problem(
+        "instrument_driver_acquisition_axis_state_unknown",
+        f"{intent.instrument_id} acquisition result {result_id} axis "
+        f"{axis.id} requires synchronized size state",
+        *path,
+        related_locations=(
+            _state_property_location(
+                reference.interface_id,
+                reference.component_path,
+                reference.property_id,
+            ),
+        ),
+        details=details,
     )
 
 

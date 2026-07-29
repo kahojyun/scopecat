@@ -23,7 +23,6 @@ const SESSION_API = "/api/v1/instrument-sessions";
 
 export type ActiveConfig = DaemonUiApi["activeConfig"];
 export type InstrumentList = DaemonUiApi["instrumentList"];
-export type InstrumentCollectCommand = DaemonUiApi["instrumentCollectCommand"];
 
 export interface StagedInstrumentProperty {
   interfaceId: string;
@@ -37,17 +36,6 @@ export interface InstrumentAcquisitionTarget {
   componentPath: string[];
   acquisition: InstrumentAcquisition;
 }
-
-export type InstrumentAcquisitionReadiness =
-  | {
-      ready: true;
-      status: "ready";
-    }
-  | {
-      ready: false;
-      status: "blocked" | "unknown";
-      reason: string;
-    };
 
 export interface InstrumentOperationTarget {
   interfaceId: string;
@@ -139,35 +127,22 @@ export async function applyInstrumentConfiguredDefaults(
 
 export async function collectInstrumentAcquisition(
   session: InstrumentSession,
-  command: InstrumentCollectCommand,
-): Promise<InstrumentCollectReceipt> {
-  return request<InstrumentCollectReceipt>(
-    instrumentSessionPath(session.session_id, command.instrument_id, "collect"),
-    undefined,
-    jsonRequest(command),
-  );
-}
-
-export function createInstrumentCollectCommand(
   instrumentId: string,
   target: InstrumentAcquisitionTarget,
-  state?: InstrumentState,
   commandId = createInstrumentCommandId("collect"),
-): InstrumentCollectCommand {
-  if (state && state.instrument_id !== instrumentId) {
-    throw new Error(
-      `Cannot collect from ${instrumentId} using state synchronized from ${state.instrument_id}.`,
-    );
-  }
-  const plan = planInstrumentAcquisition(target, state);
-  if (!plan.ready) throw new Error(plan.reason);
-  return {
-    command_id: commandId,
-    instrument_id: instrumentId,
-    point_index: 0,
-    point_count: 1,
-    requests: plan.requests,
-  };
+): Promise<InstrumentCollectReceipt> {
+  return request<InstrumentCollectReceipt>(
+    instrumentSessionPath(session.session_id, instrumentId, "collect"),
+    undefined,
+    jsonRequest({
+      command_id: commandId,
+      instrument_id: instrumentId,
+      interface_id: target.interfaceId,
+      component_path: target.componentPath,
+      acquisition_id: target.acquisition.id,
+      result_ids: [],
+    } satisfies DaemonUiApi["interactiveCollectIntent"]),
+  );
 }
 
 export async function invokeInstrumentOperation(
@@ -190,16 +165,6 @@ export async function invokeInstrumentOperation(
       arguments: arguments_,
     } satisfies DaemonUiApi["instrumentInvokeCommand"]),
   );
-}
-
-export function instrumentAcquisitionReadiness(
-  target: InstrumentAcquisitionTarget,
-  state?: InstrumentState,
-): InstrumentAcquisitionReadiness {
-  const plan = planInstrumentAcquisition(target, state);
-  return plan.ready
-    ? { ready: true, status: "ready" }
-    : { ready: false, status: plan.status, reason: plan.reason };
 }
 
 export async function closeInstrumentSession(sessionId: string, keepalive = false): Promise<void> {
@@ -296,301 +261,12 @@ function instrumentSessionPath(
   );
 }
 
-function acquisitionAxisSize(
-  state: InstrumentState | undefined,
-  axis: NonNullable<InstrumentAcquisitionResult["axes"]>[number],
-): number | undefined {
-  const source = axis.size;
-  if (typeof source === "number") return source;
-  const property = (state?.properties ?? []).find(
-    (candidate) =>
-      candidate.interface_id === source.interface_id &&
-      samePath(candidate.component_path ?? [], source.component_path ?? []) &&
-      candidate.property_id === source.property_id &&
-      typeof candidate.value === "number" &&
-      Number.isInteger(candidate.value) &&
-      candidate.value > 0,
-  );
-  return typeof property?.value === "number" ? property.value : undefined;
-}
-
-type InstrumentCollectRequests = DaemonUiApi["instrumentCollectCommand"]["requests"];
-type InstrumentCollectResultRequest = InstrumentCollectRequests[number];
-
-type InstrumentAcquisitionResultSelection =
-  | {
-      ready: true;
-      results: InstrumentAcquisitionResult[];
-      preconditions: InstrumentAcquisition["preconditions"];
-    }
-  | {
-      ready: false;
-      status: "blocked" | "unknown";
-      reason: string;
-    };
-
-type InstrumentCollectPlan =
-  | {
-      ready: true;
-      requests: InstrumentCollectRequests;
-    }
-  | {
-      ready: false;
-      status: "blocked" | "unknown";
-      reason: string;
-    };
-
-function planInstrumentAcquisition(
-  target: InstrumentAcquisitionTarget,
-  state?: InstrumentState,
-): InstrumentCollectPlan {
-  const selection = acquisitionResultsForState(target.acquisition, state);
-  if (!selection.ready) {
-    const commonReadiness = acquisitionPreconditionReadiness(
-      target.acquisition.preconditions ?? [],
-      state,
-    );
-    return !commonReadiness.ready && commonReadiness.status === "blocked"
-      ? commonReadiness
-      : selection;
-  }
-  const preconditionReadiness = acquisitionPreconditionReadiness(
-    [...(target.acquisition.preconditions ?? []), ...(selection.preconditions ?? [])],
-    state,
-  );
-  if (!preconditionReadiness.ready) return preconditionReadiness;
-  const [firstResult, ...remainingResults] = selection.results;
-  if (!firstResult) {
-    return {
-      ready: false,
-      status: "blocked",
-      reason: "Collect is unavailable because the acquisition declares no results.",
-    };
-  }
-  const requests: InstrumentCollectResultRequest[] = [];
-  for (const result of [firstResult, ...remainingResults]) {
-    const axes = result.axes ?? [];
-    const dimensions = axes.map((axis) => {
-      const size = acquisitionAxisSize(state, axis);
-      return size === undefined
-        ? undefined
-        : {
-            id: axis.id,
-            kind: axis.kind,
-            size,
-            unit: axis.unit,
-          };
-    });
-    const allDimensionsResolved = dimensions.every(
-      (dimension): dimension is NonNullable<typeof dimension> => dimension !== undefined,
-    );
-    if (!allDimensionsResolved) {
-      const missingAxes = axes
-        .filter((_, index) => dimensions[index] === undefined)
-        .map((axis) => axis.label ?? axis.id);
-      const resultLabel = result.label ?? result.id;
-      return {
-        ready: false,
-        status: "unknown",
-        reason:
-          `Collect is unavailable until synchronized state provides a positive size for ` +
-          `${formatList(missingAxes)} in ${resultLabel}. Refresh instrument state before collecting.`,
-      };
-    }
-    requests.push({
-      id: result.id,
-      interface_id: target.interfaceId,
-      component_path: [...target.componentPath],
-      acquisition_id: target.acquisition.id,
-      result_id: result.id,
-      unit: result.unit,
-      dtype: result.dtype,
-      dimensions,
-    });
-  }
-  return { ready: true, requests: [requests[0]!, ...requests.slice(1)] };
-}
-
-export function acquisitionResultsForState(
-  acquisition: InstrumentAcquisition,
-  state?: InstrumentState,
-): InstrumentAcquisitionResultSelection {
-  if (acquisition.kind === "fixed") {
-    return {
-      ready: true,
-      results: acquisition.results,
-      preconditions: [],
-    };
-  }
-  const discriminator = (state?.properties ?? []).find(
-    (property) =>
-      property.interface_id === acquisition.discriminator.interface_id &&
-      samePath(property.component_path ?? [], acquisition.discriminator.component_path ?? []) &&
-      property.property_id === acquisition.discriminator.property_id,
-  );
-  if (typeof discriminator?.value !== "string") {
-    return {
-      ready: false,
-      status: "unknown",
-      reason: "Collect is unavailable until the instrument mode is synchronized.",
-    };
-  }
-  const selectedCase = acquisition.cases.find(
-    (candidate) => candidate.value === discriminator.value,
-  );
-  if (!selectedCase) {
-    return {
-      ready: false,
-      status: "unknown",
-      reason:
-        `Collect cannot match instrument mode ${discriminator.value}. ` +
-        "Refresh the instrument state.",
-    };
-  }
-  return {
-    ready: true,
-    results: selectedCase.results,
-    preconditions: selectedCase.preconditions,
-  };
-}
-
-function acquisitionPreconditionReadiness(
-  preconditions: NonNullable<InstrumentAcquisition["preconditions"]>,
-  state?: InstrumentState,
-): InstrumentAcquisitionReadiness {
-  let unknownReason: string | undefined;
-  for (const precondition of preconditions) {
-    const observed = statePropertyValue(
-      state,
-      precondition.property.interface_id,
-      precondition.property.component_path ?? [],
-      precondition.property.property_id,
-    );
-    if (observed === undefined) {
-      unknownReason ??= precondition.unavailable_reason;
-      continue;
-    }
-    const matches = statePreconditionMatches(observed, precondition.operator, precondition.value);
-    if (matches === undefined) {
-      unknownReason ??= precondition.unavailable_reason;
-      continue;
-    }
-    if (!matches) {
-      return {
-        ready: false,
-        status: "blocked",
-        reason: precondition.unavailable_reason,
-      };
-    }
-  }
-  return unknownReason ? unknownPrecondition(unknownReason) : { ready: true, status: "ready" };
-}
-
-function unknownPrecondition(reason: string): InstrumentAcquisitionReadiness {
-  return {
-    ready: false,
-    status: "unknown",
-    reason: `Refresh state to verify acquisition readiness. ${reason}`,
-  };
-}
-
-function statePreconditionMatches(
-  observed: InstrumentStateValue,
-  operator: NonNullable<InstrumentAcquisition["preconditions"]>[number]["operator"],
-  expected: InstrumentStateValue,
-): boolean | undefined {
-  if (operator === "equal" || operator === "not_equal") {
-    const equal = equalStateValues(observed, expected);
-    return equal === undefined ? undefined : operator === "equal" ? equal : !equal;
-  }
-  const values = orderedStateValues(observed, expected);
-  if (!values) return undefined;
-  const [left, right] = values;
-  switch (operator) {
-    case "less_than":
-      return left < right;
-    case "less_than_or_equal":
-      return left <= right;
-    case "greater_than":
-      return left > right;
-    case "greater_than_or_equal":
-      return left >= right;
-  }
-}
-
-function equalStateValues(
-  observed: InstrumentStateValue,
-  expected: InstrumentStateValue,
-): boolean | undefined {
-  if (
-    typeof observed === "boolean" ||
-    typeof observed === "number" ||
-    typeof observed === "string"
-  ) {
-    return typeof observed === typeof expected ? observed === expected : undefined;
-  }
-  const values = orderedStateValues(observed, expected);
-  return values ? values[0] === values[1] : undefined;
-}
-
-function orderedStateValues(
-  observed: InstrumentStateValue,
-  expected: InstrumentStateValue,
-): [number, number] | undefined {
-  if (typeof observed === "number" && typeof expected === "number") {
-    return [observed, expected];
-  }
-  const left = quantityStateValue(observed);
-  const right = quantityStateValue(expected);
-  return left && right && left.unit === right.unit ? [left.value, right.value] : undefined;
-}
-
-function quantityStateValue(
-  value: InstrumentStateValue,
-): { value: number; unit: string } | undefined {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "value" in value &&
-    "unit" in value &&
-    typeof value.value === "number" &&
-    typeof value.unit === "string"
-  ) {
-    return value;
-  }
-  return undefined;
-}
-
-function statePropertyValue(
-  state: InstrumentState | undefined,
-  interfaceId: string,
-  componentPath: string[],
-  propertyId: string,
-): InstrumentStateValue | undefined {
-  return (state?.properties ?? []).find(
-    (property) =>
-      property.interface_id === interfaceId &&
-      samePath(property.component_path ?? [], componentPath) &&
-      property.property_id === propertyId,
-  )?.value;
-}
-
 export function declaredAcquisitionResults(
   acquisition: InstrumentAcquisition,
 ): InstrumentAcquisitionResult[] {
   return acquisition.kind === "fixed"
     ? acquisition.results
     : acquisition.cases.flatMap((candidate) => candidate.results);
-}
-
-function samePath(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
-function formatList(values: string[]): string {
-  if (values.length <= 1) return values[0]!;
-  if (values.length === 2) return `${values[0]} and ${values[1]}`;
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
 }
 
 function cloneConfig(source: ActiveConfig["config"]): ConfigProfileSnapshot {

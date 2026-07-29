@@ -78,7 +78,7 @@ export interface DaemonUiApi {
   instrumentConfiguredDefaultsApplyCommand: JsonRequest<
     paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/configured-defaults/apply"]["post"]
   >;
-  instrumentCollectCommand: JsonRequest<
+  interactiveCollectIntent: JsonRequest<
     paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect"]["post"]
   >;
   instrumentInvokeCommand: JsonRequest<

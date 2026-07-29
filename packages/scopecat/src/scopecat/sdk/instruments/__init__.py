@@ -49,12 +49,16 @@ if TYPE_CHECKING:
         InstrumentProviderDescription,
         InstrumentStateAssignment,
         InstrumentStateCommand,
+        InteractiveCollectIntent,
+        InteractiveCollectResolution,
         InterfaceSpec,
         InvokeCommand,
         InvokeReceipt,
         OperationArgumentSpec,
         OperationSpec,
         PropertySpec,
+        RejectedInteractiveCollect,
+        ResolvedInteractiveCollect,
         StateCaseSpec,
         StateComparisonOperator,
         StateDiscriminatedAcquisitionSpec,
@@ -77,6 +81,7 @@ if TYPE_CHECKING:
         operation_argument,
         quantity_property,
         resolve_acquisition_dimensions,
+        resolve_interactive_collect,
         state_case,
         state_discriminated_acquisition,
         string_property,
@@ -261,6 +266,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "InstrumentStateAssignment",
     ),
+    "InteractiveCollectIntent": (
+        "scopecat.sdk.instruments.contracts",
+        "InteractiveCollectIntent",
+    ),
+    "InteractiveCollectResolution": (
+        "scopecat.sdk.instruments.contracts",
+        "InteractiveCollectResolution",
+    ),
     "InstrumentPropertyState": (
         "scopecat.records.instrument",
         "InstrumentPropertyState",
@@ -289,6 +302,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "PropertyRef",
     ),
     "PropertySpec": ("scopecat.sdk.instruments.contracts", "PropertySpec"),
+    "RejectedInteractiveCollect": (
+        "scopecat.sdk.instruments.contracts",
+        "RejectedInteractiveCollect",
+    ),
+    "ResolvedInteractiveCollect": (
+        "scopecat.sdk.instruments.contracts",
+        "ResolvedInteractiveCollect",
+    ),
     "StateCaseSpec": ("scopecat.sdk.instruments.contracts", "StateCaseSpec"),
     "StateComparisonOperator": (
         "scopecat.sdk.instruments.contracts",
@@ -345,6 +366,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "resolve_acquisition_dimensions": (
         "scopecat.sdk.instruments.contracts",
         "resolve_acquisition_dimensions",
+    ),
+    "resolve_interactive_collect": (
+        "scopecat.sdk.instruments.contracts",
+        "resolve_interactive_collect",
     ),
     "state_case": ("scopecat.sdk.instruments.contracts", "state_case"),
     "state_discriminated_acquisition": (

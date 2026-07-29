@@ -37,9 +37,7 @@ from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
-    CollectCommand,
     CollectReceipt,
-    CollectResultRequest,
     DriverApplyRequest,
     DriverCollectRequest,
     DriverFault,
@@ -57,6 +55,7 @@ from scopecat.sdk.instruments import (
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+    InteractiveCollectIntent,
     InterfaceRef,
     InvokeReceipt,
     acquisition_case,
@@ -307,6 +306,7 @@ class _VariantDriver(_TrackingDriver):
         self.mode = "voltage"
         self.voltage_level = 0.1
         self.current_level = 0.01
+        self.read_count = 0
 
     @override
     def describe(self) -> InstrumentDescription:
@@ -370,6 +370,7 @@ class _VariantDriver(_TrackingDriver):
 
     @override
     def read_state(self) -> InstrumentStateSnapshot:
+        self.read_count += 1
         level_property = "voltage_level" if self.mode == "voltage" else "current_level"
         level = self.voltage_level if self.mode == "voltage" else self.current_level
         return InstrumentStateSnapshot(
@@ -767,8 +768,7 @@ def test_notebook_collect_rejects_a_result_from_another_acquisition(
                 handle.collect(_SAMPLE_SIGNAL, unrelated)
             handle.close()
 
-            [driver] = provider.drivers
-            assert driver.collect_requests == []
+            assert provider.drivers == []
 
 
 def test_apply_without_reported_state_reads_back_before_returning(
@@ -892,7 +892,7 @@ def test_interactive_apply_tracks_observed_discriminated_state(
             assert len(driver.applied) == 3
 
 
-def test_direct_collect_does_not_treat_assumed_state_as_authoritative(
+def test_direct_collect_resolves_active_results_from_fresh_state(
     tmp_path: Path,
 ) -> None:
     provider = _TrackingProvider(_VariantDriver)
@@ -908,19 +908,23 @@ def test_direct_collect_does_not_treat_assumed_state_as_authoritative(
             )
             [driver] = provider.drivers
             assert isinstance(driver, _VariantDriver)
+            assert driver.read_count == 1
             driver.mode = "current"
 
             receipt = daemon.collect_instrument(
                 session.session_id,
                 "source-0",
-                _variant_collect_command(
+                _variant_collect_intent(
                     command_id="collect-current-after-external-change",
-                    result_id="monitored_current",
                 ),
             )
 
             assert receipt.status == "collected"
             assert len(driver.collect_requests) == 1
+            assert driver.read_count == 2
+            assert tuple(
+                result.result_id for result in driver.collect_requests[0].results
+            ) == ("monitored_current",)
             daemon.close_instrument_session(session.session_id)
 
 
@@ -938,16 +942,19 @@ def test_collect_replay_precedes_validation_against_changed_state(
                     instrument_ids=("source-0",),
                 )
             )
-            command = _variant_collect_command(
+            intent = _variant_collect_intent(
                 command_id="collect-voltage-before-state-change",
-                result_id="monitored_voltage",
+                result_ids=("monitored_voltage",),
             )
 
             first = daemon.collect_instrument(
                 session.session_id,
                 "source-0",
-                command,
+                intent,
             )
+            [driver] = provider.drivers
+            assert isinstance(driver, _VariantDriver)
+            assert driver.read_count == 2
             daemon.apply_instrument_state(
                 session.session_id,
                 "source-0",
@@ -974,12 +981,72 @@ def test_collect_replay_precedes_validation_against_changed_state(
             replay = daemon.collect_instrument(
                 session.session_id,
                 "source-0",
-                command,
+                intent,
             )
+            assert driver.read_count == 3
+            with pytest.raises(
+                DaemonConflictError,
+                match="different collect content",
+            ):
+                daemon.collect_instrument(
+                    session.session_id,
+                    "source-0",
+                    intent.model_copy(
+                        update={"result_ids": ["monitored_current"]},
+                    ),
+                )
 
             assert replay == first
-            [driver] = provider.drivers
             assert len(driver.collect_requests) == 1
+            assert driver.read_count == 3
+            daemon.close_instrument_session(session.session_id)
+
+
+def test_collect_resolution_rejection_is_replayed_without_replanning(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_VariantDriver)
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-collect-rejection-replay",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            [driver] = provider.drivers
+            assert isinstance(driver, _VariantDriver)
+            intent = _variant_collect_intent(
+                command_id="collect-inactive-current",
+                result_ids=("monitored_current",),
+            )
+
+            first = daemon.collect_instrument(
+                session.session_id,
+                "source-0",
+                intent,
+            )
+            assert driver.read_count == 2
+            driver.mode = "current"
+            replay = daemon.collect_instrument(
+                session.session_id,
+                "source-0",
+                intent,
+            )
+            assert driver.read_count == 2
+            collected = daemon.collect_instrument(
+                session.session_id,
+                "source-0",
+                intent.model_copy(update={"command_id": "collect-active-current"}),
+            )
+
+            assert first.status == "not_collected"
+            assert replay == first
+            assert collected.status == "collected"
+            assert len(driver.collect_requests) == 1
+            assert driver.read_count == 3
             daemon.close_instrument_session(session.session_id)
 
 
@@ -2291,21 +2358,12 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
                     instrument_ids=("source-0",),
                 )
             )
-            request = CollectCommand(
+            intent = InteractiveCollectIntent(
                 command_id="collect-invalid",
                 instrument_id="source-0",
-                point_index=0,
-                point_count=1,
-                requests=[
-                    CollectResultRequest(
-                        id="signal",
-                        interface_id="test.scalar_signal/v1",
-                        acquisition_id="sample",
-                        result_id="signal",
-                        dtype="float64",
-                        unit="ratio",
-                    )
-                ],
+                interface_id="test.scalar_signal/v1",
+                acquisition_id="sample",
+                result_ids=["signal"],
             )
 
             for _attempt in range(2):
@@ -2316,8 +2374,17 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
                     daemon.collect_instrument(
                         session.session_id,
                         "source-0",
-                        request,
+                        intent,
                     )
+            with pytest.raises(
+                DaemonConflictError,
+                match="different collect content",
+            ):
+                daemon.collect_instrument(
+                    session.session_id,
+                    "source-0",
+                    intent.model_copy(update={"acquisition_id": "other"}),
+                )
 
             [driver] = provider.drivers
             [instrument] = daemon.list_instruments().items
@@ -2609,26 +2676,17 @@ def _apply_command(*, value: float) -> InstrumentStateCommand:
     )
 
 
-def _variant_collect_command(
+def _variant_collect_intent(
     *,
     command_id: str,
-    result_id: str,
-) -> CollectCommand:
-    unit = "V" if result_id == "monitored_voltage" else "A"
-    return CollectCommand(
+    result_ids: tuple[str, ...] = (),
+) -> InteractiveCollectIntent:
+    return InteractiveCollectIntent(
         command_id=command_id,
         instrument_id="source-0",
-        point_index=0,
-        point_count=1,
-        requests=[
-            CollectResultRequest(
-                id="reading",
-                interface_id="test.dc/v1",
-                acquisition_id="measure",
-                result_id=result_id,
-                unit=unit,
-            )
-        ],
+        interface_id="test.dc/v1",
+        acquisition_id="measure",
+        result_ids=list(result_ids),
     )
 
 

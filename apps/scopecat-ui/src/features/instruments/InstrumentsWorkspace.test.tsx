@@ -969,8 +969,8 @@ describe("instrument workspace", () => {
     expect(await screen.findByText("Collect network failed.")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
     await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[1]).toBe(
-      vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[1],
+    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[3]).toBe(
+      vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[3],
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
@@ -991,8 +991,7 @@ describe("instrument workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
     expect(await screen.findByText("Collect request lost.")).toBeVisible();
-    const staleCollectCommandId = vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[1]
-      .command_id;
+    const staleCollectCommandId = vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[3];
 
     fireEvent.change(frequency, { target: { value: "6000000000" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply staged" }));
@@ -1000,89 +999,30 @@ describe("instrument workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
 
     await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[1].command_id).not.toBe(
+    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[3]).not.toBe(
       staleCollectCommandId,
     );
   });
 
-  it("disables collection when a state-sized axis is unresolved", async () => {
-    const mixedAxisInstrument = instrument();
-    mixedAxisInstrument.description = {
-      ...mixedAxisInstrument.description!,
-      interfaces: [
-        {
-          id: "scopecat.network_sweep/v1",
-          label: "Network sweep",
-          properties: [],
-          operations: [],
-          components: [],
-          acquisitions: [
-            {
-              kind: "fixed",
-              id: "sweep",
-              results: [
-                {
-                  id: "trace",
-                  label: "S-parameter trace",
-                  dtype: "complex128",
-                  axes: [
-                    {
-                      id: "frequency",
-                      label: "Frequency",
-                      kind: "frequency",
-                      size: {
-                        interface_id: "scopecat.network_sweep/v1",
-                        component_path: [],
-                        property_id: "points",
-                      },
-                      unit: "Hz",
-                    },
-                    { id: "receiver", kind: "receiver", size: 2 },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-    vi.mocked(getInstruments).mockResolvedValue({
-      config_entry_id: "lab-default",
-      problems: [],
-      items: [mixedAxisInstrument],
-    });
-    vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({ descriptions: [mixedAxisInstrument.description!] }),
-    );
-
-    renderWorkspace();
-    await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-
-    expect(
-      await screen.findByText(
-        /Collect is unavailable until synchronized state provides a positive size for Frequency in S-parameter trace/,
-      ),
-    ).toBeVisible();
-    const collect = screen.getByRole("button", { name: "Collect" });
-    expect(collect).toBeDisabled();
-    fireEvent.click(collect);
-    expect(collectInstrumentAcquisition).not.toHaveBeenCalled();
-  });
-
-  it("shows schema-defined acquisition blockers until physical state is refreshed", async () => {
-    const gatedInstrument = instrument();
-    const description = gatedInstrument.description!;
+  it("delegates acquisition planning while showing every declared result", async () => {
+    const delegatedInstrument = instrument();
+    const description = delegatedInstrument.description!;
     const instrumentInterface = description.interfaces![0]!;
-    const acquisition = instrumentInterface.acquisitions![0]!;
-    gatedInstrument.description = {
+    delegatedInstrument.description = {
       ...description,
       interfaces: [
         {
           ...instrumentInterface,
           acquisitions: [
             {
-              ...acquisition,
+              kind: "state_discriminated",
+              id: "monitor",
+              label: "Monitor",
+              discriminator: {
+                interface_id: instrumentInterface.id,
+                component_path: [],
+                property_id: "mode",
+              },
               preconditions: [
                 {
                   property: {
@@ -1095,46 +1035,77 @@ describe("instrument workspace", () => {
                   unavailable_reason: "Enable RF output before collecting.",
                 },
               ],
+              cases: [
+                {
+                  value: "voltage",
+                  results: [
+                    {
+                      id: "current",
+                      label: "Current sample",
+                      dtype: "float64",
+                      unit: "A",
+                      axes: [
+                        {
+                          id: "sample",
+                          kind: "sample",
+                          size: {
+                            interface_id: instrumentInterface.id,
+                            component_path: [],
+                            property_id: "points",
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  value: "current",
+                  results: [
+                    {
+                      id: "voltage",
+                      label: "Voltage sample",
+                      dtype: "float64",
+                      unit: "V",
+                      axes: [],
+                    },
+                  ],
+                },
+              ],
             },
           ],
         },
       ],
     };
-    const readyState = instrumentState();
-    readyState.properties = (readyState.properties ?? []).map((property) =>
-      property.property_id === "output_enabled" ? { ...property, value: true } : property,
-    );
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
       problems: [],
-      items: [gatedInstrument],
+      items: [delegatedInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({
-        descriptions: [gatedInstrument.description!],
-        observed_state: [instrumentState()],
-      }),
+      session({ descriptions: [delegatedInstrument.description!] }),
     );
-    vi.mocked(readInstrumentState).mockResolvedValue(readyState);
 
     renderWorkspace();
     await screen.findByText("Drive source");
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(await screen.findByText("Enable RF output before collecting.")).toBeVisible();
-    const collect = screen.getByRole("button", { name: "Collect" });
-    expect(collect).toBeDisabled();
-    fireEvent.click(collect);
-    expect(collectInstrumentAcquisition).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Refresh state" }));
-
-    await waitFor(() => expect(collect).toBeEnabled());
+    expect(await screen.findByText("Current sample")).toBeVisible();
+    expect(screen.getByText("Voltage sample")).toBeVisible();
     expect(screen.queryByText("Enable RF output before collecting.")).not.toBeInTheDocument();
+    const collect = screen.getByRole("button", { name: "Collect" });
+    expect(collect).toBeEnabled();
     fireEvent.click(collect);
-    await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledOnce());
-  });
 
+    await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledOnce());
+    const call = vi.mocked(collectInstrumentAcquisition).mock.calls[0]!;
+    expect(call[1]).toBe("drive-source");
+    expect(call[2]).toMatchObject({
+      interfaceId: instrumentInterface.id,
+      componentPath: [],
+      acquisition: { id: "monitor" },
+    });
+    expect(call[3]).toMatch(/^ui-collect-/);
+  });
   it("keeps the session available after close retries fail", async () => {
     vi.mocked(closeInstrumentSession)
       .mockRejectedValueOnce(new ApiError("Close request lost."))

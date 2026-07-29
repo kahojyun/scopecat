@@ -93,9 +93,12 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     InstrumentStateAssignment,
     InstrumentStateCommand,
+    InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
+    RejectedInteractiveCollect,
     project_instrument_state,
+    resolve_interactive_collect,
     validate_collect_command,
     validate_collect_plan,
     validate_collect_receipt,
@@ -153,12 +156,20 @@ class _InvokeReplay:
 
 @dataclass(frozen=True, slots=True)
 class _CollectReceiptReplay:
+    intent: InteractiveCollectIntent
     command: CollectCommand
     receipt: CollectReceipt
 
 
 @dataclass(frozen=True, slots=True)
+class _CollectRejectionReplay:
+    intent: InteractiveCollectIntent
+    receipt: CollectReceipt
+
+
+@dataclass(frozen=True, slots=True)
 class _CollectFailureReplay:
+    intent: InteractiveCollectIntent
     command: CollectCommand
     message: str
 
@@ -173,6 +184,7 @@ type _InstrumentOperationReplay = (
     _ApplyReplay
     | _InvokeReplay
     | _CollectReceiptReplay
+    | _CollectRejectionReplay
     | _CollectFailureReplay
     | _ConfiguredDefaultsReplay
 )
@@ -1739,13 +1751,25 @@ class InstrumentService:
                 session_id,
                 instrument_id,
             )
-            try:
-                state = _observe_instrument(instrument)
-            except BackendConflict:
-                self._end_failed_observation(session, runtime)
-                raise
-            instrument.adopt_state(state)
-            return state
+            return self._synchronize_session_instrument(
+                session,
+                runtime,
+                instrument,
+            )
+
+    def _synchronize_session_instrument(
+        self,
+        session: InstrumentSession,
+        runtime: _OwnershipRuntime,
+        instrument: OwnedInstrument,
+    ) -> InstrumentStateSnapshot:
+        try:
+            state = _observe_instrument(instrument)
+        except BackendConflict:
+            self._end_failed_observation(session, runtime)
+            raise
+        instrument.adopt_state(state)
+        return state
 
     def apply_state(
         self,
@@ -2078,34 +2102,77 @@ class InstrumentService:
         self,
         session_id: str,
         instrument_id: str,
-        command: CollectCommand,
+        intent: InteractiveCollectIntent,
     ) -> CollectReceipt:
-        if command.instrument_id != instrument_id:
-            raise BackendConflict("instrument collect command does not match its route")
-        if command.point_index != 0 or command.point_count != 1:
-            raise BackendConflict("interactive collect uses exactly one implicit point")
+        intent = intent.model_copy(deep=True)
+        if intent.instrument_id != instrument_id:
+            raise BackendConflict("interactive collect intent does not match its route")
         runtime = self._live_runtime(session_id)
         with runtime.lock:
             session, _runtime, instrument = self._session_instrument(
                 session_id,
                 instrument_id,
             )
-            command_id = command.command_id
-            return self._collect_live(
+            ledger = runtime.ledgers[instrument_id]
+            replay = ledger.operations.get(intent.command_id)
+            if replay is not None:
+                if not isinstance(
+                    replay,
+                    (
+                        _CollectReceiptReplay,
+                        _CollectRejectionReplay,
+                        _CollectFailureReplay,
+                    ),
+                ):
+                    raise BackendConflict(
+                        "interactive command id was already used for another "
+                        "command kind"
+                    )
+                if replay.intent != intent:
+                    raise BackendConflict(
+                        "interactive command id has different collect content"
+                    )
+                if isinstance(replay, _CollectFailureReplay):
+                    raise BackendConflict(replay.message)
+                return replay.receipt
+
+            # Replay precedes refresh so retries cannot be replanned from later state.
+            state = self._synchronize_session_instrument(
+                session,
                 runtime,
                 instrument,
+            )
+            resolution = resolve_interactive_collect(
+                intent=intent,
+                description=instrument.description,
+                state=state,
+            )
+            if isinstance(resolution, RejectedInteractiveCollect):
+                receipt = CollectReceipt(
+                    status="not_collected",
+                    problems=resolution.problems,
+                )
+                ledger.operations[intent.command_id] = _CollectRejectionReplay(
+                    intent=intent,
+                    receipt=receipt,
+                )
+                return receipt
+            command = resolution.command
+            return self._execute_interactive_collect(
+                runtime,
+                instrument,
+                intent=intent,
                 command=command,
-                conflict_scope="interactive",
                 on_started=lambda: self._record_operation_started(
                     session,
                     instrument_id=instrument_id,
-                    operation_id=command_id,
+                    operation_id=intent.command_id,
                     kind="collect",
                 ),
                 on_finished=lambda status: self._record_operation_finished(
                     session,
                     instrument_id=instrument_id,
-                    operation_id=command_id,
+                    operation_id=intent.command_id,
                     kind="collect",
                     status=status,
                 ),
@@ -2279,44 +2346,19 @@ class InstrumentService:
             on_unknown("instrument_invoke_receipt_unknown")
         return receipt
 
-    def _collect_live(
+    def _execute_interactive_collect(
         self,
         runtime: _OwnershipRuntime,
         instrument: OwnedInstrument,
         *,
+        intent: InteractiveCollectIntent,
         command: CollectCommand,
-        conflict_scope: str,
         on_started: Callable[[], None],
         on_finished: Callable[[str], None],
         on_unknown: Callable[[str], None],
     ) -> CollectReceipt:
-        command_id = command.command_id
+        command_id = intent.command_id
         ledger = runtime.ledgers[instrument.instrument_id]
-        replay = ledger.operations.get(command_id)
-        if replay is not None:
-            if not isinstance(
-                replay,
-                (_CollectReceiptReplay, _CollectFailureReplay),
-            ):
-                raise BackendConflict(
-                    f"{conflict_scope} command id was already used for another "
-                    "command kind"
-                )
-            if replay.command != command:
-                raise BackendConflict(
-                    f"{conflict_scope} command id has different collect content"
-                )
-            if isinstance(replay, _CollectFailureReplay):
-                raise BackendConflict(replay.message)
-            return replay.receipt
-        validation_problems = validate_collect_command(
-            command=command,
-            description=instrument.description,
-        )
-        if validation_problems:
-            raise BackendConflict(
-                "; ".join(item.message for item in validation_problems)
-            )
         driver_request = lower_driver_collect_request(command)
         on_started()
         try:
@@ -2340,6 +2382,7 @@ class InstrumentService:
                     "instrument collect completed but audit recording failed"
                 ) from error
             ledger.operations[command_id] = _CollectFailureReplay(
+                intent=intent,
                 command=command,
                 message=message,
             )
@@ -2353,6 +2396,7 @@ class InstrumentService:
                     "instrument rejected collection and state synchronization failed"
                 ) from error
         ledger.operations[command_id] = _CollectReceiptReplay(
+            intent=intent,
             command=command,
             receipt=receipt,
         )

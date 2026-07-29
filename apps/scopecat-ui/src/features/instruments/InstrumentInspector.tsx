@@ -32,17 +32,13 @@ import {
   applyInstrumentState,
   applyInstrumentConfiguredDefaults,
   collectInstrumentAcquisition,
-  createInstrumentCollectCommand,
-  acquisitionResultsForState,
   declaredAcquisitionResults,
   createInstrumentCommandId,
-  instrumentAcquisitionReadiness,
   invokeInstrumentOperation,
   readInstrumentState,
   resolveInstrumentAttention,
   retryTransientInstrumentMutation,
   type InstrumentAcquisitionTarget,
-  type InstrumentCollectCommand,
   type InstrumentOperationArgument,
   type InstrumentOperationTarget,
   type StagedInstrumentProperty,
@@ -108,7 +104,7 @@ export function InstrumentInspector({
   const [invokeResults, setInvokeResults] = useState<Record<string, InstrumentInvokeReceipt>>({});
   const applyCommandIdRef = useRef<string | undefined>(undefined);
   const configuredDefaultsOperationIdRef = useRef<string | undefined>(undefined);
-  const collectCommandsRef = useRef<Record<string, InstrumentCollectCommand>>({});
+  const collectCommandIdsRef = useRef<Record<string, string>>({});
   const invokeCommandIdsRef = useRef<Record<string, string>>({});
 
   const hasConfiguredDefaults =
@@ -119,7 +115,7 @@ export function InstrumentInspector({
     onSuccess: (snapshot) => {
       applyCommandIdRef.current = undefined;
       configuredDefaultsOperationIdRef.current = undefined;
-      collectCommandsRef.current = {};
+      collectCommandIdsRef.current = {};
       invokeCommandIdsRef.current = {};
       setState(snapshot);
       setDrafts({});
@@ -133,7 +129,7 @@ export function InstrumentInspector({
   useEffect(() => {
     applyCommandIdRef.current = undefined;
     configuredDefaultsOperationIdRef.current = undefined;
-    collectCommandsRef.current = {};
+    collectCommandIdsRef.current = {};
     invokeCommandIdsRef.current = {};
     setState(connected ? synchronizedState : undefined);
     setDrafts({});
@@ -190,7 +186,7 @@ export function InstrumentInspector({
       setApplyResult(receipt.status);
       if (receipt.state) setState(receipt.state);
       if (receipt.status === "applied") {
-        collectCommandsRef.current = {};
+        collectCommandIdsRef.current = {};
         invokeCommandIdsRef.current = {};
         setCollectResults({});
         setInvokeResults({});
@@ -217,7 +213,7 @@ export function InstrumentInspector({
       if (receipt.state) setState(receipt.state);
       if (receipt.status === "applied" || receipt.status === "unchanged") {
         applyCommandIdRef.current = undefined;
-        collectCommandsRef.current = {};
+        collectCommandIdsRef.current = {};
         invokeCommandIdsRef.current = {};
         setApplyResult(undefined);
         setDrafts({});
@@ -249,16 +245,17 @@ export function InstrumentInspector({
   });
   const collectMutation = useMutation({
     mutationFn: ({
-      command,
+      target,
+      commandId,
     }: {
       target: InstrumentAcquisitionTarget;
-      command: InstrumentCollectCommand;
-    }) => collectInstrumentAcquisition(requireSession(session), command),
+      commandId: string;
+    }) => collectInstrumentAcquisition(requireSession(session), instrumentId, target, commandId),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
     onSuccess: (receipt, { target }) => {
       const key = acquisitionKey(target);
-      delete collectCommandsRef.current[key];
+      delete collectCommandIdsRef.current[key];
       setCollectResults((current) => ({ ...current, [key]: receipt }));
       if (receipt.status === "unknown") {
         onSessionLost(
@@ -296,7 +293,7 @@ export function InstrumentInspector({
       setInvokeResults((current) => ({ ...current, [key]: receipt }));
       if (receipt.state) setState(receipt.state);
       if (receipt.status === "invoked") {
-        collectCommandsRef.current = {};
+        collectCommandIdsRef.current = {};
         setCollectResults({});
       } else if (receipt.status === "unknown") {
         onSessionLost(
@@ -379,13 +376,11 @@ export function InstrumentInspector({
   };
   const collectAcquisition = (target: InstrumentAcquisitionTarget) => {
     const key = acquisitionKey(target);
-    const command =
-      collectCommandsRef.current[key] ??
-      createInstrumentCollectCommand(instrumentId, target, state);
-    collectCommandsRef.current[key] = command;
+    const commandId = collectCommandIdsRef.current[key] ?? createInstrumentCommandId("collect");
+    collectCommandIdsRef.current[key] = commandId;
     collectMutation.mutate({
       target,
-      command,
+      commandId,
     });
   };
   const invokeOperation = (
@@ -1046,7 +1041,6 @@ function InterfaceEndpoint({
                     key={acquisition.id}
                     target={target}
                     connected={connected}
-                    state={state}
                     result={collectResults[key]}
                     interactionDisabled={interactionDisabled}
                     collecting={
@@ -1297,7 +1291,6 @@ function OperationArgumentEditor({
 function AcquisitionControl({
   target,
   connected,
-  state,
   result,
   collecting,
   interactionDisabled,
@@ -1305,19 +1298,13 @@ function AcquisitionControl({
 }: {
   target: InstrumentAcquisitionTarget;
   connected: boolean;
-  state?: InstrumentState;
   result?: InstrumentCollectReceipt;
   collecting: boolean;
   interactionDisabled: boolean;
   onCollect: () => void;
 }) {
   const acquisition = target.acquisition;
-  const selection = acquisitionResultsForState(acquisition, state);
-  const results = selection.ready ? selection.results : [];
-  const hasDeclaredResults = declaredAcquisitionResults(acquisition).length > 0;
-  const readiness = instrumentAcquisitionReadiness(target, state);
-  const blocked = !readiness.ready;
-  const reasonId = domId("collect-reason", acquisitionKey(target));
+  const results = declaredAcquisitionResults(acquisition);
   return (
     <section className="acquisition-control">
       <header>
@@ -1325,33 +1312,24 @@ function AcquisitionControl({
           <strong>{acquisition.label ?? titleCase(acquisition.id)}</strong>
           {acquisition.description && <p>{acquisition.description}</p>}
         </div>
-        {hasDeclaredResults && (
+        {results.length > 0 && (
           <div className="acquisition-collect-action">
             <button
               type="button"
               className="secondary-button"
               onClick={onCollect}
-              disabled={!connected || interactionDisabled || blocked}
-              aria-describedby={connected && !interactionDisabled && blocked ? reasonId : undefined}
+              disabled={!connected || interactionDisabled}
               title={
                 !connected
                   ? "Connect before collecting"
                   : interactionDisabled
                     ? "Wait for the current instrument interaction to finish"
-                    : blocked
-                      ? readiness.reason
-                      : undefined
+                    : undefined
               }
             >
               {collecting ? <LoaderCircle className="spin" size={14} /> : <Database size={14} />}
               Collect
             </button>
-            {connected && blocked && (
-              <small id={reasonId} className="collection-blocked-reason">
-                <AlertTriangle size={12} aria-hidden="true" />
-                {readiness.reason}
-              </small>
-            )}
           </div>
         )}
       </header>
@@ -1862,10 +1840,6 @@ function samePath(left: string[], right: string[]): boolean {
 function interfaceFallbackLabel(interfaceId: string): string {
   const qualifiedName = interfaceId.slice(0, interfaceId.lastIndexOf("/"));
   return titleCase(qualifiedName.slice(qualifiedName.lastIndexOf(".") + 1));
-}
-
-function domId(prefix: string, value: string): string {
-  return `${prefix}-${value.replaceAll(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
 function requireSession(session: InstrumentSession | undefined): InstrumentSession {

@@ -839,30 +839,6 @@ export interface components {
             proposal_id: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
         };
-        /** CollectAxisRequest */
-        CollectAxisRequest: {
-            id: components["schemas"]["_NonEmptyId"];
-            kind: components["schemas"]["_NonEmptyId"];
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Size */
-            size: number;
-            /** Unit */
-            unit?: string | null;
-        };
-        /** CollectCommand */
-        CollectCommand: {
-            command_id: components["schemas"]["_NonEmptyId"];
-            instrument_id: components["schemas"]["_NonEmptyId"];
-            /** Point Count */
-            point_count: number;
-            /** Point Index */
-            point_index: number;
-            /** Requests */
-            requests: [
-                components["schemas"]["CollectResultRequest"],
-                ...components["schemas"]["CollectResultRequest"][]
-            ];
-        };
         /**
          * CollectReceipt
          * @description Explicit outcome reported after one collection command.
@@ -885,36 +861,6 @@ export interface components {
              * @enum {string}
              */
             status: "collected" | "not_collected" | "unknown";
-        };
-        /**
-         * CollectResultRequest
-         * @description One explicitly acquisition-scoped result request.
-         *
-         *     Interface and acquisition identity prevent a driver from inferring
-         *     ownership from an accidentally unique result id.
-         */
-        CollectResultRequest: {
-            acquisition_id: components["schemas"]["_NonEmptyId"];
-            /** Channel Bindings */
-            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            /** Component Path */
-            component_path?: components["schemas"]["_NonEmptyId"][];
-            /** Dimensions */
-            dimensions?: components["schemas"]["CollectAxisRequest"][];
-            /**
-             * Dtype
-             * @default float64
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
-            /** Entity Ids */
-            entity_ids?: components["schemas"]["_NonEmptyId"][];
-            id: components["schemas"]["_NonEmptyId"];
-            interface_id: components["schemas"]["InterfaceId"];
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            result_id: components["schemas"]["_NonEmptyId"];
-            /** Unit */
-            unit?: string | null;
         };
         /** CommandChannelBinding */
         CommandChannelBinding: {
@@ -1648,6 +1594,20 @@ export interface components {
              */
             problems: components["schemas"]["Problem-Output"][];
         };
+        /**
+         * InteractiveCollectIntent
+         * @description State-independent acquisition selection for one direct interaction.
+         */
+        InteractiveCollectIntent: {
+            acquisition_id: components["schemas"]["_NonEmptyId"];
+            command_id: components["schemas"]["_NonEmptyId"];
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            instrument_id: components["schemas"]["_NonEmptyId"];
+            interface_id: components["schemas"]["InterfaceId"];
+            /** Result Ids */
+            result_ids?: components["schemas"]["_NonEmptyId"][];
+        };
         InterfaceId: string;
         /**
          * InterfaceSpec
@@ -1707,9 +1667,6 @@ export interface components {
              * @enum {string}
              */
             status: "invoked" | "not_invoked" | "unknown";
-        };
-        "JsonMetadata-Input": {
-            [key: string]: components["schemas"]["JsonValue-Input"];
         };
         "JsonMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
@@ -3153,7 +3110,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CollectCommand"];
+                "application/json": components["schemas"]["InteractiveCollectIntent"];
             };
         };
         responses: {

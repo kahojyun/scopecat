@@ -12,46 +12,21 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import (
-    InstrumentPropertyState,
     InstrumentReadback,
     InstrumentStateSnapshot,
 )
-from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
-    AcquisitionRef,
-    AcquisitionResultRef,
-    CollectCommand,
     CollectReceipt,
     InstrumentDescription,
-    InterfaceRef,
-    acquisition,
-    acquisition_precondition,
-    acquisition_result,
-    bool_property,
-    interface,
+    InteractiveCollectIntent,
 )
 
-from scopecat_instruments.drivers import YokogawaGS200
-from scopecat_instruments.interfaces import network_sweep_interface
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
-    DC_MONITOR_VOLTAGE_RESULT,
-    NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_IF_BANDWIDTH,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER,
-    NETWORK_SWEEP_S_PARAMETER_RESULT,
-    NETWORK_SWEEP_SOURCE_POWER,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
 )
-from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
-from scopecat_instruments.virtual import VirtualDcSource, VirtualLabWorld
 
 
 class _CollectingDaemon(DaemonClient):
@@ -64,8 +39,8 @@ class _CollectingDaemon(DaemonClient):
         self.description = description
         self.state = state
         self.state_reads = 0
-        self.collect_command: CollectCommand | None = None
-        self.collect_commands: list[CollectCommand] = []
+        self.collect_intent: InteractiveCollectIntent | None = None
+        self.collect_intents: list[InteractiveCollectIntent] = []
 
     @override
     def open_instrument_session(
@@ -100,24 +75,13 @@ class _CollectingDaemon(DaemonClient):
         self,
         session_id: str,
         instrument_id: str,
-        command: CollectCommand,
+        intent: InteractiveCollectIntent,
     ) -> CollectReceipt:
         assert session_id == "session-1"
         assert instrument_id == self.description.instrument_id
-        self.collect_command = command
-        self.collect_commands.append(command)
-        return CollectReceipt(
-            readback=InstrumentReadback(
-                values={
-                    request.id: MeasurementScalar.create(
-                        dtype="float64",
-                        value=0.0,
-                        unit=request.unit,
-                    )
-                    for request in command.requests
-                }
-            )
-        )
+        self.collect_intent = intent
+        self.collect_intents.append(intent)
+        return CollectReceipt(readback=InstrumentReadback())
 
 
 class _ConfiguredDefaultsDaemon(DaemonClient):
@@ -269,47 +233,16 @@ def test_apply_configured_defaults_requires_multi_instrument_selection() -> None
         daemon.close()
 
 
-def test_gs200_notebook_monitor_defaults_to_the_current_mode_result() -> None:
-    transport = ScriptedTransport(
-        [
-            ScriptedExchange.query(":SENS:REM?", "0"),
-            ScriptedExchange.query(":SENS:GUAR?", "0"),
-            ScriptedExchange.query(":SOUR:FUNC?", "CURR"),
-            ScriptedExchange.query(":SOUR:RANG?", "0.01"),
-            ScriptedExchange.query(":SOUR:LEV?", "0.001"),
-            ScriptedExchange.query(":SOUR:PROT:VOLT?", "10"),
-            ScriptedExchange.query(":SOUR:PROT:CURR?", "0.01"),
-            ScriptedExchange.query(":OUTP?", "1"),
-            ScriptedExchange.query(":SENS?", "1"),
-            ScriptedExchange.query(":SENS:NPLC?", "1"),
-            ScriptedExchange.query(":SENS:DEL?", "0"),
-        ]
+def test_notebook_collect_sends_unspecified_results_without_reading_state() -> None:
+    description = InstrumentDescription(
+        instrument_id="bias",
+        implementation_id="tests.source",
+        implementation_version="1",
     )
-    driver = YokogawaGS200("bias", transport, monitor_option=True)
-
-    _assert_default_monitor_result(
-        driver.describe(),
-        driver.read_state(),
-        expected_result=DC_MONITOR_VOLTAGE_RESULT,
+    daemon = _CollectingDaemon(
+        description,
+        InstrumentStateSnapshot(instrument_id="bias"),
     )
-    transport.assert_complete()
-
-
-def test_virtual_notebook_monitor_defaults_to_the_voltage_mode_result() -> None:
-    driver = VirtualDcSource("bias", VirtualLabWorld(seed=7))
-    driver.set_output(True)
-
-    _assert_default_monitor_result(
-        driver.describe(),
-        driver.read_state(),
-        expected_result=DC_MONITOR_CURRENT_RESULT,
-    )
-
-
-def test_notebook_monitor_checks_explicit_results_against_the_current_mode() -> None:
-    driver = VirtualDcSource("bias", VirtualLabWorld(seed=11))
-    driver.set_output(True)
-    daemon = _CollectingDaemon(driver.describe(), driver.read_state())
     handle = InstrumentSessionHandle(
         client=daemon,
         instrument_ids=("bias",),
@@ -319,23 +252,62 @@ def test_notebook_monitor_checks_explicit_results_against_the_current_mode() -> 
     try:
         receipt = handle.collect(
             DC_MONITOR_ACQUISITION,
+            command_id="collect-1",
+        )
+    finally:
+        daemon.close()
+
+    assert receipt.status == "collected"
+    assert daemon.state_reads == 0
+    assert daemon.collect_intent == InteractiveCollectIntent(
+        command_id="collect-1",
+        instrument_id="bias",
+        interface_id=DC_MONITOR_ACQUISITION.interface_id,
+        component_path=list(DC_MONITOR_ACQUISITION.component_path),
+        acquisition_id=DC_MONITOR_ACQUISITION.acquisition_id,
+        result_ids=[],
+    )
+
+
+def test_notebook_collect_sends_explicit_result_identity() -> None:
+    description = InstrumentDescription(
+        instrument_id="bias",
+        implementation_id="tests.source",
+        implementation_version="1",
+    )
+    daemon = _CollectingDaemon(
+        description,
+        InstrumentStateSnapshot(instrument_id="bias"),
+    )
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("bias",),
+        actor="test",
+    )
+
+    try:
+        handle.collect(
+            DC_MONITOR_ACQUISITION,
             DC_MONITOR_CURRENT_RESULT,
         )
     finally:
         daemon.close()
 
-    assert receipt.status == "collected"
-    assert daemon.state_reads == 1
-    assert daemon.collect_command is not None
-    assert [request.result_id for request in daemon.collect_command.requests] == [
-        DC_MONITOR_CURRENT_RESULT.result_id
-    ]
+    assert daemon.state_reads == 0
+    assert daemon.collect_intent is not None
+    assert daemon.collect_intent.result_ids == [DC_MONITOR_CURRENT_RESULT.result_id]
 
 
-def test_notebook_monitor_rejects_an_inactive_explicit_result() -> None:
-    driver = VirtualDcSource("bias", VirtualLabWorld(seed=13))
-    driver.set_output(True)
-    daemon = _CollectingDaemon(driver.describe(), driver.read_state())
+def test_notebook_retries_send_the_same_high_level_intent() -> None:
+    description = InstrumentDescription(
+        instrument_id="bias",
+        implementation_id="tests.source",
+        implementation_version="1",
+    )
+    daemon = _CollectingDaemon(
+        description,
+        InstrumentStateSnapshot(instrument_id="bias"),
+    )
     handle = InstrumentSessionHandle(
         client=daemon,
         instrument_ids=("bias",),
@@ -343,364 +315,48 @@ def test_notebook_monitor_rejects_an_inactive_explicit_result() -> None:
     )
 
     try:
-        with pytest.raises(ValueError, match="has no active results"):
-            handle.collect(
-                DC_MONITOR_ACQUISITION,
-                DC_MONITOR_VOLTAGE_RESULT,
-            )
-    finally:
-        daemon.close()
-
-    assert daemon.state_reads == 1
-    assert daemon.collect_command is None
-
-
-def test_notebook_replay_id_requires_an_explicit_discriminated_result() -> None:
-    driver = VirtualDcSource("bias", VirtualLabWorld(seed=17))
-    daemon = _CollectingDaemon(driver.describe(), driver.read_state())
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("bias",),
-        actor="test",
-    )
-
-    try:
-        with pytest.raises(
-            ValueError,
-            match="with command_id requires an explicit result",
-        ):
-            handle.collect(
-                DC_MONITOR_ACQUISITION,
-                command_id="collect-replay",
-            )
+        handle.collect(
+            DC_MONITOR_ACQUISITION,
+            command_id="collect-replay",
+        )
+        handle.collect(
+            DC_MONITOR_ACQUISITION,
+            command_id="collect-replay",
+        )
     finally:
         daemon.close()
 
     assert daemon.state_reads == 0
-    assert daemon.collect_command is None
+    assert len(daemon.collect_intents) == 2
+    assert daemon.collect_intents[0] == daemon.collect_intents[1]
 
 
-def test_notebook_network_sweep_resolves_dimensions_from_one_snapshot() -> None:
-    description, state = _network_sweep_contract(points=201)
-    daemon = _CollectingDaemon(description, state)
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("vna",),
-        actor="test",
-    )
-
-    try:
-        receipt = handle.collect(NETWORK_SWEEP_ACQUISITION)
-    finally:
-        daemon.close()
-
-    assert receipt.status == "collected"
-    assert daemon.state_reads == 1
-    assert daemon.collect_command is not None
-    assert {
-        request.result_id: [
-            (axis.id, axis.kind, axis.size, axis.unit) for axis in request.dimensions
-        ]
-        for request in daemon.collect_command.requests
-    } == {
-        NETWORK_SWEEP_FREQUENCY_RESULT.result_id: [
-            ("frequency", "frequency", 201, "Hz")
-        ],
-        NETWORK_SWEEP_S_PARAMETER_RESULT.result_id: [
-            ("frequency", "frequency", 201, "Hz")
-        ],
-    }
-
-
-def test_notebook_replay_id_keeps_resolved_dimensions_after_state_changes() -> None:
-    description, state = _network_sweep_contract(points=201)
-    daemon = _CollectingDaemon(description, state)
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("vna",),
-        actor="test",
-    )
-
-    try:
-        handle.collect(
-            NETWORK_SWEEP_ACQUISITION,
-            NETWORK_SWEEP_S_PARAMETER_RESULT,
-            command_id="collect-replay",
-        )
-        daemon.state = _network_sweep_contract(points=801)[1]
-        handle.collect(
-            NETWORK_SWEEP_ACQUISITION,
-            NETWORK_SWEEP_S_PARAMETER_RESULT,
-            command_id="collect-replay",
-        )
-    finally:
-        daemon.close()
-
-    assert daemon.state_reads == 1
-    assert len(daemon.collect_commands) == 2
-    assert daemon.collect_commands[0] == daemon.collect_commands[1]
-    assert daemon.collect_commands[0].requests[0].dimensions[0].size == 201
-
-
-def test_notebook_replay_id_rejects_a_different_collect_intent() -> None:
-    description, state = _network_sweep_contract(points=201)
-    daemon = _CollectingDaemon(description, state)
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("vna",),
-        actor="test",
-    )
-
-    try:
-        handle.collect(
-            NETWORK_SWEEP_ACQUISITION,
-            NETWORK_SWEEP_FREQUENCY_RESULT,
-            command_id="collect-replay",
-        )
-        with pytest.raises(
-            ValueError,
-            match="command id 'collect-replay' has different collect content",
-        ):
-            handle.collect(
-                NETWORK_SWEEP_ACQUISITION,
-                NETWORK_SWEEP_S_PARAMETER_RESULT,
-                command_id="collect-replay",
-            )
-    finally:
-        daemon.close()
-
-    assert daemon.state_reads == 1
-    assert len(daemon.collect_commands) == 1
-
-
-def test_notebook_collect_rejects_missing_axis_size_state_before_daemon() -> None:
-    description, state = _network_sweep_contract(points=None)
-    daemon = _CollectingDaemon(description, state)
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("vna",),
-        actor="test",
-    )
-
-    try:
-        with pytest.raises(
-            ValueError,
-            match="axis size state is not synchronized",
-        ):
-            handle.collect(
-                NETWORK_SWEEP_ACQUISITION,
-                NETWORK_SWEEP_S_PARAMETER_RESULT,
-            )
-    finally:
-        daemon.close()
-
-    assert daemon.state_reads == 1
-    assert daemon.collect_command is None
-
-
-@pytest.mark.parametrize(
-    ("precondition", "expected_state_reads"),
-    [(False, 0), (True, 1)],
-)
-def test_fixed_notebook_acquisition_reads_state_only_for_preconditions(
-    precondition: bool,
-    expected_state_reads: int,
-) -> None:
-    description, state, sample, _ = _fixed_acquisition_contract(
-        precondition=precondition,
-        enabled=True,
-    )
-    daemon = _CollectingDaemon(description, state)
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("sensor",),
-        actor="test",
-    )
-
-    try:
-        receipt = handle.collect(sample)
-    finally:
-        daemon.close()
-
-    assert receipt.status == "collected"
-    assert daemon.state_reads == expected_state_reads
-
-
-def test_notebook_collect_blocks_before_daemon_collect() -> None:
-    description, state, sample, _ = _fixed_acquisition_contract(
-        precondition=True,
-        enabled=False,
-    )
-    daemon = _CollectingDaemon(description, state)
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=("sensor",),
-        actor="test",
-    )
-
-    try:
-        with pytest.raises(
-            ValueError,
-            match="is unavailable: sensor output must be enabled",
-        ):
-            handle.collect(sample)
-    finally:
-        daemon.close()
-
-    assert daemon.state_reads == 1
-    assert daemon.collect_command is None
-
-
-def test_notebook_collect_rejects_unknown_readiness_before_daemon_collect() -> None:
-    description, _, sample, _ = _fixed_acquisition_contract(
-        precondition=True,
-        enabled=True,
+def test_notebook_collect_rejects_a_result_from_another_acquisition() -> None:
+    description = InstrumentDescription(
+        instrument_id="bias",
+        implementation_id="tests.source",
+        implementation_version="1",
     )
     daemon = _CollectingDaemon(
         description,
-        InstrumentStateSnapshot(instrument_id="sensor"),
+        InstrumentStateSnapshot(instrument_id="bias"),
     )
     handle = InstrumentSessionHandle(
         client=daemon,
-        instrument_ids=("sensor",),
+        instrument_ids=("bias",),
         actor="test",
     )
 
     try:
         with pytest.raises(
             ValueError,
-            match="readiness is unknown: sensor output must be enabled",
+            match="collect results must belong to the selected acquisition",
         ):
-            handle.collect(sample)
+            handle.collect(
+                DC_MONITOR_ACQUISITION,
+                NETWORK_SWEEP_FREQUENCY_RESULT,
+            )
     finally:
         daemon.close()
 
-    assert daemon.state_reads == 1
-    assert daemon.collect_command is None
-
-
-def _assert_default_monitor_result(
-    description: InstrumentDescription,
-    state: InstrumentStateSnapshot,
-    *,
-    expected_result: AcquisitionResultRef,
-) -> None:
-    daemon = _CollectingDaemon(description, state)
-    handle = InstrumentSessionHandle(
-        client=daemon,
-        instrument_ids=(description.instrument_id,),
-        actor="test",
-    )
-
-    try:
-        receipt = handle.collect(DC_MONITOR_ACQUISITION)
-    finally:
-        daemon.close()
-
-    assert receipt.status == "collected"
-    assert daemon.state_reads == 1
-    assert daemon.collect_command is not None
-    assert [request.result_id for request in daemon.collect_command.requests] == [
-        expected_result.result_id
-    ]
-
-
-def _fixed_acquisition_contract(
-    *,
-    precondition: bool,
-    enabled: bool,
-) -> tuple[
-    InstrumentDescription,
-    InstrumentStateSnapshot,
-    AcquisitionRef,
-    AcquisitionResultRef,
-]:
-    sensor = InterfaceRef("tests.notebook_sensor/v1")
-    output_enabled = sensor.property("output_enabled")
-    sample = sensor.acquisition("sample")
-    reading = sample.result("reading")
-    requirements = (
-        (
-            acquisition_precondition(
-                output_enabled,
-                operator="equal",
-                value=True,
-                unavailable_reason="sensor output must be enabled",
-            ),
-        )
-        if precondition
-        else ()
-    )
-    description = InstrumentDescription(
-        instrument_id="sensor",
-        implementation_id="tests.notebook_sensor",
-        implementation_version="1",
-        interfaces=[
-            interface(
-                sensor.interface_id,
-                properties=[bool_property(output_enabled.property_id)],
-                acquisitions=[
-                    acquisition(
-                        sample.acquisition_id,
-                        results=[acquisition_result(reading.result_id)],
-                        preconditions=requirements,
-                    )
-                ],
-            )
-        ],
-    )
-    state = InstrumentStateSnapshot(
-        instrument_id="sensor",
-        properties=[
-            InstrumentPropertyState(
-                interface_id=output_enabled.interface_id,
-                component_path=list(output_enabled.component_path),
-                property_id=output_enabled.property_id,
-                value=StateValue(enabled),
-            )
-        ],
-    )
-    return description, state, sample, reading
-
-
-def _network_sweep_contract(
-    *,
-    points: int | None,
-) -> tuple[InstrumentDescription, InstrumentStateSnapshot]:
-    description = InstrumentDescription(
-        instrument_id="vna",
-        implementation_id="tests.vna",
-        implementation_version="1",
-        interfaces=[network_sweep_interface()],
-    )
-    state = InstrumentStateSnapshot(
-        instrument_id="vna",
-        properties=[
-            InstrumentPropertyState(
-                interface_id=target.interface_id,
-                component_path=list(target.component_path),
-                property_id=target.property_id,
-                value=StateValue(value),
-            )
-            for target, value in (
-                (NETWORK_SWEEP_START_FREQUENCY, Quantity(1.0e9, "Hz")),
-                (NETWORK_SWEEP_STOP_FREQUENCY, Quantity(2.0e9, "Hz")),
-                (NETWORK_SWEEP_IF_BANDWIDTH, Quantity(1.0e3, "Hz")),
-                (NETWORK_SWEEP_SOURCE_POWER, Quantity(-10.0, "dBm")),
-                (NETWORK_SWEEP_S_PARAMETER, "S21"),
-            )
-        ]
-        + (
-            [
-                InstrumentPropertyState(
-                    interface_id=NETWORK_SWEEP_POINTS.interface_id,
-                    component_path=list(NETWORK_SWEEP_POINTS.component_path),
-                    property_id=NETWORK_SWEEP_POINTS.property_id,
-                    value=StateValue(points),
-                )
-            ]
-            if points is not None
-            else []
-        ),
-    )
-    return description, state
+    assert daemon.collect_intent is None
