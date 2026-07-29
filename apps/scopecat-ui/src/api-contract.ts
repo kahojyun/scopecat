@@ -131,6 +131,7 @@ export type InstrumentInvokeCommand = DaemonUiApi["instrumentInvokeCommand"];
 export type InstrumentInvokeReceipt = DaemonUiApi["instrumentInvokeReceipt"];
 export type InstrumentOperation = components["schemas"]["OperationSpec"];
 export type InstrumentProperty = components["schemas"]["PropertySpec"];
+export type InstrumentPropertyState = components["schemas"]["InstrumentPropertyState"];
 export type InstrumentSession = DaemonUiApi["instrumentSession"];
 export type InstrumentSessionLease = DaemonUiApi["instrumentSessionLease"];
 export type InstrumentSpec = components["schemas"]["InstrumentSpec-Input"];

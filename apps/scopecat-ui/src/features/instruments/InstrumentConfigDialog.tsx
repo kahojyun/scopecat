@@ -6,10 +6,13 @@ import type {
   DriverConnectionSpec,
   DriverSpec,
   InstrumentConnection,
+  InstrumentDescription,
   InstrumentDriverProbeReceipt,
+  InstrumentPropertyState,
   InstrumentSpec,
 } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
+import { InstrumentDefaultsEditor } from "./InstrumentDefaultsEditor";
 import { probeInstrumentDriver, publishInstrumentSpec, type ActiveConfig } from "./instrument-api";
 
 type ConnectionKind = InstrumentConnection["kind"];
@@ -30,12 +33,14 @@ export function InstrumentConfigDialog({
   active,
   catalog,
   instrumentId,
+  description,
   onCancel,
   onPublished,
 }: {
   active: ActiveConfig;
   catalog: DriverCatalog;
   instrumentId?: string;
+  description?: InstrumentDescription;
   onCancel: () => void;
   onPublished: (instrumentId: string) => void | Promise<void>;
 }) {
@@ -52,6 +57,7 @@ export function InstrumentConfigDialog({
       active={active}
       catalog={catalog}
       existing={existing}
+      configuredDescription={description}
       onCancel={onCancel}
       onPublished={onPublished}
     />
@@ -62,12 +68,14 @@ function InstrumentConfigEditor({
   active,
   catalog,
   existing,
+  configuredDescription,
   onCancel,
   onPublished,
 }: {
   active: ActiveConfig;
   catalog: DriverCatalog;
   existing?: InstrumentSpec;
+  configuredDescription?: InstrumentDescription;
   onCancel: () => void;
   onPublished: (instrumentId: string) => void | Promise<void>;
 }) {
@@ -78,12 +86,24 @@ function InstrumentConfigEditor({
   const [connection, setConnection] = useState<InstrumentConnection>(() =>
     initialConnection(existing?.connection, firstDriver),
   );
+  const [defaultState, setDefaultState] = useState<InstrumentPropertyState[]>(
+    existing?.default_state ?? [],
+  );
+  const [runStart, setRunStart] = useState<InstrumentSpec["run_start"]>(
+    existing?.run_start ?? "preserve",
+  );
+  const [defaultsValid, setDefaultsValid] = useState(true);
+  const [probedDescription, setProbedDescription] = useState<InstrumentDescription>();
   const [note, setNote] = useState("");
   const [probe, setProbe] = useState<InstrumentDriverProbeReceipt>();
   const [probePending, setProbePending] = useState(false);
   const [publishPending, setPublishPending] = useState(false);
   const [error, setError] = useState<string>();
   const driver = catalog.drivers.find((candidate) => candidate.driver_id === driverId);
+  const description =
+    existing?.driver_id === driverId
+      ? (configuredDescription ?? probedDescription)
+      : probedDescription;
   const connectionSpec = driver?.connections.find(
     (candidate) => candidate.kind === connection.kind,
   );
@@ -93,11 +113,11 @@ function InstrumentConfigEditor({
   );
   const options = connection.options ?? {};
   const spec = useMemo(
-    () => proposedSpec(instrumentId.trim(), driverId, connection, existing),
-    [connection, driverId, existing, instrumentId],
+    () => proposedSpec(instrumentId.trim(), driverId, connection, defaultState, runStart, existing),
+    [connection, defaultState, driverId, existing, instrumentId, runStart],
   );
   const changed = !existing || JSON.stringify(spec) !== JSON.stringify(existing);
-  const valid =
+  const bindingValid =
     driver !== undefined &&
     driver.connections.some((candidate) => candidate.kind === connection.kind) &&
     spec.id.length > 0 &&
@@ -109,12 +129,21 @@ function InstrumentConfigEditor({
     ) &&
     connectionIsValid(connection) &&
     optionsAreValid(options, optionFields);
+  const publishValid =
+    bindingValid && defaultsValid && (runStart === "preserve" || defaultState.length > 0);
   const busy = probePending || publishPending;
 
   const chooseDriver = (nextDriverId: string) => {
     const nextDriver = catalog.drivers.find((candidate) => candidate.driver_id === nextDriverId);
+    const restoringExisting = existing?.driver_id === nextDriverId;
     setDriverId(nextDriverId);
-    setConnection(initialConnection(undefined, nextDriver));
+    setConnection(
+      initialConnection(restoringExisting ? existing.connection : undefined, nextDriver),
+    );
+    setDefaultState(restoringExisting ? (existing.default_state ?? []) : []);
+    setRunStart(restoringExisting ? existing.run_start : "preserve");
+    setDefaultsValid(true);
+    setProbedDescription(undefined);
     clearFeedback();
   };
   const chooseConnectionKind = (kind: ConnectionKind) => {
@@ -127,20 +156,22 @@ function InstrumentConfigEditor({
     clearFeedback();
   };
   const testConnection = async () => {
-    if (!valid) return;
+    if (!bindingValid) return;
     setProbePending(true);
     setError(undefined);
     setProbe(undefined);
     try {
-      setProbe(
-        await probeInstrumentDriver({
-          binding: {
-            id: spec.id,
-            driver_id: spec.driver_id,
-            connection: spec.connection,
-          },
-        }),
-      );
+      const receipt = await probeInstrumentDriver({
+        binding: {
+          id: spec.id,
+          driver_id: spec.driver_id,
+          connection: spec.connection,
+        },
+      });
+      setProbe(receipt);
+      if (receipt.status === "connected" && receipt.description) {
+        setProbedDescription(receipt.description);
+      }
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -148,7 +179,7 @@ function InstrumentConfigEditor({
     }
   };
   const publish = async () => {
-    if (!valid || !changed) return;
+    if (!publishValid || !changed) return;
     setPublishPending(true);
     setError(undefined);
     try {
@@ -276,6 +307,18 @@ function InstrumentConfigEditor({
                 </p>
               )}
 
+              {driver && (
+                <InstrumentDefaultsEditor
+                  key={`${driverId}-${description?.implementation_id ?? "unknown"}`}
+                  description={description}
+                  defaultState={defaultState}
+                  runStart={runStart}
+                  onDefaultStateChange={setDefaultState}
+                  onRunStartChange={setRunStart}
+                  onValidityChange={setDefaultsValid}
+                />
+              )}
+
               <div className="instrument-config-audit">
                 <label>
                   <span>Note</span>
@@ -291,7 +334,7 @@ function InstrumentConfigEditor({
                 <button
                   type="button"
                   className="secondary-button"
-                  disabled={!valid || busy}
+                  disabled={!bindingValid || busy}
                   onClick={() => void testConnection()}
                 >
                   {probePending ? (
@@ -318,7 +361,7 @@ function InstrumentConfigEditor({
               <button
                 type="button"
                 className="primary-button"
-                disabled={!valid || !changed || busy}
+                disabled={!publishValid || !changed || busy}
                 onClick={() => void publish()}
               >
                 {publishPending ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
@@ -451,16 +494,17 @@ function proposedSpec(
   instrumentId: string,
   driverId: string,
   connection: InstrumentConnection,
+  defaultState: InstrumentPropertyState[],
+  runStart: InstrumentSpec["run_start"],
   existing?: InstrumentSpec,
 ): InstrumentSpec {
-  const preservesState = existing?.driver_id === driverId;
   return {
     id: instrumentId,
     exclusivity_key: existing?.exclusivity_key ?? instrumentId,
     driver_id: driverId,
     connection,
-    default_state: preservesState ? existing.default_state : [],
-    run_start: preservesState ? existing.run_start : "preserve",
+    default_state: defaultState,
+    run_start: runStart,
   };
 }
 

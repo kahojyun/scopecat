@@ -1343,6 +1343,118 @@ describe("instrument workspace", () => {
     expect(within(dialog).queryByLabelText("Host")).not.toBeInTheDocument();
   });
 
+  it("publishes sparse interface-derived defaults and an explicit start policy", async () => {
+    renderWorkspace();
+
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Configure device" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByRole("checkbox", {
+        name: "Configure default for Measured temperature",
+      }),
+    ).not.toBeInTheDocument();
+    const configureFrequency = within(dialog).getByRole("checkbox", {
+      name: "Configure default for CW frequency",
+    });
+    fireEvent.click(configureFrequency);
+    expect(within(dialog).getByRole("button", { name: "Publish default" })).toBeDisabled();
+    const frequencyRow = configureFrequency.closest(".instrument-default-property");
+    if (!frequencyRow) throw new Error("Expected the frequency default row.");
+    fireEvent.change(within(frequencyRow as HTMLElement).getByRole("spinbutton"), {
+      target: { value: "6200000000" },
+    });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Start policy" }), {
+      target: { value: "apply_default_state" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish default" }));
+
+    await waitFor(() =>
+      expect(publishInstrumentSpec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            default_state: [
+              {
+                interface_id: "scopecat.rf_output/v1",
+                component_path: [],
+                property_id: "frequency",
+                value: { value: 6_200_000_000, unit: "Hz" },
+              },
+            ],
+            run_start: "apply_default_state",
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("requires an explicit discriminated mode and its entry defaults", async () => {
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      problems: [],
+      items: [instrumentWithDiscriminatedState()],
+    });
+    renderWorkspace();
+
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Configure device" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByRole("checkbox", { name: "Configure default for Voltage range" }),
+    ).not.toBeInTheDocument();
+    const configureMode = within(dialog).getByRole("checkbox", {
+      name: "Configure default for Source mode",
+    });
+    fireEvent.click(configureMode);
+    const modeRow = configureMode.closest(".instrument-default-property");
+    if (!modeRow) throw new Error("Expected the source mode default row.");
+    fireEvent.change(within(modeRow as HTMLElement).getByRole("combobox"), {
+      target: { value: "voltage" },
+    });
+
+    const configureRange = await within(dialog).findByRole("checkbox", {
+      name: "Configure default for Voltage range",
+    });
+    expect(within(dialog).getByText("The selected mode requires: Voltage Range.")).toBeVisible();
+    expect(
+      within(dialog).queryByRole("checkbox", { name: "Configure default for Current range" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(configureRange);
+    const rangeRow = configureRange.closest(".instrument-default-property");
+    if (!rangeRow) throw new Error("Expected the voltage range default row.");
+    fireEvent.change(within(rangeRow as HTMLElement).getByRole("spinbutton"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Start policy" }), {
+      target: { value: "apply_default_state" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish default" }));
+
+    await waitFor(() =>
+      expect(publishInstrumentSpec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spec: expect.objectContaining({
+            default_state: [
+              {
+                interface_id: "scopecat.dc_source/v2",
+                component_path: [],
+                property_id: "source_mode",
+                value: "voltage",
+              },
+              {
+                interface_id: "scopecat.dc_source/v2",
+                component_path: [],
+                property_id: "voltage_range",
+                value: { value: 10, unit: "V" },
+              },
+            ],
+            run_start: "apply_default_state",
+          }),
+        }),
+      ),
+    );
+  });
+
   it("adds and probes a registered device before publishing it", async () => {
     renderWorkspace();
 

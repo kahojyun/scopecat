@@ -11,12 +11,14 @@ export function InstrumentPropertyInput({
   currentValue,
   draft,
   editable,
+  ariaLabel,
   onChange,
 }: {
   property: InstrumentProperty;
   currentValue?: InstrumentStateValue;
   draft?: InstrumentPropertyDraft;
   editable: boolean;
+  ariaLabel?: string;
   onChange: (draft: InstrumentPropertyDraft) => void;
 }) {
   const type = property.value_type;
@@ -28,6 +30,7 @@ export function InstrumentPropertyInput({
           type="checkbox"
           checked={typeof value === "boolean" ? value : false}
           disabled={!editable}
+          aria-label={ariaLabel}
           onChange={(event) => onChange({ raw: event.target.checked, value: event.target.checked })}
         />
         {typeof value === "boolean" ? (value ? "On" : "Off") : "Unknown"}
@@ -39,6 +42,7 @@ export function InstrumentPropertyInput({
       <select
         value={typeof value === "string" ? value : ""}
         disabled={!editable}
+        aria-label={ariaLabel}
         onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
       >
         <option value="" disabled>
@@ -63,6 +67,7 @@ export function InstrumentPropertyInput({
           value={typeof value === "string" || typeof value === "number" ? value : ""}
           placeholder={editable ? "Enter value" : "—"}
           disabled={!editable}
+          aria-label={ariaLabel}
           aria-invalid={draft !== undefined && draft.value === undefined}
           onChange={(event) => {
             const raw = event.target.value;
@@ -96,6 +101,7 @@ export function InstrumentPropertyInput({
       value={typeof value === "string" ? value : ""}
       placeholder={editable ? "Enter value" : "—"}
       disabled={!editable}
+      aria-label={ariaLabel}
       onChange={(event) => onChange({ raw: event.target.value, value: event.target.value })}
     />
   );

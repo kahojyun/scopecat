@@ -401,6 +401,13 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             active={activeConfigQuery.data}
             catalog={driverCatalogQuery.data}
             instrumentId={configTarget.kind === "edit" ? configTarget.instrumentId : undefined}
+            description={
+              configTarget.kind === "edit"
+                ? (instruments.find(
+                    (instrument) => instrument.instrument_id === configTarget.instrumentId,
+                  )?.description ?? undefined)
+                : undefined
+            }
             onCancel={() => setConfigTarget(undefined)}
             onPublished={async (instrumentId) => {
               setConfigTarget(undefined);

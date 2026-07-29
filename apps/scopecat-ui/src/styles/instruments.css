@@ -1090,6 +1090,135 @@
   color: var(--red);
 }
 
+.instrument-defaults-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.instrument-defaults-editor > header {
+  display: flex;
+  gap: 14px;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.instrument-defaults-editor > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.instrument-defaults-editor > header strong {
+  color: var(--text-soft);
+  font-size: 0.66rem;
+}
+
+.instrument-defaults-editor > header small,
+.instrument-defaults-unavailable {
+  color: var(--text-dim);
+  font-size: 0.56rem;
+  line-height: 1.5;
+}
+
+.instrument-defaults-editor > header label {
+  display: grid;
+  min-width: 210px;
+  gap: 5px;
+}
+
+.instrument-default-scopes {
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  max-height: 330px;
+  padding-right: 3px;
+  scrollbar-color: #344252 transparent;
+  scrollbar-width: thin;
+}
+
+.instrument-default-scope {
+  display: grid;
+  gap: 7px;
+}
+
+.instrument-default-scope .instrument-default-scope {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.instrument-default-scope h5 {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.instrument-default-properties {
+  display: grid;
+  gap: 6px;
+}
+
+.instrument-default-property {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(170px, 0.9fr);
+  gap: 10px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+}
+
+.instrument-default-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.instrument-default-toggle > input {
+  flex: none;
+  width: 15px;
+  min-height: 15px !important;
+  padding: 0 !important;
+  accent-color: var(--accent);
+}
+
+.instrument-default-toggle > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.instrument-default-toggle strong {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 0.61rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instrument-default-toggle small {
+  color: var(--yellow);
+  font-size: 0.51rem;
+}
+
+.instrument-default-property .boolean-editor input {
+  min-height: 15px;
+  padding: 0;
+}
+
+.instrument-defaults-unavailable {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+}
+
 .instrument-config-audit {
   grid-template-columns: minmax(0, 1fr);
   padding-top: 12px;

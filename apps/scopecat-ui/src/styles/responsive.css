@@ -317,7 +317,8 @@
 
   .instrument-config-fields,
   .instrument-connection-fields,
-  .instrument-option-fields {
+  .instrument-option-fields,
+  .instrument-default-property {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -583,8 +584,18 @@
   .instrument-config-fields,
   .instrument-connection-fields,
   .instrument-option-fields,
+  .instrument-default-property,
   .instrument-config-audit {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .instrument-defaults-editor > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .instrument-defaults-editor > header label {
+    min-width: 0;
   }
 }
 
