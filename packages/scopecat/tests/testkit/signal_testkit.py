@@ -27,6 +27,7 @@ from scopecat.measurements.results import (
     MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementScalar,
+    MeasurementUnavailable,
     MeasurementValue,
 )
 from scopecat.records.config import ConfigProfileSnapshot
@@ -276,6 +277,16 @@ def _numeric_observable_values(
     observable: MeasurementValue,
     problem_ref: str,
 ) -> tuple[list[float], str]:
+    if isinstance(observable, MeasurementUnavailable):
+        raise CheckFailed(
+            [
+                _problem(
+                    "invalid_analysis_input",
+                    f"observable {name} is unavailable ({observable.reason})",
+                    problem_ref,
+                )
+            ]
+        )
     unit = observable.unit
     if unit is None:
         raise CheckFailed(

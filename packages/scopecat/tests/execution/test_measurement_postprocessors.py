@@ -18,9 +18,13 @@ from scopecat.measurements.results import (
     ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
+    MeasurementUnavailable,
     MeasurementValue,
 )
-from scopecat.measurements.values import seal_measurement_values
+from scopecat.measurements.values import (
+    MeasurementValueCandidate,
+    seal_measurement_values,
+)
 from tests.testkit.measurement_assembly import (
     MeasurementAssemblyScenario,
     measurement_assembly_scenario,
@@ -85,6 +89,43 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
         MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
         MeasurementScalar.create(dtype="float64", value=101.0, unit="ratio"),
     ]
+
+
+def test_postprocessor_propagates_unavailable_without_running_kernel() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
+    [source] = measurement_value_candidates(scenario, (scenario.uses[0],))
+    unavailable = MeasurementUnavailable.create(
+        reason="overload",
+        dtype="float64",
+        unit="ratio",
+        shape=(),
+        metadata={"instrument_status": "input saturated"},
+    )
+
+    def kernel(_value: MeasurementValue) -> dict[str, MeasurementValue]:
+        raise AssertionError("unavailable inputs must not reach user kernels")
+
+    completed = execute_measurement_postprocessors(
+        (_postprocessor(scenario, kernel),),
+        (
+            MeasurementValueCandidate(
+                logical_point_id=source.logical_point_id,
+                product_use_id=source.product_use_id,
+                value=unavailable,
+            ),
+        ),
+        points=scenario.points,
+        catalog=scenario.catalog,
+    )
+
+    propagated = completed[-1].value
+    assert propagated == MeasurementUnavailable.create(
+        reason="overload",
+        dtype="float64",
+        unit="ratio",
+        shape=(),
+        metadata={"instrument_status": "input saturated"},
+    )
 
 
 @pytest.mark.parametrize(

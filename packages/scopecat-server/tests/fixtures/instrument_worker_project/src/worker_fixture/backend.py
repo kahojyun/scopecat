@@ -16,6 +16,7 @@ from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
+    MeasurementUnavailable,
     MeasurementValue,
 )
 from scopecat.sdk.instruments import (
@@ -215,6 +216,14 @@ def _measurement_value(result_id: str) -> MeasurementValue:
             dtype="string",
             shape=(1,),
             values=("x" * (2 * 1024 * 1024),),
+        )
+    if result_id == "unavailable":
+        return MeasurementUnavailable.create(
+            dtype="float64",
+            unit="ratio",
+            shape=(4,),
+            reason="overload",
+            metadata={"source": "spawned-worker"},
         )
     return MeasurementScalar.create(dtype="float64", value=1.25, unit="ratio")
 

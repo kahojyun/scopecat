@@ -23,11 +23,12 @@ from scopecat.records._schema_utils import (
     validate_supported_unit,
 )
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v2"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v2"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v3"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v3"
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
+MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 MeasurementArrayData = Sequence[object]
 
 
@@ -82,11 +83,11 @@ class MeasurementVariable(BaseModel):
 class MeasurementDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v2"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v3"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v2"] = (
+    record_schema: Literal["scopecat.measurement_record.v3"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     dimensions: list[MeasurementDimension]
@@ -325,8 +326,55 @@ class MeasurementArray(BaseModel):
         return self
 
 
+class MeasurementUnavailable(BaseModel):
+    """A complete scalar or array result with no usable value."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unavailable"]
+    reason: MeasurementUnavailableReason
+    dtype: MeasurementDType
+    unit: str | None
+    shape: tuple[Annotated[int, Field(ge=0)], ...]
+    metadata: JsonMetadata
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        reason: MeasurementUnavailableReason,
+        dtype: MeasurementDType,
+        unit: str | None,
+        shape: Sequence[int],
+        metadata: JsonMetadata,
+    ) -> Self:
+        """Construct an unavailable result with its complete value contract."""
+
+        return cls(
+            kind="unavailable",
+            reason=reason,
+            dtype=dtype,
+            unit=unit,
+            shape=tuple(shape),
+            metadata=metadata,
+        )
+
+    @field_validator("unit")
+    @classmethod
+    def validate_unit(cls, value: str | None) -> str | None:
+        return validate_supported_unit(value)
+
+    @model_validator(mode="after")
+    def validate_unitless_dtype(self) -> MeasurementUnavailable:
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(
+                f"{self.dtype} unavailable measurements cannot have a unit"
+            )
+        return self
+
+
 type MeasurementValue = Annotated[
-    MeasurementScalar | MeasurementArray,
+    MeasurementScalar | MeasurementArray | MeasurementUnavailable,
     Field(discriminator="kind"),
 ]
 

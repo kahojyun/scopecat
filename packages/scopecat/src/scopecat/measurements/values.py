@@ -66,7 +66,7 @@ class MeasurementValueCatalog:
             stable_content_hash(
                 content_fingerprint(
                     {
-                        "schema": "scopecat.measurement_value_contract.v2",
+                        "schema": "scopecat.measurement_value_contract.v3",
                         "experiment_id": self.point_contract.experiment_id,
                         "experiment_kind": self.point_contract.experiment_kind,
                         "coordinate_ids": self.point_contract.coordinate_ids,

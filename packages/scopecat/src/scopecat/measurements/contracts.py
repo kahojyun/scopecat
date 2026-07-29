@@ -21,6 +21,7 @@ from scopecat.records.measurement import (
     MeasurementDType,
     MeasurementRecord,
     MeasurementScalar,
+    MeasurementUnavailable,
     MeasurementValue,
     MeasurementVariable,
     MeasurementVariableRole,
@@ -58,8 +59,8 @@ def measurement_value_contract_issues(
 ) -> tuple[MeasurementValueContractIssue, ...]:
     """Check one value against a logical product's point-local contract.
 
-    Top-level dtype compatibility permits numeric widening. Scalar and array
-    leaves must match their value's own dtype tag.
+    Top-level dtype compatibility permits numeric widening. Available scalar
+    and array leaves must match their value's own dtype tag.
     """
 
     selected_shape = tuple(expected_shape)
@@ -100,6 +101,8 @@ def measurement_value_contract_issues(
             )
         )
 
+    if isinstance(value, MeasurementUnavailable):
+        return tuple(issues)
     if isinstance(value, MeasurementScalar):
         _validate_value_type(
             value.value,
@@ -138,7 +141,7 @@ def _measurement_value_unit(
 def _measurement_value_shape(
     value: MeasurementValue,
 ) -> tuple[int, ...]:
-    if isinstance(value, MeasurementArray):
+    if isinstance(value, MeasurementArray | MeasurementUnavailable):
         return tuple(value.shape)
     return ()
 

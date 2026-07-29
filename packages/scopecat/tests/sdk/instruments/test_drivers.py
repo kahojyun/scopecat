@@ -26,7 +26,11 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     InstrumentStateSnapshot as RecordInstrumentStateSnapshot,
 )
-from scopecat.records.measurement import MeasurementArray, MeasurementDType
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementDType,
+    MeasurementUnavailable,
+)
 from scopecat.sdk.instruments import (
     AcquisitionCaseSpec,
     CollectAxisRequest,
@@ -1594,6 +1598,27 @@ def test_collect_receipt_validator_allows_unspecified_dynamic_shape() -> None:
                         unit="Hz",
                         shape=(3,),
                         values=(1.0, 2.0, 3.0),
+                    )
+                }
+            )
+        ),
+    )
+
+    assert problems == []
+
+
+def test_collect_receipt_uses_unavailable_dynamic_shape_contract() -> None:
+    problems = validate_collect_receipt(
+        command=_collect_command(dimensions=[]),
+        receipt=CollectReceipt(
+            readback=RecordInstrumentReadback(
+                values={
+                    "signal": MeasurementUnavailable.create(
+                        reason="overload",
+                        dtype="float64",
+                        unit="Hz",
+                        shape=(3,),
+                        metadata={"instrument_status": "adc overload"},
                     )
                 }
             )

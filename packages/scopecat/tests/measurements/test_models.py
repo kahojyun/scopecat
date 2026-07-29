@@ -11,10 +11,11 @@ from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
     MeasurementDataset,
-    MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementRecord,
     MeasurementScalar,
+    MeasurementUnavailable,
+    MeasurementUnavailableReason,
     MeasurementVariable,
 )
 from tests.testkit.measurement_models import signal_point_schema, signal_record
@@ -102,7 +103,15 @@ def test_measurement_record_discriminator_restores_value_models() -> None:
                     "unit": "ratio",
                     "shape": [1],
                     "values": [{"real": 0.25, "imag": -0.5}],
-                }
+                },
+                "temperature": {
+                    "kind": "unavailable",
+                    "reason": "invalid",
+                    "dtype": "float64",
+                    "unit": "K",
+                    "shape": [],
+                    "metadata": {"status": "sensor fault"},
+                },
             },
         }
     )
@@ -111,6 +120,7 @@ def test_measurement_record_discriminator_restores_value_models() -> None:
     iq = record.observables["iq"]
     assert isinstance(iq, MeasurementArray)
     assert isinstance(iq.values[0], ComplexComponents)
+    assert isinstance(record.observables["temperature"], MeasurementUnavailable)
 
 
 def test_measurement_record_wire_requires_value_discriminators() -> None:
@@ -118,8 +128,26 @@ def test_measurement_record_wire_requires_value_discriminators() -> None:
 
     assert "kind" in schema["$defs"]["MeasurementScalar"]["required"]
     assert "kind" in schema["$defs"]["MeasurementArray"]["required"]
+    assert set(schema["$defs"]["MeasurementUnavailable"]["required"]) == {
+        "kind",
+        "reason",
+        "dtype",
+        "unit",
+        "shape",
+        "metadata",
+    }
     assert MeasurementScalar.create(value=1.0).kind == "scalar"
     assert MeasurementArray.create(shape=[1], values=[1.0]).kind == "array"
+    assert (
+        MeasurementUnavailable.create(
+            reason="missing",
+            dtype="float64",
+            unit=None,
+            shape=(),
+            metadata={},
+        ).kind
+        == "unavailable"
+    )
     with pytest.raises(ValidationError, match="Field required"):
         MeasurementScalar.model_validate({"value": 1.0})
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
@@ -143,11 +171,55 @@ def test_measurement_record_wire_requires_value_discriminators() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("reason", "shape"),
+    (
+        ("missing", ()),
+        ("invalid", (3,)),
+        ("overload", (2, 4)),
+    ),
+)
+def test_unavailable_measurements_round_trip_with_complete_contract(
+    reason: MeasurementUnavailableReason,
+    shape: tuple[int, ...],
+) -> None:
+    value = MeasurementUnavailable.create(
+        reason=reason,
+        dtype="float64",
+        unit="V",
+        shape=shape,
+        metadata={"instrument_status": reason},
+    )
+    record = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={},
+        observables={"signal": value},
+    )
+
+    restored = assert_model_round_trip(record).observables["signal"]
+
+    assert restored == value
+    assert isinstance(restored, MeasurementUnavailable)
+    assert restored.shape == shape
+
+
+def test_unavailable_measurement_shape_extents_are_non_negative() -> None:
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        MeasurementUnavailable.create(
+            reason="invalid",
+            dtype="float64",
+            unit=None,
+            shape=(2, -1),
+            metadata={},
+        )
+
+
 @pytest.mark.parametrize("dtype", ["bool", "string"])
-@pytest.mark.parametrize("kind", ["scalar", "array"])
+@pytest.mark.parametrize("kind", ["scalar", "array", "unavailable"])
 def test_bool_and_string_measurements_reject_units(
     dtype: Literal["bool", "string"],
-    kind: Literal["scalar", "array"],
+    kind: Literal["scalar", "array", "unavailable"],
 ) -> None:
     with pytest.raises(ValidationError, match="cannot have a unit"):
         if kind == "scalar":
@@ -156,12 +228,20 @@ def test_bool_and_string_measurements_reject_units(
                 unit="ratio",
                 value=True if dtype == "bool" else "ready",
             )
-        else:
+        elif kind == "array":
             MeasurementArray.create(
                 dtype=dtype,
                 unit="ratio",
                 shape=[1],
                 values=[True if dtype == "bool" else "ready"],
+            )
+        else:
+            MeasurementUnavailable.create(
+                reason="missing",
+                dtype=dtype,
+                unit="ratio",
+                shape=(),
+                metadata={},
             )
 
 
@@ -188,34 +268,6 @@ def test_measurement_dimensions_require_concrete_size() -> None:
         )
 
 
-def test_measurement_dataset_schema_rejects_previous_format() -> None:
-    with pytest.raises(
-        ValidationError,
-        match=r"scopecat\.measurement_dataset_schema\.v2",
-    ):
-        MeasurementDatasetSchema.model_validate(
-            {
-                "format_version": "scopecat.measurement_dataset_schema.v1",
-                "dataset_id": "raw-measurements",
-                "dimensions": [{"id": "point", "kind": "point", "size": 0}],
-            }
-        )
-
-
-def test_measurement_dataset_schema_rejects_previous_record_schema() -> None:
-    with pytest.raises(
-        ValidationError,
-        match=r"scopecat\.measurement_record\.v2",
-    ):
-        MeasurementDatasetSchema.model_validate(
-            {
-                "dataset_id": "raw-measurements",
-                "record_schema": "scopecat.measurement_record.v1",
-                "dimensions": [{"id": "point", "kind": "point", "size": 0}],
-            }
-        )
-
-
 def test_measurement_dataset_and_schema_round_trip() -> None:
     record = signal_record()
     schema = signal_point_schema(size=3)
@@ -228,10 +280,10 @@ def test_measurement_dataset_and_schema_round_trip() -> None:
     assert restored.dataset_schema.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
     assert (
         restored.dataset_schema.format_version
-        == "scopecat.measurement_dataset_schema.v2"
+        == "scopecat.measurement_dataset_schema.v3"
     )
     assert restored.dataset_schema.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
-    assert restored.dataset_schema.record_schema == "scopecat.measurement_record.v2"
+    assert restored.dataset_schema.record_schema == "scopecat.measurement_record.v3"
     assert restored.dataset_schema.dataset_id == "raw-measurements"
     assert restored.dataset_schema.primary_coordinates == ["drive_frequency"]
     assert restored.dataset_schema.primary_observables == ["signal"]

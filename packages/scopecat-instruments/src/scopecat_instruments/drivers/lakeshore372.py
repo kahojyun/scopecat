@@ -7,7 +7,12 @@ from time import monotonic, sleep
 
 from pydantic import JsonValue
 from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementScalar
+from scopecat.records.measurement import (
+    MeasurementScalar,
+    MeasurementUnavailable,
+    MeasurementUnavailableReason,
+    MeasurementValue,
+)
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     ApplyReceipt,
@@ -23,8 +28,6 @@ from scopecat_instruments._support import (
     ScpiIdentity,
     apply_unknown,
     collect_unknown,
-    execution_problem,
-    not_collected,
     parse_bool,
     parse_float,
     parse_identity,
@@ -44,13 +47,14 @@ from scopecat_instruments.transport import ScpiTransport
 
 _SETTLE_TIMEOUT_SECONDS = 10.0
 _SETTLE_POLL_SECONDS = 0.05
+_OVERLOAD_STATUS_BITS = 0x0F
 
 
 @dataclass(frozen=True)
 class _LakeShore372Sample:
     scan_channel: int
     autoscan_enabled: bool
-    values: dict[AcquisitionResultRef, MeasurementScalar]
+    values: dict[AcquisitionResultRef, MeasurementValue]
     curve_number: int | None
 
 
@@ -136,16 +140,28 @@ class LakeShore372:
                     metadata=metadata,
                 )
             )
-        except _SampleUnavailable as error:
-            return not_collected(
-                [
-                    execution_problem(
-                        error.code,
-                        str(error),
-                        "driver_collect_request",
-                        details=error.details,
-                    )
-                ]
+        except _SampleQualityUnavailable as error:
+            quality_metadata: dict[str, JsonValue] = {
+                "code": error.code,
+                **error.details,
+            }
+            return CollectReceipt(
+                readback=InstrumentReadback(
+                    values={
+                        result.request_id: _unavailable_result(
+                            request.result_target(result),
+                            reason=error.reason,
+                            metadata=quality_metadata,
+                        )
+                        for result in request.results
+                    },
+                    metadata={
+                        "manufacturer": "Lake Shore Cryotronics",
+                        "model": "372",
+                        "quality_code": error.code,
+                        **error.details,
+                    },
+                )
             )
         except Exception as error:
             return collect_unknown(self.instrument_id, error)
@@ -165,25 +181,29 @@ class LakeShore372:
 
             channel = settled_scan[0]
             curve_number: int | None = None
-            values: dict[AcquisitionResultRef, MeasurementScalar] = {}
+            values: dict[AcquisitionResultRef, MeasurementValue] = {}
             if TEMPERATURE_READOUT_TEMPERATURE_RESULT in requested_results:
                 curve_number = parse_int(self.transport.query(f"INCRV? {channel}"))
                 if curve_number == 0:
-                    if self._scan_state() != settled_scan:
-                        self._pause_before_scan_retry(deadline)
-                        continue
-                    raise _SampleUnavailable(
-                        "lakeshore_temperature_curve_required",
-                        f"Lake Shore 372 channel {channel} has no temperature curve",
-                        details={"scan_channel": str(channel)},
+                    values[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
+                        _unavailable_result(
+                            TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+                            reason="missing",
+                            metadata={
+                                "code": "lakeshore_temperature_curve_missing",
+                                "scan_channel": channel,
+                                "curve_number": curve_number,
+                            },
+                        )
                     )
-                values[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
-                    MeasurementScalar.create(
-                        dtype="float64",
-                        unit="K",
-                        value=parse_float(self.transport.query(f"KRDG? {channel}")),
+                else:
+                    values[TEMPERATURE_READOUT_TEMPERATURE_RESULT] = (
+                        MeasurementScalar.create(
+                            dtype="float64",
+                            unit="K",
+                            value=parse_float(self.transport.query(f"KRDG? {channel}")),
+                        )
                     )
-                )
             if TEMPERATURE_READOUT_RESISTANCE_RESULT in requested_results:
                 values[TEMPERATURE_READOUT_RESISTANCE_RESULT] = (
                     MeasurementScalar.create(
@@ -200,13 +220,14 @@ class LakeShore372:
                 self._pause_before_scan_retry(deadline)
                 continue
             if reading_status != 0:
-                raise _SampleUnavailable(
+                raise _SampleQualityUnavailable(
                     "lakeshore_reading_invalid",
                     f"Lake Shore 372 channel {channel} reported invalid reading "
                     f"status {reading_status}",
+                    reason=_reading_status_reason(reading_status),
                     details={
-                        "scan_channel": str(channel),
-                        "reading_status": str(reading_status),
+                        "scan_channel": channel,
+                        "reading_status": reading_status,
                     },
                 )
             return _LakeShore372Sample(
@@ -225,9 +246,10 @@ class LakeShore372:
     def _wait_for_settled_reading(self, deadline: float) -> None:
         while self._active_settle_status() != 0:
             if monotonic() >= deadline:
-                raise _SampleUnavailable(
+                raise _SampleQualityUnavailable(
                     "lakeshore_reading_settle_timeout",
                     "Lake Shore 372 active scan channel did not settle",
+                    reason="invalid",
                 )
             sleep(_SETTLE_POLL_SECONDS)
 
@@ -240,9 +262,10 @@ class LakeShore372:
     def _pause_before_scan_retry(self, deadline: float) -> None:
         remaining = deadline - monotonic()
         if remaining <= 0:
-            raise _SampleUnavailable(
+            raise _SampleQualityUnavailable(
                 "lakeshore_scan_coherence_timeout",
                 "Lake Shore 372 scanner changed before a coherent sample was read",
+                reason="invalid",
             )
         sleep(min(_SETTLE_POLL_SECONDS, remaining))
 
@@ -265,17 +288,48 @@ class LakeShore372:
         """Read-only sampling has no hardware operation to abort."""
 
 
-class _SampleUnavailable(Exception):
+class _SampleQualityUnavailable(Exception):
+    code: str
+    reason: MeasurementUnavailableReason
+    details: dict[str, JsonValue]
+
     def __init__(
         self,
         code: str,
         message: str,
         *,
-        details: dict[str, str] | None = None,
+        reason: MeasurementUnavailableReason,
+        details: dict[str, JsonValue] | None = None,
     ) -> None:
         self.code = code
+        self.reason = reason
         self.details = {} if details is None else details
         super().__init__(message)
+
+
+def _unavailable_result(
+    target: AcquisitionResultRef,
+    *,
+    reason: MeasurementUnavailableReason,
+    metadata: dict[str, JsonValue],
+) -> MeasurementUnavailable:
+    units = {
+        TEMPERATURE_READOUT_TEMPERATURE_RESULT: "K",
+        TEMPERATURE_READOUT_RESISTANCE_RESULT: "Ohm",
+    }
+    return MeasurementUnavailable.create(
+        reason=reason,
+        dtype="float64",
+        unit=units[target],
+        shape=(),
+        metadata=metadata,
+    )
+
+
+def _reading_status_reason(status: int) -> MeasurementUnavailableReason:
+    """The manual labels only RDGST bits 0-3 as overloads."""
+
+    return "overload" if status & _OVERLOAD_STATUS_BITS else "invalid"
 
 
 __all__ = ["LakeShore372"]

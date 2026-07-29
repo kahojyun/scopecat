@@ -29,6 +29,7 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDType,
     MeasurementScalar,
+    MeasurementUnavailable,
 )
 from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
@@ -42,7 +43,7 @@ type _Sha256Hex = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 type _ArrayExtent = Annotated[int, Field(ge=0)]
 
 INVOKE_WIRE_VERSION = 1
-COLLECT_WIRE_VERSION = 1
+COLLECT_WIRE_VERSION = 2
 _MAX_ARRAY_RANK = 16
 _MAX_ARRAY_CONTAINERS = 1_000_000
 
@@ -137,9 +138,28 @@ class _InvokeHeader(_WireModel):
         return self
 
 
+type _CollectInlineValue = Annotated[
+    MeasurementScalar | MeasurementUnavailable,
+    Field(discriminator="kind"),
+]
+
+
 class _CollectReadbackDescriptor(_WireModel):
-    values: dict[str, MeasurementScalar] = Field(default_factory=dict)
+    values: dict[str, _CollectInlineValue] = Field(default_factory=dict)
     metadata: JsonMetadata = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_unavailable_shapes(self) -> _CollectReadbackDescriptor:
+        for value in self.values.values():
+            if not isinstance(value, MeasurementUnavailable):
+                continue
+            if len(value.shape) > _MAX_ARRAY_RANK:
+                raise ValueError("worker collect unavailable rank exceeds its limit")
+            if any(extent < 0 for extent in value.shape):
+                raise ValueError(
+                    "worker collect unavailable shape extents must be non-negative"
+                )
+        return self
 
 
 class _CollectReceiptDescriptor(_WireModel):
@@ -184,7 +204,7 @@ class _CollectAttachmentManifest(_WireModel):
 
 
 class _CollectHeader(_WireModel):
-    protocol_version: Literal[1]
+    protocol_version: Literal[2]
     receipt: _CollectReceiptDescriptor
     arrays: tuple[_CollectArrayDescriptor, ...] = ()
     attachments: tuple[_CollectAttachmentManifest, ...] = ()
@@ -206,12 +226,12 @@ class _CollectHeader(_WireModel):
             )
         if self.arrays and self.receipt.readback is None:
             raise ValueError("worker collect arrays require a readback")
-        scalar_ids: set[str] = (
+        inline_ids: set[str] = (
             set[str]()
             if self.receipt.readback is None
             else set(self.receipt.readback.values)
         )
-        if scalar_ids & set(request_ids):
+        if inline_ids & set(request_ids):
             raise ValueError("worker collect request ids must be unique")
         return self
 
@@ -351,14 +371,14 @@ def split_collect_receipt(
     limits: WireLimits = DEFAULT_WIRE_LIMITS,
 ) -> CollectFrames:
     readback = receipt.readback
-    scalar_values: dict[str, MeasurementScalar] = {}
+    inline_values: dict[str, MeasurementScalar | MeasurementUnavailable] = {}
     selected_arrays: list[tuple[str, MeasurementArray]] = []
     if readback is not None:
         for request_id, value in sorted(readback.values.items()):
             if isinstance(value, MeasurementArray):
                 selected_arrays.append((request_id, value))
             else:
-                scalar_values[request_id] = value
+                inline_values[request_id] = value
 
     arrays: list[_CollectArrayDescriptor] = []
     manifests: list[_CollectAttachmentManifest] = []
@@ -391,7 +411,7 @@ def split_collect_receipt(
             None
             if readback is None
             else _CollectReadbackDescriptor(
-                values=scalar_values,
+                values=inline_values,
                 metadata=readback.metadata,
             )
         ),

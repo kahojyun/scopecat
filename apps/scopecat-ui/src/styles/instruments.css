@@ -999,6 +999,22 @@
   font-size: 0.54rem;
 }
 
+.collect-unavailable-summary {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  color: var(--yellow);
+}
+
+.collect-unavailable-summary span {
+  font-size: 0.58rem;
+  font-weight: 650;
+}
+
+.collect-unavailable-summary small {
+  color: inherit;
+}
+
 .collect-preview.not_collected strong,
 .collect-preview.unknown strong {
   color: var(--yellow);

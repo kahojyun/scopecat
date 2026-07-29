@@ -19,6 +19,8 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDType,
     MeasurementScalar,
+    MeasurementUnavailable,
+    MeasurementUnavailableReason,
 )
 from scopecat.sdk.instruments import (
     CollectAxisRequest,
@@ -78,6 +80,52 @@ def test_contract_reports_typed_top_level_mismatches() -> None:
     assert (issues[0].expected, issues[0].actual) == ("int64", "float64")
     assert (issues[1].expected, issues[1].actual) == ("ratio", "V")
     assert (issues[2].expected, issues[2].actual) == ((3,), (2,))
+
+
+@pytest.mark.parametrize("reason", ["missing", "invalid", "overload"])
+def test_unavailable_value_satisfies_its_declared_contract(
+    reason: MeasurementUnavailableReason,
+) -> None:
+    value = MeasurementUnavailable.create(
+        reason=reason,
+        dtype="complex128",
+        unit="ratio",
+        shape=(2, 3),
+        metadata={"instrument_status": reason},
+    )
+
+    assert (
+        measurement_value_contract_issues(
+            value,
+            expected_dtype="complex128",
+            expected_unit="ratio",
+            expected_shape=(2, 3),
+        )
+        == ()
+    )
+
+
+def test_unavailable_value_still_checks_dtype_unit_and_shape() -> None:
+    value = MeasurementUnavailable.create(
+        reason="invalid",
+        dtype="float64",
+        unit="V",
+        shape=(),
+        metadata={},
+    )
+
+    issues = measurement_value_contract_issues(
+        value,
+        expected_dtype="int64",
+        expected_unit="ratio",
+        expected_shape=(1,),
+    )
+
+    assert tuple(issue.code for issue in issues) == (
+        MeasurementValueContractIssueCode.DTYPE_MISMATCH,
+        MeasurementValueContractIssueCode.UNIT_MISMATCH,
+        MeasurementValueContractIssueCode.SHAPE_MISMATCH,
+    )
 
 
 def test_complex_array_tag_requires_complex_component_leaves() -> None:

@@ -1492,6 +1492,7 @@ function PropertyEditor({
 
 function CollectPreview({ receipt }: { receipt: InstrumentCollectReceipt }) {
   const trace = traceValues(receipt);
+  const unavailable = unavailableResults(receipt);
   return (
     <div className={`collect-preview ${receipt.status}`}>
       <div>
@@ -1500,6 +1501,15 @@ function CollectPreview({ receipt }: { receipt: InstrumentCollectReceipt }) {
           <small>{Object.keys(receipt.readback.values ?? {}).length} results returned</small>
         )}
       </div>
+      {unavailable.count > 0 && (
+        <div className="collect-unavailable-summary" role="status">
+          <AlertTriangle size={13} aria-hidden="true" />
+          <span>
+            {unavailable.count} {unavailable.count === 1 ? "result" : "results"} unavailable
+          </span>
+          <small>Reasons: {unavailable.reasons.map(titleCase).join(", ")}</small>
+        </div>
+      )}
       {trace && <TracePreview values={trace} />}
       <details>
         <summary>JSON preview</summary>
@@ -1888,30 +1898,36 @@ function configuredDefaultsReceiptMessage(
 
 function traceValues(receipt: InstrumentCollectReceipt): number[] | undefined {
   for (const value of Object.values(receipt.readback?.values ?? {})) {
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      "values" in value &&
-      Array.isArray(value.values)
-    ) {
-      const samples = value.values
-        .map((sample) => {
-          if (typeof sample === "number" && Number.isFinite(sample)) return sample;
-          if (
-            typeof sample === "object" &&
-            sample !== null &&
-            "real" in sample &&
-            "imag" in sample &&
-            typeof sample.real === "number" &&
-            typeof sample.imag === "number"
-          ) {
-            return Math.hypot(sample.real, sample.imag);
-          }
-          return undefined;
-        })
-        .filter((sample): sample is number => sample !== undefined);
-      if (samples.length > 0) return samples;
-    }
+    if (value.kind !== "array") continue;
+    const samples = value.values
+      .map((sample) => {
+        if (typeof sample === "number" && Number.isFinite(sample)) return sample;
+        if (
+          typeof sample === "object" &&
+          sample !== null &&
+          "real" in sample &&
+          "imag" in sample &&
+          typeof sample.real === "number" &&
+          typeof sample.imag === "number"
+        ) {
+          return Math.hypot(sample.real, sample.imag);
+        }
+        return undefined;
+      })
+      .filter((sample): sample is number => sample !== undefined);
+    if (samples.length > 0) return samples;
   }
   return undefined;
+}
+
+function unavailableResults(receipt: InstrumentCollectReceipt): {
+  count: number;
+  reasons: string[];
+} {
+  const values = Object.values(receipt.readback?.values ?? {});
+  const unavailable = values.filter((value) => value.kind === "unavailable");
+  return {
+    count: unavailable.length,
+    reasons: [...new Set(unavailable.map((value) => value.reason))].sort(),
+  };
 }

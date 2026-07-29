@@ -26,7 +26,11 @@ from scopecat.records.execution_journal import (
     execution_transition_content_hash,
     execution_transition_identity,
 )
-from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
+from scopecat.records.measurement import (
+    MeasurementRecord,
+    MeasurementScalar,
+    MeasurementUnavailable,
+)
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetSeal,
@@ -392,6 +396,44 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
             second,
             _append("run-measurement", value=2),
         )
+
+
+def test_unavailable_measurement_round_trips_through_dataset_storage(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(
+        runs,
+        run_id="run-unavailable",
+    )
+    unavailable = MeasurementUnavailable.create(
+        reason="overload",
+        dtype="float64",
+        unit="V",
+        shape=(2,),
+        metadata={"status_register": 4},
+    )
+    append = MeasurementDatasetAppend(
+        run_id="run-unavailable",
+        recording_contract_fingerprint="recording.v1",
+        start_index=0,
+        records=(
+            MeasurementRecord(
+                run_id="run-unavailable",
+                logical_point_id="point-0",
+                point_index=0,
+                coordinates={},
+                observables={"signal": unavailable},
+            ),
+        ),
+    )
+
+    _commit_append(runs, repository, append)
+
+    [record] = repository.measurements()
+    restored = record.observables["signal"]
+    assert isinstance(restored, MeasurementUnavailable)
+    assert restored == unavailable
 
 
 def test_measurement_replay_rejects_mismatched_durable_operation_identity(

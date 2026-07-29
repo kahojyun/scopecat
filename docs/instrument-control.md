@@ -430,6 +430,14 @@ little-endian offsets over UTF-8 content. The daemon reconstructs the public
 `CollectReceipt` before validating it, so binary transport details do not enter
 the driver or experiment APIs.
 
+Collection outcome and data quality are independent. A `collected` receipt may
+contain an unavailable result with reason `missing`, `invalid`, or `overload`;
+the value retains its declared dtype, unit, and complete point-local shape.
+`not_collected` instead means the acquisition did not happen, while `unknown`
+still means its consequence cannot be determined. NaN and infinity are never
+missing-value encodings. An unavailable array marks the whole result; element
+validity belongs in the future chunked-data representation.
+
 An operator can recover a session left by another notebook kernel with
 `lab.instruments.abort_session(session_id)`. This asks the daemon to run the
 driver's safe abort path before releasing the resource claim.

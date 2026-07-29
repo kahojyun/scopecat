@@ -23,6 +23,7 @@ from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
+    MeasurementUnavailable,
 )
 from scopecat.sdk.instruments import (
     DriverApplyRequest,
@@ -335,6 +336,43 @@ def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
         )
     assert endpoint.healthy
     assert endpoint.read_state(connection.handle).instrument_id == "source-0"
+    endpoint.shutdown()
+
+
+def test_worker_round_trips_unavailable_collect_values(tmp_path: Path) -> None:
+    project = _copy_project(tmp_path)
+    endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
+    config = load_config()
+    [binding] = instrument_bindings(config)
+    [expected] = endpoint.describe((binding,)).instruments
+    connection = endpoint.connect(
+        binding=binding,
+        expected=expected,
+    )
+
+    receipt = endpoint.collect(
+        connection.handle,
+        DriverCollectRequest(
+            interface_id="tests.control/v1",
+            acquisition_id="sample",
+            results=(
+                DriverCollectResult(
+                    request_id="signal",
+                    result_id="unavailable",
+                ),
+            ),
+        ),
+    )
+
+    assert receipt.readback is not None
+    assert receipt.readback.values["signal"] == MeasurementUnavailable.create(
+        dtype="float64",
+        unit="ratio",
+        shape=(4,),
+        reason="overload",
+        metadata={"source": "spawned-worker"},
+    )
+    assert endpoint.healthy
     endpoint.shutdown()
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
-from scopecat.records.measurement import MeasurementScalar
+from scopecat.records.measurement import MeasurementScalar, MeasurementUnavailable
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -14,6 +14,7 @@ from scopecat.sdk.instruments import (
     PropertyRef,
 )
 
+import scopecat_instruments.drivers.lakeshore372 as lakeshore372_driver
 from scopecat_instruments._support import (
     LinearSweepSettings,
     state_properties_by_target,
@@ -532,13 +533,16 @@ def test_lakeshore_372_retries_when_autoscan_changes_channel() -> None:
     transport.assert_complete()
 
 
-def test_lakeshore_372_temperature_without_curve_is_not_collected() -> None:
+def test_lakeshore_372_missing_curve_only_marks_temperature_unavailable() -> None:
     transport = ScriptedTransport(
         [
             ScriptedExchange.query("SCAN?", "5,0"),
             ScriptedExchange.query("RDGSTL?", "0,0"),
             ScriptedExchange.query("SCAN?", "5,0"),
             ScriptedExchange.query("INCRV? 5", "0"),
+            ScriptedExchange.query("SRDG? 5", "+6.720000E+03"),
+            ScriptedExchange.query("RDGST? 5", "0"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
             ScriptedExchange.query("SCAN?", "5,0"),
         ]
     )
@@ -548,22 +552,72 @@ def test_lakeshore_372_temperature_without_curve_is_not_collected() -> None:
         _collect_request(
             TEMPERATURE_READOUT_SAMPLE,
             TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+            TEMPERATURE_READOUT_RESISTANCE_RESULT,
         )
     )
 
-    assert receipt.status == "not_collected"
-    assert receipt.problems[0].code == "lakeshore_temperature_curve_required"
+    assert receipt.status == "collected"
+    assert not receipt.problems
+    assert receipt.readback is not None
+    temperature = receipt.readback.values[
+        TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id
+    ]
+    resistance = receipt.readback.values[
+        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id
+    ]
+    assert isinstance(temperature, MeasurementUnavailable)
+    assert temperature.reason == "missing"
+    assert temperature.shape == ()
+    assert temperature.metadata["code"] == "lakeshore_temperature_curve_missing"
+    assert isinstance(resistance, MeasurementScalar)
+    assert resistance.value == pytest.approx(6720.0)
+    assert receipt.readback.metadata["curve_number"] == 0
     transport.assert_complete()
 
 
-def test_lakeshore_372_invalid_reading_is_not_collected() -> None:
+def test_lakeshore_372_invalid_status_marks_every_result_unavailable() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("INCRV? 5", "21"),
+            ScriptedExchange.query("KRDG? 5", "+2.050000E-02"),
+            ScriptedExchange.query("SRDG? 5", "+1.000000E+08"),
+            ScriptedExchange.query("RDGST? 5", "64"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,0"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+            TEMPERATURE_READOUT_RESISTANCE_RESULT,
+        )
+    )
+
+    assert receipt.status == "collected"
+    assert not receipt.problems
+    assert receipt.readback is not None
+    assert receipt.readback.metadata["reading_status"] == 64
+    for value in receipt.readback.values.values():
+        assert isinstance(value, MeasurementUnavailable)
+        assert value.reason == "invalid"
+        assert value.metadata["reading_status"] == 64
+    transport.assert_complete()
+
+
+def test_lakeshore_372_explicit_overload_status_is_preserved() -> None:
     transport = ScriptedTransport(
         [
             ScriptedExchange.query("SCAN?", "5,0"),
             ScriptedExchange.query("RDGSTL?", "0,0"),
             ScriptedExchange.query("SCAN?", "5,0"),
             ScriptedExchange.query("SRDG? 5", "+1.000000E+08"),
-            ScriptedExchange.query("RDGST? 5", "64"),
+            ScriptedExchange.query("RDGST? 5", "8"),
             ScriptedExchange.query("RDGSTL?", "0,0"),
             ScriptedExchange.query("SCAN?", "5,0"),
         ]
@@ -577,9 +631,96 @@ def test_lakeshore_372_invalid_reading_is_not_collected() -> None:
         )
     )
 
-    assert receipt.status == "not_collected"
-    assert receipt.problems[0].code == "lakeshore_reading_invalid"
-    assert receipt.problems[0].details["reading_status"] == "64"
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    unavailable = receipt.readback.values[
+        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id
+    ]
+    assert isinstance(unavailable, MeasurementUnavailable)
+    assert unavailable.reason == "overload"
+    transport.assert_complete()
+
+
+def test_lakeshore_372_settle_timeout_is_collected_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    times = iter((0.0, 11.0))
+    monkeypatch.setattr(lakeshore372_driver, "monotonic", lambda: next(times))
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "5,0"),
+            ScriptedExchange.query("RDGSTL?", "0,1"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+        )
+    )
+
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    unavailable = receipt.readback.values[
+        TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id
+    ]
+    assert isinstance(unavailable, MeasurementUnavailable)
+    assert unavailable.reason == "invalid"
+    assert unavailable.metadata["code"] == "lakeshore_reading_settle_timeout"
+    transport.assert_complete()
+
+
+def test_lakeshore_372_scan_coherence_timeout_is_collected_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    times = iter((0.0, 11.0))
+    monkeypatch.setattr(lakeshore372_driver, "monotonic", lambda: next(times))
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "4,1"),
+            ScriptedExchange.query("RDGSTL?", "0,0"),
+            ScriptedExchange.query("SCAN?", "5,1"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_RESISTANCE_RESULT,
+        )
+    )
+
+    assert receipt.status == "collected"
+    assert receipt.readback is not None
+    unavailable = receipt.readback.values[
+        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id
+    ]
+    assert isinstance(unavailable, MeasurementUnavailable)
+    assert unavailable.reason == "invalid"
+    assert unavailable.metadata["code"] == "lakeshore_scan_coherence_timeout"
+    transport.assert_complete()
+
+
+def test_lakeshore_372_protocol_error_keeps_collection_unknown() -> None:
+    transport = ScriptedTransport(
+        [
+            ScriptedExchange.query("SCAN?", "malformed"),
+        ]
+    )
+    driver = LakeShore372("fridge", transport)
+
+    receipt = driver.collect(
+        _collect_request(
+            TEMPERATURE_READOUT_SAMPLE,
+            TEMPERATURE_READOUT_RESISTANCE_RESULT,
+        )
+    )
+
+    assert receipt.status == "unknown"
+    assert receipt.problems[0].code == "instrument_collect_outcome_unknown"
     transport.assert_complete()
 
 

@@ -905,6 +905,44 @@ describe("instrument workspace", () => {
     expect(await screen.findByRole("button", { name: "Connect" })).toBeVisible();
   });
 
+  it("summarizes unavailable collect results without plotting them", async () => {
+    vi.mocked(collectInstrumentAcquisition).mockResolvedValueOnce({
+      status: "collected",
+      problems: [],
+      readback: {
+        values: {
+          "private-overload-result": {
+            kind: "unavailable",
+            reason: "overload",
+            dtype: "float64",
+            unit: "ratio",
+            shape: [],
+            metadata: {},
+          },
+          "private-missing-result": {
+            kind: "unavailable",
+            reason: "missing",
+            dtype: "float64",
+            unit: "ratio",
+            shape: [128],
+            metadata: {},
+          },
+        },
+      },
+    });
+    renderWorkspace();
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Collect" }));
+
+    const summary = await screen.findByRole("status");
+    expect(within(summary).getByText("2 results unavailable")).toBeVisible();
+    expect(within(summary).getByText("Reasons: Missing, Overload")).toBeVisible();
+    expect(summary).not.toHaveTextContent("private-overload-result");
+    expect(summary).not.toHaveTextContent("private-missing-result");
+    expect(screen.queryByRole("img", { name: /trace preview/i })).not.toBeInTheDocument();
+  });
+
   it("reuses command ids while retrying mutations", async () => {
     vi.mocked(applyInstrumentState).mockRejectedValueOnce(new Error("Apply network failed."));
     vi.mocked(collectInstrumentAcquisition).mockRejectedValueOnce(

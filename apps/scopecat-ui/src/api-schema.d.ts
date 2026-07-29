@@ -1766,10 +1766,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v2
+             * @default scopecat.measurement_dataset_schema.v3
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v2";
+            format_version: "scopecat.measurement_dataset_schema.v3";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -1777,10 +1777,10 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v2
+             * @default scopecat.measurement_record.v3
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v2";
+            record_schema: "scopecat.measurement_record.v3";
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable"][];
         };
@@ -1832,7 +1832,33 @@ export interface components {
             value: components["schemas"]["MeasurementScalarData"];
         };
         MeasurementScalarData: boolean | number | string | components["schemas"]["ComplexComponents"];
-        "MeasurementValue-Output": components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray-Output"];
+        /**
+         * MeasurementUnavailable
+         * @description A complete scalar or array result with no usable value.
+         */
+        "MeasurementUnavailable-Output": {
+            /**
+             * Dtype
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "unavailable";
+            metadata: components["schemas"]["JsonMetadata-Output"];
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "missing" | "invalid" | "overload";
+            /** Shape */
+            shape: number[];
+            /** Unit */
+            unit: string | null;
+        };
+        "MeasurementValue-Output": components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray-Output"] | components["schemas"]["MeasurementUnavailable-Output"];
         /**
          * MeasurementVariable
          * @description A point-local variable whose shape is derived from its dimensions.

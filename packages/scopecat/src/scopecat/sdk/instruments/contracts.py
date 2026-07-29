@@ -67,7 +67,7 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
 )
-from scopecat.records.measurement import MeasurementArray
+from scopecat.records.measurement import MeasurementArray, MeasurementUnavailable
 from scopecat.sdk.instruments._projection import (
     ProjectedInstrumentState as _ProjectedInstrumentState,
 )
@@ -1727,7 +1727,11 @@ def validate_collect_receipt(
         expected_shape = (
             tuple(axis.size for axis in request.dimensions)
             if request.dimensions
-            else (tuple(value.shape) if isinstance(value, MeasurementArray) else ())
+            else (
+                tuple(value.shape)
+                if isinstance(value, MeasurementArray | MeasurementUnavailable)
+                else ()
+            )
         )
         for issue in measurement_value_contract_issues(
             value,

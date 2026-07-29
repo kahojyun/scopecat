@@ -13,6 +13,8 @@ from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
     MeasurementScalar,
+    MeasurementUnavailable,
+    MeasurementValue,
 )
 from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
@@ -71,7 +73,7 @@ def _encode_header(document: dict[str, object]) -> bytes:
 
 
 def _collected(
-    values: dict[str, MeasurementArray | MeasurementScalar],
+    values: dict[str, MeasurementValue],
 ) -> CollectReceipt:
     return CollectReceipt(
         readback=InstrumentReadback(
@@ -325,6 +327,155 @@ def test_collect_wire_keeps_scalars_in_header_and_arrays_in_attachments() -> Non
         }
     ]
     assert join_collect_receipt(frames.header, frames.attachments) == receipt
+
+
+def test_collect_wire_keeps_unavailable_values_in_json_header() -> None:
+    receipt = _collected(
+        {
+            "scalar": MeasurementUnavailable.create(
+                dtype="float64",
+                unit="V",
+                shape=(),
+                reason="overload",
+                metadata={"source": "instrument"},
+            ),
+            "trace": MeasurementUnavailable.create(
+                dtype="complex128",
+                unit="ratio",
+                shape=(2, 3),
+                reason="missing",
+                metadata={},
+            ),
+        }
+    )
+
+    frames = split_collect_receipt(receipt)
+    document = _header_document(frames.header)
+    receipt_document = cast("dict[str, object]", document["receipt"])
+    readback_document = cast("dict[str, object]", receipt_document["readback"])
+    inline_values = cast("dict[str, dict[str, object]]", readback_document["values"])
+
+    assert document["protocol_version"] == 2
+    assert frames.attachments == ()
+    assert collect_attachment_sizes(frames.header) == ()
+    assert inline_values["scalar"] == {
+        "dtype": "float64",
+        "kind": "unavailable",
+        "metadata": {"source": "instrument"},
+        "reason": "overload",
+        "shape": [],
+        "unit": "V",
+    }
+    assert inline_values["trace"]["shape"] == [2, 3]
+    assert inline_values["trace"]["reason"] == "missing"
+    assert join_collect_receipt(frames.header, ()) == receipt
+
+
+def test_collect_wire_round_trips_mixed_inline_and_array_values() -> None:
+    receipt = _collected(
+        {
+            "available": MeasurementScalar.create(
+                dtype="float64",
+                unit="V",
+                value=1.25,
+            ),
+            "missing": MeasurementUnavailable.create(
+                dtype="float64",
+                unit="V",
+                shape=(2,),
+                reason="invalid",
+                metadata={},
+            ),
+            "trace": MeasurementArray.create(
+                dtype="float64",
+                unit="V",
+                shape=(2,),
+                values=(0.5, 1.5),
+            ),
+        }
+    )
+
+    frames = split_collect_receipt(receipt)
+    document = _header_document(frames.header)
+    receipt_document = cast("dict[str, object]", document["receipt"])
+    readback_document = cast("dict[str, object]", receipt_document["readback"])
+
+    assert set(cast("dict[str, object]", readback_document["values"])) == {
+        "available",
+        "missing",
+    }
+    assert [
+        item["request_id"]
+        for item in cast("list[dict[str, object]]", document["arrays"])
+    ] == ["trace"]
+    assert len(frames.attachments) == 1
+    assert join_collect_receipt(frames.header, frames.attachments) == receipt
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        [-1],
+        [1] * 17,
+    ],
+)
+def test_collect_wire_rejects_invalid_unavailable_shapes(shape: list[int]) -> None:
+    receipt = _collected(
+        {
+            "missing": MeasurementUnavailable.create(
+                dtype="float64",
+                unit="V",
+                shape=(1,),
+                reason="missing",
+                metadata={},
+            )
+        }
+    )
+    frames = split_collect_receipt(receipt)
+    document = _header_document(frames.header)
+    receipt_document = cast("dict[str, object]", document["receipt"])
+    readback_document = cast("dict[str, object]", receipt_document["readback"])
+    values = cast("dict[str, dict[str, object]]", readback_document["values"])
+    values["missing"]["shape"] = shape
+
+    with pytest.raises(WorkerWireError, match="invalid"):
+        collect_attachment_sizes(_encode_header(document))
+
+
+def test_collect_wire_rejects_duplicate_inline_and_array_request_ids() -> None:
+    frames = split_collect_receipt(
+        _collected(
+            {
+                "inline": MeasurementUnavailable.create(
+                    dtype="float64",
+                    unit=None,
+                    shape=(),
+                    reason="missing",
+                    metadata={},
+                ),
+                "trace": MeasurementArray.create(shape=(1,), values=(1.0,)),
+            }
+        )
+    )
+    document = _header_document(frames.header)
+    [array] = cast("list[dict[str, object]]", document["arrays"])
+    [attachment] = cast("list[dict[str, object]]", document["attachments"])
+    array["request_id"] = "inline"
+    attachment["request_id"] = "inline"
+
+    with pytest.raises(WorkerWireError, match="invalid"):
+        collect_attachment_sizes(_encode_header(document))
+
+
+def test_collect_wire_rejects_version_one_headers() -> None:
+    frames = split_collect_receipt(
+        _collected({"signal": MeasurementScalar.create(value=1.0)})
+    )
+    document = _header_document(frames.header)
+    document["protocol_version"] = 1
+
+    with pytest.raises(WorkerWireError, match="invalid"):
+        collect_attachment_sizes(_encode_header(document))
 
 
 @pytest.mark.parametrize("change", ["missing", "extra"])
