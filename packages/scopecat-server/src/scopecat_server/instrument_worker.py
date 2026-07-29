@@ -75,6 +75,7 @@ type _Operation = Literal[
     "collect",
     "abort",
     "disconnect",
+    "shutdown",
 ]
 type _ErrorKind = Literal[
     "rejected",
@@ -237,6 +238,12 @@ class _PendingResponse:
 class _OutgoingResponse:
     response: _RpcResponse
     collect_frames: CollectFrames | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ShutdownExchange:
+    request: _RpcRequest
+    pending: _PendingResponse
 
 
 class SubprocessInstrumentBackendEndpoint:
@@ -463,14 +470,62 @@ class SubprocessInstrumentBackendEndpoint:
 
     def shutdown(self) -> None:
         with self._shutdown_lock:
+            deadline = monotonic() + self._shutdown_timeout
             with self._state_lock:
                 if self._cleanup_complete:
                     return
-                self._closed = True
-                self._fence_generation_locked(
-                    InstrumentBackendUnavailable("instrument worker is shut down")
-                )
-            self._stop_generation()
+                exchange = self._begin_shutdown_locked()
+            if exchange is not None and not self._send_shutdown(exchange, deadline):
+                with self._state_lock:
+                    self._pending.pop(exchange.request.request_id, None)
+                exchange = None
+            response = self._stop_generation(
+                deadline=deadline,
+                graceful=exchange,
+            )
+            if response is not None and response.status == "error":
+                assert response.error is not None
+                _raise_worker_error(response.error)
+
+    def _begin_shutdown_locked(self) -> _ShutdownExchange | None:
+        if (
+            self._closed
+            or not self._available
+            or self._connection_closed
+            or not self._process.is_alive()
+        ):
+            self._closed = True
+            self._fence_generation_locked(
+                InstrumentBackendUnavailable("instrument worker is shut down")
+            )
+            return None
+        request = self._new_request("shutdown")
+        pending = _PendingResponse()
+        self._pending[request.request_id] = pending
+        self._closed = True
+        self._fence_generation_locked(
+            InstrumentBackendUnavailable("instrument worker is shut down"),
+            preserve_request_id=request.request_id,
+        )
+        return _ShutdownExchange(request=request, pending=pending)
+
+    def _send_shutdown(
+        self,
+        exchange: _ShutdownExchange,
+        deadline: float,
+    ) -> bool:
+        """Request child cleanup without closing its receiver-owned Pipe."""
+
+        acquired = self._send_lock.acquire(timeout=max(0.0, deadline - monotonic()))
+        if not acquired:
+            return False
+        try:
+            _send_model(self._connection, exchange.request)
+        except EOFError, OSError, ValueError:
+            return False
+        finally:
+            self._send_lock.release()
+        return True
 
     def _rpc(
         self,
@@ -558,7 +613,7 @@ class SubprocessInstrumentBackendEndpoint:
                     self._pending.pop(response.request_id, None)
             if pending is None:
                 if closed:
-                    return
+                    continue
                 self._mark_unavailable()
                 return
 
@@ -652,26 +707,53 @@ class SubprocessInstrumentBackendEndpoint:
     def _fence_generation_locked(
         self,
         error: InstrumentBackendUnavailable,
+        *,
+        preserve_request_id: int | None = None,
     ) -> None:
         self._available = False
         self._handles.clear()
-        for item in self._pending.values():
+        for request_id, item in tuple(self._pending.items()):
+            if request_id == preserve_request_id:
+                continue
             item.error = error
             item.event.set()
-        self._pending.clear()
+            self._pending.pop(request_id)
 
-    def _stop_generation(self) -> None:
-        self._close_connection()
-        deadline = monotonic() + self._shutdown_timeout
+    def _stop_generation(
+        self,
+        *,
+        deadline: float | None = None,
+        graceful: _ShutdownExchange | None = None,
+    ) -> _RpcResponse | None:
+        selected_deadline = deadline or (monotonic() + self._shutdown_timeout)
+        response: _RpcResponse | None = None
         try:
-            _stop_process_until(self._process, deadline)
-            self._receiver.join(max(0.0, deadline - monotonic()))
+            if graceful is not None:
+                graceful.pending.event.wait(
+                    max(0.0, (selected_deadline - monotonic()) / 2)
+                )
+                received = graceful.pending.received
+                if received is not None:
+                    response = received.response
+                    self._process.join(max(0.0, (selected_deadline - monotonic()) / 2))
+            if self._process.is_alive():
+                self._close_connection()
+                _terminate_process_until(self._process, selected_deadline)
+            else:
+                self._close_connection()
+            self._receiver.join(max(0.0, selected_deadline - monotonic()))
             if self._receiver.is_alive():
                 raise InstrumentBackendUnavailable(
                     "instrument worker receiver did not stop"
                 )
+            return response
         finally:
             with self._state_lock:
+                if graceful is not None:
+                    self._pending.pop(
+                        graceful.request.request_id,
+                        None,
+                    )
                 self._cleanup_complete = (
                     not self._process.is_alive() and not self._receiver.is_alive()
                 )
@@ -692,6 +774,7 @@ def _instrument_worker_main(
 ) -> None:
     endpoint: LocalInstrumentBackendEndpoint | None = None
     executor: ThreadPoolExecutor | None = None
+    shutdown_request: _RpcRequest | None = None
     try:
         try:
             create_backend = load_instrument_backend_factory(
@@ -737,6 +820,9 @@ def _instrument_worker_main(
                 request = _recv_model(connection, _RpcRequest)
             except EOFError, OSError, ValueError:
                 return
+            if request.operation == "shutdown":
+                shutdown_request = request
+                break
             try:
                 invoke_request = (
                     _receive_invoke(connection, request.attachment_count)
@@ -754,11 +840,36 @@ def _instrument_worker_main(
                 invoke_request,
             )
     finally:
+        cleanup_errors: list[Exception] = []
         if executor is not None:
-            executor.shutdown(wait=True, cancel_futures=False)
+            try:
+                executor.shutdown(wait=True, cancel_futures=False)
+            except Exception as error:
+                cleanup_errors.append(error)
         if endpoint is not None:
-            with suppress(Exception):
+            try:
                 endpoint.shutdown()
+            except Exception as error:
+                cleanup_errors.append(error)
+        if shutdown_request is not None:
+            response = (
+                _RpcResponse(
+                    request_id=shutdown_request.request_id,
+                    status="error",
+                    error=_RpcError(
+                        kind="backend_error",
+                        code="instrument_worker_shutdown_failed",
+                        message="instrument worker cleanup failed",
+                    ),
+                )
+                if cleanup_errors
+                else _RpcResponse(
+                    request_id=shutdown_request.request_id,
+                    status="ok",
+                )
+            )
+            with suppress(Exception):
+                _send_model(connection, response)
         connection.close()
 
 
@@ -1091,6 +1202,10 @@ def _stop_process(process: BaseProcess, timeout: float) -> None:
 def _stop_process_until(process: BaseProcess, deadline: float) -> None:
     remaining = max(0.0, deadline - monotonic())
     process.join(remaining / 2)
+    _terminate_process_until(process, deadline)
+
+
+def _terminate_process_until(process: BaseProcess, deadline: float) -> None:
     if process.is_alive():
         process.terminate()
         remaining = max(0.0, deadline - monotonic())
