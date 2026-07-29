@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import shlex
+import subprocess
+import sys
 from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
@@ -88,8 +90,8 @@ def init_command(
         f"{initialized.root / 'src/scopecat_lab/configuration.py'}",
         soft_wrap=True,
     )
-    project_arg = shlex.quote(str(initialized.root))
-    notebook_arg = shlex.quote(str(initialized.root / "notebooks/01_first_run.py"))
+    project_arg = _shell_quote(str(initialized.root))
+    notebook_arg = _shell_quote(str(initialized.root / "notebooks/01_first_run.py"))
     console.print(
         f"[dim]next[/dim] scopecat config check {project_arg}",
         soft_wrap=True,
@@ -106,6 +108,12 @@ def init_command(
         f"[dim]first run[/dim] python {notebook_arg}",
         soft_wrap=True,
     )
+
+
+def _shell_quote(value: str) -> str:
+    if sys.platform == "win32":
+        return subprocess.list2cmdline([value])
+    return shlex.quote(value)
 
 
 @config_app.command("check")

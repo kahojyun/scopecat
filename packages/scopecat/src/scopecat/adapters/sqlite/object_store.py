@@ -83,6 +83,11 @@ class ImmutableObjectStore:
 
 
 def _fsync_directory(path: Path) -> None:
+    # Windows does not allow directories to be opened through ``os.open``.
+    # The object itself is flushed above; directory fsync is an additional
+    # POSIX durability barrier for publishing the hard link.
+    if os.name == "nt":
+        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)

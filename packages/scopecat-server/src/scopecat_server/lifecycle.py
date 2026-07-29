@@ -60,7 +60,9 @@ def initialize_project(target: str | Path) -> Project:
         raise DaemonLifecycleError(f"project already initialized: {manifest}")
     collisions = tuple(path for path in scaffold_paths(root) if path.exists())
     if collisions:
-        relative_paths = ", ".join(str(path.relative_to(root)) for path in collisions)
+        relative_paths = ", ".join(
+            path.relative_to(root).as_posix() for path in collisions
+        )
         raise DaemonLifecycleError(
             f"project scaffold path already exists: {relative_paths}"
         )
@@ -241,7 +243,7 @@ def start_project(
         if (
             observed.state == "running"
             and observed.record is not None
-            and observed.record.pid == process.pid
+            and _spawned_process_owns_record(process, observed.record)
         ):
             return observed.record
         time.sleep(0.05)
@@ -347,6 +349,19 @@ def _matching_process(record: DaemonEndpointRecord) -> psutil.Process | None:
     ):
         return None
     return process
+
+
+def _spawned_process_owns_record(
+    process: subprocess.Popen[bytes],
+    record: DaemonEndpointRecord,
+) -> bool:
+    if record.pid == process.pid:
+        return True
+    try:
+        children = psutil.Process(process.pid).children(recursive=True)
+    except psutil.AccessDenied, psutil.NoSuchProcess:
+        return False
+    return any(child.pid == record.pid for child in children)
 
 
 def _read_health(base_url: str, *, timeout: float) -> DaemonHealth:

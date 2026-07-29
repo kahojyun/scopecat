@@ -767,5 +767,5 @@ class _SpaStaticFiles(StaticFiles):
 
 
 def _is_spa_path(path: str) -> bool:
-    normalized = path.lstrip("/")
+    normalized = path.replace("\\", "/").lstrip("/")
     return not normalized.startswith("api/") and not PurePosixPath(normalized).suffix
