@@ -26,10 +26,10 @@ from scopecat.sdk.payloads import PayloadCodecRegistry
 if TYPE_CHECKING:
     from scopecat.sdk.instruments.contracts import (
         CollectCommand,
-        InstrumentProvider,
         InstrumentStateCommand,
         InvokeCommand,
     )
+    from scopecat.sdk.instruments.provider import InstrumentProvider
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 

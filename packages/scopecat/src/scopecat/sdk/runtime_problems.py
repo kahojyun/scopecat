@@ -11,7 +11,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     RuntimeLocation,
 )
-from scopecat.sdk.instruments.contracts import DriverFault
+from scopecat.sdk.instruments.provider import DriverFault
 
 logger = logging.getLogger(__name__)
 

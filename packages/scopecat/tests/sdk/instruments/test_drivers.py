@@ -8,6 +8,8 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat.sdk.instruments as instrument_sdk
+import scopecat.sdk.instruments.contracts as instrument_contracts
+import scopecat.sdk.instruments.provider as instrument_provider
 from scopecat.kernel.problems import ModelLocation, Problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
@@ -129,6 +131,17 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
 
     for name, owner in owners.items():
         assert getattr(instrument_sdk, name) is owner
+
+    for name in (
+        "DriverFault",
+        "InstrumentConnectionContext",
+        "InstrumentDriver",
+        "InstrumentProvider",
+        "InstrumentProviderContext",
+        "InstrumentProviderDescription",
+    ):
+        assert getattr(instrument_sdk, name) is getattr(instrument_provider, name)
+        assert not hasattr(instrument_contracts, name)
 
     for name in (
         "AcquisitionReadiness",

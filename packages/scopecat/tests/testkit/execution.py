@@ -16,7 +16,7 @@ from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments.backend import InstrumentBackend
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.provider import (
     InstrumentConnectionContext,
     InstrumentDriver,
     InstrumentProvider,

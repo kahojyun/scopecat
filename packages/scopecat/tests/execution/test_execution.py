@@ -74,16 +74,18 @@ from scopecat.sdk.instruments import DriverPayload
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
     FixedAcquisitionSpec,
-    InstrumentConnectionContext,
     InstrumentDescription,
-    InstrumentProvider,
-    InstrumentProviderContext,
-    InstrumentProviderDescription,
     InstrumentStateAssignment,
     InstrumentStateCommand,
     InterfaceSpec,
     PropertySpec,
     acquisition_axis,
+)
+from scopecat.sdk.instruments.provider import (
+    InstrumentConnectionContext,
+    InstrumentProvider,
+    InstrumentProviderContext,
+    InstrumentProviderDescription,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver

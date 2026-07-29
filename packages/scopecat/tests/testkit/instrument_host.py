@@ -44,13 +44,15 @@ from scopecat.sdk.instruments.backend import (
 )
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
+    InstrumentStateAssignment,
+    InstrumentStateCommand,
+    InvokeCommand,
+)
+from scopecat.sdk.instruments.provider import (
     InstrumentConnectionContext,
     InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
-    InstrumentStateAssignment,
-    InstrumentStateCommand,
-    InvokeCommand,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 from scopecat.sdk.runtime_problems import runtime_problem

@@ -34,13 +34,15 @@ from scopecat.sdk.instruments.backend import (
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
+    InstrumentDescription,
+    InvokeReceipt,
+)
+from scopecat.sdk.instruments.provider import (
     DriverFault,
     InstrumentConnectionContext,
-    InstrumentDescription,
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InvokeReceipt,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
 

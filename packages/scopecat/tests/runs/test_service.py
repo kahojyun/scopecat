@@ -20,7 +20,7 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.runs.service import load_run_request
-from scopecat.sdk.instruments.contracts import InstrumentProviderContext
+from scopecat.sdk.instruments.provider import InstrumentProviderContext
 from tests.testkit.authoring import simple_template
 from tests.testkit.execution import execute_invocation_run
 from tests.testkit.instrument_host import (

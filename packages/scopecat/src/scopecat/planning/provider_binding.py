@@ -24,10 +24,12 @@ from scopecat.records.config import (
 )
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
-    InstrumentProviderContext,
-    InstrumentProviderDescription,
     InstrumentStateAssignment,
     validate_reconciled_state_assignments,
+)
+from scopecat.sdk.instruments.provider import (
+    InstrumentProviderContext,
+    InstrumentProviderDescription,
 )
 
 from .provider_validation import preflight_problem_from_exception

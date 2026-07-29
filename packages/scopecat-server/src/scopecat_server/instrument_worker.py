@@ -37,9 +37,9 @@ from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
     InstrumentDescription,
-    InstrumentProviderDescription,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments.provider import InstrumentProviderDescription
 from scopecat.sdk.payloads import PayloadCodecCatalog
 
 from .instrument_backend import (

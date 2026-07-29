@@ -14,9 +14,9 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.records.config import InstrumentBindingSpec
-from scopecat.sdk.instruments.contracts import (
+from scopecat.sdk.instruments.contracts import InstrumentDescription
+from scopecat.sdk.instruments.provider import (
     DriverFault,
-    InstrumentDescription,
     InstrumentDriver,
 )
 
