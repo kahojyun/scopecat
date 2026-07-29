@@ -1,30 +1,4 @@
 @media (max-width: 1100px) {
-  .config-summary {
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-  }
-
-  .config-summary-facts {
-    border-right: 0;
-  }
-
-  .config-summary-undo {
-    grid-column: 1 / -1;
-    border-top: 1px solid var(--line);
-  }
-
-  .config-layout {
-    grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
-  }
-
-  .config-detail-facts,
-  .snapshot-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .parameter-browser-layout {
-    grid-template-columns: minmax(165px, 190px) minmax(0, 1fr);
-  }
-
   .instruments-layout {
     grid-template-columns: minmax(280px, 315px) minmax(0, 1fr);
   }
@@ -43,33 +17,6 @@
 }
 
 @media (max-width: 880px) {
-  .config-toolbar {
-    align-items: flex-start;
-  }
-
-  .config-layout {
-    display: block;
-    min-height: 0;
-    overflow: visible;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .config-registry-panel,
-  .config-inspector {
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-  }
-
-  .config-registry-panel {
-    margin-bottom: 10px;
-  }
-
-  .config-entry-list {
-    max-height: 300px;
-  }
-
   .instruments-layout {
     display: block;
     overflow: visible;
@@ -107,18 +54,9 @@
   .instrument-inspector {
     min-height: 560px;
   }
-
-  .parameter-browser-layout {
-    grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 680px) {
-  .config-toolbar {
-    display: grid;
-    gap: 17px;
-  }
-
   .instruments-toolbar {
     align-items: flex-start;
   }
@@ -150,113 +88,9 @@
   .instrument-default-property {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .config-toolbar-actions {
-    flex-wrap: wrap;
-  }
-
-  .operator-field {
-    flex: 1;
-  }
-
-  .operator-field input {
-    width: 100%;
-  }
-
-  .config-inspector {
-    min-height: 520px;
-    padding: 20px 14px;
-  }
-
-  .config-inspector-heading {
-    display: grid;
-  }
-
-  .config-inspector-heading code {
-    max-width: 100%;
-  }
-
-  .parameter-browser-layout {
-    display: block;
-  }
-
-  .parameter-index {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .parameter-index-list {
-    grid-auto-columns: minmax(165px, 60vw);
-    grid-auto-flow: column;
-    overflow-x: auto;
-    max-height: none;
-  }
-
-  .parameter-detail {
-    padding: 13px;
-  }
-
-  .config-draft-layout {
-    display: block;
-  }
-
-  .config-draft-index {
-    grid-auto-columns: minmax(165px, 60vw);
-    grid-auto-flow: column;
-    overflow-x: auto;
-    max-height: none;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .config-draft-review-form {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .config-draft-actions {
-    grid-column: auto;
-    flex-wrap: wrap;
-  }
-
-  .config-draft-actions > span {
-    width: 100%;
-    margin: 0;
-  }
-
-  .value-comparison {
-    gap: 8px;
-  }
-
-  .activation-history li {
-    grid-template-columns: 44px 12px minmax(0, 1fr);
-  }
-
-  .activation-history li > code {
-    display: none;
-  }
 }
 
 @media (max-width: 460px) {
-  .config-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .config-summary-default,
-  .config-summary-facts {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .config-summary-undo {
-    grid-column: auto;
-    border-top: 0;
-  }
-
-  .config-detail-facts,
-  .snapshot-metrics {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .instruments-toolbar {
     display: grid;
   }

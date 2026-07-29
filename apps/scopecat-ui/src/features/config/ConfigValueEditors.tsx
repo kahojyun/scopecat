@@ -33,7 +33,7 @@ export function ParameterEditor({
 }) {
   if (definition.value_type.shape === "scalar" && value.shape === "scalar") {
     return (
-      <div className="config-scalar-editor">
+      <div className="grid min-h-[150px] place-items-center rounded-[8px] border border-line bg-bg">
         <AtomInput
           label={definition.id}
           type={definition.value_type.atom}
@@ -66,9 +66,7 @@ export function ParameterEditor({
       />
     );
   }
-  return (
-    <div className="config-draft-empty">The stored value does not match its catalog shape.</div>
-  );
+  return <div className={draftEmpty}>The stored value does not match its catalog shape.</div>;
 }
 
 function TableEditor({
@@ -114,27 +112,30 @@ function TableEditor({
     onRowOriginsChange(origins.filter((_, index) => index !== rowIndex));
   };
   return (
-    <div className="config-table-editor">
+    <div className="grid justify-items-start gap-[9px]">
       {primaryKey.length === 0 && (
-        <div className="parameter-diff-note">
+        <div className="rounded-[7px] border border-line bg-panel-soft px-2.5 py-2 text-[0.57rem] leading-[1.45] text-text-dim">
           This table has no primary key. The daemon will validate it as one complete replacement.
         </div>
       )}
-      <div className="parameter-table-scroll">
-        <table>
+      <div className="max-w-full w-full overflow-auto rounded-[8px] border border-line [scrollbar-color:var(--color-line-strong)_transparent]">
+        <table className="w-full min-w-max border-collapse bg-bg text-[0.58rem] [&_th]:min-w-[110px] [&_th]:border-r [&_th]:border-b [&_th]:border-line [&_th]:px-2.5 [&_th]:py-2 [&_th]:text-left [&_td]:min-w-[110px] [&_td]:border-r [&_td]:border-b [&_td]:border-line [&_td]:px-2.5 [&_td]:py-2 [&_td]:text-left [&_td]:align-middle [&_tr:last-child>*]:border-b-0 [&_tr>*:last-child]:border-r-0 [&_tr>*:last-child]:min-w-[55px]">
           <thead>
             <tr>
               {type.columns.map((column) => (
-                <th key={column.id}>
-                  <span>{column.id}</span>
-                  <small>
+                <th
+                  className="sticky top-0 z-[1] bg-panel-strong text-[0.56rem] font-extrabold text-text-soft"
+                  key={column.id}
+                >
+                  <span className="block">{column.id}</span>
+                  <small className="mt-0.5 block text-[0.48rem] font-normal text-text-dim">
                     {column.value_type.type}
                     {primaryKey.includes(column.id) ? " · key" : ""}
                   </small>
                 </th>
               ))}
-              <th>
-                <span>Row</span>
+              <th className="sticky top-0 z-[1] bg-panel-strong text-[0.56rem] font-extrabold text-text-soft">
+                <span className="block">Row</span>
               </th>
             </tr>
           </thead>
@@ -198,7 +199,7 @@ function AtomInput({
   onValidityChange: (field: string, valid: boolean) => void;
 }) {
   return (
-    <div className="parameter-atom-input">
+    <div className={atomInput}>
       <ConcreteAtomInput
         label={label}
         type={type}
@@ -287,7 +288,7 @@ function ConcreteAtomInput({
     const quantity =
       typeof value === "object" && "value" in value ? value : { value: 0, unit: type.unit ?? "" };
     return (
-      <span className="quantity-input">
+      <span className="grid grid-cols-[minmax(80px,1fr)_minmax(65px,0.6fr)] gap-[5px]">
         <NumericInput
           label={`${label} value`}
           value={quantity.value}
@@ -416,3 +417,8 @@ function numericTextIsValid(
 function entityKey(entity: ParameterEntity): string {
   return JSON.stringify([entity.kind ?? null, entity.id]);
 }
+
+const draftEmpty =
+  "rounded-[8px] border border-dashed border-line-strong bg-bg p-3.5 text-[0.64rem] leading-normal text-text-dim";
+const atomInput =
+  "grid min-w-[120px] gap-[5px] [&_input:not([type=checkbox])]:min-h-[34px] [&_input:not([type=checkbox])]:rounded-[7px] [&_input:not([type=checkbox])]:border [&_input:not([type=checkbox])]:border-line-strong [&_input:not([type=checkbox])]:bg-panel [&_input:not([type=checkbox])]:px-2 [&_input:not([type=checkbox])]:text-[0.64rem] [&_input:not([type=checkbox])]:text-text [&_input:not([type=checkbox])]:outline-0 [&_input:not([type=checkbox]):focus]:border-[rgb(128_163_207_/_45%)] [&_input[aria-invalid=true]]:border-[rgb(255_140_136_/_52%)] [&_input[aria-invalid=true]]:bg-red-soft [&_input:disabled]:opacity-70 [&_select]:min-h-[34px] [&_select]:rounded-[7px] [&_select]:border [&_select]:border-line-strong [&_select]:bg-panel [&_select]:px-2 [&_select]:text-[0.64rem] [&_select]:text-text [&_select]:outline-0 [&_select:focus]:border-[rgb(128_163_207_/_45%)] [&_select:disabled]:opacity-70";

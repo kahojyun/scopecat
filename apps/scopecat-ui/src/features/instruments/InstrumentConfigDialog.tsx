@@ -250,7 +250,7 @@ function InstrumentConfigEditor({
               </Dialog.Close>
             </header>
 
-            <div className="config-modal-body instrument-config-form grid gap-3 p-[18px]">
+            <div className="instrument-config-form grid gap-3 p-[18px]">
               <div className="instrument-config-fields">
                 <label>
                   <span>Instrument ID</span>

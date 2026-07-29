@@ -105,16 +105,19 @@ export function ConfigWorkspace({
         }
       : undefined;
   return (
-    <section className="config-workspace" aria-labelledby="config-heading">
-      <header className="config-toolbar">
+    <section className="grid gap-3.5" aria-labelledby="config-heading">
+      <header className="flex min-h-[50px] items-center justify-between gap-5 rounded-lg border border-line bg-panel py-1.5 pr-2.5 pl-3.5 max-[880px]:items-start max-[680px]:grid max-[680px]:gap-[17px]">
         <div>
-          <h2 id="config-heading">Default configuration</h2>
+          <h2 className="m-0 text-base font-[650] tracking-[-0.025em]" id="config-heading">
+            Default configuration
+          </h2>
         </div>
-        <div className="config-toolbar-actions">
-          <label className="operator-field">
+        <div className="flex items-center gap-2 max-[680px]:flex-wrap">
+          <label className="flex min-h-9 items-center gap-2 rounded-[8px] border border-line bg-bg px-2.5 text-text-dim focus-within:border-[rgb(128_163_207_/_45%)] max-[680px]:flex-1">
             <UserRound size={15} aria-hidden="true" />
             <span className="sr-only">Operator name</span>
             <input
+              className="w-[145px] min-w-0 border-0 bg-transparent p-0 text-[0.72rem] text-text outline-0 max-[680px]:w-full"
               value={workflow.operator}
               onChange={(event) => workflow.setOperator(event.target.value)}
               placeholder="Operator"
@@ -129,21 +132,28 @@ export function ConfigWorkspace({
             onChange={(event) => void workflow.readImport(event)}
           />
           <Menu.Root>
-            <Menu.Trigger className={classes(secondaryButton, "action-menu-trigger")}>
+            <Menu.Trigger
+              className={classes(
+                secondaryButton,
+                "data-[popup-open]:bg-panel-strong data-[popup-open]:text-text",
+              )}
+            >
               <SlidersHorizontal size={15} aria-hidden="true" />
               Advanced
             </Menu.Trigger>
             <Menu.Portal>
-              <Menu.Positioner className="action-menu-positioner" sideOffset={6} align="end">
-                <Menu.Popup className="action-menu-popup">
+              <Menu.Positioner className="z-60 outline-0" sideOffset={6} align="end">
+                <Menu.Popup className="grid w-[270px] rounded-md border border-line-strong bg-panel-strong p-1.5 shadow-panel outline-0">
                   <Menu.Item
-                    className="action-menu-item"
+                    className="grid w-full cursor-pointer grid-cols-[18px_minmax(0,1fr)] items-start gap-[9px] rounded-sm p-[9px] text-[0.67rem] text-text-soft outline-0 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-accent-soft data-[highlighted]:text-text"
                     onClick={() => workflow.fileInput.current?.click()}
                   >
                     <FileUp size={15} aria-hidden="true" />
-                    <span>
-                      <strong>Import raw snapshot</strong>
-                      <small>Bypass the typed parameter editor.</small>
+                    <span className="grid gap-[3px]">
+                      <strong className="text-[0.68rem]">Import raw snapshot</strong>
+                      <small className="text-[0.59rem] leading-[1.45] text-text-dim">
+                        Bypass the typed parameter editor.
+                      </small>
                     </span>
                   </Menu.Item>
                 </Menu.Popup>
@@ -154,10 +164,20 @@ export function ConfigWorkspace({
       </header>
 
       {(workflow.importError || workflow.mutation.error) && (
-        <div className="config-error" role="status">
-          <AlertTriangle size={17} aria-hidden="true" />
-          <span>{workflow.importError ?? errorMessage(workflow.mutation.error)}</span>
-          <button type="button" aria-label="Dismiss error" onClick={workflow.dismissError}>
+        <div
+          className="flex min-h-[42px] items-center gap-[9px] rounded-[9px] border border-[rgb(255_140_136_/_25%)] bg-red-soft px-3 text-[0.7rem] text-[#edb5b2]"
+          role="status"
+        >
+          <AlertTriangle className="flex-none text-red" size={17} aria-hidden="true" />
+          <span className="flex-1">
+            {workflow.importError ?? errorMessage(workflow.mutation.error)}
+          </span>
+          <button
+            className="grid size-[27px] cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-text-dim"
+            type="button"
+            aria-label="Dismiss error"
+            onClick={workflow.dismissError}
+          >
             <X size={15} />
           </button>
         </div>
@@ -181,7 +201,7 @@ export function ConfigWorkspace({
         }
       />
 
-      <div className="config-layout">
+      <div className="grid min-h-[630px] grid-cols-[minmax(290px,340px)_minmax(0,1fr)] overflow-hidden rounded-lg border border-line bg-panel max-[1100px]:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] max-[880px]:block max-[880px]:min-h-0 max-[880px]:overflow-visible max-[880px]:border-0 max-[880px]:bg-transparent">
         <ConfigRegistryPanel
           overview={overview}
           entries={registry.filteredEntries}
@@ -192,7 +212,10 @@ export function ConfigWorkspace({
           onSelectEntry={selectEntry}
         />
 
-        <section className="config-inspector" aria-live="polite">
+        <section
+          className="min-w-0 bg-panel p-[clamp(18px,2vw,26px)] max-[880px]:rounded-lg max-[880px]:border max-[880px]:border-line max-[680px]:min-h-[520px] max-[680px]:px-3.5 max-[680px]:py-5"
+          aria-live="polite"
+        >
           {selectedEntry ? (
             <ConfigEntryInspector
               entry={selectedEntry}
