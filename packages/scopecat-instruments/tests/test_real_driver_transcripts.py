@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -142,7 +143,7 @@ def test_gs200_source_and_monitor_transcript() -> None:
     assert receipt.status == "collected"
     assert receipt.readback is not None
     measured = receipt.readback.values[DC_MONITOR_CURRENT_RESULT.result_id]
-    assert isinstance(measured, Quantity)
+    assert isinstance(measured, MeasurementScalar)
     assert measured.value == pytest.approx(1.25e-4)
     transport.assert_complete()
 
@@ -242,8 +243,12 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
     assert applied.status == "applied"
     assert monitored.status == "collected"
     assert monitored.readback is not None
-    assert monitored.readback.values[DC_MONITOR_VOLTAGE_RESULT.result_id] == Quantity(
-        1.0, "V"
+    assert monitored.readback.values[
+        DC_MONITOR_VOLTAGE_RESULT.result_id
+    ] == MeasurementScalar.create(
+        dtype="float64",
+        value=1.0,
+        unit="V",
     )
     transport.assert_complete()
 

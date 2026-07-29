@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import math
 from dataclasses import replace
 from pathlib import Path
-from typing import Never, cast, override
+from typing import Never, cast
 
 import pytest
 from pydantic import JsonValue
@@ -65,16 +64,15 @@ from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import (
     CommandChannelBinding,
     InstrumentPropertyState,
-    InstrumentReadback,
     InstrumentStateSnapshot,
 )
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments import DriverCollectRequest, DriverPayloadArgument
+from scopecat.sdk.instruments import DriverPayloadArgument
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
-    CollectReceipt,
     FixedAcquisitionSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -279,8 +277,10 @@ def test_run_persists_measurements_and_run_files(
     drive_frequencies: list[float] = []
     for item in measurements:
         drive_frequency = item.coordinates["drive_frequency"]
-        assert isinstance(drive_frequency, Quantity)
-        drive_frequencies.append(drive_frequency.value)
+        assert isinstance(drive_frequency, MeasurementScalar)
+        assert not isinstance(drive_frequency.value, bool)
+        assert isinstance(drive_frequency.value, int | float)
+        drive_frequencies.append(float(drive_frequency.value))
     assert drive_frequencies == [
         4.9,
         5.0,
@@ -289,8 +289,10 @@ def test_run_persists_measurements_and_run_files(
     signal_values: list[float] = []
     for measurement in measurements:
         signal = measurement.observables["signal"]
-        assert isinstance(signal, Quantity)
-        signal_values.append(signal.value)
+        assert isinstance(signal, MeasurementScalar)
+        assert not isinstance(signal.value, bool)
+        assert isinstance(signal.value, int | float)
+        signal_values.append(float(signal.value))
     assert signal_values == [
         0.5,
         1.0,
@@ -328,60 +330,6 @@ def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
     manifest = storage.list_runs()[0]
     assert manifest.outcome is None
     assert not storage.exists(manifest.run_id, pending_ref)
-
-
-class _NonFiniteSignalInstrument(TestSignalInstrument):
-    @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
-        self.collect_requests.append(request)
-        values = (float("nan"), float("inf"), float("-inf"))
-        value_index = round((self._frequency_ghz() - 4.9) / 0.1)
-        return CollectReceipt(
-            readback=InstrumentReadback(
-                values={
-                    "signal": Quantity(
-                        value=values[value_index],
-                        unit="ratio",
-                    )
-                },
-                metadata={"encoding": "ieee-754"},
-            )
-        )
-
-
-def test_run_round_trips_non_finite_terminal_measurements(
-    tmp_path: Path,
-) -> None:
-    manifest = execute_bound_run(
-        config=load_config(),
-        experiment=load_experiment(),
-        instruments=[_NonFiniteSignalInstrument()],
-        project_root=tmp_path,
-    )
-
-    assert manifest.status == "completed"
-    repository = sqlite_run_repository(tmp_path)
-    dataset_ref = dataset_storage_ref(manifest.datasets[0])
-    wire = "".join(
-        repository.read_text(
-            manifest.run_id,
-            f"{dataset_ref}/chunks/{index:020d}.json",
-        )
-        for index in range(3)
-    )
-    assert "NaN" in wire
-    assert "Infinity" in wire
-    assert "-Infinity" in wire
-    measurements = sqlite_run_repository(tmp_path).read_measurement_records(
-        manifest.run_id,
-        dataset_storage_ref(manifest.datasets[0]),
-    )
-    values = [
-        cast("Quantity", measurement.observables["signal"]).value
-        for measurement in measurements
-    ]
-    assert math.isnan(values[0])
-    assert values[1:] == [float("inf"), float("-inf")]
 
 
 class _OrderedAbiProblemProvider:

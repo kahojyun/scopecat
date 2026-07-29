@@ -100,7 +100,7 @@ class RecordPlan:
 
 class PointRecordLike(Protocol):
     @property
-    def row(self) -> Mapping[str, object]: ...
+    def row(self) -> Mapping[str, CellValue]: ...
 
 
 def plan_records(
@@ -300,10 +300,7 @@ def _coordinate_variables(
     dimensions = ["point"]
     shape = [len(points)]
     for column in _point_columns(points):
-        values = cast(
-            "list[CellValue]",
-            [point.row[column] for point in points if column in point.row],
-        )
+        values = [point.row[column] for point in points if column in point.row]
         if len(values) != len(points):
             continue
         variable = _coordinate_variable(

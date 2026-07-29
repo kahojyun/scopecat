@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementRecord,
+    MeasurementScalar,
     MeasurementVariable,
 )
 
@@ -18,8 +18,20 @@ def signal_record(
     return MeasurementRecord(
         run_id="run-000001",
         point_index=point_index,
-        coordinates={"drive_frequency": Quantity(value=drive_frequency, unit="GHz")},
-        observables={"signal": Quantity(value=signal, unit="ratio")},
+        coordinates={
+            "drive_frequency": MeasurementScalar.create(
+                dtype="float64",
+                value=drive_frequency,
+                unit="GHz",
+            )
+        },
+        observables={
+            "signal": MeasurementScalar.create(
+                dtype="float64",
+                value=signal,
+                unit="ratio",
+            )
+        },
     )
 
 

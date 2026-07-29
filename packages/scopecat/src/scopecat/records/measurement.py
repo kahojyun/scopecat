@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
-from typing import Literal, cast
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import (
     BaseModel,
@@ -15,8 +16,6 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.quantity import Quantity
 from scopecat.records._metadata import JsonMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
@@ -25,7 +24,7 @@ from scopecat.records._schema_utils import (
     validate_supported_unit,
 )
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v1"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v2"
 MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v1"
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
@@ -74,6 +73,8 @@ class MeasurementVariable(BaseModel):
             dims=self.dims,
             message=message,
         )
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(f"{self.dtype} measurement variables cannot have a unit")
         return self
 
 
@@ -137,19 +138,73 @@ class MeasurementDatasetSchema(BaseModel):
         return self
 
 
-class ComplexQuantity(BaseModel):
+class ComplexComponents(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     real: float
     imag: float
-    unit: str
+
+    @field_validator("real", "imag", mode="before")
+    @classmethod
+    def validate_component(cls, value: object) -> float:
+        if not isinstance(value, int | float) or isinstance(value, bool):
+            raise ValueError("complex components must be numeric")
+        selected = float(value)
+        if not math.isfinite(selected):
+            raise ValueError("complex components must be finite")
+        return selected
+
+
+type MeasurementScalarData = bool | int | float | str | ComplexComponents
+
+
+class MeasurementScalar(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["scalar"]
+    dtype: MeasurementDType = "float64"
+    unit: str | None = None
+    value: MeasurementScalarData
+    metadata: JsonMetadata = Field(default_factory=dict)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        value: MeasurementScalarData,
+        dtype: MeasurementDType = "float64",
+        unit: str | None = None,
+        metadata: JsonMetadata | None = None,
+    ) -> Self:
+        """Construct a scalar while keeping the wire discriminator required."""
+
+        return cls(
+            kind="scalar",
+            dtype=dtype,
+            unit=unit,
+            value=value,
+            metadata={} if metadata is None else metadata,
+        )
 
     @field_validator("unit")
     @classmethod
-    def validate_unit(cls, value: str) -> str:
-        validated = validate_supported_unit(value)
-        assert validated is not None
-        return validated
+    def validate_unit(cls, value: str | None) -> str | None:
+        return validate_supported_unit(value)
+
+    @field_validator("value")
+    @classmethod
+    def validate_finite_value(
+        cls,
+        value: MeasurementScalarData,
+    ) -> MeasurementScalarData:
+        _validate_finite_numbers(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_unitless_dtype(self) -> MeasurementScalar:
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(f"{self.dtype} measurement scalars cannot have a unit")
+        return self
 
 
 def _restore_measurement_array_leaves(
@@ -166,12 +221,8 @@ def _restore_measurement_array_leaves(
         selected_mapping = cast("Mapping[str, object]", value)
         try:
             if dtype == "complex128":
-                return ComplexQuantity.model_validate(selected_mapping)
-            if dtype in {"float64", "int64"}:
-                return Quantity.model_validate(selected_mapping)
+                return ComplexComponents.model_validate(selected_mapping)
         except ValidationError:
-            # Keep malformed provider leaves available to the explicit value
-            # contract so they become structured provider-contract problems.
             pass
         return selected_mapping
     return value
@@ -180,11 +231,33 @@ def _restore_measurement_array_leaves(
 class MeasurementArray(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    kind: Literal["array"]
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     shape: Sequence[int] = Field(min_length=1)
     values: MeasurementArrayData
     metadata: JsonMetadata = Field(default_factory=dict)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        shape: Sequence[int],
+        values: MeasurementArrayData,
+        dtype: MeasurementDType = "float64",
+        unit: str | None = None,
+        metadata: JsonMetadata | None = None,
+    ) -> Self:
+        """Construct an array while keeping the wire discriminator required."""
+
+        return cls(
+            kind="array",
+            dtype=dtype,
+            unit=unit,
+            shape=shape,
+            values=values,
+            metadata={} if metadata is None else metadata,
+        )
 
     @field_validator("unit")
     @classmethod
@@ -205,6 +278,7 @@ class MeasurementArray(BaseModel):
     ) -> MeasurementArrayData:
         """Restore typed leaves and freeze nested sequences in one pass."""
 
+        _validate_finite_numbers(value)
         dtype = info.data.get("dtype")
         return cast(
             "MeasurementArrayData",
@@ -220,11 +294,15 @@ class MeasurementArray(BaseModel):
         if actual_shape != self.shape:
             msg = f"measurement array shape {actual_shape} does not match {self.shape}"
             raise ValueError(msg)
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(f"{self.dtype} measurement arrays cannot have a unit")
         return self
 
 
-type MeasurementValue = Quantity | ComplexQuantity | MeasurementArray
-type CoordinateValue = Quantity | EntityRef | str | int | float | bool
+type MeasurementValue = Annotated[
+    MeasurementScalar | MeasurementArray,
+    Field(discriminator="kind"),
+]
 
 
 class MeasurementRecord(BaseModel):
@@ -234,7 +312,7 @@ class MeasurementRecord(BaseModel):
     logical_point_id: str | None = None
     point_index: int
     instrument_ids: list[str] = Field(default_factory=list)
-    coordinates: dict[str, CoordinateValue]
+    coordinates: dict[str, MeasurementValue]
     observables: dict[str, MeasurementValue]
     metadata: JsonMetadata = Field(default_factory=dict)
 
@@ -259,3 +337,23 @@ def _array_shape(values: object) -> tuple[int, ...]:
             msg = "measurement array values must be rectangular"
             raise ValueError(msg)
     return (len(items), *first_shape)
+
+
+def _validate_finite_numbers(value: object) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("measurement values must be finite")
+    if isinstance(value, complex) and not (
+        math.isfinite(value.real) and math.isfinite(value.imag)
+    ):
+        raise ValueError("measurement values must be finite")
+    if isinstance(value, ComplexComponents):
+        return
+    if isinstance(value, Mapping):
+        selected_mapping = cast("Mapping[object, object]", value)
+        for item in selected_mapping.values():
+            _validate_finite_numbers(item)
+        return
+    if isinstance(value, list | tuple):
+        selected_sequence = cast("list[object] | tuple[object, ...]", value)
+        for item in selected_sequence:
+            _validate_finite_numbers(item)

@@ -31,6 +31,7 @@ from scopecat.measurements.records import (
     RecordUse,
     validate_record_plan,
 )
+from scopecat.measurements.results import MeasurementDType
 from scopecat.records.config import RoutingGraph
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
@@ -46,6 +47,18 @@ def _product(name: str = "signal") -> ProductDef:
         unit="ratio",
         metadata={"definition": name},
     )
+
+
+@pytest.mark.parametrize("dtype", ["bool", "string"])
+def test_bool_and_string_products_reject_units(
+    dtype: MeasurementDType,
+) -> None:
+    with pytest.raises(ValueError, match="cannot have a unit"):
+        ProductDef(
+            id=product_id("invalid"),
+            dtype=dtype,
+            unit="ratio",
+        )
 
 
 def _program(

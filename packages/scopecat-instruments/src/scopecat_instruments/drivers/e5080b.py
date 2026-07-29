@@ -6,7 +6,7 @@ from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import (
-    ComplexQuantity,
+    ComplexComponents,
     MeasurementArray,
     MeasurementValue,
 )
@@ -181,25 +181,21 @@ class KeysightE5080B:
             values: dict[str, MeasurementValue] = {}
             for result in request.results:
                 if request.result_target(result) == NETWORK_SWEEP_FREQUENCY_RESULT:
-                    values[result.request_id] = MeasurementArray(
+                    values[result.request_id] = MeasurementArray.create(
                         dtype="float64",
                         unit="Hz",
                         shape=[len(trace.frequencies_hz)],
-                        values=[
-                            Quantity(frequency_hz, "Hz")
-                            for frequency_hz in trace.frequencies_hz
-                        ],
+                        values=trace.frequencies_hz,
                     )
                 else:
-                    values[result.request_id] = MeasurementArray(
+                    values[result.request_id] = MeasurementArray.create(
                         dtype="complex128",
                         unit="ratio",
                         shape=[len(trace.values)],
                         values=[
-                            ComplexQuantity(
+                            ComplexComponents(
                                 real=value.real,
                                 imag=value.imag,
-                                unit="ratio",
                             )
                             for value in trace.values
                         ],

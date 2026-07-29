@@ -24,7 +24,11 @@ from instrument_demo.workflows.flux_spectroscopy_analysis import (
 )
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.measurement import ComplexQuantity, MeasurementArray
+from scopecat.records.measurement import (
+    ComplexComponents,
+    MeasurementArray,
+    MeasurementScalar,
+)
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.sdk.instruments import CollectReceipt, DriverCollectRequest
 from scopecat_instruments.virtual import VirtualNetworkAnalyzer
@@ -65,10 +69,10 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         and record.observables["s_parameter"].dtype == "complex128"
         and record.observables["s_parameter"].unit == "ratio"
         and all(
-            isinstance(sample, ComplexQuantity)
+            isinstance(sample, ComplexComponents)
             for sample in record.observables["s_parameter"].values
         )
-        and isinstance(record.observables["temperature"], sc.Quantity)
+        and isinstance(record.observables["temperature"], MeasurementScalar)
         and record.observables["temperature"].unit == "K"
         for record in records
     )

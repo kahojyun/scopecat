@@ -7,23 +7,21 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
 
-from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
     model_location,
     problem,
 )
-from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units
 from scopecat.records.measurement import (
     MEASUREMENT_RECORD_SCHEMA_VERSION,
-    ComplexQuantity,
-    CoordinateValue,
+    ComplexComponents,
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDType,
     MeasurementRecord,
+    MeasurementScalar,
     MeasurementValue,
     MeasurementVariable,
 )
@@ -38,9 +36,7 @@ class MeasurementValueContractIssueCode(StrEnum):
     DTYPE_MISMATCH = "dtype_mismatch"
     UNIT_MISMATCH = "unit_mismatch"
     SHAPE_MISMATCH = "shape_mismatch"
-    ARRAY_STRUCTURE_MISMATCH = "array_structure_mismatch"
-    ARRAY_ELEMENT_TYPE_MISMATCH = "array_element_type_mismatch"
-    ARRAY_ELEMENT_UNIT_MISMATCH = "array_element_unit_mismatch"
+    VALUE_TYPE_MISMATCH = "value_type_mismatch"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +50,7 @@ class MeasurementValueContractIssue:
 
 
 def measurement_value_contract_issues(
-    value: MeasurementValue | CoordinateValue,
+    value: MeasurementValue,
     *,
     expected_dtype: MeasurementDType,
     expected_unit: str | None,
@@ -62,15 +58,14 @@ def measurement_value_contract_issues(
 ) -> tuple[MeasurementValueContractIssue, ...]:
     """Check one value against a logical product's point-local contract.
 
-    Top-level dtype compatibility permits numeric widening. Array leaves are
-    checked against the array's own dtype tag so that the tag cannot
-    impersonate a typed payload.
+    Top-level dtype compatibility permits numeric widening. Scalar and array
+    leaves must match their value's own dtype tag.
     """
 
     selected_shape = tuple(expected_shape)
     issues: list[MeasurementValueContractIssue] = []
     actual_dtype = _measurement_value_dtype(value)
-    if not _dtype_compatible(expected_dtype, actual_dtype, value):
+    if not _dtype_compatible(expected_dtype, actual_dtype):
         issues.append(
             MeasurementValueContractIssue(
                 code=MeasurementValueContractIssueCode.DTYPE_MISMATCH,
@@ -81,7 +76,7 @@ def measurement_value_contract_issues(
         )
 
     actual_unit = _measurement_value_unit(value)
-    if expected_unit is not None and not _unit_compatible(
+    if not _unit_compatible(
         expected_unit,
         actual_unit,
     ):
@@ -105,11 +100,17 @@ def measurement_value_contract_issues(
             )
         )
 
-    if isinstance(value, MeasurementArray):
-        _validate_array_leaves(
+    if isinstance(value, MeasurementScalar):
+        _validate_value_type(
+            value.value,
+            dtype=value.dtype,
+            path=("value",),
+            issues=issues,
+        )
+    else:
+        _validate_array_values(
             value.values,
             dtype=value.dtype,
-            unit=value.unit,
             path=("values",),
             issues=issues,
         )
@@ -123,31 +124,19 @@ def validated_measurement_value_copy(value: MeasurementValue) -> MeasurementValu
 
 
 def _measurement_value_dtype(
-    value: MeasurementValue | CoordinateValue,
+    value: MeasurementValue,
 ) -> MeasurementDType:
-    if isinstance(value, MeasurementArray):
-        return value.dtype
-    if isinstance(value, ComplexQuantity):
-        return "complex128"
-    if isinstance(value, bool):
-        return "bool"
-    if isinstance(value, int):
-        return "int64"
-    if isinstance(value, str | EntityRef):
-        return "string"
-    return "float64"
+    return value.dtype
 
 
 def _measurement_value_unit(
-    value: MeasurementValue | CoordinateValue,
+    value: MeasurementValue,
 ) -> str | None:
-    if isinstance(value, Quantity | ComplexQuantity | MeasurementArray):
-        return value.unit
-    return None
+    return value.unit
 
 
 def _measurement_value_shape(
-    value: MeasurementValue | CoordinateValue,
+    value: MeasurementValue,
 ) -> tuple[int, ...]:
     if isinstance(value, MeasurementArray):
         return tuple(value.shape)
@@ -157,80 +146,67 @@ def _measurement_value_shape(
 def _dtype_compatible(
     expected: MeasurementDType,
     actual: MeasurementDType,
-    value: MeasurementValue | CoordinateValue,
 ) -> bool:
     if actual == expected:
         return True
     if expected == "float64" and actual == "int64":
         return True
-    if expected == "complex128" and actual in {"float64", "int64"}:
-        return True
-    if expected == "int64" and isinstance(value, Quantity):
-        return _is_integral_number(value.value)
-    return False
+    return expected == "complex128" and actual in {"float64", "int64"}
 
 
-def _unit_compatible(expected: str, actual: str | None) -> bool:
-    if actual is None:
-        return False
+def _unit_compatible(expected: str | None, actual: str | None) -> bool:
+    if expected is None or actual is None:
+        return expected is actual
     try:
         return compatible_units(expected, actual)
     except ValueError:
         return False
 
 
-def _validate_array_leaves(
+def _validate_array_values(
     value: object,
     *,
     dtype: MeasurementDType,
-    unit: str | None,
     path: tuple[MeasurementValueContractPathItem, ...],
     issues: list[MeasurementValueContractIssue],
 ) -> None:
     if isinstance(value, tuple):
         selected = cast("tuple[object, ...]", value)
         for index, item in enumerate(selected):
-            _validate_array_leaves(
+            _validate_array_values(
                 item,
                 dtype=dtype,
-                unit=unit,
                 path=(*path, index),
                 issues=issues,
             )
         return
 
-    _validate_array_leaf(
+    _validate_value_type(
         value,
         dtype=dtype,
-        unit=unit,
         path=path,
         issues=issues,
     )
 
 
-def _validate_array_leaf(
+def _validate_value_type(
     value: object,
     *,
     dtype: MeasurementDType,
-    unit: str | None,
     path: tuple[MeasurementValueContractPathItem, ...],
     issues: list[MeasurementValueContractIssue],
 ) -> None:
     valid = False
     expected_type = ""
     if dtype == "complex128":
-        expected_type = "ComplexQuantity"
-        valid = isinstance(value, ComplexQuantity)
+        expected_type = "ComplexComponents"
+        valid = isinstance(value, ComplexComponents)
     elif dtype == "float64":
-        expected_type = "float, int, or Quantity"
-        valid = isinstance(value, int | float | Quantity) and not isinstance(
-            value, bool
-        )
+        expected_type = "float or int"
+        valid = isinstance(value, int | float) and not isinstance(value, bool)
     elif dtype == "int64":
-        expected_type = "int or integral Quantity"
-        valid = (isinstance(value, int) and not isinstance(value, bool)) or (
-            isinstance(value, Quantity) and _is_integral_number(value.value)
-        )
+        expected_type = "int"
+        valid = isinstance(value, int) and not isinstance(value, bool)
     elif dtype == "bool":
         expected_type = "bool"
         valid = isinstance(value, bool)
@@ -241,29 +217,12 @@ def _validate_array_leaf(
     if not valid:
         issues.append(
             MeasurementValueContractIssue(
-                code=MeasurementValueContractIssueCode.ARRAY_ELEMENT_TYPE_MISMATCH,
+                code=MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH,
                 path=path,
                 expected=expected_type,
                 actual=type(value).__name__,
             )
         )
-        return
-    if isinstance(value, Quantity | ComplexQuantity) and value.unit != unit:
-        issues.append(
-            MeasurementValueContractIssue(
-                code=MeasurementValueContractIssueCode.ARRAY_ELEMENT_UNIT_MISMATCH,
-                path=(*path, "unit"),
-                expected=unit,
-                actual=value.unit,
-            )
-        )
-
-
-def _is_integral_number(value: float) -> bool:
-    try:
-        return int(value) == value
-    except OverflowError, ValueError:
-        return False
 
 
 def validate_measurement_records_against_schema(
@@ -305,15 +264,6 @@ def validate_measurement_records_against_schema(
         if variable.role == "observable"
     }
     for variable in schema.variables:
-        if variable.role == "observable" and variable.dtype in {"bool", "string"}:
-            problems.append(
-                _problem(
-                    "measurement_dataset_unsupported_dtype",
-                    "measurement records store numeric scalar or array values "
-                    f"and do not support {variable.dtype} for {variable.id}",
-                    ("dataset_schema", "variables", variable.id, "dtype"),
-                )
-            )
         problems.extend(
             _validate_variable_shape(
                 variable=variable,
@@ -407,7 +357,7 @@ def _validate_record_variables(
     *,
     record: MeasurementRecord,
     variables: dict[str, MeasurementVariable],
-    actual: Mapping[str, MeasurementValue | CoordinateValue],
+    actual: Mapping[str, MeasurementValue],
     role: str,
 ) -> list[Problem]:
     problems: list[Problem] = []
@@ -458,16 +408,10 @@ def _record_contract_problem(
     field_name: str,
     issue: MeasurementValueContractIssue,
 ) -> Problem:
-    if issue.code in {
-        MeasurementValueContractIssueCode.DTYPE_MISMATCH,
-        MeasurementValueContractIssueCode.ARRAY_ELEMENT_TYPE_MISMATCH,
-    }:
+    if issue.code is MeasurementValueContractIssueCode.DTYPE_MISMATCH:
         code = "measurement_record_dtype_mismatch"
         dimension = "dtype"
-    elif issue.code in {
-        MeasurementValueContractIssueCode.UNIT_MISMATCH,
-        MeasurementValueContractIssueCode.ARRAY_ELEMENT_UNIT_MISMATCH,
-    }:
+    elif issue.code is MeasurementValueContractIssueCode.UNIT_MISMATCH:
         code = "measurement_record_unit_mismatch"
         dimension = "unit"
     elif issue.code is MeasurementValueContractIssueCode.SHAPE_MISMATCH:

@@ -180,6 +180,12 @@ class AcquisitionResultSpec(BaseModel):
         )
         return value
 
+    @model_validator(mode="after")
+    def validate_unitless_dtype(self) -> AcquisitionResultSpec:
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(f"{self.dtype} acquisition results cannot have a unit")
+        return self
+
 
 class StateDiscriminatorRef(BaseModel):
     """Physical discriminator selecting one acquisition result case."""
@@ -478,6 +484,8 @@ class CollectResultRequest(BaseModel):
     @model_validator(mode="after")
     def validate_target(self) -> CollectResultRequest:
         _validate_entity_target(self.entity_ids, self.channel_bindings)
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            raise ValueError(f"{self.dtype} collection results cannot have a unit")
         return self
 
 

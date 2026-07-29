@@ -931,14 +931,12 @@ export interface components {
             size_bytes: number;
         };
         CommandPayloadBody: components["schemas"]["InlinePayloadBody"] | components["schemas"]["BlobPayloadBody"];
-        /** ComplexQuantity */
-        ComplexQuantity: {
+        /** ComplexComponents */
+        ComplexComponents: {
             /** Imag */
             imag: number;
             /** Real */
             real: number;
-            /** Unit */
-            unit: string;
         };
         /**
          * ComponentSpec
@@ -1737,6 +1735,11 @@ export interface components {
              * @enum {string}
              */
             dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "array";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Shape */
             shape: [
@@ -1774,7 +1777,7 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v1
+             * @default scopecat.measurement_record.v2
              */
             record_schema: string;
             /** Variables */
@@ -1808,7 +1811,26 @@ export interface components {
             next_offset?: number | null;
         };
         "MeasurementRecord-Output": unknown;
-        "MeasurementValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["ComplexQuantity"] | components["schemas"]["MeasurementArray-Output"];
+        /** MeasurementScalar */
+        "MeasurementScalar-Output": {
+            /**
+             * Dtype
+             * @default float64
+             * @enum {string}
+             */
+            dtype: "float64" | "int64" | "complex128" | "bool" | "string";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "scalar";
+            metadata?: components["schemas"]["JsonMetadata-Output"];
+            /** Unit */
+            unit?: string | null;
+            value: components["schemas"]["MeasurementScalarData"];
+        };
+        MeasurementScalarData: boolean | number | string | components["schemas"]["ComplexComponents"];
+        "MeasurementValue-Output": components["schemas"]["MeasurementScalar-Output"] | components["schemas"]["MeasurementArray-Output"];
         /** MeasurementVariable */
         MeasurementVariable: {
             /** Dims */

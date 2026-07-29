@@ -104,6 +104,23 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
         assert getattr(instrument_sdk, name) is owner
 
 
+@pytest.mark.parametrize("dtype", ["bool", "string"])
+def test_bool_and_string_acquisition_contracts_reject_units(
+    dtype: MeasurementDType,
+) -> None:
+    with pytest.raises(ValidationError, match="cannot have a unit"):
+        acquisition_result("invalid", dtype=dtype, unit="ratio")
+    with pytest.raises(ValidationError, match="cannot have a unit"):
+        CollectResultRequest(
+            id="invalid",
+            interface_id="test.readout/v1",
+            acquisition_id="sample",
+            result_id="invalid",
+            dtype=dtype,
+            unit="ratio",
+        )
+
+
 def test_projected_state_stays_internal_to_instrument_preflight() -> None:
     assert not hasattr(instrument_sdk, "ProjectedInstrumentState")
     assert not hasattr(instrument_sdk, "project_instrument_state")
@@ -1345,7 +1362,7 @@ def test_collect_validator_accepts_compatible_units_and_dynamic_shapes() -> None
 def test_collect_validator_checks_dtype_unit_and_axis_contracts() -> None:
     problems = validate_collect_command(
         command=_collect_command(
-            dtype="string",
+            dtype="int64",
             unit="K",
             dimensions=[
                 CollectAxisRequest(
@@ -1515,7 +1532,7 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
         receipt=CollectReceipt(
             readback=RecordInstrumentReadback(
                 values={
-                    "signal": MeasurementArray(
+                    "signal": MeasurementArray.create(
                         dtype="float64",
                         unit="GHz",
                         shape=(2,),
@@ -1530,7 +1547,7 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
         receipt=CollectReceipt(
             readback=RecordInstrumentReadback(
                 values={
-                    "unexpected": MeasurementArray(
+                    "unexpected": MeasurementArray.create(
                         dtype="string",
                         shape=(1,),
                         values=("bad",),
@@ -1544,7 +1561,7 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
         receipt=CollectReceipt(
             readback=RecordInstrumentReadback(
                 values={
-                    "signal": MeasurementArray(
+                    "signal": MeasurementArray.create(
                         dtype="string",
                         shape=(1,),
                         values=("bad",),
@@ -1572,7 +1589,7 @@ def test_collect_receipt_validator_allows_unspecified_dynamic_shape() -> None:
         receipt=CollectReceipt(
             readback=RecordInstrumentReadback(
                 values={
-                    "signal": MeasurementArray(
+                    "signal": MeasurementArray.create(
                         dtype="float64",
                         unit="Hz",
                         shape=(3,),

@@ -13,11 +13,11 @@ from scopecat.execution.measurement_postprocessors import (
     execute_measurement_postprocessors,
 )
 from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
-from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import (
-    ComplexQuantity,
+    ComplexComponents,
     MeasurementArray,
+    MeasurementScalar,
     MeasurementValue,
 )
 from scopecat.measurements.values import seal_measurement_values
@@ -53,9 +53,16 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
     observed: list[float] = []
 
     def kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:
-        assert isinstance(value, Quantity)
-        observed.append(value.value)
-        return {"output": Quantity(value.value + 1.0, "ratio")}
+        assert isinstance(value, MeasurementScalar)
+        assert isinstance(value.value, int | float)
+        observed.append(float(value.value))
+        return {
+            "output": MeasurementScalar.create(
+                dtype="float64",
+                value=value.value + 1.0,
+                unit="ratio",
+            )
+        }
 
     completed = execute_measurement_postprocessors(
         (_postprocessor(scenario, kernel),),
@@ -75,8 +82,8 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
         sealed.value_for_output(point.logical_id, output_use.id).value
         for point in scenario.points
     ] == [
-        Quantity(1.0, "ratio"),
-        Quantity(101.0, "ratio"),
+        MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
+        MeasurementScalar.create(dtype="float64", value=101.0, unit="ratio"),
     ]
 
 
@@ -84,15 +91,19 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
     ("value", "code"),
     [
         (
-            ComplexQuantity(real=1.0, imag=0.0, unit="ratio"),
+            MeasurementScalar.create(
+                dtype="complex128",
+                value=ComplexComponents(real=1.0, imag=0.0),
+                unit="ratio",
+            ),
             "measurement_postprocessor_output_dtype_mismatch",
         ),
         (
-            Quantity(1.0, "V"),
+            MeasurementScalar.create(dtype="float64", value=1.0, unit="V"),
             "measurement_postprocessor_output_unit_mismatch",
         ),
         (
-            MeasurementArray(
+            MeasurementArray.create(
                 dtype="float64",
                 unit="ratio",
                 shape=[1],

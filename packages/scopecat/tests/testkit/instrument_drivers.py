@@ -6,6 +6,7 @@ from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Scalar
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
@@ -127,7 +128,11 @@ class SignalInstrumentDriver:
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
-                    request_id: Quantity(value=1.0, unit="ratio")
+                    request_id: MeasurementScalar.create(
+                        dtype="float64",
+                        value=1.0,
+                        unit="ratio",
+                    )
                     for request_id in selected
                 },
                 metadata={"implementation": self.implementation_id},

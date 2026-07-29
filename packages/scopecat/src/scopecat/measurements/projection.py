@@ -7,10 +7,16 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import cast
 
+from pydantic import JsonValue as WireJsonValue
+
+from scopecat.graph.relations.model import CellValue
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (
@@ -25,9 +31,10 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
 )
 from scopecat.records.measurement import (
-    CoordinateValue,
     MeasurementDatasetSchema,
     MeasurementRecord,
+    MeasurementScalar,
+    MeasurementValue,
 )
 
 
@@ -251,14 +258,45 @@ def _record_product_exists(
 
 
 def _point_coordinates(
-    row: Mapping[str, object],
+    row: Mapping[str, CellValue],
     coordinate_ids: Sequence[str],
-) -> dict[str, CoordinateValue]:
-    coordinates: dict[str, CoordinateValue] = {}
-    for coordinate_id in coordinate_ids:
-        value = row[coordinate_id]
-        coordinates[coordinate_id] = cast("CoordinateValue", deepcopy(value))
-    return coordinates
+) -> dict[str, MeasurementValue]:
+    return {
+        coordinate_id: _measurement_coordinate(row[coordinate_id])
+        for coordinate_id in coordinate_ids
+    }
+
+
+def _measurement_coordinate(value: CellValue) -> MeasurementScalar:
+    if isinstance(value, Quantity):
+        return MeasurementScalar.create(
+            dtype="float64",
+            unit=value.unit,
+            value=value.value,
+        )
+    if isinstance(value, EntityRef):
+        entity: dict[str, WireJsonValue] = {}
+        if value.kind is not None:
+            entity["kind"] = value.kind
+        if value.metadata:
+            entity["metadata"] = cast(
+                "WireJsonValue",
+                thaw_json_value(value.metadata),
+            )
+        return MeasurementScalar.create(
+            dtype="string",
+            value=value.id,
+            metadata={"entity": entity},
+        )
+    if isinstance(value, bool):
+        return MeasurementScalar.create(dtype="bool", value=value)
+    if isinstance(value, int):
+        return MeasurementScalar.create(dtype="int64", value=value)
+    if isinstance(value, float):
+        return MeasurementScalar.create(dtype="float64", value=value)
+    if isinstance(value, str):
+        return MeasurementScalar.create(dtype="string", value=value)
+    raise TypeError(f"unsupported persisted point coordinate: {type(value).__name__}")
 
 
 def _projection_problem(

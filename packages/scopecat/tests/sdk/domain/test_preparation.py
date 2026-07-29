@@ -11,7 +11,7 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.errors import ProviderContractError
-from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.results import MeasurementDType, MeasurementScalar
 from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainPreparationBuilder,
@@ -61,6 +61,8 @@ def _preparation_context(
     *,
     namespace: str,
     shared_product_uses: bool = False,
+    dtype: MeasurementDType = "int64",
+    unit: str | None = "count",
 ) -> DomainBatchRequest:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.coordinate(f"{namespace}_count", count_type)
@@ -76,8 +78,8 @@ def _preparation_context(
     )
     module = sc.module_body(id=f"test.sdk.preparation.{namespace}").product(
         "raw",
-        unit="count",
-        dtype="int64",
+        unit=unit,
+        dtype=dtype,
     )
     execution = sc.domain_execution(
         program,
@@ -175,7 +177,7 @@ def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) 
     values = tuple(
         DomainOutputValue(
             result.result_address,
-            Quantity(value=index, unit="count"),
+            MeasurementScalar.create(dtype="int64", value=index, unit="count"),
         )
         for index, result in enumerate(mapping.results)
     )
@@ -195,6 +197,40 @@ def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) 
     assert {problem.code for problem in caught.value.problems} == {
         "domain_output_missing_result"
     }
+
+
+@pytest.mark.parametrize(
+    ("dtype", "value"),
+    (("bool", True), ("string", "ready")),
+)
+def test_result_values_accept_every_scalar_dtype(
+    tmp_path: Path,
+    dtype: MeasurementDType,
+    value: bool | str,
+) -> None:
+    context = _preparation_context(
+        tmp_path,
+        namespace=f"scalar-{dtype}",
+        dtype=dtype,
+        unit=None,
+    )
+    mapping = DomainPreparationBuilder(context).map_measurements(
+        results=_valid_mapping_inputs(context)
+    )
+    values = tuple(
+        DomainOutputValue(
+            result.result_address,
+            MeasurementScalar.create(dtype=dtype, value=value),
+        )
+        for result in mapping.results
+    )
+
+    candidates = seal_domain_output_values(mapping, values)
+
+    assert [candidate.value for candidate in candidates] == [
+        MeasurementScalar.create(dtype=dtype, value=value),
+        MeasurementScalar.create(dtype=dtype, value=value),
+    ]
 
 
 def test_map_measurements_rejects_foreign_point_and_product_use(

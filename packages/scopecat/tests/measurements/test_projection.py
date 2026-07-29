@@ -4,11 +4,14 @@ from scopecat.compiler.measurement_projection import (
     project_measurement_catalog,
     project_run_point_catalog,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
 )
+from scopecat.measurements.results import MeasurementScalar
 from scopecat.measurements.values import (
     seal_measurement_values,
 )
@@ -90,8 +93,8 @@ def test_projection_filters_non_coordinate_point_values() -> None:
     )
 
     assert [record.coordinates for record in projected.records] == [
-        {"x": 0.0},
-        {"x": 1.0},
+        {"x": MeasurementScalar.create(dtype="float64", value=0.0)},
+        {"x": MeasurementScalar.create(dtype="float64", value=1.0)},
     ]
     assert all("opaque" not in record.coordinates for record in projected.records)
 
@@ -137,8 +140,8 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
 
     assert [record.point_index for record in projected.records] == [0, 1]
     assert [record.coordinates for record in projected.records] == [
-        {"x": 4.0},
-        {"x": 4.0},
+        {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
+        {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
     ]
     assert (
         scenario.linked_points.point_domain.points[0].logical_id
@@ -166,10 +169,65 @@ def test_projection_emits_complete_run_records() -> None:
     record = projected.records[0]
     assert record.run_id == "complete-record-run"
     assert record.point_index == 0
-    assert record.coordinates == {"x": 0.0}
+    assert record.coordinates == {
+        "x": MeasurementScalar.create(dtype="float64", value=0.0)
+    }
     primary = record.observables["primary"]
-    assert isinstance(primary, Quantity)
+    assert isinstance(primary, MeasurementScalar)
+    assert primary.dtype == "float64"
+    assert primary.unit == "ratio"
     assert primary.value == 0.0
+
+
+def test_projection_normalizes_compiler_coordinates_to_measurement_scalars() -> None:
+    scenario, assembled = assembled_measurement_values_for_all_uses(point_values=(0.0,))
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+    original = scenario.points[0]
+    cases = (
+        (
+            Quantity(value=5.0, unit="GHz"),
+            MeasurementScalar.create(dtype="float64", unit="GHz", value=5.0),
+        ),
+        (
+            EntityRef(
+                id="q0",
+                kind="qubit",
+                metadata={"label": "readout"},
+            ),
+            MeasurementScalar.create(
+                dtype="string",
+                value="q0",
+                metadata={
+                    "entity": {
+                        "kind": "qubit",
+                        "metadata": {"label": "readout"},
+                    }
+                },
+            ),
+        ),
+        (
+            EntityRef(id="q0"),
+            MeasurementScalar.create(
+                dtype="string",
+                value="q0",
+                metadata={"entity": {}},
+            ),
+        ),
+        (True, MeasurementScalar.create(dtype="bool", value=True)),
+        (2, MeasurementScalar.create(dtype="int64", value=2)),
+        (2.5, MeasurementScalar.create(dtype="float64", value=2.5)),
+        ("high", MeasurementScalar.create(dtype="string", value="high")),
+    )
+
+    for source, expected in cases:
+        projected = project_measurement_records(
+            projection,
+            assembled,
+            run_id="coordinate-normalization-run",
+            points=(RunPoint(original.logical_id, {"x": source}),),
+        )
+
+        assert projected.records[0].coordinates == {"x": expected}
 
 
 def test_zero_points_and_no_record_projection_produce_no_measurement_records() -> None:

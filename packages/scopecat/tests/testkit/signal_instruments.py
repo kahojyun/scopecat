@@ -12,6 +12,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
@@ -202,7 +203,8 @@ class TestSignalInstrument:
         )
         if not requested_result_ids:
             return CollectReceipt(readback=InstrumentReadback())
-        value = Quantity(
+        value = MeasurementScalar.create(
+            dtype="float64",
             value=_test_signal(self._frequency_ghz()),
             unit="ratio",
         )

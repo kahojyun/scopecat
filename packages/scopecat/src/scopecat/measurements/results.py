@@ -6,28 +6,28 @@ from scopecat.measurements.contracts import (
     validate_measurement_records_against_schema,
 )
 from scopecat.records.measurement import (
-    ComplexQuantity,
-    CoordinateValue,
+    ComplexComponents,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementDType,
     MeasurementRecord,
+    MeasurementScalar,
     MeasurementValue,
     MeasurementVariable,
     MeasurementVariableRole,
 )
 
 __all__ = [
-    "ComplexQuantity",
-    "CoordinateValue",
+    "ComplexComponents",
     "MeasurementArray",
     "MeasurementDType",
     "MeasurementDataset",
     "MeasurementDatasetSchema",
     "MeasurementDimension",
     "MeasurementRecord",
+    "MeasurementScalar",
     "MeasurementValue",
     "MeasurementVariable",
     "MeasurementVariableRole",

@@ -21,13 +21,12 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
 )
-from scopecat.kernel.quantity import Quantity
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
     execution_transition_identity,
 )
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetSeal,
@@ -87,7 +86,13 @@ def _append(
                 logical_point_id=f"point-{point_index}",
                 point_index=point_index,
                 coordinates={},
-                observables={"signal": Quantity(value=value, unit="ratio")},
+                observables={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=value,
+                        unit="ratio",
+                    )
+                },
             ),
         ),
     )

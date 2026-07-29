@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import (
     Problem,
@@ -49,16 +49,6 @@ class MeasurementValueCatalog:
         product_by_use_id = {
             use.id: products_by_id[use.product_id] for use in self.product_uses
         }
-        problems = tuple(
-            problem
-            for use in self.product_uses
-            for problem in _catalog_carrier_problems(
-                use.id,
-                product_by_use_id[use.id],
-            )
-        )
-        if problems:
-            raise CheckFailed(problems)
         object.__setattr__(
             self,
             "product_use_ids",
@@ -76,7 +66,7 @@ class MeasurementValueCatalog:
             stable_content_hash(
                 content_fingerprint(
                     {
-                        "schema": "scopecat.measurement_value_contract.v1",
+                        "schema": "scopecat.measurement_value_contract.v2",
                         "experiment_id": self.point_contract.experiment_id,
                         "experiment_kind": self.point_contract.experiment_kind,
                         "coordinate_ids": self.point_contract.coordinate_ids,
@@ -274,43 +264,6 @@ def seal_measurement_values(
             for point in points
             for use_id in catalog.product_use_ids
         ),
-    )
-
-
-def _catalog_carrier_problems(
-    use_id: ProductUseId,
-    product: ProductDef,
-) -> tuple[Problem, ...]:
-    problems: list[Problem] = []
-    details = {
-        "product_use_id": use_id.value,
-        "product_id": product.id.qualified_name,
-    }
-    if not product.axes and product.dtype in {"bool", "string"}:
-        problems.append(
-            _catalog_problem(
-                "measurement_value_scalar_dtype_unsupported",
-                f"measurement values have no scalar {product.dtype!r} carrier",
-                path=("product_uses", use_id.value, "product", "dtype"),
-                details={**details, "actual": product.dtype},
-            )
-        )
-    return tuple(problems)
-
-
-def _catalog_problem(
-    code: str,
-    message: str,
-    *,
-    path: tuple[str | int, ...],
-    details: Mapping[str, object] | None = None,
-) -> Problem:
-    return problem(
-        code,
-        message,
-        phase=ProblemPhase.PLANNING,
-        location=model_location("measurement_values", *path),
-        details=details,
     )
 
 

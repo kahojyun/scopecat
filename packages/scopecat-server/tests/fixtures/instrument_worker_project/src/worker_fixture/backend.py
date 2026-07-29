@@ -6,7 +6,6 @@ import time
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import (
     InstrumentPropertyState,
@@ -14,8 +13,9 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
 )
 from scopecat.records.measurement import (
-    ComplexQuantity,
+    ComplexComponents,
     MeasurementArray,
+    MeasurementScalar,
     MeasurementValue,
 )
 from scopecat.sdk.instruments import (
@@ -197,26 +197,26 @@ def create_failing_backend(project_root: Path) -> InstrumentBackend:
 
 def _measurement_value(result_id: str) -> MeasurementValue:
     if result_id == "complex_array":
-        return MeasurementArray(
+        return MeasurementArray.create(
             dtype="complex128",
             unit="ratio",
             shape=(1,),
-            values=(ComplexQuantity(real=1.0, imag=-0.5, unit="ratio"),),
+            values=(ComplexComponents(real=1.0, imag=-0.5),),
         )
     if result_id == "invalid_array":
-        return MeasurementArray(
+        return MeasurementArray.create(
             dtype="complex128",
             unit="ratio",
             shape=(1,),
             values=(1.0 - 0.5j,),
         )
     if result_id == "oversized_array":
-        return MeasurementArray(
+        return MeasurementArray.create(
             dtype="string",
             shape=(1,),
             values=("x" * (2 * 1024 * 1024),),
         )
-    return Quantity(value=1.25, unit="ratio")
+    return MeasurementScalar.create(dtype="float64", value=1.25, unit="ratio")
 
 
 def _encode_bytes(value: object) -> bytes:

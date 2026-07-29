@@ -9,12 +9,12 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from scopecat import (
     MeasurementPostprocessor,
     ProductRef,
-    Quantity,
     measurement_postprocessor,
 )
 from scopecat.measurements.results import (
-    ComplexQuantity,
+    ComplexComponents,
     MeasurementArray,
+    MeasurementScalar,
     MeasurementValue,
 )
 
@@ -99,7 +99,7 @@ def binary_iq_probability_postprocessor(
 def _binary_iq_probability_value(
     value: MeasurementValue,
     discriminator: BinaryIqDiscriminator,
-) -> tuple[Quantity, Quantity]:
+) -> tuple[MeasurementScalar, MeasurementScalar]:
     if not isinstance(value, MeasurementArray):
         raise TypeError("binary IQ postprocessor requires a MeasurementArray")
     if value.dtype != "complex128" or value.unit != "ratio" or len(value.shape) != 1:
@@ -111,24 +111,28 @@ def _binary_iq_probability_value(
 
     state_0_count = 0
     for shot in value.values:
-        if not isinstance(shot, ComplexQuantity):
+        if not isinstance(shot, ComplexComponents):
             raise TypeError("binary IQ postprocessor requires complex shot leaves")
-        if shot.unit != "ratio" or not (
-            math.isfinite(shot.real) and math.isfinite(shot.imag)
-        ):
-            raise ValueError("binary IQ postprocessor requires finite ratio IQ shots")
         if _classify_shot(shot, discriminator) == 0:
             state_0_count += 1
 
     probability_0 = state_0_count / len(value.values)
     return (
-        Quantity(value=probability_0, unit="ratio"),
-        Quantity(value=1.0 - probability_0, unit="ratio"),
+        MeasurementScalar.create(
+            dtype="float64",
+            value=probability_0,
+            unit="ratio",
+        ),
+        MeasurementScalar.create(
+            dtype="float64",
+            value=1.0 - probability_0,
+            unit="ratio",
+        ),
     )
 
 
 def _classify_shot(
-    shot: ComplexQuantity,
+    shot: ComplexComponents,
     discriminator: BinaryIqDiscriminator,
 ) -> Literal[0, 1]:
     state_0 = discriminator.state_0_centroid

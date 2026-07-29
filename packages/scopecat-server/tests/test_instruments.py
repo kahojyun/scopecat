@@ -33,7 +33,7 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
@@ -224,7 +224,13 @@ class _InvalidCollectDriver(_TrackingDriver):
         self.collect_requests.append(request)
         return CollectReceipt(
             readback=InstrumentReadback(
-                values={"signal": Quantity(value=1.0, unit="K")}
+                values={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=1.0,
+                        unit="K",
+                    )
+                }
             )
         )
 
@@ -397,9 +403,17 @@ class _VariantDriver(_TrackingDriver):
         self.collect_requests.append(request)
         values: dict[str, MeasurementValue] = {
             result.request_id: (
-                Quantity(value=self.voltage_level, unit="V")
+                MeasurementScalar.create(
+                    dtype="float64",
+                    value=self.voltage_level,
+                    unit="V",
+                )
                 if result.result_id == "monitored_voltage"
-                else Quantity(value=self.current_level, unit="A")
+                else MeasurementScalar.create(
+                    dtype="float64",
+                    value=self.current_level,
+                    unit="A",
+                )
             )
             for result in request.results
         }

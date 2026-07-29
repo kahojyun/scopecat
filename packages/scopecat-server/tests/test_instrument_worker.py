@@ -17,10 +17,13 @@ from fastapi.testclient import TestClient
 from scopecat.adapters.sqlite import SQLiteControlPlane
 from scopecat.daemon.views import DaemonHealth
 from scopecat.daemon.wire import InstrumentSessionOpenCommand
-from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import ConfigProfileSnapshot, instrument_bindings
-from scopecat.records.measurement import ComplexQuantity, MeasurementArray
+from scopecat.records.measurement import (
+    ComplexComponents,
+    MeasurementArray,
+    MeasurementScalar,
+)
 from scopecat.sdk.instruments import (
     DriverApplyRequest,
     DriverCollectRequest,
@@ -150,7 +153,8 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
         ),
     )
     assert collected.readback is not None
-    assert collected.readback.values["signal"] == Quantity(
+    assert collected.readback.values["signal"] == MeasurementScalar.create(
+        dtype="float64",
         value=1.25,
         unit="ratio",
     )
@@ -308,11 +312,11 @@ def test_worker_rejects_lossy_collect_json_without_poisoning_protocol(
         ),
     )
     assert valid.readback is not None
-    assert valid.readback.values["signal"] == MeasurementArray(
+    assert valid.readback.values["signal"] == MeasurementArray.create(
         dtype="complex128",
         unit="ratio",
         shape=(1,),
-        values=(ComplexQuantity(real=1.0, imag=-0.5, unit="ratio"),),
+        values=(ComplexComponents(real=1.0, imag=-0.5),),
     )
 
     with pytest.raises(InstrumentBackendError, match="request failed"):

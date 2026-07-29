@@ -19,11 +19,11 @@ from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
-from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.records import RecordUse
+from scopecat.measurements.results import MeasurementScalar
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCandidate,
@@ -157,7 +157,8 @@ def measurement_value_candidates(
         MeasurementValueCandidate(
             logical_point_id=point.logical_id,
             product_use_id=use.id,
-            value=Quantity(
+            value=MeasurementScalar.create(
+                dtype="float64",
                 value=float(point.logical_ordinal * 100 + use_index),
                 unit="ratio",
             ),

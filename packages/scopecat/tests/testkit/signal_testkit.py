@@ -24,9 +24,9 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import (
-    MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementRecord,
+    MeasurementScalar,
     MeasurementValue,
 )
 from scopecat.records.config import ConfigProfileSnapshot
@@ -78,7 +78,7 @@ class BestSignalAnalysisResult(BaseModel):
     input_ref: str = BEST_SIGNAL_INPUT_REF
     parameter_id: str
     best_point_index: int
-    best_signal: Quantity
+    best_signal: MeasurementScalar
     old_value: Quantity
     proposed_value: Quantity
     problems: tuple[Problem, ...] = ()
@@ -152,7 +152,7 @@ class BestSignalAnalysisStep:
             parameter_id,
             old_value=old_value,
         )
-        best_signal = _signal_quantity(
+        best_signal = _signal_scalar(
             measurement=best_measurement,
             problem_ref=BEST_SIGNAL_INPUT_REF,
         )
@@ -180,7 +180,7 @@ class BestSignalAnalysisStep:
                 parameter_id,
                 sc.replace_scalar_parameter(parameter_id, proposed_value),
                 reason=reason,
-                confidence=best_signal.value,
+                confidence=_numeric_scalar_value(best_signal),
             )
         )
 
@@ -287,18 +287,19 @@ def _numeric_observable_values(
                 )
             ]
         )
-    if isinstance(observable, Quantity):
-        return [observable.value], unit
-    if not isinstance(observable, MeasurementArray):
-        raise CheckFailed(
-            [
-                _problem(
-                    "invalid_analysis_input",
-                    f"observable {name} must use numeric values",
-                    problem_ref,
-                )
-            ]
-        )
+    if isinstance(observable, MeasurementScalar):
+        try:
+            return [_numeric_scalar_value(observable)], unit
+        except ValueError as error:
+            raise CheckFailed(
+                [
+                    _problem(
+                        "invalid_analysis_input",
+                        f"observable {name} must use numeric values",
+                        problem_ref,
+                    )
+                ]
+            ) from error
     if observable.dtype not in {"float64", "int64"}:
         raise CheckFailed(
             [
@@ -393,7 +394,13 @@ def _best_signal_measurement(
     candidates = [
         measurement
         for measurement in measurements
-        if isinstance(measurement.observables.get("signal"), Quantity)
+        if (
+            isinstance(
+                signal := measurement.observables.get("signal"),
+                MeasurementScalar,
+            )
+            and _is_numeric_scalar(signal)
+        )
     ]
     if not candidates:
         raise CheckFailed(
@@ -408,22 +415,24 @@ def _best_signal_measurement(
     return max(
         candidates,
         key=lambda measurement: (
-            _signal_quantity(
-                measurement=measurement,
-                problem_ref=BEST_SIGNAL_INPUT_REF,
-            ).value,
+            _numeric_scalar_value(
+                _signal_scalar(
+                    measurement=measurement,
+                    problem_ref=BEST_SIGNAL_INPUT_REF,
+                )
+            ),
             -measurement.point_index,
         ),
     )
 
 
-def _signal_quantity(
+def _signal_scalar(
     *,
     measurement: MeasurementRecord,
     problem_ref: str,
-) -> Quantity:
+) -> MeasurementScalar:
     signal = measurement.observables.get("signal")
-    if isinstance(signal, Quantity):
+    if isinstance(signal, MeasurementScalar) and _is_numeric_scalar(signal):
         return signal
     raise CheckFailed(
         [
@@ -442,8 +451,8 @@ def _proposed_value(
     *,
     old_value: Quantity,
 ) -> Quantity:
-    quantity = measurement.coordinates.get(parameter_id)
-    if not isinstance(quantity, Quantity):
+    scalar = measurement.coordinates.get(parameter_id)
+    if not isinstance(scalar, MeasurementScalar):
         raise CheckFailed(
             [
                 _problem(
@@ -453,11 +462,44 @@ def _proposed_value(
                 )
             ]
         )
+    if scalar.unit is None or not _is_numeric_scalar(scalar):
+        raise CheckFailed(
+            [
+                _problem(
+                    "missing_parameter_value",
+                    f"best point parameter {parameter_id} has no unit",
+                    BEST_SIGNAL_INPUT_REF,
+                )
+            ]
+        )
+    quantity = Quantity(
+        value=_numeric_scalar_value(scalar),
+        unit=scalar.unit,
+    )
     if quantity != old_value:
         return quantity
     # The symmetric fake signal peaks at the current center. Keep the analysis
     # fixture useful as a proposal workflow by producing a small next-fit update.
     return Quantity(value=old_value.value + 0.01, unit=old_value.unit)
+
+
+def _numeric_scalar_value(value: MeasurementScalar) -> float:
+    selected = value.value
+    if (
+        value.dtype not in {"float64", "int64"}
+        or isinstance(selected, bool)
+        or not isinstance(selected, int | float)
+    ):
+        raise ValueError("measurement scalar must be numeric")
+    return float(selected)
+
+
+def _is_numeric_scalar(value: MeasurementScalar) -> bool:
+    return (
+        value.dtype in {"float64", "int64"}
+        and not isinstance(value.value, bool)
+        and isinstance(value.value, int | float)
+    )
 
 
 def _problem(code: str, message: str, ref: str) -> Problem:

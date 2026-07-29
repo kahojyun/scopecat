@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scopecat.kernel.quantity import Quantity
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
@@ -26,6 +26,9 @@ def test_domain_invocation_spec_retains_only_lab_owned_declarations() -> None:
 
 
 def test_domain_result_values_retain_lab_owned_addresses() -> None:
-    value = DomainResultValue("result-1", Quantity(value=1.0, unit="ratio"))
+    value = DomainResultValue(
+        "result-1",
+        MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
+    )
 
     assert value.result_address == "result-1"

@@ -4,13 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.kernel.problems import model_location
-from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import validate_measurement_records_against_schema
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementRecord,
+    MeasurementScalar,
     MeasurementVariable,
 )
 from tests.testkit.measurement_models import signal_record
@@ -80,7 +80,11 @@ def test_validate_measurement_records_against_schema_accepts_compatible_units() 
             update={
                 "coordinates": {
                     **record.coordinates,
-                    "shot_index": Quantity(value=0.0, unit="count"),
+                    "shot_index": MeasurementScalar.create(
+                        dtype="int64",
+                        unit="count",
+                        value=0,
+                    ),
                 }
             }
         )
@@ -126,9 +130,15 @@ def test_validate_schema_accepts_point_local_arrays() -> None:
     record = MeasurementRecord(
         run_id="run-test",
         point_index=0,
-        coordinates={"drive_frequency": Quantity(value=5.0, unit="GHz")},
+        coordinates={
+            "drive_frequency": MeasurementScalar.create(
+                dtype="float64",
+                unit="GHz",
+                value=5.0,
+            )
+        },
         observables={
-            "i0": MeasurementArray(
+            "i0": MeasurementArray.create(
                 dtype="float64",
                 unit="ratio",
                 shape=[3],
@@ -183,11 +193,23 @@ def test_validate_measurement_records_against_schema_reports_contract_errors() -
         signal_record().model_copy(
             update={
                 "coordinates": {
-                    "drive_frequency": Quantity(value=5.0, unit="GHz"),
-                    "extra_coordinate": Quantity(value=1.0, unit="count"),
+                    "drive_frequency": MeasurementScalar.create(
+                        dtype="float64",
+                        unit="GHz",
+                        value=5.0,
+                    ),
+                    "extra_coordinate": MeasurementScalar.create(
+                        dtype="float64",
+                        unit="count",
+                        value=1.0,
+                    ),
                 },
                 "observables": {
-                    "extra_observable": Quantity(value=2.0, unit="ratio"),
+                    "extra_observable": MeasurementScalar.create(
+                        dtype="float64",
+                        unit="ratio",
+                        value=2.0,
+                    ),
                 },
             }
         )
@@ -239,8 +261,20 @@ def test_validate_measurement_records_against_schema_reports_unit_and_dtype() ->
     records = [
         signal_record().model_copy(
             update={
-                "coordinates": {"shot_index": Quantity(value=0.5, unit="count")},
-                "observables": {"signal": Quantity(value=0.5, unit="GHz")},
+                "coordinates": {
+                    "shot_index": MeasurementScalar.create(
+                        dtype="float64",
+                        unit="count",
+                        value=0.5,
+                    )
+                },
+                "observables": {
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        unit="GHz",
+                        value=0.5,
+                    )
+                },
             }
         )
     ]
@@ -256,28 +290,40 @@ def test_validate_measurement_records_against_schema_reports_unit_and_dtype() ->
     assert "measurement_record_unit_mismatch" in codes
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_schema_validation_reports_non_finite_integer_values(value: float) -> None:
+def test_validate_schema_accepts_bool_and_string_values() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
         dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         variables=[
             MeasurementVariable(
-                id="shot_index",
+                id="valid",
                 role="coordinate",
-                dtype="int64",
-                unit="count",
+                dtype="bool",
                 dims=["point"],
                 shape=[1],
-            )
+            ),
+            MeasurementVariable(
+                id="status",
+                role="observable",
+                dtype="string",
+                dims=["point"],
+                shape=[1],
+            ),
         ],
-        primary_coordinates=["shot_index"],
+        primary_coordinates=["valid"],
+        primary_observables=["status"],
     )
     record = MeasurementRecord(
         run_id="run-test",
         point_index=0,
-        coordinates={"shot_index": Quantity(value=value, unit="count")},
-        observables={},
+        coordinates={
+            "valid": MeasurementScalar.create(dtype="bool", unit=None, value=True),
+        },
+        observables={
+            "status": MeasurementScalar.create(
+                dtype="string", unit=None, value="ready"
+            ),
+        },
     )
 
     problems = validate_measurement_records_against_schema(
@@ -286,12 +332,50 @@ def test_schema_validation_reports_non_finite_integer_values(value: float) -> No
         "raw-measurements",
     )
 
-    assert [item.code for item in problems] == ["measurement_record_dtype_mismatch"]
+    assert problems == []
+
+
+def test_validate_schema_reports_unexpected_unit_for_unitless_variable() -> None:
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+        variables=[
+            MeasurementVariable(
+                id="sample",
+                role="observable",
+                dtype="float64",
+                unit=None,
+                dims=["point"],
+                shape=[1],
+            )
+        ],
+        primary_observables=["sample"],
+    )
+    record = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={},
+        observables={
+            "sample": MeasurementScalar.create(
+                dtype="float64",
+                unit="ratio",
+                value=0.5,
+            )
+        },
+    )
+
+    problems = validate_measurement_records_against_schema(
+        [record],
+        schema,
+        "raw-measurements",
+    )
+
+    assert [item.code for item in problems] == ["measurement_record_unit_mismatch"]
     assert problems[0].location == model_location(
         "measurement_dataset",
         "records",
         0,
-        "coordinates",
-        "shot_index",
-        "dtype",
+        "observables",
+        "sample",
+        "unit",
     )

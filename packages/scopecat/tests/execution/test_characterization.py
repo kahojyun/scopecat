@@ -34,6 +34,7 @@ from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,
@@ -444,7 +445,11 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
             MeasurementValueCandidate(
                 logical_point_id=point.logical_id,
                 product_use_id=use.id,
-                value=Quantity(value=1.0, unit="ratio"),
+                value=MeasurementScalar.create(
+                    dtype="float64",
+                    value=1.0,
+                    unit="ratio",
+                ),
             )
             for use in uses
         )
@@ -509,8 +514,16 @@ class _UnexpectedResultDriver(SignalInstrumentDriver):
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
-                    "signal": Quantity(value=1.0, unit="ratio"),
-                    "unexpected": Quantity(value=2.0, unit="ratio"),
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=1.0,
+                        unit="ratio",
+                    ),
+                    "unexpected": MeasurementScalar.create(
+                        dtype="float64",
+                        value=2.0,
+                        unit="ratio",
+                    ),
                 }
             )
         )

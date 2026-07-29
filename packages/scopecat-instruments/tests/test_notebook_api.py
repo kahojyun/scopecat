@@ -12,11 +12,11 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
-from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import (
     InstrumentReadback,
     InstrumentStateSnapshot,
 )
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     CollectCommand,
@@ -87,7 +87,11 @@ class _CollectingDaemon(DaemonClient):
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
-                    request.id: Quantity(0.0, request.unit or "ratio")
+                    request.id: MeasurementScalar.create(
+                        dtype="float64",
+                        value=0.0,
+                        unit=request.unit,
+                    )
                     for request in command.requests
                 }
             )

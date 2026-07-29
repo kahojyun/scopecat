@@ -9,8 +9,8 @@ import pytest
 from scopecat.compiler.typed.program import core_acquisitions, core_state
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
-from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import CollectReceipt, DriverCollectRequest
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.runtime import sqlite_run_repository
@@ -36,8 +36,16 @@ class UnexpectedResultInstrument(TestSignalInstrument):
         return CollectReceipt(
             readback=InstrumentReadback(
                 values={
-                    "signal": Quantity(value=1.0, unit="ratio"),
-                    "unexpected": Quantity(value=1.0, unit="ratio"),
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=1.0,
+                        unit="ratio",
+                    ),
+                    "unexpected": MeasurementScalar.create(
+                        dtype="float64",
+                        value=1.0,
+                        unit="ratio",
+                    ),
                 }
             )
         )

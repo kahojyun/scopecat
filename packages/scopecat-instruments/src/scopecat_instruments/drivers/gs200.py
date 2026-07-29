@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
+from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
@@ -260,7 +261,11 @@ class YokogawaGS200:
                     ]
                 )
             unit = "A" if mode == "voltage" else "V"
-            measured = Quantity(self.measure(), unit)
+            measured = MeasurementScalar.create(
+                dtype="float64",
+                unit=unit,
+                value=self.measure(),
+            )
             return CollectReceipt(
                 readback=InstrumentReadback(
                     values={result.request_id: measured for result in request.results},

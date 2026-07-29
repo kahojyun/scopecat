@@ -42,7 +42,7 @@ from scopecat.records.config import (
     InstrumentRunStartPolicy,
     config_content_hash,
 )
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
     ConfigRegistryRunConfigSource,
@@ -284,9 +284,17 @@ class _VariantDriver(_Driver):
         self.collect_requests.append(request)
         values: dict[str, MeasurementValue] = {
             result.request_id: (
-                Quantity(value=self.voltage_level, unit="V")
+                MeasurementScalar.create(
+                    dtype="float64",
+                    value=self.voltage_level,
+                    unit="V",
+                )
                 if result.result_id == "monitored_voltage"
-                else Quantity(value=self.current_level, unit="A")
+                else MeasurementScalar.create(
+                    dtype="float64",
+                    value=self.current_level,
+                    unit="A",
+                )
             )
             for result in request.results
         }
@@ -396,7 +404,10 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         receipt = instruments.execute_run_hardware(run_id, command)
         assert instruments.execute_run_hardware(run_id, command) == receipt
         assert [(value.product_use_id, value.value) for value in receipt.values] == [
-            ("signal-use", Quantity(value=1.0, unit="ratio"))
+            (
+                "signal-use",
+                MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
+            )
         ]
         assert len(driver.applied) == 1
         assert driver.read_count == 2
@@ -1590,6 +1601,7 @@ def _collect_action(
                 interface_id="test.scalar_signal/v1",
                 acquisition_id="sample",
                 result_id="signal",
+                unit="ratio",
             ),
         ),
         bindings=(

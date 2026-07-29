@@ -40,7 +40,7 @@ from scopecat.records.execution_journal import (
     execution_transition_content_hash,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
@@ -333,7 +333,13 @@ def _measurement() -> MeasurementRecord:
         logical_point_id="point-0",
         point_index=0,
         coordinates={},
-        observables={"signal": Quantity(value=1.25, unit="ratio")},
+        observables={
+            "signal": MeasurementScalar.create(
+                dtype="float64",
+                value=1.25,
+                unit="ratio",
+            )
+        },
     )
 
 

@@ -10,7 +10,7 @@ from typing import SupportsFloat, cast
 import numpy as np
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
@@ -164,16 +164,22 @@ def _observation_from_record(record: MeasurementRecord) -> DragBetaObservation:
         raise ValueError(
             "run does not contain the DRAG-beta measurement schema"
         ) from error
-    if not isinstance(beta, Quantity):
-        raise TypeError("DRAG-beta beta coordinates must be quantities")
-    if type(amplification) is not int:
+    if not isinstance(beta, MeasurementScalar):
+        raise TypeError("DRAG-beta beta coordinates must be measurement scalars")
+    if (
+        not isinstance(amplification, MeasurementScalar)
+        or amplification.dtype != "int64"
+        or type(amplification.value) is not int
+    ):
         raise TypeError("DRAG-beta amplification coordinates must be integers")
-    if not isinstance(probability_one, Quantity):
-        raise TypeError("DRAG-beta probability_1 values must be quantities")
+    if not isinstance(probability_one, MeasurementScalar):
+        raise TypeError("DRAG-beta probability_1 values must be measurement scalars")
     return DragBetaObservation(
-        beta=beta,
-        amplification=amplification,
-        p1=float(probability_one.to("ratio").value),
+        beta=_measurement_quantity(beta, "beta").to("ns"),
+        amplification=amplification.value,
+        p1=float(
+            _measurement_quantity(probability_one, "probability_1").to("ratio").value
+        ),
     )
 
 
@@ -195,6 +201,17 @@ def _beta_ns(value: Quantity) -> float:
     if not math.isfinite(selected):
         raise ValueError("DRAG beta must be finite")
     return selected
+
+
+def _measurement_quantity(value: MeasurementScalar, name: str) -> Quantity:
+    if (
+        value.dtype not in {"float64", "int64"}
+        or isinstance(value.value, bool)
+        or not isinstance(value.value, int | float)
+        or value.unit is None
+    ):
+        raise TypeError(f"DRAG-beta {name} must be a numeric scalar with a unit")
+    return Quantity(float(value.value), value.unit)
 
 
 __all__ = [

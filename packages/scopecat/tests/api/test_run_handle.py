@@ -10,6 +10,7 @@ from scopecat.authoring import (
     ExperimentTemplate,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
@@ -39,6 +40,15 @@ SIMPLE_FREQUENCY_SCAN = (
     )
     .build()
 )
+
+
+def _quantity_coordinate(record: MeasurementRecord, coordinate_id: str) -> Quantity:
+    value = record.coordinates[coordinate_id]
+    assert isinstance(value, MeasurementScalar)
+    assert value.dtype in {"float64", "int64"}
+    assert isinstance(value.value, int | float) and not isinstance(value.value, bool)
+    assert value.unit is not None
+    return Quantity(float(value.value), value.unit)
 
 
 def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
@@ -120,7 +130,10 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
             "drive_frequency",
             sc.replace_scalar_parameter(
                 "drive_frequency",
-                raw.dataset.records[2].coordinates["drive_frequency"],
+                _quantity_coordinate(
+                    raw.dataset.records[2],
+                    "drive_frequency",
+                ),
             ),
             reason="manual notebook pick",
         )
@@ -165,7 +178,10 @@ def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
         "drive_frequency",
         sc.replace_scalar_parameter(
             "drive_frequency",
-            raw.dataset.records[2].coordinates["drive_frequency"],
+            _quantity_coordinate(
+                raw.dataset.records[2],
+                "drive_frequency",
+            ),
         ),
         reason="manual center point",
     )

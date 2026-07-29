@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
@@ -144,10 +144,18 @@ class LakeShore372:
             telemetry = self.read_telemetry()
             values: dict[str, MeasurementValue] = {
                 result.request_id: (
-                    Quantity(telemetry.temperature_k, "K")
+                    MeasurementScalar.create(
+                        dtype="float64",
+                        unit="K",
+                        value=telemetry.temperature_k,
+                    )
                     if request.result_target(result)
                     == TEMPERATURE_READOUT_TEMPERATURE_RESULT
-                    else Quantity(telemetry.resistance_ohm, "Ohm")
+                    else MeasurementScalar.create(
+                        dtype="float64",
+                        unit="Ohm",
+                        value=telemetry.resistance_ohm,
+                    )
                 )
                 for result in request.results
             }

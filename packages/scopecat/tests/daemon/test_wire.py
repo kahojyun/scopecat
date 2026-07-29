@@ -58,7 +58,7 @@ from scopecat.kernel.state import StateValue
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
@@ -728,7 +728,13 @@ def test_effect_commands_do_not_repeat_durable_identity() -> None:
                 logical_point_id="point-0",
                 point_index=0,
                 coordinates={},
-                observables={"signal": Quantity(value=1, unit="ratio")},
+                observables={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=1,
+                        unit="ratio",
+                    )
+                },
             ),
         ),
     )

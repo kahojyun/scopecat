@@ -76,7 +76,7 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement import MeasurementRecord, MeasurementScalar
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
@@ -1879,7 +1879,13 @@ def test_effect_is_fenced_and_terminal_updates_control(
             logical_point_id="point-0",
             point_index=0,
             coordinates={},
-            observables={"signal": Quantity(value=1.25, unit="ratio")},
+            observables={
+                "signal": MeasurementScalar.create(
+                    dtype="float64",
+                    value=1.25,
+                    unit="ratio",
+                )
+            },
         )
         measurement_append = MeasurementDatasetAppend(
             run_id=run_id,
@@ -2052,7 +2058,13 @@ def test_effect_and_terminal_publication_roll_back_with_control(
             logical_point_id="point-0",
             point_index=0,
             coordinates={},
-            observables={"signal": Quantity(value=1.25, unit="ratio")},
+            observables={
+                "signal": MeasurementScalar.create(
+                    dtype="float64",
+                    value=1.25,
+                    unit="ratio",
+                )
+            },
         )
         append = MeasurementDatasetAppend(
             run_id=admission.run_id,

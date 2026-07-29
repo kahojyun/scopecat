@@ -9,8 +9,7 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
-from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.results import MeasurementValue
+from scopecat.measurements.results import MeasurementScalar, MeasurementValue
 from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainPointRef,
@@ -44,7 +43,13 @@ def _domain_scenario(
     )
 
     def summarize(_value: MeasurementValue) -> dict[str, MeasurementValue]:
-        return {"summary": Quantity(0, "count")}
+        return {
+            "summary": MeasurementScalar.create(
+                dtype="int64",
+                value=0,
+                unit="count",
+            )
+        }
 
     postprocessor = sc.measurement_postprocessor(
         "summarize",

@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import (
-    ComplexQuantity,
+    ComplexComponents,
     MeasurementArray,
+    MeasurementScalar,
     MeasurementValue,
 )
 from scopecat.sdk.instruments import (
@@ -357,9 +358,17 @@ class VirtualDcSource:
                     ]
                 )
             measured = (
-                Quantity(source.voltage_level_v / 1.0e3, "A")
+                MeasurementScalar.create(
+                    dtype="float64",
+                    unit="A",
+                    value=source.voltage_level_v / 1.0e3,
+                )
                 if source.source_mode == "voltage"
-                else Quantity(source.current_level_a * 1.0e3, "V")
+                else MeasurementScalar.create(
+                    dtype="float64",
+                    unit="V",
+                    value=source.current_level_a * 1.0e3,
+                )
             )
         return CollectReceipt(
             readback=InstrumentReadback(
@@ -502,10 +511,18 @@ class VirtualTemperatureMonitor:
             readback=InstrumentReadback(
                 values={
                     result.request_id: (
-                        Quantity(telemetry.temperature_k, "K")
+                        MeasurementScalar.create(
+                            dtype="float64",
+                            unit="K",
+                            value=telemetry.temperature_k,
+                        )
                         if request.result_target(result)
                         == TEMPERATURE_READOUT_TEMPERATURE_RESULT
-                        else Quantity(telemetry.resistance_ohm, "Ohm")
+                        else MeasurementScalar.create(
+                            dtype="float64",
+                            unit="Ohm",
+                            value=telemetry.resistance_ohm,
+                        )
                     )
                     for result in request.results
                 },
@@ -629,25 +646,21 @@ class VirtualNetworkAnalyzer:
         values: dict[str, MeasurementValue] = {}
         for result in request.results:
             if request.result_target(result) == NETWORK_SWEEP_FREQUENCY_RESULT:
-                values[result.request_id] = MeasurementArray(
+                values[result.request_id] = MeasurementArray.create(
                     dtype="float64",
                     unit="Hz",
                     shape=[len(trace.frequencies_hz)],
-                    values=[
-                        Quantity(frequency_hz, "Hz")
-                        for frequency_hz in trace.frequencies_hz
-                    ],
+                    values=trace.frequencies_hz,
                 )
             else:
-                values[result.request_id] = MeasurementArray(
+                values[result.request_id] = MeasurementArray.create(
                     dtype="complex128",
                     unit="ratio",
                     shape=[len(trace.values)],
                     values=[
-                        ComplexQuantity(
+                        ComplexComponents(
                             real=value.real,
                             imag=value.imag,
-                            unit="ratio",
                         )
                         for value in trace.values
                     ],

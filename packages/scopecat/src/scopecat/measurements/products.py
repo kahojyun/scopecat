@@ -49,6 +49,9 @@ class ProductDef:
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
+        if self.dtype in {"bool", "string"} and self.unit is not None:
+            msg = f"{self.dtype} measurement products cannot have a unit"
+            raise ValueError(msg)
         object.__setattr__(self, "axes", tuple(self.axes))
         object.__setattr__(
             self,

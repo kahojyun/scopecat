@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
 
 from scopecat.compiler.linking.linked import LinkedPlan, MaterializedLinkedPoints
 from scopecat.compiler.typed.point_domain import MaterializedPointDomain
 from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
 from scopecat.measurements.records import point_coordinate_ids
-from scopecat.measurements.results import CoordinateValue
 from scopecat.measurements.values import MeasurementValueCatalog
 
 
@@ -88,7 +86,7 @@ def project_run_point_catalog_from_domain(
             RunPoint(
                 point.logical_id,
                 {
-                    coordinate_id: cast("CoordinateValue", point.row[coordinate_id])
+                    coordinate_id: point.row[coordinate_id]
                     for coordinate_id in coordinate_ids
                 },
             )
