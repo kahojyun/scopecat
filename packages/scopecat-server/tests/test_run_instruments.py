@@ -776,7 +776,7 @@ def test_rejected_default_state_reconciliation_releases_without_quarantine(
         assert runtime.application.executor._control.get_run(run_id).state != (
             "attention_required"
         )
-        assert run_id not in instruments._run_runtimes
+        assert instruments._run_contexts[run_id].runtime is None
 
 
 def test_partial_default_state_reconciliation_releases_confirmed_state(
@@ -811,7 +811,7 @@ def test_partial_default_state_reconciliation_releases_confirmed_state(
         assert [driver.disconnect_count for driver in provider.drivers] == [0, 0]
         durable = runtime.application.executor._control.get_run(run_id)
         assert durable.state != "attention_required"
-        assert run_id not in runtime.application.instruments._run_runtimes
+        assert runtime.application.instruments._run_contexts[run_id].runtime is None
         runtime.application.executor.commit_terminal(
             run_id,
             TerminalRunCommitCommand(
@@ -1537,7 +1537,9 @@ def test_unknown_invoke_quarantines_and_discards_run_state(
         _assert_run_state_discarded(instruments, run_id)
 
 
-def test_finish_reads_terminal_state_releases_and_replays(tmp_path: Path) -> None:
+def test_finish_reads_terminal_state_releases_and_replays_concurrently(
+    tmp_path: Path,
+) -> None:
     provider = _Provider()
     with _runtime(tmp_path, provider) as runtime:
         run_id, lease_id = _start_run(runtime, load_config())
@@ -1550,13 +1552,65 @@ def test_finish_reads_terminal_state_releases_and_replays(tmp_path: Path) -> Non
             failed=False,
         )
 
-        receipt = instruments.finish_run_hardware(run_id, command)
-        assert instruments.finish_run_hardware(run_id, command) == receipt
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            receipts = tuple(
+                future.result(timeout=3)
+                for future in (
+                    pool.submit(instruments.finish_run_hardware, run_id, command),
+                    pool.submit(instruments.finish_run_hardware, run_id, command),
+                )
+            )
+        receipt, replay = receipts
+        assert replay == receipt
+        with pytest.raises(
+            BackendConflict,
+            match="finalized with different content",
+        ):
+            instruments.finish_run_hardware(
+                run_id,
+                command.model_copy(update={"failed": True}),
+            )
         assert receipt.final_state[0].instrument_id == "source-0"
         assert driver.abort_count == 0
         assert driver.disconnect_count == 0
         assert driver.read_count == 2
+        context = instruments._run_contexts[run_id]
+        assert context.provision is None
+        assert context.runtime is None
+        assert context.finalization is not None
+        instruments.release_run(run_id)
         _assert_run_state_discarded(instruments, run_id)
+
+
+def test_unprovisioned_run_operations_do_not_leave_contexts(tmp_path: Path) -> None:
+    provider = _Provider()
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+
+        with pytest.raises(BackendConflict, match="not provisioned"):
+            instruments.authorize_run_payload_upload(run_id, lease_id)
+        with pytest.raises(BackendConflict, match="not provisioned"):
+            instruments.execute_run_hardware(
+                run_id,
+                _batch_command(
+                    lease_id,
+                    "unprovisioned-batch",
+                    _apply_action("source-0", effect_id="unprovisioned-apply"),
+                ),
+            )
+        with pytest.raises(BackendConflict, match="not provisioned"):
+            instruments.finish_run_hardware(
+                run_id,
+                RunHardwareFinishCommand(
+                    lease_id=lease_id,
+                    operation_id="unprovisioned-finish",
+                    failed=False,
+                ),
+            )
+        instruments.finalize_run(run_id, token=lease_id)
+
+        assert run_id not in instruments._run_contexts
 
 
 def test_failed_finish_abort_failure_is_unknown(tmp_path: Path) -> None:
@@ -1701,6 +1755,7 @@ def test_terminal_commit_uses_the_same_abort_finalizer_as_explicit_finish(
         assert driver.abort_count == 1
         assert driver.read_count == 2
         assert driver.disconnect_count == 0
+        _assert_run_state_discarded(runtime.application.instruments, run_id)
 
 
 def test_disjoint_runs_do_not_serialize_hardware_batches(tmp_path: Path) -> None:
@@ -2147,10 +2202,7 @@ def _assert_run_state_discarded(
     instruments: InstrumentService,
     run_id: str,
 ) -> None:
-    assert run_id not in instruments._run_runtimes
-    assert run_id not in instruments._run_provisions
-    assert run_id not in instruments._run_open_locks
-    assert run_id not in instruments._finalizing_runs
+    assert run_id not in instruments._run_contexts
 
 
 def _two_instrument_config() -> ConfigProfileSnapshot:

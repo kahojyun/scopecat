@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -130,8 +129,6 @@ from .instrument_backend import (
 )
 from .payload_service import CommandPayloadService
 
-_FINISHED_RUN_CACHE_LIMIT = 256
-
 type _BackendHardwareRequest = (
     DriverApplyRequest | BackendInvokeRequest | DriverCollectRequest
 )
@@ -200,9 +197,17 @@ class _OwnershipRuntime:
 
 
 @dataclass(frozen=True, slots=True)
-class _FinishedRunHardware:
+class _RunFinalizing:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class _RunFinalized:
     command: RunHardwareFinishCommand
     receipt: RunHardwareFinalizationReceipt
+
+
+type _RunFinalization = _RunFinalizing | _RunFinalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,7 +218,16 @@ class _RunProvision:
         str,
         tuple[RunHardwareBatchCommand, RunHardwareBatchReceipt],
     ] = field(default_factory=dict)
-    lock: RLock = field(default_factory=RLock, compare=False, repr=False)
+
+
+@dataclass(slots=True)
+class _RunContext:
+    """Serialize one run and retain volatile receipts only until ``release_run``."""
+
+    lock: RLock = field(default_factory=RLock)
+    provision: _RunProvision | None = None
+    runtime: _OwnershipRuntime | None = None
+    finalization: _RunFinalization | None = None
 
 
 class InstrumentService:
@@ -238,18 +252,13 @@ class InstrumentService:
         self._actors = actors
         self._shutdown_grace_seconds = shutdown_grace_seconds
         self._sessions: dict[str, _OwnershipRuntime] = {}
-        self._finished_runs: OrderedDict[str, _FinishedRunHardware] = OrderedDict()
-        self._finished_run_cache_limit = _FINISHED_RUN_CACHE_LIMIT
-        self._run_runtimes: dict[str, _OwnershipRuntime] = {}
-        self._run_provisions: dict[str, _RunProvision] = {}
+        self._run_contexts: dict[str, _RunContext] = {}
         self._sessions_lock = RLock()
         self._open_lock = RLock()
         self._run_lock = RLock()
         self._lifecycle_lock = RLock()
         self._shutdown_lock = Lock()
         self._stopping = False
-        self._run_open_locks: dict[str, RLock] = {}
-        self._finalizing_runs: set[str] = set()
         self._attention_lock = RLock()
 
     @property
@@ -343,7 +352,10 @@ class InstrumentService:
     def authorize_run_payload_upload(self, run_id: str, lease_id: str) -> None:
         """Fence a run-scoped upload with the current executor lease."""
 
-        with self._run_operation_lock(run_id):
+        context = self._run_context_state(run_id)
+        if context is None:
+            raise BackendConflict("run instruments are not provisioned")
+        with context.lock:
             self._fence_run(run_id, lease_id)
 
     def provision_run(
@@ -353,18 +365,35 @@ class InstrumentService:
     ) -> RunInstrumentProvisionReceipt:
         """Connect the exact instrument claims admitted with one fenced run."""
 
-        with self._run_operation_lock(run_id):
-            self._require_running()
-            return self._provision_run(run_id, command)
+        self._require_running()
+        # Validate before allocating volatile state, then again after waiting for
+        # the per-run lock in case the executor lease changed meanwhile.
+        self._fence_run(run_id, command.lease_id)
+        context = self._create_run_context(run_id)
+        with context.lock:
+            try:
+                self._require_running()
+                return self._provision_run(run_id, command, context)
+            except Exception:
+                with self._run_lock:
+                    if (
+                        self._run_contexts.get(run_id) is context
+                        and context.provision is None
+                        and context.runtime is None
+                        and context.finalization is None
+                    ):
+                        self._run_contexts.pop(run_id)
+                raise
 
     def _provision_run(
         self,
         run_id: str,
         command: RunInstrumentProvisionCommand,
+        context: _RunContext,
     ) -> RunInstrumentProvisionReceipt:
         self._fence_run(run_id, command.lease_id)
-        self._require_provisionable_run(run_id)
-        cached = self._run_provision_state(run_id)
+        self._require_provisionable_run(context)
+        cached = context.provision
         if cached is not None:
             if cached.command != command:
                 if cached.command.operation_id == command.operation_id:
@@ -392,10 +421,10 @@ class InstrumentService:
             )
             self._store_run_provision(
                 run_id,
+                context,
                 _RunProvision(
                     command=command,
                     receipt=receipt,
-                    lock=self._run_operation_lock(run_id),
                 ),
             )
             return receipt
@@ -406,6 +435,7 @@ class InstrumentService:
             return self._reject_run_provision(
                 run_id,
                 command,
+                context=context,
                 problems=(
                     _provision_problem(
                         "instrument_provider_unavailable",
@@ -421,6 +451,7 @@ class InstrumentService:
             return self._reject_run_provision(
                 run_id,
                 command,
+                context=context,
                 problems=(
                     _provision_problem(
                         "instrument_provider_unavailable",
@@ -504,6 +535,7 @@ class InstrumentService:
             return self._reject_run_provision(
                 run_id,
                 command,
+                context=context,
                 problems=tuple(setup_problems),
             )
 
@@ -524,12 +556,14 @@ class InstrumentService:
             return self._reject_run_provision(
                 run_id,
                 command,
+                context=context,
                 problems=error.problems,
             )
         except InstrumentBackendUnavailable:
             return self._reject_run_provision(
                 run_id,
                 command,
+                context=context,
                 problems=(
                     _provision_problem(
                         "instrument_connection_failed",
@@ -543,6 +577,7 @@ class InstrumentService:
             return self._reject_run_provision(
                 run_id,
                 command,
+                context=context,
                 problems=(
                     _provision_problem(
                         "instrument_observation_failed",
@@ -555,6 +590,7 @@ class InstrumentService:
         run_start_state = self._reconcile_run_start_or_reject(
             run_id=run_id,
             command=command,
+            context=context,
             config=config,
             instrument_ids=instrument_ids,
             runtime=runtime,
@@ -595,23 +631,30 @@ class InstrumentService:
         provision = _RunProvision(
             command=command,
             receipt=receipt,
-            lock=self._run_operation_lock(run_id),
         )
-        self._store_run_provision(run_id, provision, runtime=runtime)
+        self._store_run_provision(
+            run_id,
+            context,
+            provision,
+            runtime=runtime,
+        )
         return receipt
 
-    def _require_provisionable_run(self, run_id: str) -> None:
-        with self._run_lock:
-            if run_id in self._finished_runs:
-                raise BackendConflict("run hardware is already finalized")
-        if self._run_is_finalizing(run_id):
-            raise BackendConflict("run instrument host is finalizing")
+    @staticmethod
+    def _require_provisionable_run(context: _RunContext) -> None:
+        finalization = context.finalization
+        if finalization is None:
+            return
+        if isinstance(finalization, _RunFinalized):
+            raise BackendConflict("run hardware is already finalized")
+        raise BackendConflict("run instrument host is finalizing")
 
     def _reject_run_provision(
         self,
         run_id: str,
         command: RunInstrumentProvisionCommand,
         *,
+        context: _RunContext,
         problems: tuple[Problem, ...],
     ) -> RunInstrumentProvisionReceipt:
         receipt = RunInstrumentProvisionReceipt(
@@ -622,10 +665,10 @@ class InstrumentService:
         )
         self._store_run_provision(
             run_id,
+            context,
             _RunProvision(
                 command=command,
                 receipt=receipt,
-                lock=self._run_operation_lock(run_id),
             ),
         )
         return receipt
@@ -735,6 +778,7 @@ class InstrumentService:
         *,
         run_id: str,
         command: RunInstrumentProvisionCommand,
+        context: _RunContext,
         config: ConfigProfileSnapshot,
         instrument_ids: tuple[str, ...],
         runtime: _OwnershipRuntime,
@@ -761,6 +805,7 @@ class InstrumentService:
             return self._reject_run_provision(
                 run_id,
                 command,
+                context=context,
                 problems=error.problems,
             )
         except _DefaultStateReconciliationUnknown as error:
@@ -841,9 +886,12 @@ class InstrumentService:
     ) -> RunHardwareBatchReceipt:
         """Execute one idempotent ordered hardware block under the run fence."""
 
-        with self._run_operation_lock(run_id):
+        context = self._run_context_state(run_id)
+        if context is None:
+            raise BackendConflict("run instruments are not provisioned")
+        with context.lock:
             self._fence_run(run_id, request.lease_id)
-            provision = self._run_provision_state(run_id)
+            provision = context.provision
             if provision is None or provision.receipt.status != "ready":
                 raise BackendConflict("run hardware is not ready")
             canonical_request = self._payloads.canonicalize_hardware_command(request)
@@ -855,7 +903,7 @@ class InstrumentService:
                         "hardware batch id has different operation content"
                     )
                 return cached_receipt
-            runtime = self._run_runtime_state(run_id)
+            runtime = context.runtime
             if runtime is None:
                 raise BackendConflict("run has no owned daemon instruments")
             preflight_problems = self._preflight_hardware_batch(
@@ -947,7 +995,7 @@ class InstrumentService:
                         completed_effect_ids.append(action.effect_id)
                         effect_receipts.append(evidence)
                     except BackendConflict as error:
-                        if self._run_runtime_state(run_id) is not runtime:
+                        if context.runtime is not runtime:
                             raise
                         problems.append(
                             _hardware_problem(
@@ -1268,7 +1316,7 @@ class InstrumentService:
         action: RunHardwareInvoke,
         backend_request: BackendInvokeRequest,
     ) -> dict[str, JsonValue]:
-        _runtime, instrument = self._run_instrument(run_id, action.instrument_id)
+        instrument = runtime.instruments[action.instrument_id]
         try:
             receipt = instrument.invoke(backend_request)
         except Exception as error:
@@ -1335,7 +1383,7 @@ class InstrumentService:
             point_count=action.point_count,
             requests=list(action.requests),
         )
-        _runtime, instrument = self._run_instrument(run_id, action.instrument_id)
+        instrument = runtime.instruments[action.instrument_id]
         validation_problems = validate_collect_command(
             command=command,
             description=instrument.description,
@@ -1410,63 +1458,54 @@ class InstrumentService:
     ) -> RunHardwareFinalizationReceipt:
         """Release run ownership once and return terminal readback."""
 
-        with self._run_lock:
-            cached = self._finished_runs.get(run_id)
-        if cached is not None:
-            if cached.command != command:
-                raise BackendConflict(
-                    "run hardware was finalized with different content"
-                )
-            return cached.receipt
-        with self._run_operation_lock(run_id):
-            with self._run_lock:
-                cached = self._finished_runs.get(run_id)
-            if cached is not None:
-                if cached.command != command:
+        context = self._run_context_state(run_id)
+        if context is None:
+            raise BackendConflict("run instruments are not provisioned")
+        with context.lock:
+            finalization = context.finalization
+            if finalization is not None:
+                if isinstance(finalization, _RunFinalizing):
+                    raise BackendConflict("run instrument host is finalizing")
+                if finalization.command != command:
                     raise BackendConflict(
                         "run hardware was finalized with different content"
                     )
-                return cached.receipt
+                return finalization.receipt
+
             self._fence_run(run_id, command.lease_id)
-            runtime = self._run_runtime_state(run_id)
+            runtime = context.runtime
             if runtime is None:
-                provision = self._run_provision_state(run_id)
+                provision = context.provision
                 if (
                     provision is None
                     or provision.receipt.status != "ready"
                     or provision.receipt.instrument_ids
                 ):
                     raise BackendConflict("run has no owned daemon instruments")
-                self._discard_run_state(run_id)
                 receipt = RunHardwareFinalizationReceipt(
                     operation_id=command.operation_id,
                 )
-                with self._run_lock:
-                    self._finished_runs[run_id] = _FinishedRunHardware(
-                        command=command,
-                        receipt=receipt,
-                    )
-                return receipt
-            final_state, problems = self._finalize_run_instruments(
-                run_id,
-                token=command.lease_id,
-                runtime=runtime,
-                failed=command.failed,
-                operation_id=command.operation_id,
-            )
-            self._discard_run_state(run_id)
-            receipt = RunHardwareFinalizationReceipt(
-                operation_id=command.operation_id,
-                final_state=tuple(final_state),
-                problems=tuple(problems),
-            )
-            with self._run_lock:
-                self._finished_runs[run_id] = _FinishedRunHardware(
-                    command=command,
-                    receipt=receipt,
+            else:
+                context.finalization = _RunFinalizing()
+                final_state, problems = self._finalize_run_instruments(
+                    run_id,
+                    token=command.lease_id,
+                    runtime=runtime,
+                    failed=command.failed,
+                    operation_id=command.operation_id,
                 )
-                while len(self._finished_runs) > self._finished_run_cache_limit:
-                    self._finished_runs.popitem(last=False)
+                receipt = RunHardwareFinalizationReceipt(
+                    operation_id=command.operation_id,
+                    final_state=tuple(final_state),
+                    problems=tuple(problems),
+                )
+
+            context.provision = None
+            context.runtime = None
+            context.finalization = _RunFinalized(
+                command=command,
+                receipt=receipt,
+            )
             return receipt
 
     def _finalize_run_instruments(
@@ -1528,28 +1567,14 @@ class InstrumentService:
         self._pop_run_runtime(run_id, expected=runtime)
         return final_state, problems
 
-    def _run_operation_lock(self, run_id: str) -> RLock:
+    def _create_run_context(self, run_id: str) -> _RunContext:
         with self._run_lock:
-            provision = self._run_provisions.get(run_id)
-            if provision is not None:
-                return provision.lock
-            return self._run_open_locks.setdefault(run_id, RLock())
-
-    def _run_provision_state(self, run_id: str) -> _RunProvision | None:
-        with self._run_lock:
-            return self._run_provisions.get(run_id)
-
-    def _run_is_finalizing(self, run_id: str) -> bool:
-        with self._run_lock:
-            return run_id in self._finalizing_runs
-
-    def _run_runtime_state(self, run_id: str) -> _OwnershipRuntime | None:
-        with self._run_lock:
-            return self._run_runtimes.get(run_id)
+            return self._run_contexts.setdefault(run_id, _RunContext())
 
     def _store_run_provision(
         self,
         run_id: str,
+        context: _RunContext,
         provision: _RunProvision,
         *,
         runtime: _OwnershipRuntime | None = None,
@@ -1565,10 +1590,12 @@ class InstrumentService:
                 )
                 raise BackendConflict("instrument service is shutting down")
             with self._run_lock:
-                self._run_provisions[run_id] = provision
-                if runtime is not None:
-                    self._run_runtimes[run_id] = runtime
-                self._run_open_locks.pop(run_id, None)
+                if self._run_contexts.get(run_id) is not context:
+                    if runtime is not None:
+                        _fault_ownership(runtime, abort=True)
+                    raise BackendConflict("run instrument context is no longer active")
+                context.provision = provision
+                context.runtime = runtime
 
     def _pop_run_runtime(
         self,
@@ -1577,25 +1604,14 @@ class InstrumentService:
         expected: _OwnershipRuntime | None = None,
     ) -> _OwnershipRuntime | None:
         with self._run_lock:
-            runtime = self._run_runtimes.get(run_id)
+            context = self._run_contexts.get(run_id)
+            if context is None:
+                return None
+            runtime = context.runtime
             if expected is not None and runtime is not expected:
                 return None
-            return self._run_runtimes.pop(run_id, None)
-
-    def _run_instrument(
-        self,
-        run_id: str,
-        instrument_id: str,
-    ) -> tuple[_OwnershipRuntime, OwnedInstrument]:
-        runtime = self._run_runtime_state(run_id)
-        if runtime is None:
-            raise BackendConflict("run has no owned daemon instruments")
-        try:
-            return runtime, runtime.instruments[instrument_id]
-        except KeyError as error:
-            raise BackendNotFound(
-                f"instrument is not live for run {run_id}: {instrument_id}"
-            ) from error
+            context.runtime = None
+            return runtime
 
     def open_session(
         self,
@@ -2467,20 +2483,26 @@ class InstrumentService:
     def finalize_run(self, run_id: str, *, token: str) -> None:
         """Release any instrument ownership left before a terminal commit."""
 
-        with self._run_operation_lock(run_id):
+        context = self._run_context_state(run_id)
+        if context is None:
             self._fence_run(run_id, token)
-            with self._run_lock:
-                self._finalizing_runs.add(run_id)
-            runtime = self._run_runtime_state(run_id)
-            if runtime is None:
+            return
+        with context.lock:
+            self._fence_run(run_id, token)
+            if context.finalization is not None:
                 return
-            self._finalize_run_instruments(
-                run_id,
-                token=token,
-                runtime=runtime,
-                failed=True,
-                operation_id="hardware.terminal-fallback",
-            )
+            context.finalization = _RunFinalizing()
+            runtime = context.runtime
+            if runtime is not None:
+                self._finalize_run_instruments(
+                    run_id,
+                    token=token,
+                    runtime=runtime,
+                    failed=True,
+                    operation_id="hardware.terminal-fallback",
+                )
+            context.provision = None
+            context.runtime = None
 
     def release_run(self, run_id: str) -> None:
         """Drop volatile idempotency state after the run is durably closed."""
@@ -2489,10 +2511,16 @@ class InstrumentService:
 
     def _discard_run_state(self, run_id: str) -> None:
         with self._run_lock:
-            self._run_runtimes.pop(run_id, None)
-            self._run_provisions.pop(run_id, None)
-            self._run_open_locks.pop(run_id, None)
-            self._finalizing_runs.discard(run_id)
+            context = self._run_contexts.get(run_id)
+        if context is None:
+            return
+        with context.lock, self._run_lock:
+            if self._run_contexts.get(run_id) is context:
+                self._run_contexts.pop(run_id)
+
+    def _run_context_state(self, run_id: str) -> _RunContext | None:
+        with self._run_lock:
+            return self._run_contexts.get(run_id)
 
     def expire_runs(self, run_ids: Iterable[str]) -> None:
         """Release volatile instrument ownership after executor leases are fenced."""
@@ -2520,19 +2548,19 @@ class InstrumentService:
             return resolver(run_id)
 
     def _cleanup_run_state(self, run_id: str) -> None:
-        lock = self._run_operation_lock(run_id)
-        with lock:
+        context = self._run_context_state(run_id)
+        if context is None:
+            return
+        with context.lock:
             with self._run_lock:
-                self._run_open_locks[run_id] = lock
-                runtime = self._run_runtimes.pop(run_id, None)
-                self._run_provisions.pop(run_id, None)
-                self._finalizing_runs.discard(run_id)
+                if self._run_contexts.get(run_id) is not context:
+                    return
+                self._run_contexts.pop(run_id)
+                runtime = context.runtime
+                context.runtime = None
             if runtime is not None:
                 with runtime.lock:
                     _fault_ownership(runtime, abort=True)
-            with self._run_lock:
-                if self._run_open_locks.get(run_id) is lock:
-                    self._run_open_locks.pop(run_id)
 
     def reconcile_startup(self) -> None:
         with self._attention_lock:
@@ -2560,12 +2588,8 @@ class InstrumentService:
                 sessions = tuple(self._sessions.items())
                 self._sessions.clear()
             with self._run_lock:
-                run_provisions = tuple(self._run_provisions.items())
-                run_runtimes = self._run_runtimes
-                self._run_provisions = {}
-                self._run_runtimes = {}
-                self._run_open_locks = {}
-                self._finalizing_runs = set()
+                run_contexts = tuple(self._run_contexts.items())
+                self._run_contexts = {}
         endpoint = self._endpoint
         deadline = (
             None
@@ -2583,8 +2607,7 @@ class InstrumentService:
         try:
             self._drain_shutdown(
                 sessions=sessions,
-                run_provisions=run_provisions,
-                run_runtimes=run_runtimes,
+                run_contexts=run_contexts,
             )
         finally:
             if deadline is not None:
@@ -2596,8 +2619,7 @@ class InstrumentService:
         self,
         *,
         sessions: tuple[tuple[str, _OwnershipRuntime], ...],
-        run_provisions: tuple[tuple[str, _RunProvision], ...],
-        run_runtimes: Mapping[str, _OwnershipRuntime],
+        run_contexts: tuple[tuple[str, _RunContext], ...],
     ) -> None:
         for session_id, runtime in sessions:
             try:
@@ -2620,16 +2642,19 @@ class InstrumentService:
                         session_id,
                         status="aborted",
                     )
-        for run_id, provision in run_provisions:
-            runtime = run_runtimes.get(run_id)
-            if runtime is not None:
-                with runtime.lock:
-                    _fault_ownership(runtime, abort=True)
-            self._mark_run_unknown(
-                run_id,
-                token=provision.command.lease_id,
-                reason="daemon_shutting_down",
-            )
+        for run_id, context in run_contexts:
+            with context.lock:
+                provision = context.provision
+                runtime = context.runtime
+                if runtime is not None:
+                    with runtime.lock:
+                        _fault_ownership(runtime, abort=True)
+                if provision is not None:
+                    self._mark_run_unknown(
+                        run_id,
+                        token=provision.command.lease_id,
+                        reason="daemon_shutting_down",
+                    )
         with suppress(Exception):
             self._actors.shutdown()
 
