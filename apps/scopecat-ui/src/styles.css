@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #101214;
+  --color-bg-raised: #14171a;
+  --color-panel: #181c20;
+  --color-panel-strong: #1e2328;
+  --color-panel-soft: #14181b;
+  --color-line: #2b3137;
+  --color-line-strong: #3b444d;
+  --color-text: #edf0f2;
+  --color-text-soft: #b8c0c7;
+  --color-text-dim: #818b94;
+  --color-accent: #80a3cf;
+  --color-accent-soft: rgb(128 163 207 / 12%);
+  --color-blue: #80a3cf;
+  --color-blue-soft: rgb(128 163 207 / 12%);
+  --color-yellow: #cfad68;
+  --color-yellow-soft: rgb(207 173 104 / 12%);
+  --color-red: #d77e79;
+  --color-red-soft: rgb(215 126 121 / 12%);
+  --color-purple: #a497c7;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 7px;
+  --shadow-panel: 0 10px 30px rgb(0 0 0 / 24%);
+}
+
+/*
+ * Legacy aliases exist only while feature slices are being converted. Each
+ * alias disappears with the last old stylesheet that consumes it.
+ */
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --bg: var(--color-bg);
+  --bg-raised: var(--color-bg-raised);
+  --panel: var(--color-panel);
+  --panel-strong: var(--color-panel-strong);
+  --panel-soft: var(--color-panel-soft);
+  --line: var(--color-line);
+  --line-strong: var(--color-line-strong);
+  --text: var(--color-text);
+  --text-soft: var(--color-text-soft);
+  --text-dim: var(--color-text-dim);
+  --accent-rgb: 128 163 207;
+  --accent: var(--color-accent);
+  --accent-soft: var(--color-accent-soft);
+  --blue: var(--color-blue);
+  --blue-soft: var(--color-blue-soft);
+  --yellow: var(--color-yellow);
+  --yellow-soft: var(--color-yellow-soft);
+  --red: var(--color-red);
+  --red-soft: var(--color-red-soft);
+  --purple: var(--color-purple);
+  --shadow: var(--shadow-panel);
+}
+
+@layer base {
+  html {
+    min-width: 320px;
+    min-height: 100%;
+    background: var(--color-bg);
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    color: var(--color-text);
+    background: var(--color-bg);
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.88em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

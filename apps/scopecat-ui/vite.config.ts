@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, loadEnv } from "vite";
 
 export default defineConfig(({ mode }) => {
@@ -6,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const daemonOrigin = env.SCOPECAT_DAEMON_ORIGIN ?? "http://127.0.0.1:8765";
 
   return {
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     server: {
       proxy: {
         "/api": {
