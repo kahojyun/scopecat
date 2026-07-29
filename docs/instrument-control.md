@@ -458,6 +458,12 @@ still means its consequence cannot be determined. NaN and infinity are never
 missing-value encodings. An unavailable array marks the whole result; element
 validity belongs in the future chunked-data representation.
 
+Recorded variables identify their logical source product in the dataset schema.
+Each directly collected point value also retains the instrument, interface,
+component, acquisition, result, and daemon-observed driver-call interval.
+Single-input measurement postprocessors retain that physical source evidence;
+scan coordinates and values produced without an instrument do not invent it.
+
 An abandoned idle interactive owner expires automatically. If its lease expires
 during a recorded hardware operation, the daemon faults the connection and
 keeps the claim quarantined for operator resolution.

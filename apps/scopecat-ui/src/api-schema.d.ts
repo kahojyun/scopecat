@@ -1778,10 +1778,10 @@ export interface components {
             dimensions: components["schemas"]["MeasurementDimension"][];
             /**
              * Format Version
-             * @default scopecat.measurement_dataset_schema.v3
+             * @default scopecat.measurement_dataset_schema.v4
              * @constant
              */
-            format_version: "scopecat.measurement_dataset_schema.v3";
+            format_version: "scopecat.measurement_dataset_schema.v4";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -1789,10 +1789,10 @@ export interface components {
             primary_observables?: string[];
             /**
              * Record Schema
-             * @default scopecat.measurement_record.v3
+             * @default scopecat.measurement_record.v4
              * @constant
              */
-            record_schema: "scopecat.measurement_record.v3";
+            record_schema: "scopecat.measurement_record.v4";
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable"][];
         };
@@ -1896,6 +1896,7 @@ export interface components {
              * @enum {string}
              */
             role: "coordinate" | "observable";
+            source_product_id?: components["schemas"]["_NonEmptyText"] | null;
             /** Unit */
             unit?: string | null;
         };

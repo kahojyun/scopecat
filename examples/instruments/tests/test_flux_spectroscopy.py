@@ -94,6 +94,12 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
     assert all(
         set(record.coordinates) == {"dc_bias", "frequency"}
         and set(record.observables) == {"s_parameter", "temperature"}
+        and set(record.acquisition_evidence)
+        == {
+            "frequency",
+            "s_parameter",
+            "temperature",
+        }
         for record in records
     )
     assert all(
@@ -113,6 +119,13 @@ def test_flux_spectroscopy_runs_fits_saves_and_proposes(tmp_path: Path) -> None:
         and record.observables["temperature"].unit == "K"
         for record in records
     )
+    first_evidence = records[0].acquisition_evidence
+    assert first_evidence["frequency"].instrument_id == "readout-vna"
+    assert first_evidence["frequency"].result_id == "frequency"
+    assert first_evidence["s_parameter"].instrument_id == "readout-vna"
+    assert first_evidence["s_parameter"].result_id == "s_parameter"
+    assert first_evidence["temperature"].instrument_id == "mixing-chamber"
+    assert first_evidence["temperature"].result_id == "temperature"
     assert not provider.world.dc_source(FLUX_SOURCE_ID).output_enabled
 
     traces = run.data().traces(

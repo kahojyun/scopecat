@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
@@ -16,6 +18,7 @@ from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import (
     ComplexComponents,
+    InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementScalar,
     MeasurementUnavailable,
@@ -89,6 +92,28 @@ def test_postprocessor_runs_one_direct_kernel_per_point() -> None:
         MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
         MeasurementScalar.create(dtype="float64", value=101.0, unit="ratio"),
     ]
+
+
+def test_postprocessor_retains_instrument_acquisition_evidence() -> None:
+    scenario = measurement_assembly_scenario(point_values=(2.0,), use_count=2)
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="collect-signal",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="signal",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
+    [source] = measurement_value_candidates(scenario, (scenario.uses[0],))
+    [_, derived] = execute_measurement_postprocessors(
+        (_postprocessor(scenario, lambda value: {"output": value}),),
+        (replace(source, evidence=evidence),),
+        points=scenario.points,
+        catalog=scenario.catalog,
+    )
+
+    assert derived.evidence == evidence
 
 
 def test_postprocessor_propagates_unavailable_without_running_kernel() -> None:

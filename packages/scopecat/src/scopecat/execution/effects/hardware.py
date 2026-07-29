@@ -111,6 +111,7 @@ class HardwareEffectExecutor:
                     logical_point_id=frame.logical_id,
                     product_use_id=product_use_id,
                     value=value.value,
+                    evidence=value.evidence,
                 )
             )
         return not self.problems.problems

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from scopecat.execution.ports.instruments import (
     RunHardwareApply,
@@ -23,6 +24,7 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
     property_target_identity,
 )
+from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.domain.compiler import DomainCompiler
 from scopecat.sdk.instruments import InstrumentBackend
 from scopecat.sdk.instruments._driver_adapter import (
@@ -212,10 +214,12 @@ class TestRunInstrumentHost:
                 requests=list(action.requests),
             )
             driver_request = lower_backend_collect_request(command)
+            started_at = datetime.now(UTC)
             receipt = project_collect_outcome(
                 driver_request,
                 driver.collect(lower_acquisition(driver_request)),
             )
+            completed_at = datetime.now(UTC)
             problems.extend(receipt.problems)
             if receipt.status != "collected" or receipt.readback is None:
                 indeterminate = receipt.status == "unknown"
@@ -224,6 +228,7 @@ class TestRunInstrumentHost:
                 binding.request_id: binding.product_use_ids
                 for binding in action.bindings
             }
+            requests = {request.id: request for request in action.requests}
             if set(receipt.readback.values) != set(bindings):
                 problems.append(
                     runtime_problem(
@@ -238,6 +243,16 @@ class TestRunInstrumentHost:
                     point_index=action.point_index,
                     product_use_id=product_use_id,
                     value=value,
+                    evidence=InstrumentAcquisitionEvidence(
+                        command_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        interface_id=requests[request_id].interface_id,
+                        component_path=tuple(requests[request_id].component_path),
+                        acquisition_id=requests[request_id].acquisition_id,
+                        result_id=requests[request_id].result_id,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                    ),
                 )
                 for request_id, value in receipt.readback.values.items()
                 for product_use_id in bindings[request_id]

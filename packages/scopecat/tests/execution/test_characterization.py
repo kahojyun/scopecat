@@ -445,20 +445,29 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
     assert [result.result_id for result in driver.collect_requests[0].results] == [
         "signal"
     ]
-    assert observed_candidates == [
-        tuple(
-            MeasurementValueCandidate(
-                logical_point_id=point.logical_id,
-                product_use_id=use.id,
-                value=MeasurementScalar.create(
-                    dtype="float64",
-                    value=1.0,
-                    unit="ratio",
-                ),
-            )
-            for use in uses
+    [candidates] = observed_candidates
+    assert [
+        (candidate.logical_point_id, candidate.product_use_id, candidate.value)
+        for candidate in candidates
+    ] == [
+        (
+            point.logical_id,
+            use.id,
+            MeasurementScalar.create(
+                dtype="float64",
+                value=1.0,
+                unit="ratio",
+            ),
         )
+        for use in uses
     ]
+    evidence = candidates[0].evidence
+    assert evidence is not None
+    assert evidence.command_id == operation_id
+    assert evidence.instrument_id == driver.instrument_id
+    assert evidence.acquisition_id == "sample"
+    assert evidence.result_id == "signal"
+    assert all(candidate.evidence == evidence for candidate in candidates)
 
 
 def test_driver_disconnect_failure_is_reported_after_terminal_read() -> None:

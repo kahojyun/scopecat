@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.product_identity import ProductUseId
-from scopecat.measurements.results import MeasurementScalar
+from scopecat.measurements.results import (
+    InstrumentAcquisitionEvidence,
+    MeasurementScalar,
+)
 from scopecat.measurements.values import seal_measurement_values
 from tests.testkit.measurement_assembly import (
     measurement_assembly_scenario,
@@ -46,6 +50,16 @@ def test_catalog_accepts_every_scalar_measurement_dtype(dtype: str) -> None:
 def test_sealing_canonicalizes_candidate_order() -> None:
     scenario = _scenario()
     candidates = list(measurement_value_candidates(scenario, scenario.uses))
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="collect-signal",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="signal",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
+    candidates[0] = replace(candidates[0], evidence=evidence)
 
     values = seal_measurement_values(
         scenario.catalog,
@@ -63,6 +77,13 @@ def test_sealing_canonicalizes_candidate_order() -> None:
     assert retained.dtype == "float64"
     assert retained.unit == "ratio"
     assert retained.value == 0.0
+    assert (
+        values.value_for_output(
+            scenario.linked_points.point_domain.points[0].logical_id,
+            scenario.uses[0].id,
+        ).evidence
+        == evidence
+    )
 
 
 @pytest.mark.parametrize(

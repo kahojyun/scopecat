@@ -126,7 +126,7 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
     storage = sqlite_run_repository(tmp_path)
 
     invalid_measurement = raw_dataset.dataset.records[0].model_copy(
-        update={"observables": {}}
+        update={"observables": {}, "acquisition_evidence": {}}
     )
     raw_dataset_entry = next(
         dataset for dataset in run.datasets if dataset.id == "raw-measurements"

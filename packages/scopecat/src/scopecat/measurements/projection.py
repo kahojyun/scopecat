@@ -31,6 +31,7 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
 )
 from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
     MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementScalar,
@@ -214,6 +215,11 @@ def project_measurement_records(
                     product_values=values,
                     point=point,
                 ),
+                acquisition_evidence=_projected_acquisition_evidence(
+                    record_plans,
+                    product_values=values,
+                    point=point,
+                ),
             )
             for point in points
         )
@@ -233,7 +239,7 @@ def _projection_contract_fingerprint(
     return stable_content_hash(
         content_fingerprint(
             {
-                "schema": "scopecat.measurements.projection_contract.v3",
+                "schema": "scopecat.measurements.projection_contract.v4",
                 "catalog_fingerprint": catalog_fingerprint,
                 "records": tuple(records),
                 "coordinate_ids": tuple(coordinate_ids),
@@ -257,6 +263,23 @@ def _projected_values(
         for record in records
         if record.role == role
     }
+
+
+def _projected_acquisition_evidence(
+    records: Sequence[RecordPlan],
+    *,
+    product_values: ClosedMeasurementProductValues,
+    point: RunPoint,
+) -> dict[str, InstrumentAcquisitionEvidence]:
+    acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = {}
+    for record in records:
+        evidence = product_values.value_for_output(
+            point.logical_id,
+            record.product_use_id,
+        ).evidence
+        if evidence is not None:
+            acquisition_evidence[record.id] = evidence
+    return acquisition_evidence
 
 
 def _snapshot_measurement_records(

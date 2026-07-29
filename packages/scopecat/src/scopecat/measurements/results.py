@@ -13,6 +13,7 @@ from scopecat.measurements.traces import (
 )
 from scopecat.records.measurement import (
     ComplexComponents,
+    InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDatasetSchema,
@@ -29,6 +30,7 @@ from scopecat.records.measurement import (
 
 __all__ = [
     "ComplexComponents",
+    "InstrumentAcquisitionEvidence",
     "MeasurementArray",
     "MeasurementDType",
     "MeasurementDataset",

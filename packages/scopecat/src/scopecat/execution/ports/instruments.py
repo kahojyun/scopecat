@@ -10,7 +10,10 @@ from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import CommandChannelBinding, InstrumentStateSnapshot
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
+    MeasurementValue,
+)
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectResultRequest,
@@ -125,6 +128,7 @@ class RunHardwareValue(_HardwareModel):
     point_index: int = Field(ge=0)
     product_use_id: str = Field(min_length=1)
     value: MeasurementValue
+    evidence: InstrumentAcquisitionEvidence
 
 
 class RunHardwareBatchReceipt(_HardwareModel):

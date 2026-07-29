@@ -146,6 +146,7 @@ def execute_measurement_postprocessors(
                         logical_point_id=point.logical_id,
                         product_use_id=use_id,
                         value=value,
+                        evidence=source[0].evidence,
                     )
                     for use_id in output.product_use_ids
                 )

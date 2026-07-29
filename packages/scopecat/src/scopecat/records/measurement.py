@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal, Self, cast
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -16,6 +17,7 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.records._metadata import JsonMetadata
 from scopecat.records._schema_utils import (
     ensure_unique_ids,
@@ -23,13 +25,14 @@ from scopecat.records._schema_utils import (
     validate_supported_unit,
 )
 
-MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v3"
-MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v3"
+MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v4"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v4"
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
 MeasurementUnavailableReason = Literal["missing", "invalid", "overload"]
 MeasurementArrayData = Sequence[object]
+type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
 class MeasurementDimension(BaseModel):
@@ -55,6 +58,7 @@ class MeasurementVariable(BaseModel):
     unit: str | None = None
     dims: list[str] = Field(min_length=1)
     label: str | None = None
+    source_product_id: _NonEmptyText | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("unit")
@@ -83,11 +87,11 @@ class MeasurementVariable(BaseModel):
 class MeasurementDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format_version: Literal["scopecat.measurement_dataset_schema.v3"] = (
+    format_version: Literal["scopecat.measurement_dataset_schema.v4"] = (
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str = Field(min_length=1)
-    record_schema: Literal["scopecat.measurement_record.v3"] = (
+    record_schema: Literal["scopecat.measurement_record.v4"] = (
         MEASUREMENT_RECORD_SCHEMA_VERSION
     )
     dimensions: list[MeasurementDimension]
@@ -379,16 +383,51 @@ type MeasurementValue = Annotated[
 ]
 
 
+class InstrumentAcquisitionEvidence(BaseModel):
+    """Daemon-observed interval and physical target for one collected result."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command_id: _NonEmptyText
+    instrument_id: _NonEmptyText
+    interface_id: InterfaceId
+    component_path: tuple[_NonEmptyText, ...] = ()
+    acquisition_id: _NonEmptyText
+    result_id: _NonEmptyText
+    started_at: AwareDatetime
+    completed_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> InstrumentAcquisitionEvidence:
+        if self.completed_at < self.started_at:
+            raise ValueError("acquisition completion must not precede its start")
+        return self
+
+
 class MeasurementRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     run_id: str
     logical_point_id: str | None = None
     point_index: int
-    instrument_ids: list[str] = Field(default_factory=list)
     coordinates: dict[str, MeasurementValue]
     observables: dict[str, MeasurementValue]
+    acquisition_evidence: dict[str, InstrumentAcquisitionEvidence] = Field(
+        default_factory=dict
+    )
     metadata: JsonMetadata = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_acquisition_evidence_variables(self) -> MeasurementRecord:
+        unknown = set(self.acquisition_evidence) - (
+            set(self.coordinates) | set(self.observables)
+        )
+        if unknown:
+            raise ValueError(
+                "measurement acquisition evidence references unknown variables: "
+                + ", ".join(sorted(unknown))
+            )
+        return self
 
 
 class MeasurementDataset(BaseModel):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
 import pytest
@@ -9,6 +10,7 @@ from scopecat.records.measurement import (
     MEASUREMENT_DATASET_FORMAT_VERSION,
     MEASUREMENT_RECORD_SCHEMA_VERSION,
     ComplexComponents,
+    InstrumentAcquisitionEvidence,
     MeasurementArray,
     MeasurementDataset,
     MeasurementDimension,
@@ -23,6 +25,15 @@ from tests.testkit.records import assert_model_round_trip
 
 
 def test_measurement_values_round_trip_through_one_record() -> None:
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="collect-signal",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="signal",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
     measurement = MeasurementRecord(
         run_id="run-test",
         point_index=0,
@@ -66,6 +77,7 @@ def test_measurement_values_round_trip_through_one_record() -> None:
                 values=[0.25, 0.75],
             ),
         },
+        acquisition_evidence={"signal": evidence},
     )
 
     restored = assert_model_round_trip(measurement)
@@ -81,6 +93,50 @@ def test_measurement_values_round_trip_through_one_record() -> None:
     assert isinstance(restored.observables["samples"], MeasurementArray)
     assert isinstance(restored.observables["iq"], MeasurementArray)
     assert isinstance(restored.observables["probability"], MeasurementArray)
+    assert restored.acquisition_evidence == {"signal": evidence}
+
+
+def test_instrument_acquisition_evidence_requires_an_aware_ordered_interval() -> None:
+    with pytest.raises(ValidationError, match="timezone info"):
+        InstrumentAcquisitionEvidence(
+            command_id="collect-signal",
+            instrument_id="readout",
+            interface_id="test.scalar_signal/v1",
+            acquisition_id="sample",
+            result_id="signal",
+            started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC).replace(tzinfo=None),
+            completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+        )
+    with pytest.raises(ValidationError, match="must not precede"):
+        InstrumentAcquisitionEvidence(
+            command_id="collect-signal",
+            instrument_id="readout",
+            interface_id="test.scalar_signal/v1",
+            acquisition_id="sample",
+            result_id="signal",
+            started_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+            completed_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        )
+
+
+def test_measurement_record_rejects_acquisition_evidence_for_unknown_variable() -> None:
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="collect-signal",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        acquisition_id="sample",
+        result_id="signal",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
+    with pytest.raises(ValidationError, match="unknown variables: signal"):
+        MeasurementRecord(
+            run_id="run-test",
+            point_index=0,
+            coordinates={},
+            observables={},
+            acquisition_evidence={"signal": evidence},
+        )
 
 
 def test_measurement_record_discriminator_restores_value_models() -> None:
@@ -280,10 +336,10 @@ def test_measurement_dataset_and_schema_round_trip() -> None:
     assert restored.dataset_schema.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
     assert (
         restored.dataset_schema.format_version
-        == "scopecat.measurement_dataset_schema.v3"
+        == "scopecat.measurement_dataset_schema.v4"
     )
     assert restored.dataset_schema.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
-    assert restored.dataset_schema.record_schema == "scopecat.measurement_record.v3"
+    assert restored.dataset_schema.record_schema == "scopecat.measurement_record.v4"
     assert restored.dataset_schema.dataset_id == "raw-measurements"
     assert restored.dataset_schema.primary_coordinates == ["drive_frequency"]
     assert restored.dataset_schema.primary_observables == ["signal"]

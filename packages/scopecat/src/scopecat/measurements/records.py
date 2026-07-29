@@ -306,6 +306,7 @@ def _record_variable(record: RecordPlan) -> MeasurementVariable:
         dtype=record.dtype,
         unit=record.unit,
         dims=["point", *(axis.id for axis in record.axes)],
+        source_product_id=record.product_id.qualified_name,
         metadata=_wire_metadata(record.metadata),
     )
 

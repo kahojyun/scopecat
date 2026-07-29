@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
 from typing import Literal, override
@@ -563,7 +563,9 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             _apply_action("source-0", effect_id="apply-1"),
             _collect_action("source-0", effect_id="collect-1"),
         )
+        before_collect = datetime.now(UTC)
         receipt = instruments.execute_run_hardware(run_id, command)
+        after_collect = datetime.now(UTC)
         assert instruments.execute_run_hardware(run_id, command) == receipt
         assert [(value.product_use_id, value.value) for value in receipt.values] == [
             (
@@ -571,6 +573,19 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
                 MeasurementScalar.create(dtype="float64", value=1.0, unit="ratio"),
             )
         ]
+        [collected] = receipt.values
+        assert collected.evidence.command_id == "collect-1"
+        assert collected.evidence.instrument_id == "source-0"
+        assert collected.evidence.interface_id == "test.scalar_signal/v1"
+        assert collected.evidence.component_path == ()
+        assert collected.evidence.acquisition_id == "sample"
+        assert collected.evidence.result_id == "signal"
+        assert (
+            before_collect
+            <= collected.evidence.started_at
+            <= collected.evidence.completed_at
+            <= after_collect
+        )
         assert len(driver.applied) == 1
         assert driver.read_count == 2
         assert len(driver.collect_requests) == 1

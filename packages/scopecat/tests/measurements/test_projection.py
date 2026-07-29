@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 
 from scopecat.compiler.measurement_projection import (
     project_measurement_catalog,
@@ -14,7 +15,10 @@ from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
 )
-from scopecat.measurements.results import MeasurementScalar
+from scopecat.measurements.results import (
+    InstrumentAcquisitionEvidence,
+    MeasurementScalar,
+)
 from scopecat.measurements.values import (
     seal_measurement_values,
 )
@@ -200,6 +204,48 @@ def test_record_metadata_changes_schema_not_product_value_assembly() -> None:
     assert variables["alias"].metadata == {
         "definition": 0,
         "projection": "alias",
+    }
+    assert (
+        variables["primary"].source_product_id
+        == scenario.catalog.product_defs[0].id.qualified_name
+    )
+    assert (
+        variables["alias"].source_product_id == variables["primary"].source_product_id
+    )
+    assert variables["x"].source_product_id is None
+
+
+def test_projection_retains_acquisition_evidence_for_each_record_alias() -> None:
+    scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
+    candidates = list(measurement_value_candidates(scenario, scenario.uses))
+    evidence = InstrumentAcquisitionEvidence(
+        command_id="collect-signal",
+        instrument_id="readout",
+        interface_id="test.scalar_signal/v1",
+        component_path=("channel-1",),
+        acquisition_id="sample",
+        result_id="signal",
+        started_at=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 7, 29, 10, 0, 1, tzinfo=UTC),
+    )
+    candidates[0] = replace(candidates[0], evidence=evidence)
+    assembled = seal_measurement_values(
+        scenario.catalog,
+        candidates,
+        points=scenario.points,
+    )
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+
+    projected = project_measurement_records(
+        projection,
+        assembled,
+        run_id="acquisition-evidence-run",
+        points=scenario.points,
+    )
+
+    assert projected.records[0].acquisition_evidence == {
+        "primary": evidence,
+        "alias": evidence,
     }
 
 

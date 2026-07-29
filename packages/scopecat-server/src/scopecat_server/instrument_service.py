@@ -79,6 +79,7 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
     property_target_identity,
 )
+from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
@@ -1400,6 +1401,7 @@ class InstrumentService:
         )
         if validation_problems:
             raise _HardwareActionRejected(validation_problems)
+        started_at = datetime.now(UTC)
         try:
             receipt = instrument.collect(driver_request)
         except Exception as error:
@@ -1412,6 +1414,7 @@ class InstrumentService:
             raise BackendConflict(
                 "instrument collect failed with unknown state"
             ) from error
+        completed_at = datetime.now(UTC)
         receipt_problems = validate_collect_receipt(
             command=command,
             receipt=receipt,
@@ -1441,6 +1444,7 @@ class InstrumentService:
         bindings = {
             binding.request_id: binding.product_use_ids for binding in action.bindings
         }
+        requests = {request.id: request for request in action.requests}
         if set(receipt.readback.values) != set(bindings):
             raise BackendConflict(
                 "instrument acquisition results do not match hardware batch bindings"
@@ -1450,6 +1454,16 @@ class InstrumentService:
                 point_index=action.point_index,
                 product_use_id=product_use_id,
                 value=value,
+                evidence=InstrumentAcquisitionEvidence(
+                    command_id=action.effect_id,
+                    instrument_id=action.instrument_id,
+                    interface_id=requests[request_id].interface_id,
+                    component_path=tuple(requests[request_id].component_path),
+                    acquisition_id=requests[request_id].acquisition_id,
+                    result_id=requests[request_id].result_id,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                ),
             )
             for request_id, value in receipt.readback.values.items()
             for product_use_id in bindings[request_id]

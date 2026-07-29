@@ -18,7 +18,10 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.measurements.points import RunPoint, RunPointContract
 from scopecat.measurements.products import ProductDef
-from scopecat.records.measurement import MeasurementValue
+from scopecat.records.measurement import (
+    InstrumentAcquisitionEvidence,
+    MeasurementValue,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +108,7 @@ class MeasurementValueCandidate:
     logical_point_id: LogicalPointId
     product_use_id: ProductUseId
     value: MeasurementValue
+    evidence: InstrumentAcquisitionEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -115,6 +119,7 @@ class ClosedMeasurementProductValue:
     product_use: ProductUse = field(repr=False)
     _product: ProductDef = field(repr=False)
     _value: MeasurementValue = field(repr=False)
+    _evidence: InstrumentAcquisitionEvidence | None = field(repr=False)
 
     def __init__(
         self,
@@ -122,11 +127,13 @@ class ClosedMeasurementProductValue:
         product_use: ProductUse,
         product: ProductDef,
         value: MeasurementValue,
+        evidence: InstrumentAcquisitionEvidence | None,
     ) -> None:
         object.__setattr__(self, "point", point)
         object.__setattr__(self, "product_use", product_use)
         object.__setattr__(self, "_product", product)
         object.__setattr__(self, "_value", value)
+        object.__setattr__(self, "_evidence", evidence)
 
     @property
     def logical_point_id(self) -> LogicalPointId:
@@ -147,6 +154,10 @@ class ClosedMeasurementProductValue:
     @property
     def value(self) -> MeasurementValue:
         return self._value
+
+    @property
+    def evidence(self) -> InstrumentAcquisitionEvidence | None:
+        return self._evidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +271,7 @@ def seal_measurement_values(
                 catalog.product_use(use_id),
                 catalog.product_for_use(use_id),
                 by_key[(point.logical_id, use_id)].value,
+                by_key[(point.logical_id, use_id)].evidence,
             )
             for point in points
             for use_id in catalog.product_use_ids
