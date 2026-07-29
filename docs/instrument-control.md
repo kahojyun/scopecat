@@ -149,6 +149,12 @@ observable public state required before a trigger. Interactive clients use a
 synchronized snapshot for readiness, and batch preflight uses projected state
 to reject an incoherent plan before its first side effect.
 
+Every array axis has either a fixed size or an observable integer state
+property as its size source. Executable collect commands always freeze concrete
+dimensions; state references remain in the interface contract and never enter
+the driver request. Truly ragged or event-shaped results require a distinct
+result contract rather than an omitted axis size.
+
 Readiness is advisory at the hardware boundary. The daemon never rejects a
 direct collect solely from its assumed state, because a user may have changed
 the front panel while the connection was idle. The driver rechecks live mode

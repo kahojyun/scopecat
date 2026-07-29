@@ -375,7 +375,7 @@ def _validate_result(
             requested_axis.id != declared_axis.id
             or requested_axis.kind != declared_axis.kind
             or (
-                declared_axis.size is not None
+                isinstance(declared_axis.size, int)
                 and requested_axis.size != declared_axis.size
             )
         ):

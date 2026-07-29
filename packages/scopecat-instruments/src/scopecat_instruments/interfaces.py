@@ -270,6 +270,7 @@ def temperature_readout_interface() -> InterfaceSpec:
 def network_sweep_interface() -> InterfaceSpec:
     frequency_axis = acquisition_axis(
         "frequency",
+        size=member_refs.NETWORK_SWEEP_POINTS,
         kind="frequency",
         unit="Hz",
         label="Frequency",

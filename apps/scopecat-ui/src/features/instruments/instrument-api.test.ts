@@ -5,19 +5,22 @@ import type {
   InstrumentConnection,
   InstrumentOperation,
   InstrumentSession,
+  InstrumentState,
 } from "../../api-contract";
 import { setConfigDefault } from "../config/config-api";
 import {
   applyInstrumentConfiguredDefaults,
   applyInstrumentState,
   closeInstrumentSession,
-  collectInstrumentAcquisition,
+  collectInstrumentAcquisition as sendInstrumentAcquisition,
   connectionSummary,
+  createInstrumentCollectCommand,
   instrumentAcquisitionReadiness,
   invokeInstrumentOperation,
   openInstrumentSession,
   publishInstrumentConnection,
   type ActiveConfig,
+  type InstrumentAcquisitionTarget,
 } from "./instrument-api";
 
 vi.mock("../config/config-api", () => ({
@@ -28,6 +31,19 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
+
+async function planAndCollect(
+  instrumentSession: InstrumentSession,
+  instrumentId: string,
+  target: InstrumentAcquisitionTarget,
+  state?: InstrumentState,
+  commandId?: string,
+) {
+  return sendInstrumentAcquisition(
+    instrumentSession,
+    createInstrumentCollectCommand(instrumentId, target, state, commandId),
+  );
+}
 
 describe("instrument configuration publishing", () => {
   it("publishes a complete cloned active profile with generation fencing", async () => {
@@ -205,7 +221,7 @@ describe("interactive collection request shaping", () => {
     });
   });
 
-  it("leaves a wholly dynamic result unspecified until every axis is known", async () => {
+  it("resolves a state-sized axis by its exact property reference", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
         new Response(
@@ -226,40 +242,72 @@ describe("interactive collection request shaping", () => {
         {
           id: "trace",
           dtype: "float64",
-          axes: [{ id: "frequency", kind: "frequency", unit: "Hz" }],
+          axes: [
+            {
+              id: "frequency",
+              kind: "frequency",
+              size: {
+                interface_id: "scopecat.sweep_control/v1",
+                component_path: ["sweep"],
+                property_id: "points",
+              },
+              unit: "Hz",
+            },
+          ],
         },
       ],
     };
     const target = {
       interfaceId: "scopecat.network_sweep/v1",
-      componentPath: [],
+      componentPath: ["readout"],
       acquisition,
     };
 
-    await collectInstrumentAcquisition(session(), "vna-1", target);
-    await collectInstrumentAcquisition(session(), "vna-1", target, {
+    const unrelatedState: InstrumentState = {
       instrument_id: "vna-1",
       properties: [
         {
           interface_id: "scopecat.network_sweep/v1",
-          component_path: [],
+          component_path: ["readout"],
+          property_id: "points",
+          value: 999,
+        },
+        {
+          interface_id: "scopecat.sweep_control/v1",
+          component_path: ["other"],
+          property_id: "points",
+          value: 888,
+        },
+      ],
+    };
+    await expect(planAndCollect(session(), "vna-1", target, unrelatedState)).rejects.toThrow(
+      "positive size for frequency in trace",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await planAndCollect(session(), "vna-1", target, {
+      ...unrelatedState,
+      properties: [
+        ...(unrelatedState.properties ?? []),
+        {
+          interface_id: "scopecat.sweep_control/v1",
+          component_path: ["sweep"],
           property_id: "points",
           value: 201,
         },
       ],
     });
 
-    const firstBody = requestBody(fetchMock.mock.calls[0]?.[1]);
-    expect(firstBody.requests?.[0]!.dimensions).toEqual([]);
-    expect(firstBody.requests?.[0]).toMatchObject({
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = requestBody(fetchMock.mock.calls[0]?.[1]);
+    expect(body.requests?.[0]).toMatchObject({
       id: "trace",
       interface_id: "scopecat.network_sweep/v1",
-      component_path: [],
+      component_path: ["readout"],
       acquisition_id: "sweep",
       result_id: "trace",
     });
-    const secondBody = requestBody(fetchMock.mock.calls[1]?.[1]);
-    expect(secondBody.requests?.[0]!.dimensions).toEqual([
+    expect(body.requests?.[0]!.dimensions).toEqual([
       { id: "frequency", kind: "frequency", size: 201, unit: "Hz" },
     ]);
   });
@@ -314,8 +362,8 @@ describe("interactive collection request shaping", () => {
       ],
     };
 
-    await collectInstrumentAcquisition(session(), "dc-1", target, state);
-    await collectInstrumentAcquisition(session(), "dc-1", target, {
+    await planAndCollect(session(), "dc-1", target, state);
+    await planAndCollect(session(), "dc-1", target, {
       ...state,
       properties: [{ ...state.properties[0]!, value: "current" }],
     });
@@ -323,7 +371,7 @@ describe("interactive collection request shaping", () => {
     expect(
       fetchMock.mock.calls.map(([, init]) => requestBody(init).requests?.[0]?.result_id),
     ).toEqual(["monitored_current", "monitored_voltage"]);
-    await expect(collectInstrumentAcquisition(session(), "dc-1", target)).rejects.toThrow(
+    await expect(planAndCollect(session(), "dc-1", target)).rejects.toThrow(
       "instrument mode is synchronized",
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -389,12 +437,12 @@ describe("interactive collection request shaping", () => {
       status: "blocked",
       reason: "Enable the source output before collecting.",
     });
-    await expect(
-      collectInstrumentAcquisition(session(), "source-1", target, disabledState),
-    ).rejects.toThrow("Enable the source output before collecting.");
+    await expect(planAndCollect(session(), "source-1", target, disabledState)).rejects.toThrow(
+      "Enable the source output before collecting.",
+    );
     expect(fetchMock).not.toHaveBeenCalled();
 
-    await collectInstrumentAcquisition(session(), "source-1", target, {
+    await planAndCollect(session(), "source-1", target, {
       ...disabledState,
       properties: [{ ...disabledState.properties[0]!, value: true }],
     });
@@ -542,7 +590,7 @@ describe("interactive collection request shaping", () => {
     };
 
     await expect(
-      collectInstrumentAcquisition(session(), "source-1", target, {
+      planAndCollect(session(), "source-1", target, {
         instrument_id: "source-2",
         properties: [],
       }),
@@ -655,7 +703,7 @@ describe("interactive collection request shaping", () => {
       }),
     ).toEqual({ ready: true, status: "ready" });
 
-    await collectInstrumentAcquisition(session(), "source-1", target, {
+    await planAndCollect(session(), "source-1", target, {
       ...voltageState,
       properties: [
         { ...voltageState.properties[0]!, value: "current" },
@@ -710,13 +758,13 @@ describe("interactive collection request shaping", () => {
         "Refresh state to verify acquisition readiness. " +
         "Select a voltage range of at least 1 V.",
     });
-    await expect(
-      collectInstrumentAcquisition(session(), "source-1", target, state),
-    ).rejects.toThrow("Refresh state to verify acquisition readiness.");
+    await expect(planAndCollect(session(), "source-1", target, state)).rejects.toThrow(
+      "Refresh state to verify acquisition readiness.",
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects mixed static and unresolved dynamic axes before HTTP", async () => {
+  it("rejects mixed fixed and unresolved state-sized axes before HTTP", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const acquisition: InstrumentAcquisition = {
@@ -728,7 +776,17 @@ describe("interactive collection request shaping", () => {
           label: "S-parameter trace",
           dtype: "float64",
           axes: [
-            { id: "frequency", label: "Frequency", kind: "frequency", unit: "Hz" },
+            {
+              id: "frequency",
+              label: "Frequency",
+              kind: "frequency",
+              size: {
+                interface_id: "scopecat.network_sweep/v1",
+                component_path: [],
+                property_id: "points",
+              },
+              unit: "Hz",
+            },
             { id: "receiver", kind: "receiver", size: 2 },
           ],
         },
@@ -740,8 +798,9 @@ describe("interactive collection request shaping", () => {
       acquisition,
     };
 
-    await expect(collectInstrumentAcquisition(session(), "vna-1", target)).rejects.toThrow(
-      "Collect is unavailable until S-parameter trace has a positive point count for Frequency.",
+    await expect(planAndCollect(session(), "vna-1", target)).rejects.toThrow(
+      "Collect is unavailable until synchronized state provides a positive size for " +
+        "Frequency in S-parameter trace. Refresh instrument state before collecting.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
 
@@ -755,7 +814,7 @@ describe("interactive collection request shaping", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
-    await collectInstrumentAcquisition(session(), "vna-1", target, {
+    await planAndCollect(session(), "vna-1", target, {
       instrument_id: "vna-1",
       properties: [
         {
@@ -772,6 +831,75 @@ describe("interactive collection request shaping", () => {
     expect(body.requests?.[0]!.dimensions).toEqual([
       { id: "frequency", kind: "frequency", size: 201, unit: "Hz" },
       { id: "receiver", kind: "receiver", size: 2 },
+    ]);
+  });
+
+  it("replays the exact planned collect command after state changes", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "collected",
+            problems: [],
+            readback: { values: {} },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const acquisition: InstrumentAcquisition = {
+      kind: "fixed",
+      id: "sweep",
+      results: [
+        {
+          id: "trace",
+          dtype: "float64",
+          axes: [
+            {
+              id: "frequency",
+              kind: "frequency",
+              size: {
+                interface_id: "scopecat.sweep_control/v1",
+                component_path: ["sweep"],
+                property_id: "points",
+              },
+              unit: "Hz",
+            },
+          ],
+        },
+      ],
+    };
+    const target = {
+      interfaceId: "scopecat.network_sweep/v1",
+      componentPath: ["readout"],
+      acquisition,
+    };
+    const pointState = {
+      interface_id: "scopecat.sweep_control/v1",
+      component_path: ["sweep"],
+      property_id: "points",
+      value: 201,
+    };
+    const state: InstrumentState = {
+      instrument_id: "vna-1",
+      properties: [pointState],
+    };
+    const command = createInstrumentCollectCommand("vna-1", target, state, "collect-retry");
+    pointState.value = 401;
+    target.componentPath.push("changed-after-planning");
+
+    await sendInstrumentAcquisition(session(), command);
+    await sendInstrumentAcquisition(session(), command);
+
+    const bodies = fetchMock.mock.calls.map(([, init]) => requestBody(init));
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toEqual(command);
+    expect(bodies[1]).toEqual(command);
+    expect(command.requests[0]?.component_path).toEqual(["readout"]);
+    expect(bodies.map((body) => body.requests?.[0]?.dimensions)).toEqual([
+      [{ id: "frequency", kind: "frequency", size: 201, unit: "Hz" }],
+      [{ id: "frequency", kind: "frequency", size: 201, unit: "Hz" }],
     ]);
   });
 
@@ -815,8 +943,8 @@ describe("interactive collection request shaping", () => {
     await applyInstrumentState(session(), "vna-1", properties, "apply-retry");
     await invokeInstrumentOperation(session(), "vna-1", operationTarget, [], "invoke-retry");
     await invokeInstrumentOperation(session(), "vna-1", operationTarget, [], "invoke-retry");
-    await collectInstrumentAcquisition(session(), "vna-1", target, undefined, "collect-retry");
-    await collectInstrumentAcquisition(session(), "vna-1", target, undefined, "collect-retry");
+    await planAndCollect(session(), "vna-1", target, undefined, "collect-retry");
+    await planAndCollect(session(), "vna-1", target, undefined, "collect-retry");
     await closeInstrumentSession("session-1");
     await closeInstrumentSession("session-1");
 

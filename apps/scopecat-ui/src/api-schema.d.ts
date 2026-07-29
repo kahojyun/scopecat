@@ -645,6 +645,7 @@ export interface components {
              */
             type: "string";
         };
+        AcquisitionAxisSize: number | components["schemas"]["StatePropertyRef"];
         /** AcquisitionAxisSpec */
         AcquisitionAxisSpec: {
             /** Description */
@@ -653,8 +654,7 @@ export interface components {
             kind: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
-            /** Size */
-            size?: number | null;
+            size: components["schemas"]["AcquisitionAxisSize"];
             /** Unit */
             unit?: string | null;
         };

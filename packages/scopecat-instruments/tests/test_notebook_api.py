@@ -12,6 +12,7 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import (
     InstrumentPropertyState,
@@ -34,10 +35,20 @@ from scopecat.sdk.instruments import (
 )
 
 from scopecat_instruments.drivers import YokogawaGS200
+from scopecat_instruments.interfaces import network_sweep_interface
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_VOLTAGE_RESULT,
+    NETWORK_SWEEP_ACQUISITION,
+    NETWORK_SWEEP_FREQUENCY_RESULT,
+    NETWORK_SWEEP_IF_BANDWIDTH,
+    NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_S_PARAMETER,
+    NETWORK_SWEEP_S_PARAMETER_RESULT,
+    NETWORK_SWEEP_SOURCE_POWER,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
 )
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 from scopecat_instruments.virtual import VirtualDcSource, VirtualLabWorld
@@ -369,33 +380,122 @@ def test_notebook_replay_id_requires_an_explicit_discriminated_result() -> None:
     assert daemon.collect_command is None
 
 
-def test_notebook_replay_id_sends_the_same_explicit_command_after_state_changes() -> (
-    None
-):
-    description, enabled_state, sample, reading = _fixed_acquisition_contract(
-        precondition=True,
-        enabled=True,
-    )
-    daemon = _CollectingDaemon(description, enabled_state)
+def test_notebook_network_sweep_resolves_dimensions_from_one_snapshot() -> None:
+    description, state = _network_sweep_contract(points=201)
+    daemon = _CollectingDaemon(description, state)
     handle = InstrumentSessionHandle(
         client=daemon,
-        instrument_ids=("sensor",),
+        instrument_ids=("vna",),
         actor="test",
     )
 
     try:
-        handle.collect(sample, reading, command_id="collect-replay")
-        daemon.state = _fixed_acquisition_contract(
-            precondition=True,
-            enabled=False,
-        )[1]
-        handle.collect(sample, reading, command_id="collect-replay")
+        receipt = handle.collect(NETWORK_SWEEP_ACQUISITION)
     finally:
         daemon.close()
 
-    assert daemon.state_reads == 0
+    assert receipt.status == "collected"
+    assert daemon.state_reads == 1
+    assert daemon.collect_command is not None
+    assert {
+        request.result_id: [
+            (axis.id, axis.kind, axis.size, axis.unit) for axis in request.dimensions
+        ]
+        for request in daemon.collect_command.requests
+    } == {
+        NETWORK_SWEEP_FREQUENCY_RESULT.result_id: [
+            ("frequency", "frequency", 201, "Hz")
+        ],
+        NETWORK_SWEEP_S_PARAMETER_RESULT.result_id: [
+            ("frequency", "frequency", 201, "Hz")
+        ],
+    }
+
+
+def test_notebook_replay_id_keeps_resolved_dimensions_after_state_changes() -> None:
+    description, state = _network_sweep_contract(points=201)
+    daemon = _CollectingDaemon(description, state)
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("vna",),
+        actor="test",
+    )
+
+    try:
+        handle.collect(
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
+            command_id="collect-replay",
+        )
+        daemon.state = _network_sweep_contract(points=801)[1]
+        handle.collect(
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_S_PARAMETER_RESULT,
+            command_id="collect-replay",
+        )
+    finally:
+        daemon.close()
+
+    assert daemon.state_reads == 1
     assert len(daemon.collect_commands) == 2
     assert daemon.collect_commands[0] == daemon.collect_commands[1]
+    assert daemon.collect_commands[0].requests[0].dimensions[0].size == 201
+
+
+def test_notebook_replay_id_rejects_a_different_collect_intent() -> None:
+    description, state = _network_sweep_contract(points=201)
+    daemon = _CollectingDaemon(description, state)
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("vna",),
+        actor="test",
+    )
+
+    try:
+        handle.collect(
+            NETWORK_SWEEP_ACQUISITION,
+            NETWORK_SWEEP_FREQUENCY_RESULT,
+            command_id="collect-replay",
+        )
+        with pytest.raises(
+            ValueError,
+            match="command id 'collect-replay' has different collect content",
+        ):
+            handle.collect(
+                NETWORK_SWEEP_ACQUISITION,
+                NETWORK_SWEEP_S_PARAMETER_RESULT,
+                command_id="collect-replay",
+            )
+    finally:
+        daemon.close()
+
+    assert daemon.state_reads == 1
+    assert len(daemon.collect_commands) == 1
+
+
+def test_notebook_collect_rejects_missing_axis_size_state_before_daemon() -> None:
+    description, state = _network_sweep_contract(points=None)
+    daemon = _CollectingDaemon(description, state)
+    handle = InstrumentSessionHandle(
+        client=daemon,
+        instrument_ids=("vna",),
+        actor="test",
+    )
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="axis size state is not synchronized",
+        ):
+            handle.collect(
+                NETWORK_SWEEP_ACQUISITION,
+                NETWORK_SWEEP_S_PARAMETER_RESULT,
+            )
+    finally:
+        daemon.close()
+
+    assert daemon.state_reads == 1
+    assert daemon.collect_command is None
 
 
 @pytest.mark.parametrize(
@@ -561,3 +661,46 @@ def _fixed_acquisition_contract(
         ],
     )
     return description, state, sample, reading
+
+
+def _network_sweep_contract(
+    *,
+    points: int | None,
+) -> tuple[InstrumentDescription, InstrumentStateSnapshot]:
+    description = InstrumentDescription(
+        instrument_id="vna",
+        implementation_id="tests.vna",
+        implementation_version="1",
+        interfaces=[network_sweep_interface()],
+    )
+    state = InstrumentStateSnapshot(
+        instrument_id="vna",
+        properties=[
+            InstrumentPropertyState(
+                interface_id=target.interface_id,
+                component_path=list(target.component_path),
+                property_id=target.property_id,
+                value=StateValue(value),
+            )
+            for target, value in (
+                (NETWORK_SWEEP_START_FREQUENCY, Quantity(1.0e9, "Hz")),
+                (NETWORK_SWEEP_STOP_FREQUENCY, Quantity(2.0e9, "Hz")),
+                (NETWORK_SWEEP_IF_BANDWIDTH, Quantity(1.0e3, "Hz")),
+                (NETWORK_SWEEP_SOURCE_POWER, Quantity(-10.0, "dBm")),
+                (NETWORK_SWEEP_S_PARAMETER, "S21"),
+            )
+        ]
+        + (
+            [
+                InstrumentPropertyState(
+                    interface_id=NETWORK_SWEEP_POINTS.interface_id,
+                    component_path=list(NETWORK_SWEEP_POINTS.component_path),
+                    property_id=NETWORK_SWEEP_POINTS.property_id,
+                    value=StateValue(points),
+                )
+            ]
+            if points is not None
+            else []
+        ),
+    )
+    return description, state

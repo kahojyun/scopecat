@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     )
     from scopecat.sdk.instruments.backend import InstrumentBackend
     from scopecat.sdk.instruments.contracts import (
+        AcquisitionAxisSize,
         AcquisitionAxisSpec,
         AcquisitionCaseSpec,
         AcquisitionPreconditionSpec,
@@ -75,6 +76,7 @@ if TYPE_CHECKING:
         operation,
         operation_argument,
         quantity_property,
+        resolve_acquisition_dimensions,
         state_case,
         state_discriminated_acquisition,
         string_property,
@@ -136,6 +138,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "AcquisitionAxisSpec": (
         "scopecat.sdk.instruments.contracts",
         "AcquisitionAxisSpec",
+    ),
+    "AcquisitionAxisSize": (
+        "scopecat.sdk.instruments.contracts",
+        "AcquisitionAxisSize",
     ),
     "AcquisitionResultSpec": (
         "scopecat.sdk.instruments.contracts",
@@ -335,6 +341,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "quantity_property": (
         "scopecat.sdk.instruments.contracts",
         "quantity_property",
+    ),
+    "resolve_acquisition_dimensions": (
+        "scopecat.sdk.instruments.contracts",
+        "resolve_acquisition_dimensions",
     ),
     "state_case": ("scopecat.sdk.instruments.contracts", "state_case"),
     "state_discriminated_acquisition": (

@@ -969,8 +969,8 @@ describe("instrument workspace", () => {
     expect(await screen.findByText("Collect network failed.")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
     await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[4]).toBe(
-      vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[4],
+    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[1]).toBe(
+      vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[1],
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
@@ -991,7 +991,8 @@ describe("instrument workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
     expect(await screen.findByText("Collect request lost.")).toBeVisible();
-    const staleCollectCommandId = vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[4];
+    const staleCollectCommandId = vi.mocked(collectInstrumentAcquisition).mock.calls[0]?.[1]
+      .command_id;
 
     fireEvent.change(frequency, { target: { value: "6000000000" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply staged" }));
@@ -999,12 +1000,12 @@ describe("instrument workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Collect" }));
 
     await waitFor(() => expect(collectInstrumentAcquisition).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[4]).not.toBe(
+    expect(vi.mocked(collectInstrumentAcquisition).mock.calls[1]?.[1].command_id).not.toBe(
       staleCollectCommandId,
     );
   });
 
-  it("disables collection when an acquisition result has an unresolved dynamic axis", async () => {
+  it("disables collection when a state-sized axis is unresolved", async () => {
     const mixedAxisInstrument = instrument();
     mixedAxisInstrument.description = {
       ...mixedAxisInstrument.description!,
@@ -1025,7 +1026,17 @@ describe("instrument workspace", () => {
                   label: "S-parameter trace",
                   dtype: "complex128",
                   axes: [
-                    { id: "frequency", label: "Frequency", kind: "frequency", unit: "Hz" },
+                    {
+                      id: "frequency",
+                      label: "Frequency",
+                      kind: "frequency",
+                      size: {
+                        interface_id: "scopecat.network_sweep/v1",
+                        component_path: [],
+                        property_id: "points",
+                      },
+                      unit: "Hz",
+                    },
                     { id: "receiver", kind: "receiver", size: 2 },
                   ],
                 },
@@ -1041,7 +1052,7 @@ describe("instrument workspace", () => {
       items: [mixedAxisInstrument],
     });
     vi.mocked(openInstrumentSession).mockResolvedValue(
-      session({ descriptions: [mixedAxisInstrument.description] }),
+      session({ descriptions: [mixedAxisInstrument.description!] }),
     );
 
     renderWorkspace();
@@ -1050,7 +1061,7 @@ describe("instrument workspace", () => {
 
     expect(
       await screen.findByText(
-        /Collect is unavailable until S-parameter trace has a positive point count for Frequency/,
+        /Collect is unavailable until synchronized state provides a positive size for Frequency in S-parameter trace/,
       ),
     ).toBeVisible();
     const collect = screen.getByRole("button", { name: "Collect" });

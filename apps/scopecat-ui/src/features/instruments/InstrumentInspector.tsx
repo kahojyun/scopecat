@@ -32,6 +32,7 @@ import {
   applyInstrumentState,
   applyInstrumentConfiguredDefaults,
   collectInstrumentAcquisition,
+  createInstrumentCollectCommand,
   acquisitionResultsForState,
   declaredAcquisitionResults,
   createInstrumentCommandId,
@@ -41,6 +42,7 @@ import {
   resolveInstrumentAttention,
   retryTransientInstrumentMutation,
   type InstrumentAcquisitionTarget,
+  type InstrumentCollectCommand,
   type InstrumentOperationArgument,
   type InstrumentOperationTarget,
   type StagedInstrumentProperty,
@@ -106,7 +108,7 @@ export function InstrumentInspector({
   const [invokeResults, setInvokeResults] = useState<Record<string, InstrumentInvokeReceipt>>({});
   const applyCommandIdRef = useRef<string | undefined>(undefined);
   const configuredDefaultsOperationIdRef = useRef<string | undefined>(undefined);
-  const collectCommandIdsRef = useRef<Record<string, string>>({});
+  const collectCommandsRef = useRef<Record<string, InstrumentCollectCommand>>({});
   const invokeCommandIdsRef = useRef<Record<string, string>>({});
 
   const hasConfiguredDefaults =
@@ -117,7 +119,7 @@ export function InstrumentInspector({
     onSuccess: (snapshot) => {
       applyCommandIdRef.current = undefined;
       configuredDefaultsOperationIdRef.current = undefined;
-      collectCommandIdsRef.current = {};
+      collectCommandsRef.current = {};
       invokeCommandIdsRef.current = {};
       setState(snapshot);
       setDrafts({});
@@ -131,7 +133,7 @@ export function InstrumentInspector({
   useEffect(() => {
     applyCommandIdRef.current = undefined;
     configuredDefaultsOperationIdRef.current = undefined;
-    collectCommandIdsRef.current = {};
+    collectCommandsRef.current = {};
     invokeCommandIdsRef.current = {};
     setState(connected ? synchronizedState : undefined);
     setDrafts({});
@@ -188,7 +190,7 @@ export function InstrumentInspector({
       setApplyResult(receipt.status);
       if (receipt.state) setState(receipt.state);
       if (receipt.status === "applied") {
-        collectCommandIdsRef.current = {};
+        collectCommandsRef.current = {};
         invokeCommandIdsRef.current = {};
         setCollectResults({});
         setInvokeResults({});
@@ -215,7 +217,7 @@ export function InstrumentInspector({
       if (receipt.state) setState(receipt.state);
       if (receipt.status === "applied" || receipt.status === "unchanged") {
         applyCommandIdRef.current = undefined;
-        collectCommandIdsRef.current = {};
+        collectCommandsRef.current = {};
         invokeCommandIdsRef.current = {};
         setApplyResult(undefined);
         setDrafts({});
@@ -247,26 +249,16 @@ export function InstrumentInspector({
   });
   const collectMutation = useMutation({
     mutationFn: ({
-      target,
-      stateSnapshot,
-      commandId,
+      command,
     }: {
       target: InstrumentAcquisitionTarget;
-      stateSnapshot?: InstrumentState;
-      commandId: string;
-    }) =>
-      collectInstrumentAcquisition(
-        requireSession(session),
-        instrumentId,
-        target,
-        stateSnapshot,
-        commandId,
-      ),
+      command: InstrumentCollectCommand;
+    }) => collectInstrumentAcquisition(requireSession(session), command),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
     onSuccess: (receipt, { target }) => {
       const key = acquisitionKey(target);
-      delete collectCommandIdsRef.current[key];
+      delete collectCommandsRef.current[key];
       setCollectResults((current) => ({ ...current, [key]: receipt }));
       if (receipt.status === "unknown") {
         onSessionLost(
@@ -304,7 +296,7 @@ export function InstrumentInspector({
       setInvokeResults((current) => ({ ...current, [key]: receipt }));
       if (receipt.state) setState(receipt.state);
       if (receipt.status === "invoked") {
-        collectCommandIdsRef.current = {};
+        collectCommandsRef.current = {};
         setCollectResults({});
       } else if (receipt.status === "unknown") {
         onSessionLost(
@@ -387,12 +379,13 @@ export function InstrumentInspector({
   };
   const collectAcquisition = (target: InstrumentAcquisitionTarget) => {
     const key = acquisitionKey(target);
-    const commandId = collectCommandIdsRef.current[key] ?? createInstrumentCommandId("collect");
-    collectCommandIdsRef.current[key] = commandId;
+    const command =
+      collectCommandsRef.current[key] ??
+      createInstrumentCollectCommand(instrumentId, target, state);
+    collectCommandsRef.current[key] = command;
     collectMutation.mutate({
       target,
-      stateSnapshot: state,
-      commandId,
+      command,
     });
   };
   const invokeOperation = (

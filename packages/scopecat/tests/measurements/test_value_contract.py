@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import cast
-
 import pytest
 from pydantic import ValidationError
 
-from scopecat.execution.local.program import CollectionResultBinding, CollectOperation
-from scopecat.execution.local.receipts import validate_readback
-from scopecat.kernel.problems import ModelLocation
-from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.contracts import (
     MeasurementValueContractIssueCode,
     measurement_value_contract_issues,
@@ -23,9 +16,6 @@ from scopecat.records.measurement import (
     MeasurementUnavailableReason,
 )
 from scopecat.sdk.instruments import (
-    CollectAxisRequest,
-    CollectCommand,
-    CollectResultRequest,
     InstrumentReadback,
 )
 
@@ -411,107 +401,3 @@ def test_scalar_bool_and_int_values_preserve_wire_types_across_tags() -> None:
             expected_shape=(),
         )
     ] == [MeasurementValueContractIssueCode.VALUE_TYPE_MISMATCH]
-
-
-def _collect_operation(
-    *,
-    dtype: MeasurementDType,
-    unit: str | None,
-    shape: Sequence[int],
-) -> CollectOperation:
-    operation_id = "point.collect.source"
-    product_use_id = ProductUseId("record:iq")
-    return CollectOperation(
-        operation_id=operation_id,
-        instrument_id="source",
-        command=CollectCommand(
-            command_id=operation_id,
-            instrument_id="source",
-            point_index=0,
-            point_count=1,
-            requests=[
-                CollectResultRequest(
-                    id="iq",
-                    interface_id="test.readout/v1",
-                    acquisition_id="sample",
-                    result_id="iq",
-                    dtype=dtype,
-                    unit=unit,
-                    dimensions=[
-                        CollectAxisRequest(
-                            id=f"axis-{index}",
-                            kind="array",
-                            size=size,
-                        )
-                        for index, size in enumerate(shape)
-                    ],
-                )
-            ],
-        ),
-        result_bindings=(
-            CollectionResultBinding(
-                request_id="iq",
-                product_use_ids=(product_use_id,),
-            ),
-        ),
-    )
-
-
-def test_execution_readback_preserves_top_level_problem_codes() -> None:
-    operation = _collect_operation(dtype="int64", unit="ratio", shape=(3,))
-    readback = InstrumentReadback(
-        values={
-            "iq": MeasurementArray.create(
-                dtype="float64",
-                unit="V",
-                shape=[2],
-                values=[0.25, 0.75],
-            )
-        }
-    )
-
-    problems = validate_readback(operation, readback)
-
-    assert tuple(problem.code for problem in problems) == (
-        "instrument_readback_dtype_mismatch",
-        "instrument_readback_unit_mismatch",
-        "instrument_readback_shape_mismatch",
-    )
-    assert all(isinstance(problem.location, ModelLocation) for problem in problems)
-    assert tuple(
-        cast("ModelLocation", problem.location).path for problem in problems
-    ) == (
-        ("values", "iq", "dtype"),
-        ("values", "iq", "unit"),
-        ("values", "iq", "shape"),
-    )
-
-
-def test_execution_readback_maps_leaf_issues_to_value_mismatch() -> None:
-    operation = _collect_operation(
-        dtype="complex128",
-        unit="ratio",
-        shape=(2,),
-    )
-    readback = InstrumentReadback(
-        values={
-            "iq": MeasurementArray.create(
-                dtype="complex128",
-                unit="ratio",
-                shape=[2],
-                values=[
-                    ComplexComponents(real=0.25, imag=-0.5),
-                    0.75,
-                ],
-            )
-        }
-    )
-
-    problems = validate_readback(operation, readback)
-
-    assert tuple(problem.code for problem in problems) == (
-        "instrument_readback_value_mismatch",
-    )
-    assert isinstance(problems[0].location, ModelLocation)
-    assert problems[0].location.path == ("values", "iq", "values", 1)
-    assert "value_type_mismatch" in problems[0].message

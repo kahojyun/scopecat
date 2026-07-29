@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat.sdk.instruments as instrument_sdk
-from scopecat.kernel.problems import ModelLocation
+from scopecat.kernel.problems import ModelLocation, Problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_types import Entity, Float, Int, Payload, Scalar
@@ -74,6 +74,7 @@ from scopecat.sdk.instruments import (
     operation,
     operation_argument,
     quantity_property,
+    resolve_acquisition_dimensions,
     state_case,
     state_discriminated_acquisition,
     string_property,
@@ -1886,10 +1887,224 @@ def test_acquisition_result_rejects_duplicate_axis_ids() -> None:
         acquisition_result(
             "signal",
             axes=[
-                acquisition_axis("frequency", kind="frequency"),
-                acquisition_axis("frequency", kind="frequency"),
+                acquisition_axis("frequency", size=3, kind="frequency"),
+                acquisition_axis("frequency", size=3, kind="frequency"),
             ],
         )
+
+
+def test_acquisition_axis_requires_an_explicit_size_contract() -> None:
+    serialized = _collect_description().model_dump(mode="json")
+    del serialized["interfaces"][0]["acquisitions"][0]["results"][0]["axes"][0]["size"]
+
+    with pytest.raises(ValidationError, match="Field required"):
+        InstrumentDescription.model_validate(serialized)
+
+
+def test_state_sized_axis_has_canonical_wire_and_fingerprint() -> None:
+    description = _state_sized_collect_description()
+    result = acquisition_results(description.interfaces[1].acquisitions[0])[0]
+    axis = result.axes[1]
+    serialized = description.model_dump(mode="json")
+    restored = InstrumentDescription.model_validate(serialized)
+
+    assert isinstance(axis.size, StatePropertyRef)
+    assert serialized["interfaces"][1]["acquisitions"][0]["results"][0]["axes"][1][
+        "size"
+    ] == {
+        "interface_id": "test.sweep/v1",
+        "component_path": [],
+        "property_id": "points",
+    }
+    assert instrument_contract_fingerprint(
+        "tests",
+        (description,),
+    ) == instrument_contract_fingerprint("tests", (restored,))
+
+
+@pytest.mark.parametrize(
+    ("property_spec", "size_reference", "message"),
+    [
+        (
+            int_property("points", minimum=1),
+            InterfaceRef("test.sweep/v1").property("missing"),
+            "size must reference a declared property",
+        ),
+        (
+            int_property("points", minimum=1, access="write_only"),
+            InterfaceRef("test.sweep/v1").property("points"),
+            "size property must be observable",
+        ),
+        (
+            float_property("points"),
+            InterfaceRef("test.sweep/v1").property("points"),
+            "size property must be an integer",
+        ),
+        (
+            int_property("points", minimum=0),
+            InterfaceRef("test.sweep/v1").property("points"),
+            "size property must have a positive minimum",
+        ),
+    ],
+    ids=("missing", "write-only", "non-integer", "non-positive-minimum"),
+)
+def test_state_sized_axis_rejects_invalid_property_references(
+    property_spec: PropertySpec,
+    size_reference: PropertyRef,
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _state_sized_collect_description(
+            property_spec=property_spec,
+            size_reference=size_reference,
+        )
+
+
+def test_state_sized_axis_must_be_visible_in_its_acquisition_case() -> None:
+    trace = InterfaceRef("test.trace/v1")
+
+    with pytest.raises(
+        ValidationError,
+        match=r"case 'voltage'.*size references state that is not always observable",
+    ):
+        InstrumentDescription(
+            instrument_id="source-0",
+            implementation_id="tests.case_sized_axis",
+            implementation_version="v1",
+            interfaces=[
+                interface(
+                    trace.interface_id,
+                    properties=[
+                        enum_property("mode", choices=("voltage", "current")),
+                        int_property("voltage_points", minimum=1),
+                        int_property("current_points", minimum=1),
+                    ],
+                    state=discriminated_state(
+                        "mode",
+                        cases=(
+                            state_case(
+                                "voltage",
+                                property_ids=("voltage_points",),
+                            ),
+                            state_case(
+                                "current",
+                                property_ids=("current_points",),
+                            ),
+                        ),
+                    ),
+                    acquisitions=[
+                        state_discriminated_acquisition(
+                            "sample",
+                            discriminator=trace.property("mode"),
+                            cases=(
+                                acquisition_case(
+                                    "voltage",
+                                    results=(
+                                        acquisition_result(
+                                            "voltage_signal",
+                                            axes=(
+                                                acquisition_axis(
+                                                    "frequency",
+                                                    size=trace.property(
+                                                        "current_points"
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                                acquisition_case(
+                                    "current",
+                                    results=(
+                                        acquisition_result(
+                                            "current_signal",
+                                            axes=(
+                                                acquisition_axis(
+                                                    "frequency",
+                                                    size=1,
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                    ],
+                )
+            ],
+        )
+
+
+def test_mixed_fixed_and_state_sized_axes_resolve_from_one_snapshot() -> None:
+    description = _state_sized_collect_description()
+    result = acquisition_results(description.interfaces[1].acquisitions[0])[0]
+    command = _state_sized_collect_command(17)
+
+    assert (
+        resolve_acquisition_dimensions(
+            description=description,
+            result=result,
+            state=None,
+        )
+        is None
+    )
+    assert resolve_acquisition_dimensions(
+        description=description,
+        result=result,
+        state=_state_sized_collect_snapshot(17),
+    ) == tuple(command.requests[0].dimensions)
+    assert validate_collect_command(command=command, description=description) == []
+
+
+def test_collect_plan_checks_state_sized_axes_at_the_exact_state_target() -> None:
+    description = _state_sized_collect_description()
+    command = _state_sized_collect_command(17)
+
+    [unknown] = validate_collect_plan(
+        command=command,
+        description=description,
+        baseline=None,
+    )
+    matching = validate_collect_plan(
+        command=command,
+        description=description,
+        baseline=_state_sized_collect_snapshot(17),
+    )
+    [mismatch] = validate_collect_plan(
+        command=command,
+        description=description,
+        baseline=_state_sized_collect_snapshot(19),
+    )
+
+    location = ModelLocation(
+        root="instrument_collect_command",
+        path=("requests", "signal", "dimensions", 1, "size"),
+    )
+    related = (
+        ModelLocation(
+            root="instrument_state",
+            path=("test.sweep/v1", "points"),
+        ),
+    )
+    assert unknown.code == "instrument_driver_acquisition_axis_state_unknown"
+    assert unknown.location == location
+    assert unknown.related_locations == related
+    assert unknown.details == {
+        "state_property": {
+            "interface_id": "test.sweep/v1",
+            "component_path": (),
+            "property_id": "points",
+        },
+        "requested_size": 17,
+    }
+    assert matching == []
+    assert mismatch.code == "instrument_driver_acquisition_axis_state_mismatch"
+    assert mismatch.location == location
+    assert mismatch.related_locations == related
+    assert mismatch.details == {
+        **unknown.details,
+        "observed_value": 19,
+    }
 
 
 def test_collect_validator_reports_unsupported_result_without_crashing() -> None:
@@ -1916,8 +2131,8 @@ def test_collect_validator_reports_unsupported_result_without_crashing() -> None
     ]
 
 
-def test_collect_validator_accepts_compatible_units_and_dynamic_shapes() -> None:
-    compatible = validate_collect_command(
+def test_collect_validator_accepts_compatible_units_and_fixed_shapes() -> None:
+    problems = validate_collect_command(
         command=_collect_command(
             unit="GHz",
             dimensions=[
@@ -1931,13 +2146,17 @@ def test_collect_validator_accepts_compatible_units_and_dynamic_shapes() -> None
         ),
         description=_collect_description(),
     )
-    unspecified_dynamic_shape = validate_collect_command(
+
+    assert problems == []
+
+
+def test_collect_validator_requires_every_declared_axis() -> None:
+    [problem] = validate_collect_command(
         command=_collect_command(unit=None, dimensions=[]),
         description=_collect_description(),
     )
 
-    assert compatible == []
-    assert unspecified_dynamic_shape == []
+    assert problem.code == "instrument_driver_acquisition_axes_mismatch"
 
 
 def test_collect_validator_checks_dtype_unit_and_axis_contracts() -> None:
@@ -2171,45 +2390,49 @@ def test_collect_receipt_validator_checks_results_and_value_contract() -> None:
     }
 
 
-def test_collect_receipt_validator_allows_unspecified_dynamic_shape() -> None:
-    problems = validate_collect_receipt(
-        command=_collect_command(dimensions=[]),
-        receipt=CollectReceipt(
-            readback=RecordInstrumentReadback(
-                values={
-                    "signal": MeasurementArray.create(
-                        dtype="float64",
-                        unit="Hz",
-                        shape=(3,),
-                        values=(1.0, 2.0, 3.0),
-                    )
-                }
-            )
+@pytest.mark.parametrize(
+    "value",
+    (
+        MeasurementArray.create(
+            dtype="float64",
+            unit="Hz",
+            shape=(3,),
+            values=(1.0, 2.0, 3.0),
         ),
-    )
-
-    assert problems == []
-
-
-def test_collect_receipt_uses_unavailable_dynamic_shape_contract() -> None:
-    problems = validate_collect_receipt(
-        command=_collect_command(dimensions=[]),
-        receipt=CollectReceipt(
-            readback=RecordInstrumentReadback(
-                values={
-                    "signal": MeasurementUnavailable.create(
-                        reason="overload",
-                        dtype="float64",
-                        unit="Hz",
-                        shape=(3,),
-                        metadata={"instrument_status": "adc overload"},
-                    )
-                }
-            )
+        MeasurementUnavailable.create(
+            reason="overload",
+            dtype="float64",
+            unit="Hz",
+            shape=(3,),
+            metadata={"instrument_status": "adc overload"},
         ),
-    )
+    ),
+    ids=("available", "unavailable"),
+)
+def test_collect_receipt_enforces_the_concrete_requested_shape(
+    value: MeasurementArray | MeasurementUnavailable,
+) -> None:
+    def validate(size: int) -> list[Problem]:
+        return validate_collect_receipt(
+            command=_collect_command(
+                dimensions=[
+                    CollectAxisRequest(
+                        id="frequency",
+                        kind="frequency",
+                        size=size,
+                        unit="Hz",
+                    )
+                ]
+            ),
+            receipt=CollectReceipt(
+                readback=RecordInstrumentReadback(values={"signal": value})
+            ),
+        )
 
-    assert problems == []
+    assert validate(3) == []
+    assert [problem.code for problem in validate(2)] == [
+        "instrument_driver_readback_shape_mismatch"
+    ]
 
 
 def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
@@ -2355,6 +2578,7 @@ def _collect_description() -> InstrumentDescription:
                                 axes=[
                                     acquisition_axis(
                                         "frequency",
+                                        size=17,
                                         kind="frequency",
                                         unit="Hz",
                                     )
@@ -2365,6 +2589,84 @@ def _collect_description() -> InstrumentDescription:
                 ],
             )
         ],
+    )
+
+
+def _state_sized_collect_description(
+    *,
+    property_spec: PropertySpec | None = None,
+    size_reference: PropertyRef | None = None,
+) -> InstrumentDescription:
+    sweep = InterfaceRef("test.sweep/v1")
+    return InstrumentDescription(
+        instrument_id="source-0",
+        implementation_id="tests.state_sized_collect",
+        implementation_version="v1",
+        interfaces=[
+            interface(
+                sweep.interface_id,
+                properties=[
+                    property_spec or int_property("points", minimum=1),
+                ],
+            ),
+            interface(
+                "test.trace/v1",
+                acquisitions=[
+                    acquisition(
+                        "sample",
+                        results=[
+                            acquisition_result(
+                                "signal",
+                                unit="Hz",
+                                axes=[
+                                    acquisition_axis(
+                                        "channel",
+                                        size=2,
+                                    ),
+                                    acquisition_axis(
+                                        "frequency",
+                                        size=size_reference or sweep.property("points"),
+                                        kind="frequency",
+                                        unit="Hz",
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+def _state_sized_collect_snapshot(points: int) -> InstrumentStateSnapshot:
+    return InstrumentStateSnapshot(
+        instrument_id="source-0",
+        properties=[
+            RecordInstrumentPropertyState(
+                interface_id="test.sweep/v1",
+                property_id="points",
+                value=StateValue(points),
+            )
+        ],
+    )
+
+
+def _state_sized_collect_command(points: int) -> CollectCommand:
+    return _collect_command(
+        dimensions=[
+            CollectAxisRequest(
+                id="channel",
+                kind="channel",
+                size=2,
+            ),
+            CollectAxisRequest(
+                id="frequency",
+                kind="frequency",
+                size=points,
+                unit="Hz",
+            ),
+        ]
     )
 
 

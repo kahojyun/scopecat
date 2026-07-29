@@ -14,6 +14,7 @@ from scopecat.sdk.instruments import (
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
+    StatePropertyRef,
     acquisition_results,
 )
 
@@ -49,6 +50,7 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_PROTECTION,
     DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP,
+    NETWORK_SWEEP_POINTS,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
@@ -116,6 +118,19 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
         assert member.result_id in {
             result.id for result in acquisition_results(acquisition)
         }
+
+
+def test_network_sweep_axis_size_tracks_the_points_state() -> None:
+    [sweep] = network_sweep_interface().acquisitions
+    expected = StatePropertyRef(
+        interface_id=NETWORK_SWEEP_POINTS.interface_id,
+        component_path=list(NETWORK_SWEEP_POINTS.component_path),
+        property_id=NETWORK_SWEEP_POINTS.property_id,
+    )
+
+    for result in acquisition_results(sweep):
+        [frequency] = result.axes
+        assert frequency.size == expected
 
 
 def _resolve_component(

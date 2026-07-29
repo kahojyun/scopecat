@@ -23,6 +23,7 @@ const SESSION_API = "/api/v1/instrument-sessions";
 
 export type ActiveConfig = DaemonUiApi["activeConfig"];
 export type InstrumentList = DaemonUiApi["instrumentList"];
+export type InstrumentCollectCommand = DaemonUiApi["instrumentCollectCommand"];
 
 export interface StagedInstrumentProperty {
   interfaceId: string;
@@ -138,11 +139,21 @@ export async function applyInstrumentConfiguredDefaults(
 
 export async function collectInstrumentAcquisition(
   session: InstrumentSession,
+  command: InstrumentCollectCommand,
+): Promise<InstrumentCollectReceipt> {
+  return request<InstrumentCollectReceipt>(
+    instrumentSessionPath(session.session_id, command.instrument_id, "collect"),
+    undefined,
+    jsonRequest(command),
+  );
+}
+
+export function createInstrumentCollectCommand(
   instrumentId: string,
   target: InstrumentAcquisitionTarget,
   state?: InstrumentState,
   commandId = createInstrumentCommandId("collect"),
-): Promise<InstrumentCollectReceipt> {
+): InstrumentCollectCommand {
   if (state && state.instrument_id !== instrumentId) {
     throw new Error(
       `Cannot collect from ${instrumentId} using state synchronized from ${state.instrument_id}.`,
@@ -150,17 +161,13 @@ export async function collectInstrumentAcquisition(
   }
   const plan = planInstrumentAcquisition(target, state);
   if (!plan.ready) throw new Error(plan.reason);
-  return request<InstrumentCollectReceipt>(
-    instrumentSessionPath(session.session_id, instrumentId, "collect"),
-    undefined,
-    jsonRequest({
-      command_id: commandId,
-      instrument_id: instrumentId,
-      point_index: 0,
-      point_count: 1,
-      requests: plan.requests,
-    } satisfies DaemonUiApi["instrumentCollectCommand"]),
-  );
+  return {
+    command_id: commandId,
+    instrument_id: instrumentId,
+    point_index: 0,
+    point_count: 1,
+    requests: plan.requests,
+  };
 }
 
 export async function invokeInstrumentOperation(
@@ -289,21 +296,17 @@ function instrumentSessionPath(
   );
 }
 
-function stateAxisSize(
+function acquisitionAxisSize(
   state: InstrumentState | undefined,
-  target: InstrumentAcquisitionTarget,
-  axisId: string,
+  axis: NonNullable<InstrumentAcquisitionResult["axes"]>[number],
 ): number | undefined {
-  const candidates = [
-    axisId,
-    `${axisId}_points`,
-    axisId === "frequency" ? "points" : undefined,
-  ].filter((value): value is string => value !== undefined);
+  const source = axis.size;
+  if (typeof source === "number") return source;
   const property = (state?.properties ?? []).find(
     (candidate) =>
-      candidate.interface_id === target.interfaceId &&
-      samePath(candidate.component_path ?? [], target.componentPath) &&
-      candidates.includes(candidate.property_id) &&
+      candidate.interface_id === source.interface_id &&
+      samePath(candidate.component_path ?? [], source.component_path ?? []) &&
+      candidate.property_id === source.property_id &&
       typeof candidate.value === "number" &&
       Number.isInteger(candidate.value) &&
       candidate.value > 0,
@@ -368,7 +371,7 @@ function planInstrumentAcquisition(
   for (const result of [firstResult, ...remainingResults]) {
     const axes = result.axes ?? [];
     const dimensions = axes.map((axis) => {
-      const size = axis.size ?? stateAxisSize(state, target, axis.id);
+      const size = acquisitionAxisSize(state, axis);
       return size === undefined
         ? undefined
         : {
@@ -381,8 +384,7 @@ function planInstrumentAcquisition(
     const allDimensionsResolved = dimensions.every(
       (dimension): dimension is NonNullable<typeof dimension> => dimension !== undefined,
     );
-    const allAxesDynamic = axes.length > 0 && axes.every((axis) => axis.size == null);
-    if (!allDimensionsResolved && !allAxesDynamic) {
+    if (!allDimensionsResolved) {
       const missingAxes = axes
         .filter((_, index) => dimensions[index] === undefined)
         .map((axis) => axis.label ?? axis.id);
@@ -391,19 +393,19 @@ function planInstrumentAcquisition(
         ready: false,
         status: "unknown",
         reason:
-          `Collect is unavailable until ${resultLabel} has a positive point count for ` +
-          `${formatList(missingAxes)}. Refresh state after configuring the sweep.`,
+          `Collect is unavailable until synchronized state provides a positive size for ` +
+          `${formatList(missingAxes)} in ${resultLabel}. Refresh instrument state before collecting.`,
       };
     }
     requests.push({
       id: result.id,
       interface_id: target.interfaceId,
-      component_path: target.componentPath,
+      component_path: [...target.componentPath],
       acquisition_id: target.acquisition.id,
       result_id: result.id,
       unit: result.unit,
       dtype: result.dtype,
-      dimensions: allDimensionsResolved ? dimensions : [],
+      dimensions,
     });
   }
   return { ready: true, requests: [requests[0]!, ...requests.slice(1)] };
@@ -586,7 +588,7 @@ function samePath(left: string[], right: string[]): boolean {
 }
 
 function formatList(values: string[]): string {
-  if (values.length <= 1) return values[0] ?? "its dynamic axis";
+  if (values.length <= 1) return values[0]!;
   if (values.length === 2) return `${values[0]} and ${values[1]}`;
   return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
 }

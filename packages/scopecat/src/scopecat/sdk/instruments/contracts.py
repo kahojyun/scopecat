@@ -76,7 +76,6 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
 )
-from scopecat.records.measurement import MeasurementArray, MeasurementUnavailable
 from scopecat.sdk.instruments._projection import (
     ProjectedInstrumentState as _ProjectedInstrumentState,
 )
@@ -166,6 +165,21 @@ class DiscriminatedStateSpec(BaseModel):
         return self
 
 
+class StatePropertyRef(BaseModel):
+    """One observable persistent property used by an acquisition contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    interface_id: InterfaceId
+    component_path: list[_NonEmptyId] = Field(default_factory=list)
+    property_id: _NonEmptyId
+
+
+type AcquisitionAxisSize = (
+    Annotated[int, Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)] | StatePropertyRef
+)
+
+
 class AcquisitionAxisSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -173,7 +187,7 @@ class AcquisitionAxisSpec(BaseModel):
     label: str | None = None
     description: str | None = None
     kind: _NonEmptyId
-    size: int | None = Field(default=None, ge=1, le=_JSON_SAFE_INTEGER)
+    size: AcquisitionAxisSize
     unit: str | None = None
 
 
@@ -204,16 +218,6 @@ class AcquisitionResultSpec(BaseModel):
         if self.dtype in {"bool", "string"} and self.unit is not None:
             raise ValueError(f"{self.dtype} acquisition results cannot have a unit")
         return self
-
-
-class StatePropertyRef(BaseModel):
-    """One observable persistent property used by an acquisition contract."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    interface_id: InterfaceId
-    component_path: list[_NonEmptyId] = Field(default_factory=list)
-    property_id: _NonEmptyId
 
 
 class AcquisitionPreconditionSpec(BaseModel):
@@ -516,7 +520,7 @@ class CollectAxisRequest(BaseModel):
 
     id: _NonEmptyId
     kind: _NonEmptyId
-    size: int = Field(gt=0)
+    size: int = Field(strict=True, ge=1, le=_JSON_SAFE_INTEGER)
     unit: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
@@ -816,7 +820,7 @@ def component(
 def acquisition_axis(
     id: str,
     *,
-    size: int | None = None,
+    size: int | PropertyRef,
     kind: str | None = None,
     unit: str | None = None,
     label: str | None = None,
@@ -827,7 +831,7 @@ def acquisition_axis(
         label=label,
         description=description,
         kind=kind or id,
-        size=size,
+        size=size if isinstance(size, int) else _state_property_ref(size),
         unit=unit,
     )
 
@@ -935,6 +939,62 @@ def acquisition_results(
     if isinstance(acquisition_spec, FixedAcquisitionSpec):
         return tuple(acquisition_spec.results)
     return tuple(result for case in acquisition_spec.cases for result in case.results)
+
+
+def resolve_acquisition_dimensions(
+    *,
+    description: InstrumentDescription,
+    result: AcquisitionResultSpec,
+    state: _InstrumentStateSnapshot | None,
+) -> tuple[CollectAxisRequest, ...] | None:
+    """Resolve every contract-owned axis size from one synchronized snapshot."""
+
+    return _resolve_acquisition_dimensions(
+        description=description,
+        result=result,
+        state=state,
+    )
+
+
+def _resolve_acquisition_dimensions(
+    *,
+    description: InstrumentDescription,
+    result: AcquisitionResultSpec,
+    state: _InstrumentStateSnapshot | _ProjectedInstrumentState | None,
+) -> tuple[CollectAxisRequest, ...] | None:
+    axes = result.axes
+    if not axes:
+        return ()
+    if any(isinstance(axis.size, StatePropertyRef) for axis in axes) and not (
+        _acquisition_state_is_usable(state, description)
+    ):
+        return None
+
+    dimensions: list[CollectAxisRequest] = []
+    for axis in axes:
+        if isinstance(axis.size, StatePropertyRef):
+            reference = axis.size
+            assert state is not None
+            value = _state_value_for_reference(state, reference)
+            if (
+                value is None
+                or isinstance(value.root, bool)
+                or not isinstance(value.root, int)
+                or value.root < 1
+            ):
+                return None
+            size = value.root
+        else:
+            size = axis.size
+        dimensions.append(
+            CollectAxisRequest(
+                id=axis.id,
+                kind=axis.kind,
+                size=size,
+                unit=axis.unit,
+            )
+        )
+    return tuple(dimensions)
 
 
 def evaluate_acquisition_readiness(
@@ -1868,13 +1928,6 @@ def validate_collect_command(
                 )
             )
         dimensions = request.dimensions
-        dynamic_unspecified = (
-            not dimensions
-            and bool(result_spec.axes)
-            and all(axis.size is None for axis in result_spec.axes)
-        )
-        if dynamic_unspecified:
-            continue
         if len(dimensions) != len(result_spec.axes):
             problems.append(
                 _collect_command_problem(
@@ -1895,7 +1948,7 @@ def validate_collect_command(
                 requested_axis.id != declared_axis.id
                 or requested_axis.kind != declared_axis.kind
                 or (
-                    declared_axis.size is not None
+                    isinstance(declared_axis.size, int)
                     and requested_axis.size != declared_axis.size
                 )
             ):
@@ -2030,6 +2083,61 @@ def validate_collect_plan(
         for issue in readiness.issues
         if issue.kind == "precondition_not_met"
     )
+    if plan_problems:
+        return plan_problems
+
+    active_results = {result.id: result for result in readiness.results}
+    state_is_usable = _acquisition_state_is_usable(baseline, description)
+    for request in command.requests:
+        result = active_results[request.result_id]
+        for axis_index, (requested_axis, declared_axis) in enumerate(
+            zip(request.dimensions, result.axes, strict=True)
+        ):
+            if not isinstance(declared_axis.size, StatePropertyRef):
+                continue
+            reference = declared_axis.size
+            observed = (
+                _state_value_for_reference(baseline, reference)
+                if state_is_usable and baseline is not None
+                else None
+            )
+            observed_size = (
+                observed.root
+                if observed is not None
+                and not isinstance(observed.root, bool)
+                and isinstance(observed.root, int)
+                and observed.root > 0
+                else None
+            )
+            if observed_size is None:
+                plan_problems.append(
+                    _collect_axis_state_problem(
+                        "instrument_driver_acquisition_axis_state_unknown",
+                        f"{command.instrument_id} acquisition result "
+                        f"{request.result_id} axis {declared_axis.id} requires "
+                        "synchronized size state",
+                        reference=reference,
+                        request_id=request.id,
+                        axis_index=axis_index,
+                        requested_size=requested_axis.size,
+                        observed_value=observed,
+                    )
+                )
+            elif requested_axis.size != observed_size:
+                plan_problems.append(
+                    _collect_axis_state_problem(
+                        "instrument_driver_acquisition_axis_state_mismatch",
+                        f"{command.instrument_id} acquisition result "
+                        f"{request.result_id} axis {declared_axis.id} requires "
+                        f"size {observed_size} from synchronized state, got "
+                        f"{requested_axis.size}",
+                        reference=reference,
+                        request_id=request.id,
+                        axis_index=axis_index,
+                        requested_size=requested_axis.size,
+                        observed_value=observed,
+                    )
+                )
     return plan_problems
 
 
@@ -2038,7 +2146,7 @@ def validate_collect_receipt(
     command: CollectCommand,
     receipt: CollectReceipt,
 ) -> list[Problem]:
-    """Validate direct collection data without imposing an unspecified shape."""
+    """Validate collection data against the frozen command contract."""
 
     if receipt.status != "collected":
         return []
@@ -2071,15 +2179,7 @@ def validate_collect_receipt(
     for request_id in sorted(set(requests) & set(values)):
         request = requests[request_id]
         value = values[request_id]
-        expected_shape = (
-            tuple(axis.size for axis in request.dimensions)
-            if request.dimensions
-            else (
-                tuple(value.shape)
-                if isinstance(value, MeasurementArray | MeasurementUnavailable)
-                else ()
-            )
-        )
+        expected_shape = tuple(axis.size for axis in request.dimensions)
         for issue in measurement_value_contract_issues(
             value,
             expected_dtype=request.dtype,
@@ -2786,16 +2886,28 @@ def _validate_acquisition_state_references(
                         precondition,
                         case_value=None,
                     )
-                if isinstance(
-                    acquisition_spec,
-                    StateDiscriminatedAcquisitionSpec,
-                ):
+                if isinstance(acquisition_spec, FixedAcquisitionSpec):
+                    for result in acquisition_spec.results:
+                        _validate_acquisition_result_axis_state(
+                            description,
+                            acquisition_spec,
+                            result,
+                            case_value=None,
+                        )
+                else:
                     for case in acquisition_spec.cases:
                         for precondition in case.preconditions:
                             _validate_acquisition_precondition(
                                 description,
                                 acquisition_spec,
                                 precondition,
+                                case_value=case.value,
+                            )
+                        for result in case.results:
+                            _validate_acquisition_result_axis_state(
+                                description,
+                                acquisition_spec,
+                                result,
                                 case_value=case.value,
                             )
 
@@ -2879,7 +2991,7 @@ def _validate_acquisition_precondition(
         raise ValueError(
             f"acquisition {acquisition.id!r} precondition value: {error.reason}"
         ) from error
-    if not _precondition_property_is_visible(
+    if not _state_property_is_visible(
         acquisition,
         case_value=case_value,
         reference=precondition.property,
@@ -2900,7 +3012,55 @@ def _validate_acquisition_precondition(
     )
 
 
-def _precondition_property_is_visible(
+def _validate_acquisition_result_axis_state(
+    description: InstrumentDescription,
+    acquisition: AcquisitionSpec,
+    result: AcquisitionResultSpec,
+    *,
+    case_value: str | None,
+) -> None:
+    for axis in result.axes:
+        if not isinstance(axis.size, StatePropertyRef):
+            continue
+        reference = axis.size
+        resolved = _resolve_state_property(description, reference)
+        if resolved is None:
+            raise ValueError(
+                f"acquisition {acquisition.id!r} result {result.id!r} axis "
+                f"{axis.id!r} size must reference a declared property"
+            )
+        component, property_spec = resolved
+        if property_spec.access == "write_only":
+            raise ValueError(
+                f"acquisition {acquisition.id!r} result {result.id!r} axis "
+                f"{axis.id!r} size property must be observable"
+            )
+        atom = property_spec.value_type.atom
+        if not isinstance(atom, IntType):
+            raise ValueError(
+                f"acquisition {acquisition.id!r} result {result.id!r} axis "
+                f"{axis.id!r} size property must be an integer"
+            )
+        if atom.minimum is None or atom.minimum < 1:
+            raise ValueError(
+                f"acquisition {acquisition.id!r} result {result.id!r} axis "
+                f"{axis.id!r} size property must have a positive minimum"
+            )
+        if not _state_property_is_visible(
+            acquisition,
+            case_value=case_value,
+            reference=reference,
+            component=component,
+        ):
+            scope = "acquisition" if case_value is None else f"case {case_value!r}"
+            raise ValueError(
+                f"acquisition {acquisition.id!r} {scope} result {result.id!r} "
+                f"axis {axis.id!r} size references state that is not always "
+                "observable in that scope"
+            )
+
+
+def _state_property_is_visible(
     acquisition: AcquisitionSpec,
     *,
     case_value: str | None,
@@ -3137,6 +3297,45 @@ def _collect_state_reference_problem(
             "requests",
             request_id,
             "acquisition_id",
+        ),
+        related_locations=(
+            _state_property_location(
+                reference.interface_id,
+                reference.component_path,
+                reference.property_id,
+            ),
+        ),
+        details=details,
+    )
+
+
+def _collect_axis_state_problem(
+    code: str,
+    message: str,
+    *,
+    reference: StatePropertyRef,
+    request_id: str,
+    axis_index: int,
+    requested_size: int,
+    observed_value: StateValue | None,
+) -> Problem:
+    details: dict[str, object] = {
+        "state_property": reference.model_dump(mode="json"),
+        "requested_size": requested_size,
+    }
+    if observed_value is not None:
+        details["observed_value"] = observed_value.model_dump(mode="json")
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.EXECUTION,
+        location=model_location(
+            "instrument_collect_command",
+            "requests",
+            request_id,
+            "dimensions",
+            axis_index,
+            "size",
         ),
         related_locations=(
             _state_property_location(

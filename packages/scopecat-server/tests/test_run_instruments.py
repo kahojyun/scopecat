@@ -48,7 +48,11 @@ from scopecat.records.config import (
     InstrumentRunStartPolicy,
     config_content_hash,
 )
-from scopecat.records.measurement import MeasurementScalar, MeasurementValue
+from scopecat.records.measurement import (
+    MeasurementArray,
+    MeasurementScalar,
+    MeasurementValue,
+)
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
     ConfigRegistryRunConfigSource,
@@ -57,6 +61,7 @@ from scopecat.records.run import (
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     ApplyReceipt,
+    CollectAxisRequest,
     CollectReceipt,
     CollectResultRequest,
     DriverApplyRequest,
@@ -75,6 +80,8 @@ from scopecat.sdk.instruments import (
     InstrumentStateSnapshot,
     InterfaceRef,
     InvokeReceipt,
+    acquisition,
+    acquisition_axis,
     acquisition_case,
     acquisition_precondition,
     acquisition_result,
@@ -82,6 +89,7 @@ from scopecat.sdk.instruments import (
     discriminated_state,
     enum_property,
     float_property,
+    int_property,
     interface,
     operation,
     state_case,
@@ -109,6 +117,7 @@ type _FailAction = (
 
 _DC_MODE = InterfaceRef("test.dc/v1").property("mode")
 _DC_OUTPUT_ENABLED = InterfaceRef("test.dc/v1").property("output_enabled")
+_SWEEP_POINTS = InterfaceRef("test.sweep/v1").property("points")
 
 
 class _Driver(SignalInstrumentDriver):
@@ -386,6 +395,71 @@ class _VariantDriver(_Driver):
 
 class _PreconditionVariantDriver(_VariantDriver):
     require_output_for_collect = True
+
+
+class _StateSizedAxisDriver(_Driver):
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        fail_action: _FailAction = None,
+        apply_barrier: Barrier | None = None,
+    ) -> None:
+        super().__init__(
+            instrument_id,
+            fail_action=fail_action,
+            apply_barrier=apply_barrier,
+        )
+        self._state = {("test.sweep/v1", "points"): StateValue(3)}
+
+    @override
+    def describe(self) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id=self.instrument_id,
+            implementation_id=self.implementation_id,
+            implementation_version=self.implementation_version,
+            interfaces=[
+                interface(
+                    "test.sweep/v1",
+                    properties=[int_property("points", minimum=1)],
+                    acquisitions=[
+                        acquisition(
+                            "sample",
+                            results=[
+                                acquisition_result(
+                                    "trace",
+                                    unit="V",
+                                    axes=[
+                                        acquisition_axis(
+                                            "sample",
+                                            size=_SWEEP_POINTS,
+                                        )
+                                    ],
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ],
+        )
+
+    @override
+    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+        self.collect_requests.append(request)
+        points = self._state[("test.sweep/v1", "points")].root
+        assert type(points) is int
+        return CollectReceipt(
+            readback=InstrumentReadback(
+                values={
+                    result.request_id: MeasurementArray.create(
+                        shape=(points,),
+                        values=tuple(float(index) for index in range(points)),
+                        unit="V",
+                    )
+                    for result in request.results
+                }
+            )
+        )
 
 
 class _NonConvergingDriver(_Driver):
@@ -1025,6 +1099,89 @@ def test_batch_projects_complete_mode_change_for_conditional_collect(
         assert len(driver.applied) == 1
         assert driver.read_count == 2
         assert len(driver.collect_requests) == 1
+
+
+def test_batch_preflights_state_sized_axes_from_opening_and_projected_state(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_StateSizedAxisDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_StateSizedAxisDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        [driver] = provider.drivers
+
+        opening_mismatch = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "opening-axis-mismatch",
+                _state_sized_axis_collect_action(
+                    effect_id="collect-opening-mismatch",
+                    size=2,
+                ),
+            ),
+        )
+
+        assert [issue.code for issue in opening_mismatch.problems] == [
+            "instrument_driver_acquisition_axis_state_mismatch"
+        ]
+        assert driver.applied == []
+        assert driver.collect_requests == []
+
+        projected_match = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "project-axis-match",
+                _state_sized_axis_apply_action(
+                    effect_id="set-four-points",
+                    points=4,
+                ),
+                _state_sized_axis_collect_action(
+                    effect_id="collect-four-points",
+                    size=4,
+                ),
+            ),
+        )
+
+        assert projected_match.problems == ()
+        assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
+
+        side_effect_counts = (
+            driver.read_count,
+            len(driver.applied),
+            len(driver.collect_requests),
+        )
+        projected_mismatch = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "project-axis-mismatch",
+                _state_sized_axis_apply_action(
+                    effect_id="set-five-points",
+                    points=5,
+                ),
+                _state_sized_axis_collect_action(
+                    effect_id="collect-four-after-five",
+                    size=4,
+                ),
+            ),
+        )
+
+        assert [issue.code for issue in projected_mismatch.problems] == [
+            "instrument_driver_acquisition_axis_state_mismatch"
+        ]
+        assert (
+            driver.read_count,
+            len(driver.applied),
+            len(driver.collect_requests),
+        ) == side_effect_counts
 
 
 def test_batch_projects_acquisition_preconditions_before_any_side_effect(
@@ -1817,6 +1974,61 @@ def _variant_invoke_action(*, effect_id: str) -> RunHardwareInvoke:
         resource_id="source-0",
         interface_id="test.dc/v1",
         operation_id="select_current",
+    )
+
+
+def _state_sized_axis_apply_action(
+    *,
+    effect_id: str,
+    points: int,
+) -> RunHardwareApply:
+    return RunHardwareApply(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        assignments=(
+            InstrumentStateAssignment(
+                resource_id="source-0",
+                interface_id="test.sweep/v1",
+                property_id="points",
+                value=StateValue(points),
+            ),
+        ),
+    )
+
+
+def _state_sized_axis_collect_action(
+    *,
+    effect_id: str,
+    size: int,
+) -> RunHardwareCollect:
+    return RunHardwareCollect(
+        effect_id=effect_id,
+        point_index=0,
+        instrument_id="source-0",
+        point_count=1,
+        requests=(
+            CollectResultRequest(
+                id="trace",
+                interface_id="test.sweep/v1",
+                acquisition_id="sample",
+                result_id="trace",
+                unit="V",
+                dimensions=[
+                    CollectAxisRequest(
+                        id="sample",
+                        kind="sample",
+                        size=size,
+                    )
+                ],
+            ),
+        ),
+        bindings=(
+            RunHardwareCollectBinding(
+                request_id="trace",
+                product_use_ids=(f"{effect_id}-use",),
+            ),
+        ),
     )
 
 
