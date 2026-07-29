@@ -81,6 +81,11 @@
   font-size: 0.58rem;
 }
 
+.instrument-browser-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .instrument-browser-heading .icon-button {
   width: 30px;
   height: 30px;
@@ -393,7 +398,7 @@
   justify-content: flex-end;
 }
 
-.instrument-connection-form label > span,
+.instrument-config-form label > span,
 .instrument-config-audit label > span,
 .instrument-connection-fields label > span {
   color: var(--text-dim);
@@ -678,8 +683,8 @@
 .operation-argument input[type="text"],
 .operation-argument input[type="number"],
 .operation-argument select,
-.instrument-connection-form input,
-.instrument-connection-form select {
+.instrument-config-form input,
+.instrument-config-form select {
   width: 100%;
   min-width: 0;
   min-height: 34px;
@@ -696,8 +701,8 @@
 .interface-property select:focus,
 .operation-argument input:focus,
 .operation-argument select:focus,
-.instrument-connection-form input:focus,
-.instrument-connection-form select:focus {
+.instrument-config-form input:focus,
+.instrument-config-form select:focus {
   border-color: var(--accent);
 }
 
@@ -974,11 +979,11 @@
   line-height: 1.5;
 }
 
-.instrument-connection-modal {
-  width: min(620px, 100%);
+.instrument-config-modal {
+  width: min(680px, 100%);
 }
 
-.connection-scope-note {
+.instrument-config-note {
   margin: 0;
   padding: 9px 10px;
   border: 1px solid rgb(var(--accent-rgb) / 20%);
@@ -989,21 +994,22 @@
   line-height: 1.5;
 }
 
-.instrument-connection-form {
+.instrument-config-form {
   gap: 12px;
 }
 
-.instrument-connection-form > label,
+.instrument-config-form > label,
 .instrument-config-audit label,
 .instrument-connection-fields label {
   display: grid;
   gap: 5px;
 }
 
-.instrument-connection-form select {
+.instrument-config-form select {
   appearance: auto;
 }
 
+.instrument-config-fields,
 .instrument-connection-fields,
 .instrument-config-audit {
   display: grid;
@@ -1011,8 +1017,77 @@
   gap: 10px;
 }
 
-.instrument-connection-fields.two-column {
+.instrument-config-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.instrument-driver-options {
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.instrument-driver-options legend {
+  padding: 0 5px;
+  color: var(--text-dim);
+  font-size: 0.53rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.instrument-option-fields {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.instrument-option-fields label:not(.instrument-option-toggle) {
+  display: grid;
+  gap: 5px;
+}
+
+.instrument-option-toggle {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-height: 34px;
+}
+
+.instrument-option-toggle input {
+  width: 15px;
+  min-height: 15px;
+}
+
+.instrument-option-toggle span {
+  color: var(--text-soft);
+  font-size: 0.62rem;
+}
+
+.instrument-probe-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+}
+
+.instrument-probe-result {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--text-dim);
+  font-size: 0.6rem;
+  line-height: 1.4;
+}
+
+.instrument-probe-result.connected {
+  color: var(--accent);
+}
+
+.instrument-probe-result.rejected {
+  color: var(--red);
 }
 
 .instrument-config-audit {

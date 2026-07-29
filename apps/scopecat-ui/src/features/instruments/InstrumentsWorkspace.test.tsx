@@ -20,10 +20,12 @@ import {
   closeInstrumentSession,
   collectInstrumentAcquisition,
   getActiveConfig,
+  getDriverCatalog,
   getInstruments,
   invokeInstrumentOperation,
   openInstrumentSession,
-  publishInstrumentConnection,
+  probeInstrumentDriver,
+  publishInstrumentSpec,
   readInstrumentState,
   renewInstrumentSession,
   resolveInstrumentAttention,
@@ -37,10 +39,12 @@ vi.mock("./instrument-api", async (importOriginal) => ({
   closeInstrumentSession: vi.fn(),
   collectInstrumentAcquisition: vi.fn(),
   getActiveConfig: vi.fn(),
+  getDriverCatalog: vi.fn(),
   getInstruments: vi.fn(),
   invokeInstrumentOperation: vi.fn(),
   openInstrumentSession: vi.fn(),
-  publishInstrumentConnection: vi.fn(),
+  probeInstrumentDriver: vi.fn(),
+  publishInstrumentSpec: vi.fn(),
   readInstrumentState: vi.fn(),
   renewInstrumentSession: vi.fn(),
   resolveInstrumentAttention: vi.fn(),
@@ -53,6 +57,7 @@ beforeEach(() => {
     items: [instrument()],
   });
   vi.mocked(getActiveConfig).mockResolvedValue(activeConfig());
+  vi.mocked(getDriverCatalog).mockResolvedValue(driverCatalog());
   vi.mocked(openInstrumentSession).mockResolvedValue(session());
   vi.mocked(renewInstrumentSession).mockResolvedValue(sessionLease());
   vi.mocked(readInstrumentState).mockResolvedValue(instrumentState());
@@ -76,7 +81,18 @@ beforeEach(() => {
     problems: [],
     state: instrumentState(7_000_000_000),
   });
-  vi.mocked(publishInstrumentConnection).mockResolvedValue();
+  vi.mocked(probeInstrumentDriver).mockResolvedValue({
+    status: "connected",
+    description: {
+      instrument_id: "candidate",
+      implementation_id: "virtual.rf_source",
+      implementation_version: "v1",
+      label: "Detected device",
+      interfaces: [],
+    },
+    problems: [],
+  });
+  vi.mocked(publishInstrumentSpec).mockResolvedValue();
   vi.mocked(resolveInstrumentAttention).mockResolvedValue();
 });
 
@@ -150,7 +166,7 @@ describe("instrument workspace", () => {
 
     fireEvent.click(screen.getByTitle("Inspect instrument vna-1"));
     expect(await screen.findByText("Read-only while owned")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Edit connection" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Configure device" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Connect" })).not.toBeInTheDocument();
   });
 
@@ -1243,7 +1259,7 @@ describe("instrument workspace", () => {
     await screen.findByText("Drive source");
     expect(getActiveConfig).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Configure device" }));
 
     await waitFor(() => expect(getActiveConfig).toHaveBeenCalledOnce());
     expect(screen.getByRole("button", { name: "Loading configuration" })).toBeDisabled();
@@ -1252,7 +1268,7 @@ describe("instrument workspace", () => {
     expect(await screen.findByRole("dialog")).toBeVisible();
   });
 
-  it("edits only endpoint fields without exposing fixed driver details", async () => {
+  it("edits a device from the registered driver catalog", async () => {
     const active = activeConfig();
     active.config.system.instrument_registry.instruments[0]!.driver_id = "keysight.pna";
     active.config.system.instrument_registry.instruments[0]!.connection = {
@@ -1260,7 +1276,7 @@ describe("instrument workspace", () => {
       host: "192.0.2.20",
       port: 5025,
       timeout_seconds: 5,
-      options: { termination: "lf" },
+      options: { channel: 1, vendor_extension: { calibration: "external" } },
     };
     const tcpInstrument = instrument();
     tcpInstrument.driver_id = "keysight.pna";
@@ -1278,14 +1294,13 @@ describe("instrument workspace", () => {
     renderWorkspace();
 
     await screen.findByText("Drive source");
-    fireEvent.click(screen.getByRole("button", { name: "Edit connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Configure device" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).queryByText("keysight.pna")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "Driver" })).toHaveValue("keysight.pna");
     expect(within(dialog).queryByRole("textbox", { name: "Driver id" })).not.toBeInTheDocument();
     expect(
       within(dialog).queryByRole("textbox", { name: "Configuration actor" }),
     ).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText("Host"), {
       target: { value: "192.0.2.24" },
     });
@@ -1295,30 +1310,103 @@ describe("instrument workspace", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish default" }));
 
     await waitFor(() =>
-      expect(publishInstrumentConnection).toHaveBeenCalledWith(
+      expect(publishInstrumentSpec).toHaveBeenCalledWith(
         expect.objectContaining({
-          instrumentId: "drive-source",
-          connection: {
-            kind: "tcpip_socket",
-            host: "192.0.2.24",
-            port: 5025,
-            timeout_seconds: 8,
-            options: { termination: "lf" },
-          },
+          originalInstrumentId: "drive-source",
+          spec: expect.objectContaining({
+            id: "drive-source",
+            driver_id: "keysight.pna",
+            connection: {
+              kind: "tcpip_socket",
+              host: "192.0.2.24",
+              port: 5025,
+              timeout_seconds: 8,
+              options: { channel: 1, vendor_extension: { calibration: "external" } },
+            },
+          }),
         }),
       ),
     );
     expect(openInstrumentSession).not.toHaveBeenCalled();
   });
 
-  it("disables connection editing for a virtual instrument", async () => {
+  it("configures virtual instruments without a special endpoint path", async () => {
     renderWorkspace();
 
     await screen.findByText("Drive source");
-    const edit = screen.getByRole("button", { name: "Edit connection" });
-    expect(edit).toBeDisabled();
-    expect(edit).toHaveAttribute("title", "Virtual connections have no editable endpoint");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Configure device" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("combobox", { name: "Driver" })).toHaveValue(
+      "virtual.rf_source",
+    );
+    expect(within(dialog).getByRole("combobox", { name: "Connection" })).toHaveValue("virtual");
+    expect(within(dialog).queryByLabelText("Host")).not.toBeInTheDocument();
+  });
+
+  it("adds and probes a registered device before publishing it", async () => {
+    renderWorkspace();
+
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Add instrument" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Instrument ID"), {
+      target: { value: "bias-source" },
+    });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Driver" }), {
+      target: { value: "yokogawa.gs200" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Host"), {
+      target: { value: "192.0.2.40" },
+    });
+    fireEvent.click(within(dialog).getByLabelText("Remote Sense"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() =>
+      expect(probeInstrumentDriver).toHaveBeenCalledWith({
+        binding: {
+          id: "bias-source",
+          driver_id: "yokogawa.gs200",
+          connection: {
+            kind: "tcpip_socket",
+            host: "192.0.2.40",
+            port: 5025,
+            timeout_seconds: 5,
+            options: {
+              guard_enabled: false,
+              monitor_option: false,
+              remote_sense: true,
+            },
+          },
+        },
+      }),
+    );
+    expect(await within(dialog).findByText("Connected to Detected device")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish default" }));
+
+    await waitFor(() =>
+      expect(publishInstrumentSpec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spec: {
+            id: "bias-source",
+            exclusivity_key: "bias-source",
+            driver_id: "yokogawa.gs200",
+            connection: {
+              kind: "tcpip_socket",
+              host: "192.0.2.40",
+              port: 5025,
+              timeout_seconds: 5,
+              options: {
+                guard_enabled: false,
+                monitor_option: false,
+                remote_sense: true,
+              },
+            },
+            default_state: [],
+            run_start: "preserve",
+          },
+        }),
+      ),
+    );
   });
 
   it("shows quarantined ownership and the operator resolution action", async () => {
@@ -1712,5 +1800,74 @@ function configuredInstrument() {
     connection: { kind: "virtual" as const },
     default_state: [],
     run_start: "preserve" as const,
+  };
+}
+
+function driverCatalog(): Awaited<ReturnType<typeof getDriverCatalog>> {
+  return {
+    provider_id: "scopecat.instruments.configured",
+    drivers: [
+      {
+        driver_id: "virtual.rf_source",
+        implementation_version: "v1",
+        label: "Virtual RF source",
+        connections: [{ kind: "virtual", options_schema: { type: "object", properties: {} } }],
+      },
+      {
+        driver_id: "keysight.pna",
+        implementation_version: "v1",
+        label: "Keysight PNA",
+        manufacturer: "Keysight",
+        model: "PNA",
+        connections: [
+          {
+            kind: "tcpip_socket",
+            options_schema: {
+              type: "object",
+              properties: {
+                channel: {
+                  type: "integer",
+                  title: "Channel",
+                  default: 1,
+                  minimum: 1,
+                },
+              },
+            },
+          },
+        ],
+      },
+      {
+        driver_id: "yokogawa.gs200",
+        implementation_version: "v1",
+        label: "Yokogawa GS200",
+        manufacturer: "Yokogawa",
+        model: "GS200",
+        connections: [
+          {
+            kind: "tcpip_socket",
+            options_schema: {
+              type: "object",
+              properties: {
+                monitor_option: {
+                  type: "boolean",
+                  title: "Monitor Option",
+                  default: false,
+                },
+                remote_sense: {
+                  type: "boolean",
+                  title: "Remote Sense",
+                  default: false,
+                },
+                guard_enabled: {
+                  type: "boolean",
+                  title: "Guard Enabled",
+                  default: false,
+                },
+              },
+            },
+          },
+        ],
+      },
+    ],
   };
 }

@@ -315,8 +315,9 @@
     grid-template-columns: minmax(120px, 1fr) minmax(125px, 0.9fr);
   }
 
+  .instrument-config-fields,
   .instrument-connection-fields,
-  .instrument-connection-fields.two-column {
+  .instrument-option-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -579,8 +580,9 @@
     grid-column: 1 / -1;
   }
 
+  .instrument-config-fields,
   .instrument-connection-fields,
-  .instrument-connection-fields.two-column,
+  .instrument-option-fields,
   .instrument-config-audit {
     grid-template-columns: minmax(0, 1fr);
   }

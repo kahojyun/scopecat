@@ -2,16 +2,19 @@ import { ApiError, request } from "../../api";
 import type {
   ConfigProfileSnapshot,
   DaemonUiApi,
+  DriverCatalog,
   InstrumentAcquisition,
   InstrumentAcquisitionResult,
   InstrumentApplyReceipt,
   InstrumentCollectReceipt,
-  InstrumentConnection,
   InstrumentConfiguredDefaultsApplyReceipt,
+  InstrumentDriverProbeCommand,
+  InstrumentDriverProbeReceipt,
   InstrumentInvokeReceipt,
   InstrumentOperation,
   InstrumentSession,
   InstrumentSessionLease,
+  InstrumentSpec,
   InstrumentState,
   InstrumentStateValue,
   InstrumentView,
@@ -20,6 +23,7 @@ import { setConfigDefault } from "../config/config-api";
 import { safeConfigEntryId } from "../config/config-utils";
 
 const INSTRUMENT_API = "/api/v1/instruments";
+const DRIVER_API = "/api/v1/instrument-drivers";
 const SESSION_API = "/api/v1/instrument-sessions";
 
 export type ActiveConfig = DaemonUiApi["activeConfig"];
@@ -57,6 +61,20 @@ export async function getInstrument(
   signal?: AbortSignal,
 ): Promise<InstrumentView> {
   return request<InstrumentView>(`${INSTRUMENT_API}/${encodeURIComponent(instrumentId)}`, signal);
+}
+
+export async function getDriverCatalog(signal?: AbortSignal): Promise<DriverCatalog> {
+  return request<DriverCatalog>(DRIVER_API, signal);
+}
+
+export async function probeInstrumentDriver(
+  command: InstrumentDriverProbeCommand,
+): Promise<InstrumentDriverProbeReceipt> {
+  return request<InstrumentDriverProbeReceipt>(
+    `${DRIVER_API}/probe`,
+    undefined,
+    jsonRequest(command),
+  );
 }
 
 export async function getActiveConfig(signal?: AbortSignal): Promise<ActiveConfig> {
@@ -204,27 +222,35 @@ export async function resolveInstrumentAttention(sessionId: string): Promise<voi
   );
 }
 
-export async function publishInstrumentConnection({
+export async function publishInstrumentSpec({
   active,
-  instrumentId,
-  connection,
+  spec,
+  originalInstrumentId,
   actor,
   note,
 }: {
   active: ActiveConfig;
-  instrumentId: string;
-  connection: InstrumentConnection;
+  spec: InstrumentSpec;
+  originalInstrumentId?: string;
   actor: string;
   note: string;
 }): Promise<void> {
   const config = cloneConfig(active.config);
-  const spec = config.system.instrument_registry.instruments.find(
-    (instrument) => instrument.id === instrumentId,
-  );
-  if (!spec) throw new Error(`The active config no longer contains ${instrumentId}.`);
-  spec.connection = connection;
+  const instruments = config.system.instrument_registry.instruments;
+  if (originalInstrumentId === undefined) {
+    if (instruments.some((instrument) => instrument.id === spec.id)) {
+      throw new Error(`The active config already contains ${spec.id}.`);
+    }
+    instruments.push(spec);
+  } else {
+    const index = instruments.findIndex((instrument) => instrument.id === originalInstrumentId);
+    if (index < 0) {
+      throw new Error(`The active config no longer contains ${originalInstrumentId}.`);
+    }
+    instruments[index] = spec;
+  }
   const suffix = createInstrumentCommandId("config");
-  const entryId = safeConfigEntryId(`${config.id}-instrument-${instrumentId}-${suffix}`);
+  const entryId = safeConfigEntryId(`${config.id}-instrument-${spec.id}-${suffix}`);
   config.id = entryId;
   await setConfigDefault({
     source: {

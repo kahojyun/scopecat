@@ -13,9 +13,11 @@ import {
   closeInstrumentSession,
   collectInstrumentAcquisition as sendInstrumentAcquisition,
   connectionSummary,
+  getDriverCatalog,
   invokeInstrumentOperation,
   openInstrumentSession,
-  publishInstrumentConnection,
+  probeInstrumentDriver,
+  publishInstrumentSpec,
   renewInstrumentSession,
   type ActiveConfig,
   type InstrumentAcquisitionTarget,
@@ -43,10 +45,13 @@ describe("instrument configuration publishing", () => {
       options: { termination: "lf" },
     };
 
-    await publishInstrumentConnection({
+    await publishInstrumentSpec({
       active,
-      instrumentId: "vna-1",
-      connection,
+      spec: {
+        ...active.config.system.instrument_registry.instruments[0]!,
+        connection,
+      },
+      originalInstrumentId: "vna-1",
       actor: "Ada",
       note: "Move to the instrument VLAN",
     });
@@ -114,6 +119,40 @@ describe("instrument configuration publishing", () => {
     );
   });
 
+  it("adds a complete instrument spec without mutating the active snapshot", async () => {
+    const randomUUID = vi.fn(() => "123e4567-e89b-12d3-a456-426614174000");
+    vi.stubGlobal("crypto", { randomUUID });
+    const active = activeConfig();
+
+    await publishInstrumentSpec({
+      active,
+      spec: {
+        id: "source-1",
+        exclusivity_key: "source-1",
+        driver_id: "virtual.rf_source",
+        connection: { kind: "virtual", options: {} },
+        default_state: [],
+        run_start: "preserve",
+      },
+      actor: "Ada",
+      note: "",
+    });
+
+    const command = vi.mocked(setConfigDefault).mock.calls[0]![0];
+    if (command.source.kind !== "direct_config_profile") {
+      throw new Error("Expected a direct config profile revision.");
+    }
+    expect(command.source.config.system.instrument_registry.instruments.at(-1)).toEqual({
+      id: "source-1",
+      exclusivity_key: "source-1",
+      driver_id: "virtual.rf_source",
+      connection: { kind: "virtual", options: {} },
+      default_state: [],
+      run_start: "preserve",
+    });
+    expect(active.config.system.instrument_registry.instruments).toHaveLength(2);
+  });
+
   it("summarizes a TCP endpoint", () => {
     expect(
       connectionSummary({
@@ -122,6 +161,53 @@ describe("instrument configuration publishing", () => {
         port: 5025,
       }),
     ).toBe("TCP/IP · 192.0.2.24:5025");
+  });
+});
+
+describe("instrument driver catalog", () => {
+  it("reads the catalog and probes a candidate binding", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            provider_id: "scopecat.instruments.configured",
+            drivers: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "connected", problems: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getDriverCatalog()).resolves.toEqual({
+      provider_id: "scopecat.instruments.configured",
+      drivers: [],
+    });
+    await expect(
+      probeInstrumentDriver({
+        binding: {
+          id: "source-1",
+          driver_id: "virtual.rf_source",
+          connection: { kind: "virtual" },
+        },
+      }),
+    ).resolves.toMatchObject({ status: "connected" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/instrument-drivers");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("/api/v1/instrument-drivers/probe");
+    expect(requestBody(fetchMock.mock.calls[1]?.[1])).toEqual({
+      binding: {
+        id: "source-1",
+        driver_id: "virtual.rf_source",
+        connection: { kind: "virtual" },
+      },
+    });
   });
 });
 

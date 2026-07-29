@@ -5,12 +5,13 @@ import {
   Cable,
   CircleOff,
   LoaderCircle,
+  Plus,
   RefreshCw,
   ServerCrash,
 } from "lucide-react";
 import type { InstrumentSession, InstrumentSessionLease, InstrumentView } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
-import { InstrumentConnectionDialog } from "./InstrumentConnectionDialog";
+import { InstrumentConfigDialog } from "./InstrumentConfigDialog";
 import { AvailabilityBadge, InstrumentInspector } from "./InstrumentInspector";
 import {
   abortInstrumentSession,
@@ -18,6 +19,7 @@ import {
   connectionSummary,
   createInstrumentCommandId,
   getActiveConfig,
+  getDriverCatalog,
   getInstruments,
   openInstrumentSession,
   renewInstrumentSession,
@@ -26,13 +28,14 @@ import {
 
 const EMPTY_INSTRUMENTS: InstrumentView[] = [];
 const LOCAL_OPERATOR = "local-operator";
+type ConfigTarget = { kind: "add" } | { kind: "edit"; instrumentId: string };
 
 export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable: boolean }) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string>();
   const [session, setSession] = useState<InstrumentSession>();
   const [sessionError, setSessionError] = useState<string>();
-  const [configInstrumentId, setConfigInstrumentId] = useState<string>();
+  const [configTarget, setConfigTarget] = useState<ConfigTarget>();
   const sessionRef = useRef<InstrumentSession | undefined>(undefined);
   const closingRef = useRef(false);
   const pendingSelectionRef = useRef<string | undefined>(undefined);
@@ -46,7 +49,12 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
   const activeConfigQuery = useQuery({
     queryKey: ["config", "active"],
     queryFn: ({ signal }) => getActiveConfig(signal),
-    enabled: !daemonUnavailable && configInstrumentId !== undefined,
+    enabled: !daemonUnavailable && configTarget !== undefined,
+  });
+  const driverCatalogQuery = useQuery({
+    queryKey: ["instrument-drivers"],
+    queryFn: ({ signal }) => getDriverCatalog(signal),
+    enabled: !daemonUnavailable,
   });
 
   const instruments = instrumentsQuery.data?.items ?? EMPTY_INSTRUMENTS;
@@ -63,10 +71,10 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
   }, [instruments, selectedId]);
 
   useEffect(() => {
-    if (!configInstrumentId || !activeConfigQuery.isError) return;
+    if (!configTarget || !activeConfigQuery.isError) return;
     setSessionError(errorMessage(activeConfigQuery.error));
-    setConfigInstrumentId(undefined);
-  }, [activeConfigQuery.error, activeConfigQuery.isError, configInstrumentId]);
+    setConfigTarget(undefined);
+  }, [activeConfigQuery.error, activeConfigQuery.isError, configTarget]);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -268,15 +276,30 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
               <h3>Devices</h3>
               <small>{instruments.length} configured</small>
             </div>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Refresh instruments"
-              title="Refresh instruments"
-              onClick={() => void queryClient.invalidateQueries({ queryKey: ["instruments"] })}
-            >
-              <RefreshCw size={15} className={instrumentsQuery.isFetching ? "spin" : undefined} />
-            </button>
+            <div className="instrument-browser-actions">
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Add instrument"
+                title={driverCatalogQuery.isError ? "Driver catalog unavailable" : "Add instrument"}
+                disabled={driverCatalogQuery.isPending || driverCatalogQuery.isError}
+                onClick={() => {
+                  setSessionError(undefined);
+                  setConfigTarget({ kind: "add" });
+                }}
+              >
+                <Plus size={15} />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Refresh instruments"
+                title="Refresh instruments"
+                onClick={() => void queryClient.invalidateQueries({ queryKey: ["instruments"] })}
+              >
+                <RefreshCw size={15} className={instrumentsQuery.isFetching ? "spin" : undefined} />
+              </button>
+            </div>
           </div>
 
           {daemonUnavailable ? (
@@ -302,7 +325,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
             <InstrumentListMessage
               icon={<CircleOff />}
               title="No instruments configured"
-              detail="Publish an active configuration with at least one instrument."
+              detail="Add a registered device to the active laboratory configuration."
             />
           ) : (
             <div className="instrument-list">
@@ -330,9 +353,12 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
               connectMutation.variables?.instrumentId === selected.instrument_id
             }
             closePending={endMutation.isPending}
-            editConnectionPending={
-              configInstrumentId === selected.instrument_id && activeConfigQuery.isFetching
+            configurationPending={
+              configTarget?.kind === "edit" &&
+              configTarget.instrumentId === selected.instrument_id &&
+              (activeConfigQuery.isFetching || driverCatalogQuery.isFetching)
             }
+            configurationUnavailable={driverCatalogQuery.isError}
             onConnect={() => connectCurrent(selected.instrument_id)}
             onClose={closeCurrent}
             onSessionLost={loseCurrent}
@@ -345,9 +371,9 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
                 endSession(selected.owner_id, true);
               }
             }}
-            onEditConnection={() => {
+            onConfigure={() => {
               setSessionError(undefined);
-              setConfigInstrumentId(selected.instrument_id);
+              setConfigTarget({ kind: "edit", instrumentId: selected.instrument_id });
             }}
           />
         ) : (
@@ -361,17 +387,24 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
         )}
       </div>
 
-      {configInstrumentId &&
+      {configTarget &&
         activeConfigQuery.data &&
+        driverCatalogQuery.data &&
         !activeConfigQuery.isFetching &&
-        !activeConfigQuery.isError && (
-          <InstrumentConnectionDialog
-            key={`${configInstrumentId}-${activeConfigQuery.data.activation.generation}`}
+        !activeConfigQuery.isError &&
+        !driverCatalogQuery.isFetching &&
+        !driverCatalogQuery.isError && (
+          <InstrumentConfigDialog
+            key={`${configTarget.kind}-${
+              configTarget.kind === "edit" ? configTarget.instrumentId : "new"
+            }-${activeConfigQuery.data.activation.generation}`}
             active={activeConfigQuery.data}
-            instrumentId={configInstrumentId}
-            onCancel={() => setConfigInstrumentId(undefined)}
-            onPublished={async () => {
-              setConfigInstrumentId(undefined);
+            catalog={driverCatalogQuery.data}
+            instrumentId={configTarget.kind === "edit" ? configTarget.instrumentId : undefined}
+            onCancel={() => setConfigTarget(undefined)}
+            onPublished={async (instrumentId) => {
+              setConfigTarget(undefined);
+              setSelectedId(instrumentId);
               await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["config"] }),
                 queryClient.invalidateQueries({ queryKey: ["instruments"] }),

@@ -40,6 +40,8 @@ export interface DaemonUiApi {
   datasetContent: JsonResponse<paths["/api/v1/runs/{run_id}/datasets/{selector}"]["get"], 200>;
   measurements: JsonResponse<paths["/api/v1/runs/{run_id}/measurements"]["get"], 200>;
   eventPage: JsonResponse<paths["/api/v1/events"]["get"], 200>;
+  driverCatalog: JsonResponse<paths["/api/v1/instrument-drivers"]["get"], 200>;
+  driverProbeReceipt: JsonResponse<paths["/api/v1/instrument-drivers/probe"]["post"], 200>;
   instrumentList: JsonResponse<paths["/api/v1/instruments"]["get"], 200>;
   instrument: JsonResponse<paths["/api/v1/instruments/{instrument_id}"]["get"], 200>;
   instrumentSession: JsonResponse<paths["/api/v1/instrument-sessions"]["post"], 201>;
@@ -75,6 +77,7 @@ export interface DaemonUiApi {
   configDraftCommand: JsonRequest<paths["/api/v1/config-registry/drafts/preview"]["post"]>;
   configActivationCommand: JsonRequest<paths["/api/v1/config-registry/active"]["post"]>;
   configUndoCommand: JsonRequest<paths["/api/v1/config-registry/undo"]["post"]>;
+  driverProbeCommand: JsonRequest<paths["/api/v1/instrument-drivers/probe"]["post"]>;
   instrumentSessionOpenCommand: JsonRequest<paths["/api/v1/instrument-sessions"]["post"]>;
   instrumentApplyCommand: JsonRequest<
     paths["/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/apply"]["post"]
@@ -106,6 +109,9 @@ export type ConfigRegistryEntry = components["schemas"]["ConfigRegistryEntry"];
 export type ConfigRegistryOverview = DaemonUiApi["configRegistry"] & {
   activation_history: ConfigActivationRecord[];
 };
+export type DriverCatalog = DaemonUiApi["driverCatalog"];
+export type DriverConnectionSpec = components["schemas"]["DriverConnectionSpec"];
+export type DriverSpec = components["schemas"]["DriverSpec"];
 export type DurableEvent = components["schemas"]["DurableEvent"];
 export type EntityRef = components["schemas"]["EntityRef-Input"];
 export type ExternalLocation = components["schemas"]["ExternalLocation"];
@@ -118,6 +124,8 @@ export type InstrumentComponent = components["schemas"]["ComponentSpec"];
 export type InstrumentCollectReceipt = DaemonUiApi["instrumentCollectReceipt"];
 export type InstrumentConnection = components["schemas"]["InstrumentConnection-Input"];
 export type InstrumentDescription = components["schemas"]["InstrumentDescription"];
+export type InstrumentDriverProbeCommand = DaemonUiApi["driverProbeCommand"];
+export type InstrumentDriverProbeReceipt = DaemonUiApi["driverProbeReceipt"];
 export type InstrumentInterface = components["schemas"]["InterfaceSpec"];
 export type InstrumentInvokeCommand = DaemonUiApi["instrumentInvokeCommand"];
 export type InstrumentInvokeReceipt = DaemonUiApi["instrumentInvokeReceipt"];

@@ -59,29 +59,30 @@ export function InstrumentInspector({
   sessionError,
   connectPending,
   closePending,
-  editConnectionPending,
+  configurationPending,
+  configurationUnavailable,
   onConnect,
   onClose,
   onSessionLost,
   onDisconnectOwner,
-  onEditConnection,
+  onConfigure,
 }: {
   instrument: InstrumentView;
   session?: InstrumentSession;
   sessionError?: string;
   connectPending: boolean;
   closePending: boolean;
-  editConnectionPending: boolean;
+  configurationPending: boolean;
+  configurationUnavailable: boolean;
   onConnect: () => void;
   onClose: () => void;
   onSessionLost: (message: string) => void;
   onDisconnectOwner: () => void;
-  onEditConnection: () => void;
+  onConfigure: () => void;
 }) {
   const queryClient = useQueryClient();
   const instrumentId = instrument.instrument_id;
   const connected = session?.instrument_ids.includes(instrumentId) ?? false;
-  const connectionEditable = instrument.connection.kind === "tcpip_socket";
   const description =
     session?.descriptions.find((candidate) => candidate.instrument_id === instrumentId) ??
     instrument.description ??
@@ -437,17 +438,17 @@ export function InstrumentInspector({
         <button
           type="button"
           className="secondary-button"
-          onClick={onEditConnection}
+          onClick={onConfigure}
           disabled={
-            !connectionEditable ||
             connected ||
-            editConnectionPending ||
+            configurationPending ||
+            configurationUnavailable ||
             instrument.availability === "active" ||
             instrument.availability === "quarantined"
           }
           title={
-            !connectionEditable
-              ? "Virtual connections have no editable endpoint"
+            configurationUnavailable
+              ? "Driver catalog unavailable"
               : connected
                 ? "Disconnect before changing the immutable config"
                 : instrument.availability === "active" || instrument.availability === "quarantined"
@@ -455,12 +456,12 @@ export function InstrumentInspector({
                   : undefined
           }
         >
-          {editConnectionPending ? (
+          {configurationPending ? (
             <LoaderCircle className="spin" size={14} />
           ) : (
             <Pencil size={14} />
           )}
-          {editConnectionPending ? "Loading configuration" : "Edit connection"}
+          {configurationPending ? "Loading configuration" : "Configure device"}
         </button>
       </header>
 
