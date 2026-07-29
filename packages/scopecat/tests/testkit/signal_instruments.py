@@ -11,23 +11,23 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
-from scopecat.records.measurement import MeasurementScalar
+from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverInvokeRequest,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverScalar,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentBindingSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
-    InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentReadback,
-    InstrumentStateSnapshot,
-    InvokeReceipt,
+    PropertyRef,
     acquisition,
     acquisition_result,
     interface,
@@ -134,14 +134,12 @@ class TestSignalInstrument:
     ) -> None:
         self.instrument_id = instrument_id
         self.result_ids = ("signal", *additional_result_ids)
-        self._state: dict[tuple[str, str], StateValue] = {
-            ("test.set_frequency/v1", "frequency"): StateValue(
-                Quantity(value=5.0, unit="GHz")
-            )
+        self._state: dict[tuple[str, str], DriverScalar] = {
+            ("test.set_frequency/v1", "frequency"): Quantity(value=5.0, unit="GHz")
         }
-        self.applied_requests: list[DriverApplyRequest] = []
-        self.invoked_requests: list[DriverInvokeRequest] = []
-        self.collect_requests: list[DriverCollectRequest] = []
+        self.applied_requests: list[DriverStatePatch] = []
+        self.invoked_requests: list[DriverOperation] = []
+        self.collect_requests: list[DriverAcquisition] = []
 
     def describe(self) -> InstrumentDescription:
         return InstrumentDescription(
@@ -168,59 +166,62 @@ class TestSignalInstrument:
             ],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            properties=[
-                InstrumentPropertyState(
-                    interface_id=interface_id,
-                    property_id=property_id,
-                    value=value,
-                )
-                for (interface_id, property_id), value in sorted(self._state.items())
-            ],
+    def read_state(self) -> DriverState:
+        return DriverState(
+            values={
+                PropertyRef(interface_id, (), property_id): value
+                for (interface_id, property_id), value in self._state.items()
+            },
             metadata={"mode": "test_offline"},
         )
 
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         self.applied_requests.append(request)
-        for assignment in request.assignments:
-            self._state[(assignment.interface_id, assignment.property_id)] = (
-                assignment.value
-            )
-        return ApplyReceipt(status="applied")
+        for target, value in request.values.items():
+            self._state[(target.interface_id, target.property_id)] = value
+        return DriverSuccess(None)
 
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
         self.invoked_requests.append(request)
-        return InvokeReceipt(status="invoked", state=self.read_state())
+        return DriverSuccess(self.read_state())
 
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         self.collect_requests.append(request)
-        requested_result_ids = tuple(
-            result.request_id
-            for result in request.results
-            if result.result_id in self.result_ids
+        requested_results = tuple(
+            result for result in request.results if result.result_id in self.result_ids
         )
-        if not requested_result_ids:
-            return CollectReceipt(readback=InstrumentReadback())
+        if not requested_results:
+            return DriverSuccess(DriverReadback(values={}))
         value = MeasurementScalar.create(
             dtype="float64",
             value=_test_signal(self._frequency_ghz()),
             unit="ratio",
         )
-        return CollectReceipt(
-            readback=InstrumentReadback(
-                values=dict.fromkeys(requested_result_ids, value),
+        values: dict[AcquisitionResultRef, MeasurementValue] = dict.fromkeys(
+            requested_results, value
+        )
+        return DriverSuccess(
+            DriverReadback(
+                values=values,
                 metadata={
                     "instrument": self.instrument_id,
                     "implementation": self.implementation_id,
                     "test_offline": True,
                 },
-            )
+            ),
         )
 
     def _frequency_ghz(self) -> float:
-        value = self._state[("test.set_frequency/v1", "frequency")].root
+        value = self._state[("test.set_frequency/v1", "frequency")]
         assert isinstance(value, Quantity)
         return value.to("GHz").value
 

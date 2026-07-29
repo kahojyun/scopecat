@@ -28,17 +28,17 @@ from scopecat.kernel.problems import Problem
 from scopecat.project import load_instrument_backend_factory
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.instruments.backend import BackendInvokeRequest
+from scopecat.sdk.instruments.backend import (
+    BackendApplyRequest,
+    BackendCollectRequest,
+    BackendInvokeRequest,
+)
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
     InstrumentDescription,
     InstrumentProviderDescription,
     InvokeReceipt,
-)
-from scopecat.sdk.instruments.driver import (
-    DriverApplyRequest,
-    DriverCollectRequest,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
 
@@ -389,7 +389,7 @@ class SubprocessInstrumentBackendEndpoint:
     def apply_state(
         self,
         handle: InstrumentHandle,
-        request: DriverApplyRequest,
+        request: BackendApplyRequest,
     ) -> ApplyReceipt:
         received = self._rpc(
             "apply_state",
@@ -414,7 +414,7 @@ class SubprocessInstrumentBackendEndpoint:
     def collect(
         self,
         handle: InstrumentHandle,
-        request: DriverCollectRequest,
+        request: BackendCollectRequest,
     ) -> CollectReceipt:
         received = self._rpc(
             "collect",
@@ -814,7 +814,7 @@ def _dispatch_request(
         receipt = endpoint.apply_state(
             handle,
             _model_from_body(
-                DriverApplyRequest,
+                BackendApplyRequest,
                 _require_mapping(body, "request"),
             ),
         )
@@ -832,7 +832,7 @@ def _dispatch_request(
         receipt = endpoint.collect(
             handle,
             _model_from_body(
-                DriverCollectRequest,
+                BackendCollectRequest,
                 _require_mapping(body, "request"),
             ),
         )

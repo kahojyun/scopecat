@@ -6,14 +6,8 @@ import time
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Payload as PayloadType
 from scopecat.kernel.value_types import Scalar
-from scopecat.records.instrument import (
-    InstrumentPropertyState,
-    InstrumentReadback,
-    InstrumentStateSnapshot,
-)
 from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
@@ -22,18 +16,22 @@ from scopecat.records.measurement import (
     MeasurementValue,
 )
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverInvokeRequest,
-    DriverPayloadArgument,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverPayload,
+    DriverReadback,
+    DriverScalar,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InvokeReceipt,
+    PropertyRef,
     acquisition,
     acquisition_result,
     float_property,
@@ -56,8 +54,8 @@ class _Driver:
     def __init__(self, instrument_id: str, project_root: Path) -> None:
         self.instrument_id = instrument_id
         self._project_root = project_root
-        self._state: dict[tuple[str, str], StateValue] = {
-            ("tests.control/v1", "gain"): StateValue(0.0)
+        self._state: dict[tuple[str, str], DriverScalar] = {
+            ("tests.control/v1", "gain"): 0.0
         }
 
     def describe(self) -> InstrumentDescription:
@@ -93,42 +91,41 @@ class _Driver:
             ],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            properties=[
-                InstrumentPropertyState(
-                    interface_id=interface_id,
-                    property_id=property_id,
-                    value=value,
-                )
-                for (interface_id, property_id), value in sorted(self._state.items())
-            ],
+    def read_state(self) -> DriverState:
+        return DriverState(
+            values={
+                PropertyRef(interface_id, (), property_id): value
+                for (interface_id, property_id), value in self._state.items()
+            },
             metadata={"worker_pid": os.getpid()},
         )
 
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
-        for assignment in request.assignments:
-            self._state[(assignment.interface_id, assignment.property_id)] = (
-                assignment.value
-            )
-        return ApplyReceipt(status="applied")
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        for target, value in request.values.items():
+            self._state[(target.interface_id, target.property_id)] = value
+        return DriverSuccess(None)
 
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
-        if request.operation_id == "block":
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        if request.target.operation_id == "block":
             entered = self._project_root / f"driver-blocked-{self.instrument_id}"
             release = self._project_root / f"driver-release-{self.instrument_id}"
             entered.touch()
             while not release.exists():
                 time.sleep(0.01)
         programs: list[_DecodedProgram] = []
-        for argument in request.arguments:
-            if isinstance(argument, DriverPayloadArgument):
+        for argument in request.arguments.values():
+            if isinstance(argument, DriverPayload):
                 assert isinstance(argument.value, _DecodedProgram)
                 programs.append(argument.value)
         content = b"".join(program.content for program in programs)
-        return InvokeReceipt(
-            status="invoked",
+        return DriverSuccess(
+            None,
             metadata={
                 "payload_hex": content.hex(),
                 "payload_types": [type(program).__name__ for program in programs],
@@ -136,15 +133,18 @@ class _Driver:
             },
         )
 
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
-        return CollectReceipt(
-            readback=InstrumentReadback(
-                values={
-                    result.request_id: _measurement_value(result.result_id)
-                    for result in request.results
-                },
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        values: dict[AcquisitionResultRef, MeasurementValue] = {
+            result: _measurement_value(result.result_id) for result in request.results
+        }
+        return DriverSuccess(
+            DriverReadback(
+                values=values,
                 metadata={"worker_pid": os.getpid()},
-            )
+            ),
         )
 
     def abort(self) -> None:

@@ -8,24 +8,24 @@ from typing import ClassVar, cast
 
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
+    DriverAcquisition,
     DriverFault,
-    DriverInvokeRequest,
-    DriverPayloadArgument,
+    DriverOperation,
+    DriverOutcome,
+    DriverPayload,
+    DriverReadback,
+    DriverScalar,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentBindingSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
-    InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentReadback,
-    InstrumentStateSnapshot,
     InterfaceSpec,
-    InvokeReceipt,
+    PropertyRef,
     VirtualInstrumentConnection,
 )
 from scopecat.sdk.problems import (
@@ -66,7 +66,7 @@ class _VirtualInstrumentDriver:
             "source": "quantum-lab-demo",
         }
         self._state = {
-            _decode_property_key(key): value
+            _decode_property_key(key): cast("DriverScalar", value.root)
             for key, value in profile.seed_state.items()
         }
 
@@ -78,45 +78,48 @@ class _VirtualInstrumentDriver:
             interfaces=list(self._interfaces),
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            properties=[
-                InstrumentPropertyState(
-                    interface_id=interface_id,
-                    property_id=property_id,
-                    value=value,
-                )
-                for (interface_id, property_id), value in sorted(self._state.items())
-            ],
+    def read_state(self) -> DriverState:
+        return DriverState(
+            values={
+                PropertyRef(interface_id, (), property_id): value
+                for (interface_id, property_id), value in self._state.items()
+            },
             metadata=self._metadata,
         )
 
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
-        for assignment in request.assignments:
-            self._state[(assignment.interface_id, assignment.property_id)] = (
-                assignment.value
-            )
-        return ApplyReceipt(status="applied")
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        for target, value in request.values.items():
+            self._state[(target.interface_id, target.property_id)] = value
+        return DriverSuccess(None)
 
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
         programs = tuple(
             cast("DecodedPulseProgram", argument.value)
-            for argument in request.arguments
-            if isinstance(argument, DriverPayloadArgument)
+            for argument in request.arguments.values()
+            if isinstance(argument, DriverPayload)
         )
         documents = tuple(program.document for program in programs)
-        return InvokeReceipt(
+        return DriverSuccess(
+            None,
             metadata={
-                "interface_id": request.interface_id,
-                "operation_id": request.operation_id,
+                "interface_id": request.target.interface_id,
+                "operation_id": request.target.operation_id,
                 "payload_count": len(documents),
-            }
+            },
         )
 
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         del request
-        return CollectReceipt(readback=InstrumentReadback())
+        return DriverSuccess(DriverReadback(values={}))
 
     def disconnect(self) -> None:
         return None

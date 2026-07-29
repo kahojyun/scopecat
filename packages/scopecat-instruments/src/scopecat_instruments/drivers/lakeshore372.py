@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from time import monotonic, sleep
 
 from pydantic import JsonValue
-from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementUnavailable,
@@ -15,13 +14,14 @@ from scopecat.records.measurement import (
 )
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverInvokeRequest,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentDescription,
-    InvokeReceipt,
 )
 from scopecat.sdk.instruments.scpi import (
     ScpiIdentity,
@@ -37,7 +37,6 @@ from scopecat.sdk.instruments.scpi import (
 from scopecat_instruments._support import (
     apply_unknown,
     collect_unknown,
-    state_property,
     unsupported_invoke,
 )
 from scopecat_instruments.driver_ids import LAKESHORE_372
@@ -86,7 +85,7 @@ class LakeShore372:
             interfaces=[temperature_readout_interface()],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         scan_channel, autoscan_enabled = self._scan_state()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Lake Shore Cryotronics",
@@ -95,37 +94,36 @@ class LakeShore372:
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            properties=[
-                state_property(
-                    TEMPERATURE_READOUT_SCAN_CHANNEL,
-                    scan_channel,
-                ),
-                state_property(
-                    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
-                    autoscan_enabled,
-                ),
-            ],
+        return DriverState(
+            values={
+                TEMPERATURE_READOUT_SCAN_CHANNEL: scan_channel,
+                TEMPERATURE_READOUT_AUTOSCAN_ENABLED: autoscan_enabled,
+            },
             metadata=metadata,
         )
 
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         del request
         try:
-            return ApplyReceipt(status="applied", state=self.read_state())
+            return DriverSuccess(self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
         return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         try:
-            requested_results = {
-                request.result_target(result) for result in request.results
-            }
-            sample = self._read_sample(requested_results)
+            sample = self._read_sample(set(request.results))
             metadata: dict[str, JsonValue] = {
                 "manufacturer": "Lake Shore Cryotronics",
                 "model": "372",
@@ -135,25 +133,22 @@ class LakeShore372:
             }
             if sample.curve_number is not None:
                 metadata["curve_number"] = sample.curve_number
-            return CollectReceipt(
-                readback=InstrumentReadback(
-                    values={
-                        result.request_id: sample.values[request.result_target(result)]
-                        for result in request.results
-                    },
+            return DriverSuccess(
+                DriverReadback(
+                    values=sample.values,
                     metadata=metadata,
-                )
+                ),
             )
         except _SampleQualityUnavailable as error:
             quality_metadata: dict[str, JsonValue] = {
                 "code": error.code,
                 **error.details,
             }
-            return CollectReceipt(
-                readback=InstrumentReadback(
+            return DriverSuccess(
+                DriverReadback(
                     values={
-                        result.request_id: _unavailable_result(
-                            request.result_target(result),
+                        result: _unavailable_result(
+                            result,
                             reason=error.reason,
                             metadata=quality_metadata,
                         )
@@ -165,7 +160,7 @@ class LakeShore372:
                         "quality_code": error.code,
                         **error.details,
                     },
-                )
+                ),
             )
         except Exception as error:
             return collect_unknown(self.instrument_id, error)

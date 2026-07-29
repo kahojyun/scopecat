@@ -4,24 +4,24 @@ from typing import override
 
 import pytest
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
 from scopecat.records.measurement import MeasurementScalar, MeasurementUnavailable
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverCollectResult,
-    DriverPropertyWrite,
+    DriverAcquisition,
+    DriverOutcome,
+    DriverReadback,
+    DriverRejected,
+    DriverScalar,
+    DriverStatePatch,
+    DriverSuccess,
+    DriverUnknown,
     PropertyRef,
 )
 from scopecat.sdk.instruments.scpi import TransportError
 
 import scopecat_instruments.drivers.lakeshore372 as lakeshore372_driver
-from scopecat_instruments._support import (
-    LinearSweepSettings,
-    state_properties_by_target,
-)
+from scopecat_instruments._support import LinearSweepSettings
 from scopecat_instruments.drivers import (
     KeysightE5080B,
     LakeShore372,
@@ -58,37 +58,24 @@ from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 
 
 def _apply_request(
-    properties: list[tuple[PropertyRef, bool | int | str | Quantity]],
-) -> DriverApplyRequest:
-    return DriverApplyRequest(
-        assignments=tuple(
-            DriverPropertyWrite(
-                interface_id=target.interface_id,
-                component_path=target.component_path,
-                property_id=target.property_id,
-                value=StateValue(value),
-            )
-            for target, value in properties
-        ),
-    )
+    properties: list[tuple[PropertyRef, DriverScalar]],
+) -> DriverStatePatch:
+    return DriverStatePatch(values=dict(properties))
 
 
 def _collect_request(
     acquisition: AcquisitionRef,
     *results: AcquisitionResultRef,
-) -> DriverCollectRequest:
-    return DriverCollectRequest(
-        interface_id=acquisition.interface_id,
-        component_path=acquisition.component_path,
-        acquisition_id=acquisition.acquisition_id,
-        results=tuple(
-            DriverCollectResult(
-                request_id=result.result_id,
-                result_id=result.result_id,
-            )
-            for result in results
-        ),
+) -> DriverAcquisition:
+    return DriverAcquisition(
+        target=acquisition,
+        results=frozenset(results),
     )
+
+
+def _readback(outcome: DriverOutcome[DriverReadback]) -> DriverReadback:
+    assert isinstance(outcome, DriverSuccess)
+    return outcome.value
 
 
 def _gs200_state_readback(
@@ -206,16 +193,13 @@ def test_gs200_source_and_monitor_transcript() -> None:
     assert identity.model == "GS210"
     assert state.metadata["identity"] == identity.raw
     assert set(state.metadata) == {"manufacturer", "model", "identity"}
-    state_properties = state_properties_by_target(state)
-    assert state_properties[DC_MONITOR_MEASUREMENT_ENABLED].value.root is True
-    assert state_properties[DC_MONITOR_INTEGRATION_CYCLES].value.root == 5
-    assert state_properties[DC_MONITOR_MEASUREMENT_DELAY].value.root == Quantity(
+    assert state.values[DC_MONITOR_MEASUREMENT_ENABLED] is True
+    assert state.values[DC_MONITOR_INTEGRATION_CYCLES] == 5
+    assert state.values[DC_MONITOR_MEASUREMENT_DELAY] == Quantity(
         0.01,
         "s",
     )
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    measured = receipt.readback.values[DC_MONITOR_CURRENT_RESULT.result_id]
+    measured = _readback(receipt).values[DC_MONITOR_CURRENT_RESULT]
     assert isinstance(measured, MeasurementScalar)
     assert measured.value == pytest.approx(1.25e-4)
     transport.assert_complete()
@@ -267,7 +251,7 @@ def test_gs200_apply_disables_live_output_while_switching_state(
         )
     )
 
-    assert receipt.status == "applied"
+    assert isinstance(receipt, DriverSuccess)
     transport.assert_complete()
 
 
@@ -320,11 +304,9 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
         )
     )
 
-    assert applied.status == "applied"
-    assert monitored.status == "collected"
-    assert monitored.readback is not None
-    assert monitored.readback.values[
-        DC_MONITOR_VOLTAGE_RESULT.result_id
+    assert isinstance(applied, DriverSuccess)
+    assert _readback(monitored).values[
+        DC_MONITOR_VOLTAGE_RESULT
     ] == MeasurementScalar.create(
         dtype="float64",
         value=1.0,
@@ -360,7 +342,7 @@ def test_gs200_adjusts_compliance_without_interrupting_live_output() -> None:
         )
     )
 
-    assert receipt.status == "applied"
+    assert isinstance(receipt, DriverSuccess)
     transport.assert_complete()
 
 
@@ -500,7 +482,7 @@ def test_gs200_rejects_a_millivolt_range_before_mutating_remote_sense_source() -
         )
     )
 
-    assert receipt.status == "not_applied"
+    assert isinstance(receipt, DriverRejected)
     assert receipt.problems[0].code == "gs200_remote_sense_voltage_range_incompatible"
     assert all(entry.operation == "query" for entry in transport.transcript)
     transport.assert_complete()
@@ -544,12 +526,12 @@ def test_gs200_applies_monitor_settings_while_measurement_is_disabled() -> None:
         )
     )
 
-    assert receipt.status == "applied"
-    assert receipt.state is not None
-    properties = state_properties_by_target(receipt.state)
-    assert properties[DC_MONITOR_MEASUREMENT_ENABLED].value.root is True
-    assert properties[DC_MONITOR_INTEGRATION_CYCLES].value.root == 10
-    assert properties[DC_MONITOR_MEASUREMENT_DELAY].value.root == Quantity(
+    assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is not None
+    properties = receipt.value.values
+    assert properties[DC_MONITOR_MEASUREMENT_ENABLED] is True
+    assert properties[DC_MONITOR_INTEGRATION_CYCLES] == 10
+    assert properties[DC_MONITOR_MEASUREMENT_DELAY] == Quantity(
         0.25,
         "s",
     )
@@ -621,7 +603,7 @@ def test_gs200_collect_guards_do_not_trigger_measurement(
 
     receipt = driver.collect(_collect_request(DC_MONITOR_ACQUISITION, result))
 
-    assert receipt.status == "not_collected"
+    assert isinstance(receipt, DriverRejected)
     assert receipt.problems[0].code == problem_code
     assert all(entry.operation == "query" for entry in transport.transcript)
     transport.assert_complete()
@@ -648,10 +630,8 @@ def test_gs200_collect_uses_communication_trigger_then_restores_it() -> None:
         _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_CURRENT_RESULT)
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    assert receipt.readback.values[
-        DC_MONITOR_CURRENT_RESULT.result_id
+    assert _readback(receipt).values[
+        DC_MONITOR_CURRENT_RESULT
     ] == MeasurementScalar.create(
         dtype="float64",
         unit="A",
@@ -680,10 +660,8 @@ def test_gs200_collect_reports_monitor_overload_as_unavailable() -> None:
         _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_VOLTAGE_RESULT)
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    assert receipt.readback.values[
-        DC_MONITOR_VOLTAGE_RESULT.result_id
+    assert _readback(receipt).values[
+        DC_MONITOR_VOLTAGE_RESULT
     ] == MeasurementUnavailable.create(
         reason="overload",
         dtype="float64",
@@ -713,10 +691,8 @@ def test_gs200_collect_reports_invalid_measurement_status(condition: int) -> Non
         _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_VOLTAGE_RESULT)
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    assert receipt.readback.values[
-        DC_MONITOR_VOLTAGE_RESULT.result_id
+    assert _readback(receipt).values[
+        DC_MONITOR_VOLTAGE_RESULT
     ] == MeasurementUnavailable.create(
         reason="invalid",
         dtype="float64",
@@ -755,7 +731,7 @@ def test_gs200_trigger_restore_failure_reports_unknown() -> None:
         _collect_request(DC_MONITOR_ACQUISITION, DC_MONITOR_CURRENT_RESULT)
     )
 
-    assert receipt.status == "unknown"
+    assert isinstance(receipt, DriverUnknown)
     assert receipt.problems[0].code == "instrument_collect_outcome_unknown"
     transport.assert_complete()
 
@@ -783,11 +759,10 @@ def test_sgs100a_cw_source_transcript() -> None:
     driver.set_output(True)
     state = driver.read_state()
 
-    properties = state_properties_by_target(state)
-    assert properties[RF_OUTPUT_FREQUENCY].value.root == Quantity(5.0e9, "Hz")
-    assert properties[RF_OUTPUT_POWER].value.root == Quantity(-27.5, "dBm")
-    assert properties[RF_OUTPUT_REFERENCE_SOURCE].value.root == "external"
-    assert properties[RF_OUTPUT_ENABLED].value.root is True
+    assert state.values[RF_OUTPUT_FREQUENCY] == Quantity(5.0e9, "Hz")
+    assert state.values[RF_OUTPUT_POWER] == Quantity(-27.5, "dBm")
+    assert state.values[RF_OUTPUT_REFERENCE_SOURCE] == "external"
+    assert state.values[RF_OUTPUT_ENABLED] is True
     transport.assert_complete()
 
 
@@ -827,7 +802,7 @@ def test_sgs100a_apply_orders_output_around_frequency_and_power(
         )
     )
 
-    assert receipt.status == "applied"
+    assert isinstance(receipt, DriverSuccess)
     transport.assert_complete()
 
 
@@ -875,13 +850,13 @@ def test_lakeshore_372_state_contains_only_persistent_scanner_state() -> None:
     driver.identify()
     state = driver.read_state()
 
-    properties = state_properties_by_target(state)
+    properties = state.values
     assert set(properties) == {
         TEMPERATURE_READOUT_SCAN_CHANNEL,
         TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     }
-    assert properties[TEMPERATURE_READOUT_SCAN_CHANNEL].value.root == 5
-    assert properties[TEMPERATURE_READOUT_AUTOSCAN_ENABLED].value.root is True
+    assert properties[TEMPERATURE_READOUT_SCAN_CHANNEL] == 5
+    assert properties[TEMPERATURE_READOUT_AUTOSCAN_ENABLED] is True
     transport.assert_complete()
 
 
@@ -910,19 +885,14 @@ def test_lakeshore_372_collect_waits_for_one_coherent_valid_sample() -> None:
         )
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    temperature = receipt.readback.values[
-        TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id
-    ]
-    resistance = receipt.readback.values[
-        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id
-    ]
+    readback = _readback(receipt)
+    temperature = readback.values[TEMPERATURE_READOUT_TEMPERATURE_RESULT]
+    resistance = readback.values[TEMPERATURE_READOUT_RESISTANCE_RESULT]
     assert isinstance(temperature, MeasurementScalar)
     assert isinstance(resistance, MeasurementScalar)
     assert temperature.value == pytest.approx(0.0205)
     assert resistance.value == pytest.approx(6720.0)
-    assert receipt.readback.metadata["curve_number"] == 21
+    assert readback.metadata["curve_number"] == 21
     transport.assert_complete()
 
 
@@ -947,9 +917,7 @@ def test_lakeshore_372_resistance_does_not_require_a_temperature_curve() -> None
         )
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    assert "curve_number" not in receipt.readback.metadata
+    assert "curve_number" not in _readback(receipt).metadata
     transport.assert_complete()
 
 
@@ -977,9 +945,7 @@ def test_lakeshore_372_retries_when_autoscan_changes_channel() -> None:
         )
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    assert receipt.readback.metadata["scan_channel"] == 5
+    assert _readback(receipt).metadata["scan_channel"] == 5
     transport.assert_complete()
 
 
@@ -1006,22 +972,16 @@ def test_lakeshore_372_missing_curve_only_marks_temperature_unavailable() -> Non
         )
     )
 
-    assert receipt.status == "collected"
-    assert not receipt.problems
-    assert receipt.readback is not None
-    temperature = receipt.readback.values[
-        TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id
-    ]
-    resistance = receipt.readback.values[
-        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id
-    ]
+    readback = _readback(receipt)
+    temperature = readback.values[TEMPERATURE_READOUT_TEMPERATURE_RESULT]
+    resistance = readback.values[TEMPERATURE_READOUT_RESISTANCE_RESULT]
     assert isinstance(temperature, MeasurementUnavailable)
     assert temperature.reason == "missing"
     assert temperature.shape == ()
     assert temperature.metadata["code"] == "lakeshore_temperature_curve_missing"
     assert isinstance(resistance, MeasurementScalar)
     assert resistance.value == pytest.approx(6720.0)
-    assert receipt.readback.metadata["curve_number"] == 0
+    assert readback.metadata["curve_number"] == 0
     transport.assert_complete()
 
 
@@ -1049,11 +1009,9 @@ def test_lakeshore_372_invalid_status_marks_every_result_unavailable() -> None:
         )
     )
 
-    assert receipt.status == "collected"
-    assert not receipt.problems
-    assert receipt.readback is not None
-    assert receipt.readback.metadata["reading_status"] == 64
-    for value in receipt.readback.values.values():
+    readback = _readback(receipt)
+    assert readback.metadata["reading_status"] == 64
+    for value in readback.values.values():
         assert isinstance(value, MeasurementUnavailable)
         assert value.reason == "invalid"
         assert value.metadata["reading_status"] == 64
@@ -1081,11 +1039,7 @@ def test_lakeshore_372_explicit_overload_status_is_preserved() -> None:
         )
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    unavailable = receipt.readback.values[
-        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id
-    ]
+    unavailable = _readback(receipt).values[TEMPERATURE_READOUT_RESISTANCE_RESULT]
     assert isinstance(unavailable, MeasurementUnavailable)
     assert unavailable.reason == "overload"
     transport.assert_complete()
@@ -1111,11 +1065,7 @@ def test_lakeshore_372_settle_timeout_is_collected_as_unavailable(
         )
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    unavailable = receipt.readback.values[
-        TEMPERATURE_READOUT_TEMPERATURE_RESULT.result_id
-    ]
+    unavailable = _readback(receipt).values[TEMPERATURE_READOUT_TEMPERATURE_RESULT]
     assert isinstance(unavailable, MeasurementUnavailable)
     assert unavailable.reason == "invalid"
     assert unavailable.metadata["code"] == "lakeshore_reading_settle_timeout"
@@ -1143,11 +1093,7 @@ def test_lakeshore_372_scan_coherence_timeout_is_collected_as_unavailable(
         )
     )
 
-    assert receipt.status == "collected"
-    assert receipt.readback is not None
-    unavailable = receipt.readback.values[
-        TEMPERATURE_READOUT_RESISTANCE_RESULT.result_id
-    ]
+    unavailable = _readback(receipt).values[TEMPERATURE_READOUT_RESISTANCE_RESULT]
     assert isinstance(unavailable, MeasurementUnavailable)
     assert unavailable.reason == "invalid"
     assert unavailable.metadata["code"] == "lakeshore_scan_coherence_timeout"
@@ -1169,7 +1115,7 @@ def test_lakeshore_372_protocol_error_keeps_collection_unknown() -> None:
         )
     )
 
-    assert receipt.status == "unknown"
+    assert isinstance(receipt, DriverUnknown)
     assert receipt.problems[0].code == "instrument_collect_outcome_unknown"
     transport.assert_complete()
 
@@ -1263,7 +1209,7 @@ def test_e5080b_collect_restores_external_trigger_source() -> None:
         )
     )
 
-    assert receipt.status == "collected"
+    assert isinstance(receipt, DriverSuccess)
     transport.assert_complete()
 
 
@@ -1295,7 +1241,7 @@ def test_e5080b_collect_restores_averaging_and_trigger_after_parse_failure() -> 
         )
     )
 
-    assert receipt.status == "unknown"
+    assert isinstance(receipt, DriverUnknown)
     transport.assert_complete()
 
 
@@ -1318,5 +1264,5 @@ def test_e5080b_collect_restores_trigger_when_averaging_read_fails() -> None:
         )
     )
 
-    assert receipt.status == "unknown"
+    assert isinstance(receipt, DriverUnknown)
     transport.assert_complete()

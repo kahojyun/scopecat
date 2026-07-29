@@ -70,7 +70,7 @@ from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments import DriverPayloadArgument
+from scopecat.sdk.instruments import DriverPayload
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
     FixedAcquisitionSpec,
@@ -843,10 +843,10 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
             manifest.run_id,
         ).journal.entries()
     )
-    arguments: list[DriverPayloadArgument] = []
+    arguments: list[DriverPayload] = []
     for command in instrument.invoked:
-        [argument] = command.arguments
-        assert isinstance(argument, DriverPayloadArgument)
+        [argument] = command.arguments.values()
+        assert isinstance(argument, DriverPayload)
         arguments.append(argument)
     assert [argument.schema_id for argument in arguments] == ["pulse_program"] * 6
     assert [argument.value for argument in arguments] == [

@@ -5,20 +5,18 @@ from __future__ import annotations
 from dataclasses import replace
 
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverInvokeRequest,
-    DriverPropertyWrite,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentStateSnapshot,
-    InvokeReceipt,
-    StateValue,
 )
 from scopecat_instruments import ConfiguredInstrumentProvider
 from scopecat_instruments.members import DC_SOURCE_OUTPUT_ENABLED
@@ -77,16 +75,25 @@ class _BiasSafeDriver:
     def describe(self) -> InstrumentDescription:
         return self._driver.describe()
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         return self._driver.read_state()
 
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         return self._driver.apply_state(request)
 
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
         return self._driver.invoke(request)
 
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         return self._driver.collect(request)
 
     def abort(self) -> None:
@@ -100,18 +107,9 @@ class _BiasSafeDriver:
 
     def _disable_bias(self, phase: str) -> None:
         receipt = self._driver.apply_state(
-            DriverApplyRequest(
-                assignments=(
-                    DriverPropertyWrite(
-                        interface_id=DC_SOURCE_OUTPUT_ENABLED.interface_id,
-                        component_path=DC_SOURCE_OUTPUT_ENABLED.component_path,
-                        property_id=DC_SOURCE_OUTPUT_ENABLED.property_id,
-                        value=StateValue(False),
-                    ),
-                ),
-            )
+            DriverStatePatch(values={DC_SOURCE_OUTPUT_ENABLED: False})
         )
-        if receipt.status != "applied":
+        if not isinstance(receipt, DriverSuccess):
             raise RuntimeError(
                 f"{self.instrument_id} did not confirm bias-off during {phase}"
             )

@@ -34,13 +34,14 @@ from scopecat.planning.provider_validation import instrument_contract_fingerprin
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
-    DriverInvokeRequest,
-    DriverPayloadArgument,
+    DriverOperation,
+    DriverOutcome,
+    DriverPayload,
+    DriverState,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InvokeReceipt,
 )
 from scopecat.sdk.instruments.contracts import (
     CollectResultRequest,
@@ -75,9 +76,12 @@ class _PayloadConsumerDriver(SignalInstrumentDriver):
         self.consumed_payloads: list[bytes] = []
 
     @override
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
-        for argument in request.arguments:
-            if isinstance(argument, DriverPayloadArgument):
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
+        for argument in request.arguments.values():
+            if isinstance(argument, DriverPayload):
                 assert isinstance(argument.value, bytes)
                 self.consumed_payloads.append(argument.value)
         return super().invoke(request)
@@ -239,8 +243,8 @@ def test_direct_invoke_uses_the_same_payload_object_boundary(
         assert receipt.status == "invoked"
         [driver] = provider.drivers
         assert driver.consumed_payloads == [_PAYLOAD_BYTES]
-        [argument] = driver.invoked[0].arguments
-        assert isinstance(argument, DriverPayloadArgument)
+        [argument] = driver.invoked[0].arguments.values()
+        assert isinstance(argument, DriverPayload)
         assert argument.schema_id == payload.schema_id
         assert argument.value == _PAYLOAD_BYTES
 

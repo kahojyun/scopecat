@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverCollectResult,
-    DriverPropertyWrite,
+    DriverAcquisition,
+    DriverRejected,
+    DriverStatePatch,
+    DriverSuccess,
 )
 
-from scopecat_instruments._support import (
-    LinearSweepSettings,
-    state_properties_by_target,
-)
+from scopecat_instruments._support import LinearSweepSettings
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
@@ -52,9 +48,7 @@ def test_virtual_state_survives_driver_disconnect() -> None:
 
     assert second.output_enabled() is True
     assert world.flux_bias() == 0.5
-    level = state_properties_by_target(second.read_state())[
-        DC_SOURCE_VOLTAGE_LEVEL
-    ].value.root
+    level = second.read_state().values[DC_SOURCE_VOLTAGE_LEVEL]
     assert isinstance(level, Quantity)
     assert level.value == 0.125
 
@@ -64,39 +58,19 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
     driver = VirtualDcSource("flux", world)
 
     receipt = driver.apply_state(
-        DriverApplyRequest(
-            assignments=(
-                DriverPropertyWrite(
-                    interface_id=DC_SOURCE_MODE.interface_id,
-                    component_path=DC_SOURCE_MODE.component_path,
-                    property_id=DC_SOURCE_MODE.property_id,
-                    value=StateValue("current"),
-                ),
-                DriverPropertyWrite(
-                    interface_id=DC_SOURCE_CURRENT_RANGE.interface_id,
-                    component_path=DC_SOURCE_CURRENT_RANGE.component_path,
-                    property_id=DC_SOURCE_CURRENT_RANGE.property_id,
-                    value=StateValue(Quantity(0.01, "A")),
-                ),
-                DriverPropertyWrite(
-                    interface_id=DC_SOURCE_CURRENT_LEVEL.interface_id,
-                    component_path=DC_SOURCE_CURRENT_LEVEL.component_path,
-                    property_id=DC_SOURCE_CURRENT_LEVEL.property_id,
-                    value=StateValue(Quantity(0.001, "A")),
-                ),
-                DriverPropertyWrite(
-                    interface_id=DC_SOURCE_OUTPUT_ENABLED.interface_id,
-                    component_path=DC_SOURCE_OUTPUT_ENABLED.component_path,
-                    property_id=DC_SOURCE_OUTPUT_ENABLED.property_id,
-                    value=StateValue(True),
-                ),
-            ),
+        DriverStatePatch(
+            values={
+                DC_SOURCE_MODE: "current",
+                DC_SOURCE_CURRENT_RANGE: Quantity(0.01, "A"),
+                DC_SOURCE_CURRENT_LEVEL: Quantity(0.001, "A"),
+                DC_SOURCE_OUTPUT_ENABLED: True,
+            },
         )
     )
 
-    assert receipt.status == "applied"
-    assert receipt.state is not None
-    property_targets = state_properties_by_target(receipt.state)
+    assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is not None
+    property_targets = receipt.value.values
     assert {
         DC_SOURCE_CURRENT_RANGE,
         DC_SOURCE_CURRENT_LEVEL,
@@ -121,68 +95,46 @@ def test_virtual_dc_monitor_configuration_round_trips_through_state() -> None:
     driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
 
     receipt = driver.apply_state(
-        DriverApplyRequest(
-            assignments=(
-                DriverPropertyWrite(
-                    interface_id=DC_MONITOR_MEASUREMENT_ENABLED.interface_id,
-                    component_path=DC_MONITOR_MEASUREMENT_ENABLED.component_path,
-                    property_id=DC_MONITOR_MEASUREMENT_ENABLED.property_id,
-                    value=StateValue(False),
-                ),
-                DriverPropertyWrite(
-                    interface_id=DC_MONITOR_INTEGRATION_CYCLES.interface_id,
-                    component_path=DC_MONITOR_INTEGRATION_CYCLES.component_path,
-                    property_id=DC_MONITOR_INTEGRATION_CYCLES.property_id,
-                    value=StateValue(5),
-                ),
-                DriverPropertyWrite(
-                    interface_id=DC_MONITOR_MEASUREMENT_DELAY.interface_id,
-                    component_path=DC_MONITOR_MEASUREMENT_DELAY.component_path,
-                    property_id=DC_MONITOR_MEASUREMENT_DELAY.property_id,
-                    value=StateValue(Quantity(0.25, "s")),
-                ),
-            )
+        DriverStatePatch(
+            values={
+                DC_MONITOR_MEASUREMENT_ENABLED: False,
+                DC_MONITOR_INTEGRATION_CYCLES: 5,
+                DC_MONITOR_MEASUREMENT_DELAY: Quantity(0.25, "s"),
+            }
         )
     )
 
-    assert receipt.status == "applied"
-    assert receipt.state is not None
-    properties = state_properties_by_target(receipt.state)
-    assert properties[DC_MONITOR_MEASUREMENT_ENABLED].value.root is False
-    assert properties[DC_MONITOR_INTEGRATION_CYCLES].value.root == 5
-    delay = properties[DC_MONITOR_MEASUREMENT_DELAY].value.root
+    assert isinstance(receipt, DriverSuccess)
+    assert receipt.value is not None
+    properties = receipt.value.values
+    assert properties[DC_MONITOR_MEASUREMENT_ENABLED] is False
+    assert properties[DC_MONITOR_INTEGRATION_CYCLES] == 5
+    delay = properties[DC_MONITOR_MEASUREMENT_DELAY]
     assert isinstance(delay, Quantity)
     assert delay == Quantity(0.25, "s")
 
 
 def test_virtual_dc_monitor_requires_source_output_and_measurement_enabled() -> None:
     driver = VirtualDcSource("flux", VirtualLabWorld(seed=13))
-    request = DriverCollectRequest(
-        interface_id=DC_MONITOR_ACQUISITION.interface_id,
-        component_path=DC_MONITOR_ACQUISITION.component_path,
-        acquisition_id=DC_MONITOR_ACQUISITION.acquisition_id,
-        results=(
-            DriverCollectResult(
-                request_id="current",
-                result_id=DC_MONITOR_CURRENT_RESULT.result_id,
-            ),
-        ),
+    request = DriverAcquisition(
+        target=DC_MONITOR_ACQUISITION,
+        results=frozenset({DC_MONITOR_CURRENT_RESULT}),
     )
 
     driver.set_output(True)
-    assert driver.collect(request).status == "collected"
+    assert isinstance(driver.collect(request), DriverSuccess)
 
     driver.set_output(False)
     receipt = driver.collect(request)
 
-    assert receipt.status == "not_collected"
+    assert isinstance(receipt, DriverRejected)
     assert receipt.problems[0].code == "virtual_dc_monitor_output_disabled"
 
     driver.set_output(True)
     driver.set_measurement_enabled(False)
     receipt = driver.collect(request)
 
-    assert receipt.status == "not_collected"
+    assert isinstance(receipt, DriverRejected)
     assert receipt.problems[0].code == "virtual_dc_monitor_disabled"
 
 

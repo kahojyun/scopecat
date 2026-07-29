@@ -60,22 +60,24 @@ from scopecat.records.run import (
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverInvokeRequest,
-    DriverPayloadArgument,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverPayload,
+    DriverReadback,
+    DriverRejected,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
+    DriverUnknown,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentPropertyState,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentReadback,
-    InstrumentStateSnapshot,
     InterfaceRef,
-    InvokeReceipt,
     acquisition,
     acquisition_axis,
     acquisition_case,
@@ -143,14 +145,13 @@ class _Driver(SignalInstrumentDriver):
         return super().read_state()
 
     @override
-    def apply_state(self, request: DriverApplyRequest):  # type: ignore[no-untyped-def]
+    def apply_state(self, request: DriverStatePatch):  # type: ignore[no-untyped-def]
         if self.apply_barrier is not None:
             self.apply_barrier.wait(timeout=2)
         if self.fail_action == "apply":
             raise RuntimeError("apply outcome lost")
         if self.fail_action == "reject_apply":
-            return ApplyReceipt(
-                status="not_applied",
+            return DriverRejected(
                 problems=(
                     problem(
                         "test_apply_rejected",
@@ -162,25 +163,30 @@ class _Driver(SignalInstrumentDriver):
         return super().apply_state(request)
 
     @override
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
         self.invoked.append(request)
         if self.fail_action == "invoke":
             raise RuntimeError("invoke outcome lost")
-        return InvokeReceipt(status="invoked")
+        return DriverSuccess(None)
 
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         if self.fail_action == "unknown_collect_receipt":
             self.collect_requests.append(request)
-            return CollectReceipt(
-                status="unknown",
+            return DriverUnknown(
                 problems=(
                     problem(
                         "test_collect_receipt_unknown",
                         "test driver lost collection confirmation",
                         phase=ProblemPhase.EXECUTION,
                         location=model_location(
-                            "driver_collect_request",
+                            "driver_acquisition",
                             "results",
                         ),
                     ),
@@ -287,61 +293,56 @@ class _VariantDriver(_Driver):
         )
 
     @override
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         self.read_count += 1
         level_property = "voltage_level" if self.mode == "voltage" else "current_level"
         level = self.voltage_level if self.mode == "voltage" else self.current_level
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            properties=[
-                InstrumentPropertyState(
-                    interface_id="test.dc/v1",
-                    property_id="mode",
-                    value=StateValue(self.mode),
-                ),
-                InstrumentPropertyState(
-                    interface_id="test.dc/v1",
-                    property_id=level_property,
-                    value=StateValue(level),
-                ),
-                InstrumentPropertyState(
-                    interface_id="test.dc/v1",
-                    property_id="output_enabled",
-                    value=StateValue(self.output_enabled),
-                ),
-            ],
+        return DriverState(
+            values={
+                _DC_MODE: self.mode,
+                InterfaceRef("test.dc/v1").property(level_property): level,
+                _DC_OUTPUT_ENABLED: self.output_enabled,
+            },
         )
 
     @override
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         self.applied.append(request)
-        for assignment in request.assignments:
-            if assignment.property_id == "mode":
-                assert isinstance(assignment.value.root, str)
-                self.mode = assignment.value.root
-            elif assignment.property_id == "voltage_level":
-                assert isinstance(assignment.value.root, float)
-                self.voltage_level = assignment.value.root
-            elif assignment.property_id == "current_level":
-                assert isinstance(assignment.value.root, float)
-                self.current_level = assignment.value.root
-            elif assignment.property_id == "output_enabled":
-                assert isinstance(assignment.value.root, bool)
-                self.output_enabled = assignment.value.root
-        return ApplyReceipt(status="applied")
+        for target, value in request.values.items():
+            if target.property_id == "mode":
+                assert isinstance(value, str)
+                self.mode = value
+            elif target.property_id == "voltage_level":
+                assert isinstance(value, float)
+                self.voltage_level = value
+            elif target.property_id == "current_level":
+                assert isinstance(value, float)
+                self.current_level = value
+            elif target.property_id == "output_enabled":
+                assert isinstance(value, bool)
+                self.output_enabled = value
+        return DriverSuccess(None)
 
     @override
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
         self.invoked.append(request)
         self.mode = "current"
-        return InvokeReceipt(status="invoked")
+        return DriverSuccess(None)
 
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         self.collect_requests.append(request)
         if self.require_output_for_collect and not self.output_enabled:
-            return CollectReceipt(
-                status="not_collected",
+            return DriverRejected(
                 problems=(
                     problem(
                         "test_acquisition_output_disabled",
@@ -354,8 +355,7 @@ class _VariantDriver(_Driver):
             "monitored_voltage" if self.mode == "voltage" else "monitored_current"
         )
         if {result.result_id for result in request.results} != {active_result}:
-            return CollectReceipt(
-                status="not_collected",
+            return DriverRejected(
                 problems=(
                     problem(
                         "test_acquisition_result_inactive",
@@ -369,8 +369,8 @@ class _VariantDriver(_Driver):
                     ),
                 ),
             )
-        values: dict[str, MeasurementValue] = {
-            result.request_id: (
+        values: dict[AcquisitionResultRef, MeasurementValue] = {
+            result: (
                 MeasurementScalar.create(
                     dtype="float64",
                     value=self.voltage_level,
@@ -385,7 +385,7 @@ class _VariantDriver(_Driver):
             )
             for result in request.results
         }
-        return CollectReceipt(readback=InstrumentReadback(values=values))
+        return DriverSuccess(DriverReadback(values=values))
 
 
 class _PreconditionVariantDriver(_VariantDriver):
@@ -405,7 +405,7 @@ class _StateSizedAxisDriver(_Driver):
             fail_action=fail_action,
             apply_barrier=apply_barrier,
         )
-        self._state = {("test.sweep/v1", "points"): StateValue(3)}
+        self._state = {("test.sweep/v1", "points"): 3}
 
     @override
     def describe(self) -> InstrumentDescription:
@@ -439,29 +439,35 @@ class _StateSizedAxisDriver(_Driver):
         )
 
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         self.collect_requests.append(request)
-        points = self._state[("test.sweep/v1", "points")].root
+        points = self._state[("test.sweep/v1", "points")]
         assert type(points) is int
-        return CollectReceipt(
-            readback=InstrumentReadback(
+        return DriverSuccess(
+            DriverReadback(
                 values={
-                    result.request_id: MeasurementArray.create(
+                    result: MeasurementArray.create(
                         shape=(points,),
                         values=tuple(float(index) for index in range(points)),
                         unit="V",
                     )
                     for result in request.results
                 }
-            )
+            ),
         )
 
 
 class _NonConvergingDriver(_Driver):
     @override
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         self.applied.append(request)
-        return ApplyReceipt(status="applied")
+        return DriverSuccess(None)
 
 
 class _EquivalentQuantityDriver(_Driver):
@@ -477,8 +483,8 @@ class _EquivalentQuantityDriver(_Driver):
             fail_action=fail_action,
             apply_barrier=apply_barrier,
         )
-        self._state[("test.set_frequency/v1", "frequency")] = StateValue(
-            Quantity(value=1.0, unit="GHz")
+        self._state[("test.set_frequency/v1", "frequency")] = Quantity(
+            value=1.0, unit="GHz"
         )
 
 
@@ -652,8 +658,8 @@ def test_run_start_applies_default_state_after_fresh_observation(
         }
         [driver] = provider.drivers
         assert len(driver.applied) == 1
-        [assignment] = driver.applied[0].assignments
-        assert assignment.property_id == "frequency"
+        [target] = driver.applied[0].values
+        assert target.property_id == "frequency"
 
 
 def test_run_start_preserves_observed_state_when_default_state_exists(
@@ -1385,8 +1391,8 @@ def test_run_invoke_reads_back_state_before_later_actions(
         assert receipt.problems == ()
         assert len(driver.invoked) == 1
         assert driver.read_count == reads_before_invoke + 1
-        [argument] = driver.invoked[0].arguments
-        assert isinstance(argument, DriverPayloadArgument)
+        [argument] = driver.invoked[0].arguments.values()
+        assert isinstance(argument, DriverPayload)
         assert argument.schema_id == payload.schema_id
         assert argument.value == {"samples": [0.0]}
 
@@ -1486,7 +1492,7 @@ def test_unknown_collect_receipt_preserves_driver_diagnostics(
         assert isinstance(issue.location, RuntimeLocation)
         assert issue.location.operation_id == "collect-unknown"
         assert isinstance(issue.related_locations[0], ModelLocation)
-        assert issue.related_locations[0].root == "driver_collect_request"
+        assert issue.related_locations[0].root == "driver_acquisition"
         [driver] = provider.drivers
         assert driver.abort_count == 1
         assert driver.disconnect_count == 1

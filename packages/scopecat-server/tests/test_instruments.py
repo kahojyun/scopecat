@@ -37,13 +37,19 @@ from scopecat.records.config import (
 from scopecat.records.measurement import MeasurementScalar, MeasurementValue
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
+    AcquisitionResultRef,
+    DriverAcquisition,
     DriverFault,
-    DriverInvokeRequest,
-    DriverPayloadArgument,
+    DriverOperation,
+    DriverOutcome,
+    DriverPayload,
+    DriverReadback,
+    DriverRejected,
+    DriverScalar,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
+    DriverUnknown,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -52,10 +58,7 @@ from scopecat.sdk.instruments import (
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentReadback,
-    InstrumentStateSnapshot,
     InterfaceRef,
-    InvokeReceipt,
     PropertyRef,
     acquisition_case,
     acquisition_result,
@@ -206,34 +209,38 @@ class _ResyncDriver(_TrackingDriver):
         self.return_invalid_next_read = False
 
     def change_from_front_panel(self, value: float) -> None:
-        self._state[("test.set_frequency/v1", "frequency")] = StateValue(
-            Quantity(value=value, unit="GHz")
+        self._state[("test.set_frequency/v1", "frequency")] = Quantity(
+            value=value, unit="GHz"
         )
 
     @override
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         self.read_count += 1
         if self.fail_next_read:
             self.fail_next_read = False
             raise RuntimeError("stale connection")
         if self.return_invalid_next_read:
             self.return_invalid_next_read = False
-            return InstrumentStateSnapshot(instrument_id=f"{self.instrument_id}-wrong")
+            return DriverState(values={_SET_FREQUENCY: float("nan")})
         return super().read_state()
 
 
 class _InvalidCollectDriver(_TrackingDriver):
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         self.collect_requests.append(request)
-        return CollectReceipt(
-            readback=InstrumentReadback(
+        return DriverSuccess(
+            DriverReadback(
                 values={
-                    "signal": MeasurementScalar.create(
+                    result: MeasurementScalar.create(
                         dtype="float64",
                         value=1.0,
                         unit="K",
                     )
+                    for result in request.results
                 }
             )
         )
@@ -245,29 +252,37 @@ class _InvokeReadbackDriver(_TrackingDriver):
         self.read_count = 0
 
     @override
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         self.read_count += 1
         return super().read_state()
 
     @override
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
         self.invoked.append(request)
-        return InvokeReceipt(status="invoked")
+        return DriverSuccess(None)
 
 
 class _NonConvergingApplyDriver(_ResyncDriver):
     @override
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         self.applied.append(request)
-        return ApplyReceipt(status="applied")
+        return DriverSuccess(None)
 
 
 class _NotAppliedDriver(_ResyncDriver):
     @override
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         self.applied.append(request)
-        return ApplyReceipt(
-            status="not_applied",
+        return DriverRejected(
             problems=(
                 problem(
                     "driver_rejected_apply",
@@ -280,10 +295,12 @@ class _NotAppliedDriver(_ResyncDriver):
 
 class _UnknownApplyDriver(_ResyncDriver):
     @override
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         self.applied.append(request)
-        return ApplyReceipt(
-            status="unknown",
+        return DriverUnknown(
             problems=(
                 problem(
                     "driver_apply_unknown",
@@ -298,7 +315,7 @@ class _StatefulDriver(_TrackingDriver):
     def __init__(
         self,
         instrument_id: str,
-        state: dict[tuple[str, str], StateValue],
+        state: dict[tuple[str, str], DriverScalar],
     ) -> None:
         super().__init__(instrument_id)
         for target, value in self._state.items():
@@ -372,37 +389,29 @@ class _VariantDriver(_TrackingDriver):
         )
 
     @override
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         self.read_count += 1
         level_property = "voltage_level" if self.mode == "voltage" else "current_level"
         level = self.voltage_level if self.mode == "voltage" else self.current_level
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            properties=[
-                *super().read_state().properties,
-                InstrumentPropertyState(
-                    interface_id="test.dc/v1",
-                    property_id="mode",
-                    value=StateValue(self.mode),
-                ),
-                InstrumentPropertyState(
-                    interface_id="test.dc/v1",
-                    property_id=level_property,
-                    value=StateValue(level),
-                ),
-                InstrumentPropertyState(
-                    interface_id="test.dc/v1",
-                    property_id="output_enabled",
-                    value=StateValue(False),
-                ),
-            ],
+        base = super().read_state()
+        return DriverState(
+            values={
+                **base.values,
+                _DC_MODE: self.mode,
+                _DC.property(level_property): level,
+                _DC.property("output_enabled"): False,
+            },
+            metadata=base.metadata,
         )
 
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         self.collect_requests.append(request)
-        values: dict[str, MeasurementValue] = {
-            result.request_id: (
+        values: dict[AcquisitionResultRef, MeasurementValue] = {
+            result: (
                 MeasurementScalar.create(
                     dtype="float64",
                     value=self.voltage_level,
@@ -417,29 +426,32 @@ class _VariantDriver(_TrackingDriver):
             )
             for result in request.results
         }
-        return CollectReceipt(readback=InstrumentReadback(values=values))
+        return DriverSuccess(DriverReadback(values=values))
 
     @override
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         self.applied.append(request)
-        for assignment in request.assignments:
-            if assignment.property_id == "mode":
-                assert isinstance(assignment.value.root, str)
-                self.mode = assignment.value.root
-            elif assignment.property_id == "voltage_level":
-                assert isinstance(assignment.value.root, float)
-                self.voltage_level = assignment.value.root
-            elif assignment.property_id == "current_level":
-                assert isinstance(assignment.value.root, float)
-                self.current_level = assignment.value.root
-        return ApplyReceipt(status="applied")
+        for target, value in request.values.items():
+            if target.property_id == "mode":
+                assert isinstance(value, str)
+                self.mode = value
+            elif target.property_id == "voltage_level":
+                assert isinstance(value, float)
+                self.voltage_level = value
+            elif target.property_id == "current_level":
+                assert isinstance(value, float)
+                self.current_level = value
+        return DriverSuccess(None)
 
 
 class _StatefulProvider:
     provider_id = "tests.stateful_interactive_provider"
 
     def __init__(self) -> None:
-        self.state: dict[tuple[str, str], StateValue] = {}
+        self.state: dict[tuple[str, str], DriverScalar] = {}
 
     def describe(
         self,
@@ -477,7 +489,7 @@ class _ShutdownRaceDriver(_TrackingDriver):
         self._release_abort = release_abort
 
     @override
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         if self.instrument_id == "source-1":
             self._read_entered.set()
             assert self._release_read.wait(timeout=3)
@@ -674,14 +686,15 @@ def test_notebook_direct_interaction_releases_ownership_but_keeps_connection(
             [driver] = provider.drivers
             assert released.availability == "available"
             assert not driver.disconnected
-            assert driver.applied[0].assignments[0].property_id == "frequency"
-            assert driver.invoked[0].operation_id == "play"
-            [argument] = driver.invoked[0].arguments
-            assert isinstance(argument, DriverPayloadArgument)
+            [applied_target] = driver.applied[0].values
+            assert applied_target.property_id == "frequency"
+            assert driver.invoked[0].target.operation_id == "play"
+            [argument] = driver.invoked[0].arguments.values()
+            assert isinstance(argument, DriverPayload)
             assert argument.schema_id == payload.schema_id
             assert argument.value == {"samples": [0.0]}
             [collect_request] = driver.collect_requests
-            assert collect_request.acquisition_id == "sample"
+            assert collect_request.target.acquisition_id == "sample"
             assert [result.result_id for result in collect_request.results] == [
                 "signal"
             ]
@@ -1301,7 +1314,7 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
             assert driver.read_count == 6
             assert len(driver.applied) == 2
             assert [
-                request.assignments[0].value.root for request in driver.applied
+                next(iter(request.values.values())) for request in driver.applied
             ] == [
                 Quantity(value=5.0, unit="GHz"),
                 Quantity(value=5.2, unit="GHz"),
@@ -2351,8 +2364,8 @@ def test_configured_defaults_read_fresh_state_and_write_only_pending_values(
             assert driver.read_count == 3
             [request] = driver.applied
             assert [
-                (item.interface_id, item.property_id, item.value.root)
-                for item in request.assignments
+                (target.interface_id, target.property_id, value)
+                for target, value in request.values.items()
             ] == [("test.set_gain/v1", "gain", 1.0)]
             handle.close()
 
@@ -2432,7 +2445,7 @@ def test_explicit_defaults_use_session_pinned_preserve_config(
             assert receipt.config_entry_id == active.entry.id
             [driver] = provider.drivers
             [request] = driver.applied
-            assert request.assignments[0].value.root == Quantity(
+            assert next(iter(request.values.values())) == Quantity(
                 value=5.0,
                 unit="GHz",
             )

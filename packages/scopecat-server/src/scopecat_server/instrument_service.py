@@ -81,11 +81,13 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import (
+    BackendApplyRequest,
+    BackendCollectRequest,
     BackendInvokeRequest,
     BackendPayload,
+    lower_backend_apply_request,
+    lower_backend_collect_request,
     lower_backend_invoke_request,
-    lower_driver_apply_request,
-    lower_driver_collect_request,
 )
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
@@ -108,10 +110,6 @@ from scopecat.sdk.instruments.contracts import (
     validate_state_command,
     validate_state_snapshot,
 )
-from scopecat.sdk.instruments.driver import (
-    DriverApplyRequest,
-    DriverCollectRequest,
-)
 from scopecat.sdk.payloads import PayloadCodecCatalog
 from scopecat.sdk.runtime_problems import contextualize_problems
 
@@ -132,7 +130,7 @@ from .instrument_backend import (
 from .payload_service import CommandPayloadService
 
 type _BackendHardwareRequest = (
-    DriverApplyRequest | BackendInvokeRequest | DriverCollectRequest
+    BackendApplyRequest | BackendInvokeRequest | BackendCollectRequest
 )
 
 
@@ -871,7 +869,7 @@ class InstrumentService:
             instrument_id = command.instrument_id
             instrument = runtime.instruments[instrument_id]
             try:
-                receipt = instrument.apply_state(lower_driver_apply_request(command))
+                receipt = instrument.apply_state(lower_backend_apply_request(command))
             except Exception as error:
                 raise _DefaultStateReconciliationUnknown from error
             if receipt.status == "unknown":
@@ -985,7 +983,7 @@ class InstrumentService:
                                 canonical_request.lease_id,
                                 runtime,
                                 action,
-                                cast("DriverApplyRequest", backend_request),
+                                cast("BackendApplyRequest", backend_request),
                             )
                         elif isinstance(action, RunHardwareInvoke):
                             evidence = self._execute_hardware_invoke(
@@ -1001,7 +999,7 @@ class InstrumentService:
                                 canonical_request.lease_id,
                                 runtime,
                                 action,
-                                cast("DriverCollectRequest", backend_request),
+                                cast("BackendCollectRequest", backend_request),
                             )
                             values.extend(collected)
                         completed_effect_ids.append(action.effect_id)
@@ -1243,7 +1241,7 @@ class InstrumentService:
         token: str,
         runtime: _OwnershipRuntime,
         action: RunHardwareApply,
-        driver_request: DriverApplyRequest,
+        driver_request: BackendApplyRequest,
     ) -> dict[str, JsonValue]:
         instrument = runtime.instruments[action.instrument_id]
         current = instrument.assumed_state
@@ -1269,7 +1267,7 @@ class InstrumentService:
             instrument_id=action.instrument_id,
             assignments=[assignment for assignment, _physical in assignments],
         )
-        driver_request = DriverApplyRequest(
+        driver_request = BackendApplyRequest(
             assignments=tuple(physical for _assignment, physical in assignments)
         )
         description = instrument.description
@@ -1386,7 +1384,7 @@ class InstrumentService:
         token: str,
         runtime: _OwnershipRuntime,
         action: RunHardwareCollect,
-        driver_request: DriverCollectRequest,
+        driver_request: BackendCollectRequest,
     ) -> tuple[tuple[RunHardwareValue, ...], dict[str, JsonValue]]:
         command = CollectCommand(
             command_id=action.effect_id,
@@ -2020,7 +2018,7 @@ class InstrumentService:
 
             try:
                 driver_receipt = instrument.apply_state(
-                    lower_driver_apply_request(state_command)
+                    lower_backend_apply_request(state_command)
                 )
             except Exception as error:
                 self._lose_runtime(
@@ -2286,7 +2284,7 @@ class InstrumentService:
     ) -> ApplyReceipt:
         command_id = command.command_id
         ledger = runtime.ledgers[instrument.instrument_id]
-        driver_request = lower_driver_apply_request(command)
+        driver_request = lower_backend_apply_request(command)
         on_started()
         try:
             receipt = instrument.apply_state(driver_request)
@@ -2424,7 +2422,7 @@ class InstrumentService:
     ) -> CollectReceipt:
         command_id = intent.command_id
         ledger = runtime.ledgers[instrument.instrument_id]
-        driver_request = lower_driver_collect_request(command)
+        driver_request = lower_backend_collect_request(command)
         on_started()
         try:
             receipt = instrument.collect(driver_request)
@@ -3237,7 +3235,7 @@ def _lower_hardware_action(
     materialized_payloads: Mapping[str, BackendPayload],
 ) -> _BackendHardwareRequest:
     if isinstance(action, RunHardwareApply):
-        return lower_driver_apply_request(
+        return lower_backend_apply_request(
             InstrumentStateCommand(
                 command_id=action.effect_id,
                 instrument_id=action.instrument_id,
@@ -3260,7 +3258,7 @@ def _lower_hardware_action(
             ),
             materialized_payloads=materialized_payloads,
         )
-    return lower_driver_collect_request(
+    return lower_backend_collect_request(
         CollectCommand(
             command_id=action.effect_id,
             instrument_id=action.instrument_id,

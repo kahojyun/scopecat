@@ -6,20 +6,20 @@ import pytest
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import instrument_bindings
 from scopecat.sdk.instruments import (
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverCollectResult,
-    DriverPayloadArgument,
-    DriverPropertyWrite,
+    DriverPayload,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
 from scopecat.sdk.instruments.backend import (
+    BackendApplyRequest,
+    BackendCollectRequest,
+    BackendCollectResult,
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
+    BackendPropertyWrite,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.instrument_drivers import (
@@ -91,9 +91,9 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
     assert endpoint.payload_catalog.codecs[0].schema_id == "tests.program/v1"
     endpoint.apply_state(
         connection.handle,
-        DriverApplyRequest(
+        BackendApplyRequest(
             assignments=(
-                DriverPropertyWrite(
+                BackendPropertyWrite(
                     interface_id="test.set_gain/v1",
                     property_id="gain",
                     value=number_state(2.0),
@@ -109,10 +109,10 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
     ) == number_state(2.0)
     receipt = endpoint.collect(
         connection.handle,
-        DriverCollectRequest(
+        BackendCollectRequest(
             interface_id="test.scalar_signal/v1",
             acquisition_id="sample",
-            results=(DriverCollectResult(request_id="signal", result_id="signal"),),
+            results=(BackendCollectResult(request_id="signal", result_id="signal"),),
         ),
     )
     assert receipt.readback is not None
@@ -173,8 +173,8 @@ def test_local_backend_decodes_payloads_before_driver_dispatch() -> None:
 
     assert receipt.status == "invoked"
     [driver_request] = provider.drivers[0].invoked
-    [argument] = driver_request.arguments
-    assert isinstance(argument, DriverPayloadArgument)
+    [argument] = driver_request.arguments.values()
+    assert isinstance(argument, DriverPayload)
     assert argument.schema_id == "tests.program/v1"
     assert argument.value == {"program": 1}
     endpoint.disconnect(connection.handle)

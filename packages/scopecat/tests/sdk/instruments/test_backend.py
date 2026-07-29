@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
-
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -9,26 +7,21 @@ import scopecat.sdk.instruments as instrument_sdk
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.sdk.instruments import (
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverCollectResult,
-    DriverInvokeArgument,
-    DriverInvokeRequest,
-    DriverOperationArgument,
-    DriverPayloadArgument,
-    DriverPropertyWrite,
-    DriverScalarValue,
+    DriverPayload,
     InterfaceRef,
-    OperationArgumentRef,
 )
 from scopecat.sdk.instruments.backend import (
+    BackendApplyRequest,
+    BackendCollectRequest,
+    BackendCollectResult,
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
-    decode_driver_invoke_request,
+    BackendPropertyWrite,
+    decode_driver_operation,
+    lower_backend_apply_request,
+    lower_backend_collect_request,
     lower_backend_invoke_request,
-    lower_driver_apply_request,
-    lower_driver_collect_request,
 )
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
@@ -42,7 +35,7 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 
 
-def test_apply_command_lowers_to_driver_property_writes() -> None:
+def test_apply_command_lowers_to_backend_property_writes() -> None:
     command = InstrumentStateCommand(
         command_id="apply-1",
         instrument_id="source-1",
@@ -58,7 +51,7 @@ def test_apply_command_lowers_to_driver_property_writes() -> None:
         ],
     )
 
-    request = lower_driver_apply_request(command)
+    request = lower_backend_apply_request(command)
 
     assert request.model_dump(mode="json") == {
         "assignments": [
@@ -74,7 +67,7 @@ def test_apply_command_lowers_to_driver_property_writes() -> None:
         "channel-a"
     ).property("level")
     assert "target" not in request.assignments[0].model_dump()
-    assert DriverApplyRequest.model_validate_json(request.model_dump_json()) == request
+    assert BackendApplyRequest.model_validate_json(request.model_dump_json()) == request
 
 
 def test_invoke_command_lowers_with_opaque_payload() -> None:
@@ -150,7 +143,7 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         decoded_content.append(content)
         return {"program": content}
 
-    request = decode_driver_invoke_request(
+    operation = decode_driver_operation(
         backend_request,
         PayloadCodecRegistry(
             {
@@ -165,24 +158,17 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         ),
     )
 
-    assert request.target == InterfaceRef("test.pulse_player/v1").component(
+    assert operation.target == InterfaceRef("test.pulse_player/v1").component(
         "channel-a"
     ).operation("play")
-    assert request.arguments == (
-        DriverPayloadArgument(
-            id="program",
+    assert operation.arguments == {
+        "program": DriverPayload(
             schema_id=payload.schema_id,
             value={"program": b"\x00\xffprogram"},
-        ),
-    )
-    assert request.argument_target(request.arguments[0]) == OperationArgumentRef(
-        "test.pulse_player/v1",
-        ("channel-a",),
-        "play",
-        "program",
-    )
+        )
+    }
     assert decoded_content == [b"\x00\xffprogram"]
-    assert not hasattr(request, "payloads")
+    assert not hasattr(operation, "payloads")
 
 
 def test_driver_invoke_decode_materializes_each_payload_id_once() -> None:
@@ -216,7 +202,7 @@ def test_driver_invoke_decode_materializes_each_payload_id_once() -> None:
         decoded.append(content)
         return {"content": content}
 
-    driver_request = decode_driver_invoke_request(
+    operation = decode_driver_operation(
         request,
         PayloadCodecRegistry(
             {
@@ -231,14 +217,11 @@ def test_driver_invoke_decode_materializes_each_payload_id_once() -> None:
         ),
     )
 
-    assert driver_request.arguments[0] == DriverOperationArgument(
-        id="wait",
-        value=0.25,
-    )
-    program = driver_request.arguments[1]
-    mirror = driver_request.arguments[2]
-    assert isinstance(program, DriverPayloadArgument)
-    assert isinstance(mirror, DriverPayloadArgument)
+    assert operation.arguments["wait"] == 0.25
+    program = operation.arguments["program"]
+    mirror = operation.arguments["mirror"]
+    assert isinstance(program, DriverPayload)
+    assert isinstance(mirror, DriverPayload)
     assert program.schema_id == payload.schema_id
     assert program.value is mirror.value
     assert decoded == [payload.content]
@@ -291,7 +274,7 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
         ],
     )
 
-    request = lower_driver_collect_request(command)
+    request = lower_backend_collect_request(command)
 
     assert request.model_dump(mode="json") == {
         "interface_id": "test.network_sweep/v1",
@@ -317,7 +300,7 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
         "s_parameter"
     )
     assert "target" not in request.model_dump()
-    restored = DriverCollectRequest.model_validate_json(request.model_dump_json())
+    restored = BackendCollectRequest.model_validate_json(request.model_dump_json())
 
     assert restored == request
 
@@ -325,14 +308,14 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
 @pytest.mark.parametrize(
     "request_model",
     [
-        DriverPropertyWrite(
+        BackendPropertyWrite(
             interface_id="test.dc_source/v1",
             property_id="level",
             value=StateValue(1.0),
         ),
-        DriverApplyRequest(
+        BackendApplyRequest(
             assignments=(
-                DriverPropertyWrite(
+                BackendPropertyWrite(
                     interface_id="test.dc_source/v1",
                     property_id="level",
                     value=StateValue(1.0),
@@ -352,11 +335,11 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
             media_type="application/octet-stream",
             content=b"\x00\xff",
         ),
-        DriverCollectResult(request_id="signal", result_id="signal"),
-        DriverCollectRequest(
+        BackendCollectResult(request_id="signal", result_id="signal"),
+        BackendCollectRequest(
             interface_id="test.signal/v1",
             acquisition_id="sample",
-            results=(DriverCollectResult(request_id="signal", result_id="signal"),),
+            results=(BackendCollectResult(request_id="signal", result_id="signal"),),
         ),
     ],
 )
@@ -375,52 +358,36 @@ def test_process_safe_request_models_are_frozen_and_closed(
         type(request_model).model_validate(wire)
 
 
-@pytest.mark.parametrize(
-    "driver_request",
-    [
-        DriverOperationArgument(id="wait", value=1.0),
-        DriverPayloadArgument(
-            id="program",
-            schema_id="test.program/v1",
-            value=object(),
-        ),
-        DriverInvokeRequest(
-            interface_id="test.pulse_player/v1",
-            operation_id="play",
-        ),
-    ],
-)
-def test_worker_local_driver_requests_are_frozen_dataclasses(
-    driver_request: object,
-) -> None:
-    with pytest.raises(FrozenInstanceError):
-        driver_request.__setattr__("operation_id", "other")
-
-
-def test_driver_backend_contracts_are_public_from_sdk_facade() -> None:
+def test_backend_protocol_is_not_public_from_driver_sdk_facade() -> None:
     owners = {
-        "DriverApplyRequest": DriverApplyRequest,
-        "DriverCollectRequest": DriverCollectRequest,
-        "DriverCollectResult": DriverCollectResult,
-        "DriverInvokeArgument": DriverInvokeArgument,
-        "DriverInvokeRequest": DriverInvokeRequest,
-        "DriverOperationArgument": DriverOperationArgument,
-        "DriverPayloadArgument": DriverPayloadArgument,
-        "DriverPropertyWrite": DriverPropertyWrite,
-        "DriverScalarValue": DriverScalarValue,
+        "DriverAcquisition",
+        "DriverArgument",
+        "DriverOperation",
+        "DriverOutcome",
+        "DriverPayload",
+        "DriverReadback",
+        "DriverRejected",
+        "DriverScalar",
+        "DriverState",
+        "DriverStatePatch",
+        "DriverSuccess",
+        "DriverUnknown",
     }
 
-    for name, owner in owners.items():
-        assert getattr(instrument_sdk, name) is owner
+    assert owners <= set(instrument_sdk.__all__)
 
     for internal_name in (
+        "BackendApplyRequest",
+        "BackendCollectRequest",
+        "BackendCollectResult",
         "BackendInvokeRequest",
         "BackendOperationArgument",
         "BackendPayload",
-        "decode_driver_invoke_request",
+        "BackendPropertyWrite",
+        "decode_driver_operation",
+        "lower_backend_apply_request",
+        "lower_backend_collect_request",
         "lower_backend_invoke_request",
-        "lower_driver_apply_request",
-        "lower_driver_collect_request",
     ):
         with pytest.raises(AttributeError):
             getattr(instrument_sdk, internal_name)

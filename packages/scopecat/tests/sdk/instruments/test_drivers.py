@@ -38,6 +38,7 @@ from scopecat.sdk.instruments import (
     AcquisitionPreconditionSpec,
     CollectReceipt,
     DiscriminatedState,
+    DriverSuccess,
     FixedAcquisitionSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -71,8 +72,12 @@ from scopecat.sdk.instruments import (
     state_discriminated_acquisition,
     string_property,
 )
+from scopecat.sdk.instruments._driver_adapter import (
+    lower_state_patch,
+    project_state,
+)
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
-from scopecat.sdk.instruments.backend import lower_driver_apply_request
+from scopecat.sdk.instruments.backend import lower_backend_apply_request
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
     CollectCommand,
@@ -353,9 +358,10 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     )
 
     description = instrument.describe()
-    current = instrument.read_state()
-    request = lower_driver_apply_request(command)
-    result = instrument.apply_state(request)
+    current = project_state(instrument.instrument_id, instrument.read_state())
+    request = lower_backend_apply_request(command)
+    patch = lower_state_patch(request)
+    result = instrument.apply_state(patch)
     updated = project_instrument_state(
         current,
         command,
@@ -367,8 +373,8 @@ def test_instrument_driver_generates_description_and_applies_state() -> None:
     assert description.interfaces[0].properties[0].value_type == Scalar(
         QuantityType(unit="GHz")
     )
-    assert result.problems == ()
-    assert instrument.applied[0] == request
+    assert isinstance(result, DriverSuccess)
+    assert instrument.applied[0] == patch
     assert updated.properties[0].value == quantity_state(5.0, "GHz")
     with pytest.raises(ValidationError):
         updated.properties[0].value.root = 1.0
@@ -2726,10 +2732,12 @@ def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
 
     assert manifest.status == "completed"
     assert len(instrument.collect_requests) == 3
-    assert [result.request_id for result in instrument.collect_requests[0].results] == [
+    assert [result.result_id for result in instrument.collect_requests[0].results] == [
         "signal"
     ]
-    assert instrument.applied[0].assignments[0].interface_id == "test.set_frequency/v1"
+    assert next(iter(instrument.applied[0].values)).interface_id == (
+        "test.set_frequency/v1"
+    )
 
 
 def _state_command(

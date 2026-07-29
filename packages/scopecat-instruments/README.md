@@ -180,6 +180,13 @@ sessions.
 
 ## Driver tests
 
+Driver implementations exchange `DriverState`, `DriverStatePatch`,
+`DriverOperation`, `DriverAcquisition`, and `DriverReadback`. They return
+`DriverSuccess`, `DriverRejected`, or `DriverUnknown`; the worker owns
+snapshot/readback envelopes, receipt status strings, and collection request
+IDs. This keeps the authoring contract unchanged when drivers move between
+local and isolated worker hosts.
+
 Transcript helpers live in the explicit testing module:
 
 ```python

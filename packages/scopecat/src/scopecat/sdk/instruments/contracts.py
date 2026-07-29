@@ -76,10 +76,13 @@ from scopecat.records.instrument import (
 from scopecat.sdk.instruments._projection import (
     ProjectedInstrumentState as _ProjectedInstrumentState,
 )
-from scopecat.sdk.instruments.driver import (
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverInvokeRequest,
+from scopecat.sdk.instruments.authoring import (
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverState,
+    DriverStatePatch,
 )
 from scopecat.sdk.problems import (
     LocationPathItem,
@@ -732,13 +735,22 @@ class InstrumentDriver(Protocol):
 
     def describe(self) -> InstrumentDescription: ...
 
-    def read_state(self) -> _InstrumentStateSnapshot: ...
+    def read_state(self) -> DriverState: ...
 
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt: ...
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]: ...
 
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt: ...
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]: ...
 
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt: ...
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]: ...
 
     def disconnect(self) -> None: ...
 

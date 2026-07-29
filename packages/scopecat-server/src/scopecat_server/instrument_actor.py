@@ -9,16 +9,16 @@ from threading import Condition, RLock
 from typing import Literal, Self
 
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.instruments.backend import BackendInvokeRequest
+from scopecat.sdk.instruments.backend import (
+    BackendApplyRequest,
+    BackendCollectRequest,
+    BackendInvokeRequest,
+)
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
     CollectReceipt,
     InstrumentDescription,
     InvokeReceipt,
-)
-from scopecat.sdk.instruments.driver import (
-    DriverApplyRequest,
-    DriverCollectRequest,
 )
 
 from .instrument_backend import (
@@ -135,13 +135,13 @@ class OwnedInstrument:
     def invalidate_state(self) -> None:
         self._actor.invalidate_state(self)
 
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(self, request: BackendApplyRequest) -> ApplyReceipt:
         return self._actor.apply_state(self, request)
 
     def invoke(self, request: BackendInvokeRequest) -> InvokeReceipt:
         return self._actor.invoke(self, request)
 
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(self, request: BackendCollectRequest) -> CollectReceipt:
         return self._actor.collect(self, request)
 
     def abort(self) -> None:
@@ -257,7 +257,7 @@ class _InstrumentActor:
     def apply_state(
         self,
         owned: OwnedInstrument,
-        request: DriverApplyRequest,
+        request: BackendApplyRequest,
     ) -> ApplyReceipt:
         with self._lock:
             endpoint, handle = self._require_owned(owned)
@@ -285,7 +285,7 @@ class _InstrumentActor:
     def collect(
         self,
         owned: OwnedInstrument,
-        request: DriverCollectRequest,
+        request: BackendCollectRequest,
     ) -> CollectReceipt:
         with self._lock:
             endpoint, handle = self._require_owned(owned)

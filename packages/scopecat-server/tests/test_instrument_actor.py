@@ -12,18 +12,29 @@ from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverCollectResult,
-    DriverInvokeRequest,
-    DriverPropertyWrite,
+    DriverAcquisition,
+    DriverOutcome,
+    DriverReadback,
+    DriverRejected,
     InstrumentDescription,
     InstrumentProviderDescription,
     InvokeReceipt,
 )
+from scopecat.sdk.instruments._driver_adapter import (
+    lower_acquisition,
+    lower_state_patch,
+    project_apply_outcome,
+    project_collect_outcome,
+    project_invoke_outcome,
+    project_state,
+)
 from scopecat.sdk.instruments.backend import (
+    BackendApplyRequest,
+    BackendCollectRequest,
+    BackendCollectResult,
     BackendInvokeRequest,
-    decode_driver_invoke_request,
+    BackendPropertyWrite,
+    decode_driver_operation,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecCatalog
 from tests.testkit.instrument_drivers import (
@@ -54,7 +65,7 @@ class _TrackingDriver(SignalInstrumentDriver):
         self.disconnect_count = 0
 
     def change_from_front_panel(self, value: float) -> None:
-        self._state[("test.set_gain/v1", "gain")] = number_state(value)
+        self._state[("test.set_gain/v1", "gain")] = value
 
     @override
     def disconnect(self) -> None:
@@ -74,10 +85,12 @@ class _DisconnectFailDriver(_TrackingDriver):
 
 class _RejectCollectDriver(_TrackingDriver):
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         del request
-        return CollectReceipt(
-            status="not_collected",
+        return DriverRejected(
             problems=(
                 Problem(
                     code="test_collect_rejected",
@@ -179,15 +192,20 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
 
     @override
     def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
-        return self._driver(handle).read_state()
+        driver = self._driver(handle)
+        return project_state(driver.instrument_id, driver.read_state())
 
     @override
     def apply_state(
         self,
         handle: InstrumentHandle,
-        request: DriverApplyRequest,
+        request: BackendApplyRequest,
     ) -> ApplyReceipt:
-        return self._driver(handle).apply_state(request)
+        driver = self._driver(handle)
+        return project_apply_outcome(
+            driver.instrument_id,
+            driver.apply_state(lower_state_patch(request)),
+        )
 
     @override
     def invoke(
@@ -195,17 +213,23 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
         handle: InstrumentHandle,
         request: BackendInvokeRequest,
     ) -> InvokeReceipt:
-        return self._driver(handle).invoke(
-            decode_driver_invoke_request(request, EMPTY_PAYLOAD_CODECS)
+        driver = self._driver(handle)
+        operation = decode_driver_operation(request, EMPTY_PAYLOAD_CODECS)
+        return project_invoke_outcome(
+            driver.instrument_id,
+            driver.invoke(operation),
         )
 
     @override
     def collect(
         self,
         handle: InstrumentHandle,
-        request: DriverCollectRequest,
+        request: BackendCollectRequest,
     ) -> CollectReceipt:
-        return self._driver(handle).collect(request)
+        return project_collect_outcome(
+            request,
+            self._driver(handle).collect(lower_acquisition(request)),
+        )
 
     @override
     def abort(self, handle: InstrumentHandle) -> None:
@@ -632,9 +656,9 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     observed = owned.read_state()
     owned.adopt_state(observed)
 
-    apply_request = DriverApplyRequest(
+    apply_request = BackendApplyRequest(
         assignments=(
-            DriverPropertyWrite(
+            BackendPropertyWrite(
                 interface_id="test.set_gain/v1",
                 property_id="gain",
                 value=number_state(1.0),
@@ -649,9 +673,9 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
         interface_id="test.play_program/v1",
         operation_id="play",
     )
-    expected_driver_invoke = DriverInvokeRequest(
-        interface_id=invoke_request.interface_id,
-        operation_id=invoke_request.operation_id,
+    expected_driver_invoke = decode_driver_operation(
+        invoke_request,
+        EMPTY_PAYLOAD_CODECS,
     )
     invoke_receipt = owned.invoke(invoke_request)
     assert invoke_receipt.status == "invoked"
@@ -659,16 +683,16 @@ def test_handle_routes_driver_calls_through_one_owner_epoch() -> None:
     assert invoke_receipt.state is not None
     owned.adopt_state(invoke_receipt.state)
 
-    collect_request = DriverCollectRequest(
+    collect_request = BackendCollectRequest(
         interface_id="test.scalar_signal/v1",
         acquisition_id="sample",
-        results=(DriverCollectResult(request_id="signal", result_id="signal"),),
+        results=(BackendCollectResult(request_id="signal", result_id="signal"),),
     )
     assert owned.collect(collect_request).status == "collected"
     assert owned.assumed_state is not None
-    assert drivers[0].applied == [apply_request]
+    assert drivers[0].applied == [lower_state_patch(apply_request)]
     assert drivers[0].invoked == [expected_driver_invoke]
-    assert drivers[0].collect_requests == [collect_request]
+    assert drivers[0].collect_requests == [lower_acquisition(collect_request)]
 
     owned.release()
     registry.shutdown()
@@ -689,10 +713,10 @@ def test_rejected_collection_invalidates_the_assumed_state() -> None:
     owned.adopt_state(owned.read_state())
 
     receipt = owned.collect(
-        DriverCollectRequest(
+        BackendCollectRequest(
             interface_id="test.scalar_signal/v1",
             acquisition_id="sample",
-            results=(DriverCollectResult(request_id="signal", result_id="signal"),),
+            results=(BackendCollectResult(request_id="signal", result_id="signal"),),
         )
     )
 

@@ -10,14 +10,16 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.sdk.instruments.driver import (
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverCollectResult,
-    DriverInvokeRequest,
-    DriverOperationArgument,
-    DriverPayloadArgument,
-    DriverPropertyWrite,
+from scopecat.sdk.instruments.authoring import (
+    DriverArgument,
+    DriverOperation,
+    DriverPayload,
+)
+from scopecat.sdk.instruments.members import (
+    AcquisitionRef,
+    AcquisitionResultRef,
+    OperationRef,
+    PropertyRef,
 )
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
@@ -38,6 +40,25 @@ class _BackendRequestModel(BaseModel):
         frozen=True,
         strict=True,
     )
+
+
+class BackendPropertyWrite(_BackendRequestModel):
+    interface_id: InterfaceId
+    component_path: tuple[_NonEmptyId, ...] = ()
+    property_id: _NonEmptyId
+    value: StateValue
+
+    @property
+    def target(self) -> PropertyRef:
+        return PropertyRef(
+            self.interface_id,
+            self.component_path,
+            self.property_id,
+        )
+
+
+class BackendApplyRequest(_BackendRequestModel):
+    assignments: tuple[BackendPropertyWrite, ...] = Field(min_length=1)
 
 
 class BackendPayload(_BackendRequestModel):
@@ -82,6 +103,29 @@ class BackendInvokeRequest(_BackendRequestModel):
         return self
 
 
+class BackendCollectResult(_BackendRequestModel):
+    request_id: _NonEmptyId
+    result_id: _NonEmptyId
+
+
+class BackendCollectRequest(_BackendRequestModel):
+    interface_id: InterfaceId
+    component_path: tuple[_NonEmptyId, ...] = ()
+    acquisition_id: _NonEmptyId
+    results: tuple[BackendCollectResult, ...] = Field(min_length=1)
+
+    @property
+    def target(self) -> AcquisitionRef:
+        return AcquisitionRef(
+            self.interface_id,
+            self.component_path,
+            self.acquisition_id,
+        )
+
+    def result_target(self, result: BackendCollectResult) -> AcquisitionResultRef:
+        return self.target.result(result.result_id)
+
+
 @dataclass(frozen=True, slots=True)
 class InstrumentBackend:
     """Keep one provider and its driver-side payload codecs process-long."""
@@ -90,12 +134,12 @@ class InstrumentBackend:
     payload_codecs: PayloadCodecRegistry = field(default_factory=PayloadCodecRegistry)
 
 
-def lower_driver_apply_request(
+def lower_backend_apply_request(
     command: InstrumentStateCommand,
-) -> DriverApplyRequest:
-    return DriverApplyRequest(
+) -> BackendApplyRequest:
+    return BackendApplyRequest(
         assignments=tuple(
-            DriverPropertyWrite(
+            BackendPropertyWrite(
                 interface_id=assignment.interface_id,
                 component_path=tuple(assignment.component_path),
                 property_id=assignment.property_id,
@@ -123,16 +167,16 @@ def lower_backend_invoke_request(
     )
 
 
-def decode_driver_invoke_request(
+def decode_driver_operation(
     request: BackendInvokeRequest,
     payload_codecs: PayloadCodecRegistry,
-) -> DriverInvokeRequest:
+) -> DriverOperation:
     decoded_payloads: dict[str, object] = {}
-    arguments: list[DriverOperationArgument | DriverPayloadArgument] = []
+    arguments: dict[str, DriverArgument] = {}
     for argument in request.arguments:
         value = argument.value.root
         if not isinstance(value, PayloadRef):
-            arguments.append(DriverOperationArgument(id=argument.id, value=value))
+            arguments[argument.id] = value
             continue
         payload = request.payloads[value.payload_id]
         if value.payload_id not in decoded_payloads:
@@ -140,29 +184,28 @@ def decode_driver_invoke_request(
                 payload,
                 payload.content,
             )
-        arguments.append(
-            DriverPayloadArgument(
-                id=argument.id,
-                schema_id=payload.schema_id,
-                value=decoded_payloads[value.payload_id],
-            )
+        arguments[argument.id] = DriverPayload(
+            schema_id=payload.schema_id,
+            value=decoded_payloads[value.payload_id],
         )
-    return DriverInvokeRequest(
-        interface_id=request.interface_id,
-        component_path=request.component_path,
-        operation_id=request.operation_id,
-        arguments=tuple(arguments),
+    return DriverOperation(
+        target=OperationRef(
+            request.interface_id,
+            request.component_path,
+            request.operation_id,
+        ),
+        arguments=arguments,
     )
 
 
-def lower_driver_collect_request(command: CollectCommand) -> DriverCollectRequest:
+def lower_backend_collect_request(command: CollectCommand) -> BackendCollectRequest:
     target = command.requests[0]
-    return DriverCollectRequest(
+    return BackendCollectRequest(
         interface_id=target.interface_id,
         component_path=tuple(target.component_path),
         acquisition_id=target.acquisition_id,
         results=tuple(
-            DriverCollectResult(
+            BackendCollectResult(
                 request_id=request.id,
                 result_id=request.result_id,
             )
@@ -172,12 +215,16 @@ def lower_driver_collect_request(command: CollectCommand) -> DriverCollectReques
 
 
 __all__ = [
+    "BackendApplyRequest",
+    "BackendCollectRequest",
+    "BackendCollectResult",
     "BackendInvokeRequest",
     "BackendOperationArgument",
     "BackendPayload",
+    "BackendPropertyWrite",
     "InstrumentBackend",
-    "decode_driver_invoke_request",
+    "decode_driver_operation",
+    "lower_backend_apply_request",
+    "lower_backend_collect_request",
     "lower_backend_invoke_request",
-    "lower_driver_apply_request",
-    "lower_driver_collect_request",
 ]

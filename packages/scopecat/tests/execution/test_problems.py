@@ -9,9 +9,13 @@ import pytest
 from scopecat.compiler.typed.program import core_acquisitions, core_state
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
-from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.measurement import MeasurementScalar
-from scopecat.sdk.instruments import CollectReceipt, DriverCollectRequest
+from scopecat.sdk.instruments import (
+    DriverAcquisition,
+    DriverOutcome,
+    DriverReadback,
+    DriverSuccess,
+)
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.runtime import sqlite_run_repository
 from tests.testkit.signal_instruments import TestSignalInstrument
@@ -22,7 +26,10 @@ class FailingCollectInstrument(TestSignalInstrument):
     implementation_id = "test.failing_instrument"
 
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         del request
         raise RuntimeError("boom")
 
@@ -31,23 +38,25 @@ class UnexpectedResultInstrument(TestSignalInstrument):
     implementation_id = "test.unexpected_result_instrument"
 
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
-        del request
-        return CollectReceipt(
-            readback=InstrumentReadback(
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        return DriverSuccess(
+            DriverReadback(
                 values={
-                    "signal": MeasurementScalar.create(
+                    request.target.result("signal"): MeasurementScalar.create(
                         dtype="float64",
                         value=1.0,
                         unit="ratio",
                     ),
-                    "unexpected": MeasurementScalar.create(
+                    request.target.result("unexpected"): MeasurementScalar.create(
                         dtype="float64",
                         value=1.0,
                         unit="ratio",
                     ),
                 }
-            )
+            ),
         )
 
 
@@ -59,7 +68,10 @@ class InterruptingCollectInstrument(TestSignalInstrument):
         self.aborted = False
 
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         del request
         raise KeyboardInterrupt("operator cancelled")
 
@@ -76,7 +88,10 @@ class FailAfterFirstCollectInstrument(TestSignalInstrument):
         self.collect_count = 0
 
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         self.collect_count += 1
         if self.collect_count > 1:
             raise RuntimeError("second collection failed")

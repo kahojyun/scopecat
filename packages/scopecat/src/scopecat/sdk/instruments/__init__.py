@@ -21,6 +21,20 @@ if TYPE_CHECKING:
         InstrumentReadback,
         InstrumentStateSnapshot,
     )
+    from scopecat.sdk.instruments.authoring import (
+        DriverAcquisition,
+        DriverArgument,
+        DriverOperation,
+        DriverOutcome,
+        DriverPayload,
+        DriverReadback,
+        DriverRejected,
+        DriverScalar,
+        DriverState,
+        DriverStatePatch,
+        DriverSuccess,
+        DriverUnknown,
+    )
     from scopecat.sdk.instruments.backend import InstrumentBackend
     from scopecat.sdk.instruments.contracts import (
         AcquisitionAxisSize,
@@ -68,17 +82,6 @@ if TYPE_CHECKING:
         state_case,
         state_discriminated_acquisition,
         string_property,
-    )
-    from scopecat.sdk.instruments.driver import (
-        DriverApplyRequest,
-        DriverCollectRequest,
-        DriverCollectResult,
-        DriverInvokeArgument,
-        DriverInvokeRequest,
-        DriverOperationArgument,
-        DriverPayloadArgument,
-        DriverPropertyWrite,
-        DriverScalarValue,
     )
     from scopecat.sdk.instruments.members import (
         AcquisitionRef,
@@ -148,43 +151,25 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.contracts",
         "DiscriminatedState",
     ),
-    "DriverApplyRequest": (
-        "scopecat.sdk.instruments.driver",
-        "DriverApplyRequest",
+    "DriverAcquisition": (
+        "scopecat.sdk.instruments.authoring",
+        "DriverAcquisition",
     ),
-    "DriverCollectRequest": (
-        "scopecat.sdk.instruments.driver",
-        "DriverCollectRequest",
-    ),
-    "DriverCollectResult": (
-        "scopecat.sdk.instruments.driver",
-        "DriverCollectResult",
-    ),
+    "DriverArgument": ("scopecat.sdk.instruments.authoring", "DriverArgument"),
     "DriverFault": ("scopecat.sdk.instruments.contracts", "DriverFault"),
-    "DriverInvokeArgument": (
-        "scopecat.sdk.instruments.driver",
-        "DriverInvokeArgument",
+    "DriverOperation": ("scopecat.sdk.instruments.authoring", "DriverOperation"),
+    "DriverOutcome": ("scopecat.sdk.instruments.authoring", "DriverOutcome"),
+    "DriverPayload": ("scopecat.sdk.instruments.authoring", "DriverPayload"),
+    "DriverReadback": ("scopecat.sdk.instruments.authoring", "DriverReadback"),
+    "DriverRejected": ("scopecat.sdk.instruments.authoring", "DriverRejected"),
+    "DriverScalar": ("scopecat.sdk.instruments.authoring", "DriverScalar"),
+    "DriverState": ("scopecat.sdk.instruments.authoring", "DriverState"),
+    "DriverStatePatch": (
+        "scopecat.sdk.instruments.authoring",
+        "DriverStatePatch",
     ),
-    "DriverInvokeRequest": (
-        "scopecat.sdk.instruments.driver",
-        "DriverInvokeRequest",
-    ),
-    "DriverOperationArgument": (
-        "scopecat.sdk.instruments.driver",
-        "DriverOperationArgument",
-    ),
-    "DriverPayloadArgument": (
-        "scopecat.sdk.instruments.driver",
-        "DriverPayloadArgument",
-    ),
-    "DriverPropertyWrite": (
-        "scopecat.sdk.instruments.driver",
-        "DriverPropertyWrite",
-    ),
-    "DriverScalarValue": (
-        "scopecat.sdk.instruments.driver",
-        "DriverScalarValue",
-    ),
+    "DriverSuccess": ("scopecat.sdk.instruments.authoring", "DriverSuccess"),
+    "DriverUnknown": ("scopecat.sdk.instruments.authoring", "DriverUnknown"),
     "FixedAcquisitionSpec": (
         "scopecat.sdk.instruments.contracts",
         "FixedAcquisitionSpec",

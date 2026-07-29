@@ -4,20 +4,21 @@ from __future__ import annotations
 
 from pydantic import JsonValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.instrument import InstrumentReadback, InstrumentStateSnapshot
 from scopecat.records.measurement import (
     ComplexComponents,
     MeasurementArray,
     MeasurementValue,
 )
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverInvokeRequest,
+    AcquisitionResultRef,
+    DriverAcquisition,
+    DriverOperation,
+    DriverOutcome,
+    DriverReadback,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
     InstrumentDescription,
-    InvokeReceipt,
 )
 from scopecat.sdk.instruments.scpi import (
     ScpiIdentity,
@@ -39,7 +40,6 @@ from scopecat_instruments._support import (
     collect_unknown,
     int_value,
     quantity_value,
-    state_property,
     string_value,
     unsupported_invoke,
 )
@@ -92,7 +92,7 @@ class KeysightE5080B:
             interfaces=[network_sweep_interface()],
         )
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         self._require_linear_sweep()
         settings = self.sweep_settings()
         metadata: dict[str, JsonValue] = {
@@ -103,95 +103,90 @@ class KeysightE5080B:
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return InstrumentStateSnapshot(
-            instrument_id=self.instrument_id,
-            properties=[
-                state_property(
-                    NETWORK_SWEEP_START_FREQUENCY,
-                    Quantity(settings.start_frequency_hz, "Hz"),
+        return DriverState(
+            values={
+                NETWORK_SWEEP_START_FREQUENCY: Quantity(
+                    settings.start_frequency_hz, "Hz"
                 ),
-                state_property(
-                    NETWORK_SWEEP_STOP_FREQUENCY,
-                    Quantity(settings.stop_frequency_hz, "Hz"),
+                NETWORK_SWEEP_STOP_FREQUENCY: Quantity(
+                    settings.stop_frequency_hz, "Hz"
                 ),
-                state_property(NETWORK_SWEEP_POINTS, settings.points),
-                state_property(
-                    NETWORK_SWEEP_IF_BANDWIDTH,
-                    Quantity(settings.if_bandwidth_hz, "Hz"),
-                ),
-                state_property(
-                    NETWORK_SWEEP_SOURCE_POWER,
-                    Quantity(settings.source_power_dbm, "dBm"),
-                ),
-                state_property(
-                    NETWORK_SWEEP_S_PARAMETER,
-                    settings.s_parameter,
-                ),
-            ],
+                NETWORK_SWEEP_POINTS: settings.points,
+                NETWORK_SWEEP_IF_BANDWIDTH: Quantity(settings.if_bandwidth_hz, "Hz"),
+                NETWORK_SWEEP_SOURCE_POWER: Quantity(settings.source_power_dbm, "dBm"),
+                NETWORK_SWEEP_S_PARAMETER: settings.s_parameter,
+            },
             metadata=metadata,
         )
 
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
-        properties = {
-            assignment.target: assignment for assignment in request.assignments
-        }
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
+        properties = request.values
         try:
             self._establish_linear_sweep()
             if NETWORK_SWEEP_START_FREQUENCY in properties:
                 self.set_start_frequency(
                     quantity_value(
-                        properties[NETWORK_SWEEP_START_FREQUENCY].value,
+                        properties[NETWORK_SWEEP_START_FREQUENCY],
                         "Hz",
                     )
                 )
             if NETWORK_SWEEP_STOP_FREQUENCY in properties:
                 self.set_stop_frequency(
                     quantity_value(
-                        properties[NETWORK_SWEEP_STOP_FREQUENCY].value,
+                        properties[NETWORK_SWEEP_STOP_FREQUENCY],
                         "Hz",
                     )
                 )
             if NETWORK_SWEEP_POINTS in properties:
-                self.set_points(int_value(properties[NETWORK_SWEEP_POINTS].value))
+                self.set_points(int_value(properties[NETWORK_SWEEP_POINTS]))
             if NETWORK_SWEEP_IF_BANDWIDTH in properties:
                 self.set_if_bandwidth(
                     quantity_value(
-                        properties[NETWORK_SWEEP_IF_BANDWIDTH].value,
+                        properties[NETWORK_SWEEP_IF_BANDWIDTH],
                         "Hz",
                     )
                 )
             if NETWORK_SWEEP_SOURCE_POWER in properties:
                 self.set_source_power(
                     quantity_value(
-                        properties[NETWORK_SWEEP_SOURCE_POWER].value,
+                        properties[NETWORK_SWEEP_SOURCE_POWER],
                         "dBm",
                     )
                 )
             if NETWORK_SWEEP_S_PARAMETER in properties:
                 self.set_s_parameter(
-                    string_value(properties[NETWORK_SWEEP_S_PARAMETER].value)
+                    string_value(properties[NETWORK_SWEEP_S_PARAMETER])
                 )
-            return ApplyReceipt(status="applied", state=self.read_state())
+            return DriverSuccess(self.read_state())
         except Exception as error:
             return apply_unknown(self.instrument_id, error)
 
-    def invoke(self, request: DriverInvokeRequest) -> InvokeReceipt:
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverState | None]:
         return unsupported_invoke(request, self.instrument_id)
 
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         try:
             trace = self.acquire_trace()
-            values: dict[str, MeasurementValue] = {}
+            values: dict[AcquisitionResultRef, MeasurementValue] = {}
             for result in request.results:
-                if request.result_target(result) == NETWORK_SWEEP_FREQUENCY_RESULT:
-                    values[result.request_id] = MeasurementArray.create(
+                if result == NETWORK_SWEEP_FREQUENCY_RESULT:
+                    values[result] = MeasurementArray.create(
                         dtype="float64",
                         unit="Hz",
                         shape=[len(trace.frequencies_hz)],
                         values=trace.frequencies_hz,
                     )
                 else:
-                    values[result.request_id] = MeasurementArray.create(
+                    values[result] = MeasurementArray.create(
                         dtype="complex128",
                         unit="ratio",
                         shape=[len(trace.values)],
@@ -203,8 +198,8 @@ class KeysightE5080B:
                             for value in trace.values
                         ],
                     )
-            return CollectReceipt(
-                readback=InstrumentReadback(
+            return DriverSuccess(
+                DriverReadback(
                     values=values,
                     metadata={
                         "manufacturer": "Keysight",
@@ -213,7 +208,7 @@ class KeysightE5080B:
                         "measurement": self.measurement,
                         "transfer_format": "ASCII",
                     },
-                )
+                ),
             )
         except Exception as error:
             return collect_unknown(self.instrument_id, error)

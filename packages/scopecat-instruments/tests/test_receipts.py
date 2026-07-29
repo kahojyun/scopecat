@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import pytest
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
     AcquisitionRef,
     AcquisitionResultRef,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverCollectResult,
-    DriverInvokeRequest,
-    DriverPropertyWrite,
+    DriverAcquisition,
+    DriverOperation,
+    DriverRejected,
+    DriverScalar,
+    DriverStatePatch,
+    DriverUnknown,
     PropertyRef,
 )
 from scopecat.sdk.instruments.scpi import TransportError
@@ -47,7 +47,7 @@ def test_gs200_baseline_transport_loss_is_raised() -> None:
         driver.apply_state(
             _apply_request(
                 DC_SOURCE_MODE,
-                StateValue("voltage"),
+                "voltage",
             )
         )
 
@@ -57,11 +57,11 @@ def test_apply_transport_loss_reports_unknown_not_not_applied() -> None:
     receipt = driver.apply_state(
         _apply_request(
             NETWORK_SWEEP_START_FREQUENCY,
-            StateValue(Quantity(4.9e9, "Hz")),
+            Quantity(4.9e9, "Hz"),
         )
     )
 
-    assert receipt.status == "unknown"
+    assert isinstance(receipt, DriverUnknown)
     assert receipt.problems[0].code == "instrument_apply_outcome_unknown"
 
 
@@ -74,7 +74,7 @@ def test_acquisition_transport_loss_reports_unknown() -> None:
         )
     )
 
-    assert receipt.status == "unknown"
+    assert isinstance(receipt, DriverUnknown)
     assert receipt.problems[0].code == "instrument_collect_outcome_unknown"
 
 
@@ -82,44 +82,25 @@ def test_unsupported_invoke_returns_not_invoked_without_io() -> None:
     driver = KeysightE5080B("vna", ScriptedTransport([]))
 
     receipt = driver.invoke(
-        DriverInvokeRequest(
-            interface_id=NETWORK_SWEEP.interface_id,
-            operation_id=NETWORK_SWEEP.operation("calibrate").operation_id,
-        )
+        DriverOperation(target=NETWORK_SWEEP.operation("calibrate"))
     )
 
-    assert receipt.status == "not_invoked"
+    assert isinstance(receipt, DriverRejected)
     assert receipt.problems[0].code == "instrument_operation_not_implemented"
 
 
 def _apply_request(
     target: PropertyRef,
-    value: StateValue,
-) -> DriverApplyRequest:
-    return DriverApplyRequest(
-        assignments=(
-            DriverPropertyWrite(
-                interface_id=target.interface_id,
-                component_path=target.component_path,
-                property_id=target.property_id,
-                value=value,
-            ),
-        )
-    )
+    value: DriverScalar,
+) -> DriverStatePatch:
+    return DriverStatePatch(values={target: value})
 
 
 def _collect_request(
     acquisition: AcquisitionRef,
     result: AcquisitionResultRef,
-) -> DriverCollectRequest:
-    return DriverCollectRequest(
-        interface_id=acquisition.interface_id,
-        component_path=acquisition.component_path,
-        acquisition_id=acquisition.acquisition_id,
-        results=(
-            DriverCollectResult(
-                request_id=result.result_id,
-                result_id=result.result_id,
-            ),
-        ),
+) -> DriverAcquisition:
+    return DriverAcquisition(
+        target=acquisition,
+        results=frozenset({result}),
     )

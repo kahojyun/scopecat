@@ -25,12 +25,20 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.domain.compiler import DomainCompiler
 from scopecat.sdk.instruments import InstrumentBackend
+from scopecat.sdk.instruments._driver_adapter import (
+    lower_acquisition,
+    lower_state_patch,
+    project_apply_outcome,
+    project_collect_outcome,
+    project_invoke_outcome,
+    project_state,
+)
 from scopecat.sdk.instruments.backend import (
     BackendPayload,
-    decode_driver_invoke_request,
+    decode_driver_operation,
+    lower_backend_apply_request,
+    lower_backend_collect_request,
     lower_backend_invoke_request,
-    lower_driver_apply_request,
-    lower_driver_collect_request,
 )
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
@@ -100,7 +108,10 @@ class TestRunInstrumentHost:
         self._ready = ready
         self._setup_problems = setup_problems
         self._payload_codecs = payload_codecs
-        self._observed_state = tuple(driver.read_state() for driver in selected)
+        self._observed_state = tuple(
+            project_state(driver.instrument_id, driver.read_state())
+            for driver in selected
+        )
         self._prepared_state = self._observed_state
         self._assumed_states = {
             state.instrument_id: state for state in self._prepared_state
@@ -143,13 +154,18 @@ class TestRunInstrumentHost:
                     instrument_id=action.instrument_id,
                     assignments=assignments,
                 )
-                receipt = driver.apply_state(lower_driver_apply_request(command))
+                request = lower_backend_apply_request(command)
+                receipt = project_apply_outcome(
+                    driver.instrument_id,
+                    driver.apply_state(lower_state_patch(request)),
+                )
                 problems.extend(receipt.problems)
                 if receipt.status != "applied":
                     indeterminate = receipt.status == "unknown"
                     break
                 self._assumed_states[action.instrument_id] = (
-                    receipt.state or driver.read_state()
+                    receipt.state
+                    or project_state(driver.instrument_id, driver.read_state())
                 )
                 continue
             if isinstance(action, RunHardwareInvoke):
@@ -165,23 +181,26 @@ class TestRunInstrumentHost:
                     entity_ids=list(action.entity_ids),
                     channel_bindings=list(action.channel_bindings),
                 )
-                receipt = driver.invoke(
-                    decode_driver_invoke_request(
-                        lower_backend_invoke_request(
-                            command,
-                            materialized_payloads=_materialize_backend_payloads(
-                                command.payloads
-                            ),
+                driver_request = decode_driver_operation(
+                    lower_backend_invoke_request(
+                        command,
+                        materialized_payloads=_materialize_backend_payloads(
+                            command.payloads
                         ),
-                        self._payload_codecs,
-                    )
+                    ),
+                    self._payload_codecs,
+                )
+                receipt = project_invoke_outcome(
+                    driver.instrument_id,
+                    driver.invoke(driver_request),
                 )
                 problems.extend(receipt.problems)
                 if receipt.status != "invoked":
                     indeterminate = receipt.status == "unknown"
                     break
                 self._assumed_states[action.instrument_id] = (
-                    receipt.state or driver.read_state()
+                    receipt.state
+                    or project_state(driver.instrument_id, driver.read_state())
                 )
                 continue
             assert isinstance(action, RunHardwareCollect)
@@ -192,7 +211,11 @@ class TestRunInstrumentHost:
                 point_count=action.point_count,
                 requests=list(action.requests),
             )
-            receipt = driver.collect(lower_driver_collect_request(command))
+            driver_request = lower_backend_collect_request(command)
+            receipt = project_collect_outcome(
+                driver_request,
+                driver.collect(lower_acquisition(driver_request)),
+            )
             problems.extend(receipt.problems)
             if receipt.status != "collected" or receipt.readback is None:
                 indeterminate = receipt.status == "unknown"
@@ -239,7 +262,8 @@ class TestRunInstrumentHost:
                 for driver in reversed(tuple(self._drivers.values())):
                     driver.abort()
             final_state = tuple(
-                driver.read_state() for driver in self._drivers.values()
+                project_state(driver.instrument_id, driver.read_state())
+                for driver in self._drivers.values()
             )
         finally:
             for driver in reversed(tuple(self._drivers.values())):

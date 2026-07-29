@@ -30,7 +30,11 @@ from scopecat.records.measurement import (
     MeasurementScalar,
 )
 from scopecat.records.parameter import ScalarParameterValue
-from scopecat.sdk.instruments import CollectReceipt, DriverCollectRequest
+from scopecat.sdk.instruments import (
+    DriverAcquisition,
+    DriverOutcome,
+    DriverReadback,
+)
 from scopecat_instruments.virtual import VirtualNetworkAnalyzer
 
 
@@ -159,8 +163,8 @@ def test_flux_spectroscopy_failure_aborts_with_bias_disabled(
 ) -> None:
     def fail_collect(
         _driver: VirtualNetworkAnalyzer,
-        _request: DriverCollectRequest,
-    ) -> CollectReceipt:
+        _request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         raise RuntimeError("injected VNA acquisition failure")
 
     monkeypatch.setattr(VirtualNetworkAnalyzer, "collect", fail_collect)

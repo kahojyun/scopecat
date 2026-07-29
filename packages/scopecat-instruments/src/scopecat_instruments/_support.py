@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateValue
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverInvokeRequest,
-    InstrumentPropertyState,
-    InstrumentStateSnapshot,
-    InvokeReceipt,
+    DriverOperation,
+    DriverRejected,
+    DriverScalar,
+    DriverUnknown,
     PropertyRef,
 )
 from scopecat.sdk.problems import Problem, ProblemPhase, model_location, problem
@@ -39,123 +35,83 @@ class LinearSweepSettings:
     s_parameter: str
 
 
-def quantity_value(value: StateValue, unit: str) -> float:
-    literal = value.root
-    if not isinstance(literal, Quantity):
+def quantity_value(value: DriverScalar, unit: str) -> float:
+    if not isinstance(value, Quantity):
         raise TypeError("validated state property is not a quantity")
-    if literal.unit == unit:
-        return literal.value
-    return literal.to(unit).value
+    if value.unit == unit:
+        return value.value
+    return value.to(unit).value
 
 
-def bool_value(value: StateValue) -> bool:
-    literal = value.root
-    if not isinstance(literal, bool):
+def bool_value(value: DriverScalar) -> bool:
+    if not isinstance(value, bool):
         raise TypeError("validated state property is not a boolean")
-    return literal
+    return value
 
 
-def int_value(value: StateValue) -> int:
-    literal = value.root
-    if not isinstance(literal, int) or isinstance(literal, bool):
+def int_value(value: DriverScalar) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
         raise TypeError("validated state property is not an integer")
-    return literal
+    return value
 
 
-def string_value(value: StateValue) -> str:
-    literal = value.root
-    if not isinstance(literal, str):
+def string_value(value: DriverScalar) -> str:
+    if not isinstance(value, str):
         raise TypeError("validated state property is not a string")
-    return literal
-
-
-def state_property(
-    target: PropertyRef,
-    value: bool | float | str | Quantity,
-) -> InstrumentPropertyState:
-    return InstrumentPropertyState(
-        interface_id=target.interface_id,
-        component_path=list(target.component_path),
-        property_id=target.property_id,
-        value=StateValue(value),
-    )
-
-
-def state_properties_by_target(
-    snapshot: InstrumentStateSnapshot,
-) -> dict[PropertyRef, InstrumentPropertyState]:
-    return {
-        PropertyRef(
-            property_state.interface_id,
-            tuple(property_state.component_path),
-            property_state.property_id,
-        ): property_state
-        for property_state in snapshot.properties
-    }
-
-
-def not_applied(problems: Iterable[Problem]) -> ApplyReceipt:
-    return ApplyReceipt(status="not_applied", problems=tuple(problems))
+    return value
 
 
 def unsupported_invoke(
-    request: DriverInvokeRequest,
+    request: DriverOperation,
     instrument_id: str,
-) -> InvokeReceipt:
-    return InvokeReceipt(
-        status="not_invoked",
+) -> DriverRejected:
+    return DriverRejected(
         problems=(
             execution_problem(
                 "instrument_operation_not_implemented",
                 f"{instrument_id} does not implement {request.target.operation_id}",
-                "driver_invoke_request",
+                "driver_operation",
                 "operation_id",
             ),
         ),
     )
 
 
-def state_sync_failed(instrument_id: str, error: Exception) -> ApplyReceipt:
-    return not_applied(
-        [
+def state_sync_failed(instrument_id: str, error: Exception) -> DriverRejected:
+    return DriverRejected(
+        problems=(
             execution_problem(
                 "instrument_state_sync_failed",
                 f"could not synchronize state from {instrument_id}",
-                "driver_apply_request",
+                "driver_state_patch",
                 details={"exception_type": _exception_type(error)},
-            )
-        ]
+            ),
+        )
     )
 
 
-def apply_unknown(instrument_id: str, error: Exception) -> ApplyReceipt:
-    return ApplyReceipt(
-        status="unknown",
+def apply_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
+    return DriverUnknown(
         problems=(
             execution_problem(
                 "instrument_apply_outcome_unknown",
                 f"lost confirmation while applying state to {instrument_id} "
                 f"({type(error).__name__})",
-                "driver_apply_request",
+                "driver_state_patch",
                 details={"exception_type": _exception_type(error)},
             ),
         ),
     )
 
 
-def not_collected(problems: Iterable[Problem]) -> CollectReceipt:
-    return CollectReceipt(status="not_collected", problems=tuple(problems))
-
-
-def collect_unknown(instrument_id: str, error: Exception) -> CollectReceipt:
-    return CollectReceipt(
-        status="unknown",
+def collect_unknown(instrument_id: str, error: Exception) -> DriverUnknown:
+    return DriverUnknown(
         problems=(
             execution_problem(
                 "instrument_collect_outcome_unknown",
                 f"lost readback while collecting from {instrument_id} "
                 f"({type(error).__name__})",
-                "driver_collect_request",
+                "driver_acquisition",
                 details={"exception_type": _exception_type(error)},
             ),
         ),

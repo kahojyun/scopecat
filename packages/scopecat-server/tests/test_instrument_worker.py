@@ -25,16 +25,14 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementUnavailable,
 )
-from scopecat.sdk.instruments import (
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverCollectResult,
-    DriverPropertyWrite,
-)
 from scopecat.sdk.instruments.backend import (
+    BackendApplyRequest,
+    BackendCollectRequest,
+    BackendCollectResult,
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
+    BackendPropertyWrite,
 )
 from scopecat.sdk.instruments.contracts import InvokeCommand
 from tests.testkit.instrument_drivers import load_config
@@ -101,9 +99,9 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
     assert not hasattr(connection, "driver")
     endpoint.apply_state(
         connection.handle,
-        DriverApplyRequest(
+        BackendApplyRequest(
             assignments=(
-                DriverPropertyWrite(
+                BackendPropertyWrite(
                     interface_id="tests.control/v1",
                     property_id="gain",
                     value=StateValue(2.5),
@@ -148,10 +146,10 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
 
     collected = endpoint.collect(
         connection.handle,
-        DriverCollectRequest(
+        BackendCollectRequest(
             interface_id="tests.control/v1",
             acquisition_id="sample",
-            results=(DriverCollectResult(request_id="signal", result_id="signal"),),
+            results=(BackendCollectResult(request_id="signal", result_id="signal"),),
         ),
     )
     assert collected.readback is not None
@@ -311,11 +309,11 @@ def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
 
     valid = endpoint.collect(
         connection.handle,
-        DriverCollectRequest(
+        BackendCollectRequest(
             interface_id="tests.control/v1",
             acquisition_id="sample",
             results=(
-                DriverCollectResult(
+                BackendCollectResult(
                     request_id="signal",
                     result_id="complex_array",
                 ),
@@ -333,11 +331,11 @@ def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
     with pytest.raises(InstrumentBackendError, match="request failed"):
         endpoint.collect(
             connection.handle,
-            DriverCollectRequest(
+            BackendCollectRequest(
                 interface_id="tests.control/v1",
                 acquisition_id="sample",
                 results=(
-                    DriverCollectResult(
+                    BackendCollectResult(
                         request_id="signal",
                         result_id="invalid_array",
                     ),
@@ -362,11 +360,11 @@ def test_worker_round_trips_unavailable_collect_values(tmp_path: Path) -> None:
 
     receipt = endpoint.collect(
         connection.handle,
-        DriverCollectRequest(
+        BackendCollectRequest(
             interface_id="tests.control/v1",
             acquisition_id="sample",
             results=(
-                DriverCollectResult(
+                BackendCollectResult(
                     request_id="signal",
                     result_id="unavailable",
                 ),
@@ -401,11 +399,11 @@ def test_large_collect_response_uses_binary_frames_without_fencing_worker(
 
     receipt = endpoint.collect(
         connection.handle,
-        DriverCollectRequest(
+        BackendCollectRequest(
             interface_id="tests.control/v1",
             acquisition_id="sample",
             results=(
-                DriverCollectResult(
+                BackendCollectResult(
                     request_id="signal",
                     result_id="large_array",
                 ),

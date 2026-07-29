@@ -16,10 +16,20 @@ from scopecat.planning.provider_validation import (
 )
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.sdk.instruments._driver_adapter import (
+    lower_acquisition,
+    lower_state_patch,
+    project_apply_outcome,
+    project_collect_outcome,
+    project_invoke_outcome,
+    project_state,
+)
 from scopecat.sdk.instruments.backend import (
+    BackendApplyRequest,
+    BackendCollectRequest,
     BackendInvokeRequest,
     InstrumentBackend,
-    decode_driver_invoke_request,
+    decode_driver_operation,
 )
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
@@ -31,10 +41,6 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InvokeReceipt,
-)
-from scopecat.sdk.instruments.driver import (
-    DriverApplyRequest,
-    DriverCollectRequest,
 )
 from scopecat.sdk.payloads import PayloadCodecCatalog
 
@@ -96,7 +102,7 @@ class InstrumentBackendEndpoint(Protocol):
     def apply_state(
         self,
         handle: InstrumentHandle,
-        request: DriverApplyRequest,
+        request: BackendApplyRequest,
     ) -> ApplyReceipt: ...
 
     def invoke(
@@ -108,7 +114,7 @@ class InstrumentBackendEndpoint(Protocol):
     def collect(
         self,
         handle: InstrumentHandle,
-        request: DriverCollectRequest,
+        request: BackendCollectRequest,
     ) -> CollectReceipt: ...
 
     def abort(self, handle: InstrumentHandle) -> None: ...
@@ -234,15 +240,21 @@ class LocalInstrumentBackendEndpoint:
 
     def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
         with self._locked_connection(handle) as connection:
-            return connection.driver.read_state()
+            return project_state(
+                connection.driver.instrument_id,
+                connection.driver.read_state(),
+            )
 
     def apply_state(
         self,
         handle: InstrumentHandle,
-        request: DriverApplyRequest,
+        request: BackendApplyRequest,
     ) -> ApplyReceipt:
         with self._locked_connection(handle) as connection:
-            return connection.driver.apply_state(request)
+            return project_apply_outcome(
+                connection.driver.instrument_id,
+                connection.driver.apply_state(lower_state_patch(request)),
+            )
 
     def invoke(
         self,
@@ -251,7 +263,7 @@ class LocalInstrumentBackendEndpoint:
     ) -> InvokeReceipt:
         with self._locked_connection(handle) as connection:
             try:
-                driver_request = decode_driver_invoke_request(
+                driver_request = decode_driver_operation(
                     request,
                     self._payload_codecs,
                 )
@@ -260,15 +272,21 @@ class LocalInstrumentBackendEndpoint:
                     status="not_invoked",
                     problems=(_payload_decode_problem(),),
                 )
-            return connection.driver.invoke(driver_request)
+            return project_invoke_outcome(
+                connection.driver.instrument_id,
+                connection.driver.invoke(driver_request),
+            )
 
     def collect(
         self,
         handle: InstrumentHandle,
-        request: DriverCollectRequest,
+        request: BackendCollectRequest,
     ) -> CollectReceipt:
         with self._locked_connection(handle) as connection:
-            return connection.driver.collect(request)
+            return project_collect_outcome(
+                request,
+                connection.driver.collect(lower_acquisition(request)),
+            )
 
     def abort(self, handle: InstrumentHandle) -> None:
         with self._locked_connection(handle) as connection:

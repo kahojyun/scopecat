@@ -36,16 +36,18 @@ from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
-    ApplyReceipt,
-    CollectReceipt,
-    DriverApplyRequest,
-    DriverCollectRequest,
-    DriverPayloadArgument,
+    DriverAcquisition,
+    DriverOutcome,
+    DriverPayload,
+    DriverReadback,
+    DriverRejected,
+    DriverState,
+    DriverStatePatch,
+    DriverSuccess,
+    DriverUnknown,
     InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
-    InstrumentReadback,
-    InstrumentStateSnapshot,
     InterfaceRef,
 )
 from scopecat.sdk.instruments.contracts import CollectCommand, CollectResultRequest
@@ -207,8 +209,8 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     assert calls == ["produce", "consume"]
     assert len(driver.invoked) == 1
     invoked = driver.invoked[0]
-    [argument] = invoked.arguments
-    assert isinstance(argument, DriverPayloadArgument)
+    [argument] = invoked.arguments.values()
+    assert isinstance(argument, DriverPayload)
     assert argument.schema_id == "pulse_program"
     assert argument.value == {"consumed": {"source": "parent"}}
 
@@ -323,10 +325,12 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
 
 class _BlockingStateDriver(SignalInstrumentDriver):
     @override
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         self.applied.append(request)
-        return ApplyReceipt(
-            status="not_applied",
+        return DriverRejected(
             problems=(
                 problem(
                     "instrument_driver_blocked",
@@ -340,10 +344,12 @@ class _BlockingStateDriver(SignalInstrumentDriver):
 
 class _UnknownAppliedStateDriver(SignalInstrumentDriver):
     @override
-    def apply_state(self, request: DriverApplyRequest) -> ApplyReceipt:
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverState | None]:
         super().apply_state(request)
-        return ApplyReceipt(
-            status="unknown",
+        return DriverUnknown(
             problems=(
                 problem(
                     "instrument_driver_applied_with_error",
@@ -364,7 +370,7 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
         self.read_count = 0
 
     @override
-    def read_state(self) -> InstrumentStateSnapshot:
+    def read_state(self) -> DriverState:
         self.read_count += 1
         return super().read_state()
 
@@ -436,7 +442,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
 
     assert not result.problems and not result.indeterminate
     assert len(driver.collect_requests) == 1
-    assert [result.request_id for result in driver.collect_requests[0].results] == [
+    assert [result.result_id for result in driver.collect_requests[0].results] == [
         "signal"
     ]
     assert observed_candidates == [
@@ -508,23 +514,27 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
 
 class _UnexpectedResultDriver(SignalInstrumentDriver):
     @override
-    def collect(self, request: DriverCollectRequest) -> CollectReceipt:
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
         self.collect_requests.append(request)
-        return CollectReceipt(
-            readback=InstrumentReadback(
+        signal = request.target.result("signal")
+        return DriverSuccess(
+            DriverReadback(
                 values={
-                    "signal": MeasurementScalar.create(
+                    signal: MeasurementScalar.create(
                         dtype="float64",
                         value=1.0,
                         unit="ratio",
                     ),
-                    "unexpected": MeasurementScalar.create(
+                    request.target.result("unexpected"): MeasurementScalar.create(
                         dtype="float64",
                         value=2.0,
                         unit="ratio",
                     ),
                 }
-            )
+            ),
         )
 
 

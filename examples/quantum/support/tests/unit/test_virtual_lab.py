@@ -3,7 +3,8 @@ from __future__ import annotations
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import InstrumentBindingSpec, VirtualInstrumentConnection
 from scopecat.sdk.instruments import (
-    DriverPayloadArgument,
+    DriverPayload,
+    DriverSuccess,
     InstrumentConnectionContext,
     InstrumentProviderContext,
 )
@@ -11,7 +12,7 @@ from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
-    decode_driver_invoke_request,
+    decode_driver_operation,
 )
 
 from quantum_lab_demo.backend import create_quantum_lab_backend
@@ -78,7 +79,7 @@ def test_drive_program_is_an_invocation_not_persistent_state() -> None:
     )
     before = driver.read_state()
 
-    request = decode_driver_invoke_request(
+    operation = decode_driver_operation(
         BackendInvokeRequest(
             interface_id=PLAY_PULSE_PROGRAM_PLAY.interface_id,
             component_path=PLAY_PULSE_PROGRAM_PLAY.component_path,
@@ -93,16 +94,16 @@ def test_drive_program_is_an_invocation_not_persistent_state() -> None:
         ),
         backend.payload_codecs,
     )
-    receipt = driver.invoke(request)
+    receipt = driver.invoke(operation)
 
-    [argument] = request.arguments
-    assert isinstance(argument, DriverPayloadArgument)
+    [argument] = operation.arguments.values()
+    assert isinstance(argument, DriverPayload)
     assert argument.value == DecodedPulseProgram(
         document={"instructions": []},
     )
-    assert request.target == PLAY_PULSE_PROGRAM_PLAY
-    assert request.argument_target(argument) == PLAY_PULSE_PROGRAM_PROGRAM
-    assert receipt.status == "invoked"
+    assert operation.target == PLAY_PULSE_PROGRAM_PLAY
+    assert operation.arguments[PLAY_PULSE_PROGRAM_PROGRAM.argument_id] == argument
+    assert isinstance(receipt, DriverSuccess)
     assert receipt.metadata["payload_count"] == 1
     assert driver.read_state() == before
     driver.disconnect()
