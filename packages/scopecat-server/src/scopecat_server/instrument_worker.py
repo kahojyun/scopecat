@@ -33,6 +33,7 @@ from scopecat.sdk.instruments.backend import (
     BackendCollectRequest,
     BackendInvokeRequest,
 )
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
@@ -198,13 +199,18 @@ class _StartupResponse(_WireModel):
     status: Literal["ready", "error"]
     worker_pid: int = Field(gt=0)
     provider_id: str | None = None
+    driver_catalog: dict[str, JsonValue] | None = None
     payload_catalog: dict[str, JsonValue] | None = None
     error: _RpcError | None = None
 
     @model_validator(mode="after")
     def validate_outcome(self) -> _StartupResponse:
         if self.status == "ready":
-            if self.provider_id is None or self.payload_catalog is None:
+            if (
+                self.provider_id is None
+                or self.driver_catalog is None
+                or self.payload_catalog is None
+            ):
                 raise ValueError("ready worker requires backend metadata")
             if self.error is not None:
                 raise ValueError("ready worker cannot include an error")
@@ -289,8 +295,13 @@ class SubprocessInstrumentBackendEndpoint:
                 assert startup.error is not None
                 raise InstrumentBackendUnavailable(startup.error.message)
             assert startup.provider_id is not None
+            assert startup.driver_catalog is not None
             assert startup.payload_catalog is not None
             self._provider_id = startup.provider_id
+            self._driver_catalog = _model_from_body(
+                DriverCatalog,
+                startup.driver_catalog,
+            )
             self._payload_catalog = _model_from_body(
                 PayloadCodecCatalog,
                 startup.payload_catalog,
@@ -321,6 +332,10 @@ class SubprocessInstrumentBackendEndpoint:
     @property
     def provider_id(self) -> str:
         return self._provider_id
+
+    @property
+    def driver_catalog(self) -> DriverCatalog:
+        return self._driver_catalog
 
     @property
     def payload_catalog(self) -> PayloadCodecCatalog:
@@ -681,6 +696,7 @@ def _instrument_worker_main(
                     status="ready",
                     worker_pid=os.getpid(),
                     provider_id=endpoint.provider_id,
+                    driver_catalog=_model_to_body(endpoint.driver_catalog),
                     payload_catalog=_model_to_body(endpoint.payload_catalog),
                 ),
             )

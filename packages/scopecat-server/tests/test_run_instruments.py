@@ -62,6 +62,7 @@ from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
+    DriverCatalog,
     DriverOperation,
     DriverOutcome,
     DriverPayload,
@@ -1927,6 +1928,7 @@ def _runtime(
         instrument_endpoint=LocalInstrumentBackendEndpoint(
             InstrumentBackend(
                 provider=provider,
+                driver_catalog=DriverCatalog(provider_id=provider.provider_id),
                 payload_codecs=json_payload_codecs("pulse_program"),
             )
         ),

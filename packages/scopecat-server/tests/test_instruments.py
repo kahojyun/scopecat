@@ -39,6 +39,7 @@ from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
+    DriverCatalog,
     DriverFault,
     DriverOperation,
     DriverOutcome,
@@ -2685,12 +2686,16 @@ def test_invalid_collect_receipt_is_deduplicated_without_quarantining(
 def test_provider_instance_and_virtual_state_survive_across_sessions(
     tmp_path: Path,
 ) -> None:
+    provider = _StatefulProvider()
     with (
         LocalDaemonRuntime(
             tmp_path,
             bootstrap_config=load_config(),
             instrument_endpoint=LocalInstrumentBackendEndpoint(
-                InstrumentBackend(provider=_StatefulProvider())
+                InstrumentBackend(
+                    provider=provider,
+                    driver_catalog=DriverCatalog(provider_id=provider.provider_id),
+                )
             ),
         ) as runtime,
         TestClient(runtime.app()) as transport,
@@ -2899,6 +2904,7 @@ def _runtime(
         instrument_endpoint=LocalInstrumentBackendEndpoint(
             InstrumentBackend(
                 provider=provider,
+                driver_catalog=DriverCatalog(provider_id=provider.provider_id),
                 payload_codecs=json_payload_codecs("pulse_program"),
             )
         ),

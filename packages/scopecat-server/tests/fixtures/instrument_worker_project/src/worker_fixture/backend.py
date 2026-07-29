@@ -18,6 +18,7 @@ from scopecat.records.measurement import (
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
+    DriverCatalog,
     DriverOperation,
     DriverOutcome,
     DriverPayload,
@@ -192,8 +193,10 @@ class _Provider:
 
 def create_backend(project_root: Path) -> InstrumentBackend:
     _write_pid(project_root / "worker.pid")
+    provider = _Provider(project_root)
     return InstrumentBackend(
-        provider=_Provider(project_root),
+        provider=provider,
+        driver_catalog=DriverCatalog(provider_id=provider.provider_id),
         payload_codecs=PayloadCodecRegistry(
             {
                 "pulse_program": PayloadCodec(

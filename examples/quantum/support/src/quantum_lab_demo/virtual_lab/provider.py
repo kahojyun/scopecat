@@ -9,12 +9,15 @@ from typing import ClassVar, cast
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
     DriverAcquisition,
+    DriverCatalog,
+    DriverConnectionSpec,
     DriverFault,
     DriverOperation,
     DriverOutcome,
     DriverPayload,
     DriverReadback,
     DriverScalar,
+    DriverSpec,
     DriverState,
     DriverStatePatch,
     DriverSuccess,
@@ -153,6 +156,41 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
 
 class QuantumLabVirtualProvider:
     provider_id = "quantum_lab_demo.virtual_lab.provider"
+    driver_catalog = DriverCatalog(
+        provider_id=provider_id,
+        drivers=(
+            DriverSpec(
+                driver_id=_DRIVE_STACK_DRIVER_ID,
+                implementation_version="v0",
+                label="Virtual quantum drive stack",
+                connections=(
+                    DriverConnectionSpec(
+                        kind="virtual",
+                        options_schema={
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    ),
+                ),
+            ),
+            DriverSpec(
+                driver_id=_READOUT_STACK_DRIVER_ID,
+                implementation_version="v0",
+                label="Virtual quantum readout stack",
+                connections=(
+                    DriverConnectionSpec(
+                        kind="virtual",
+                        options_schema={
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
 
     def __init__(
         self,

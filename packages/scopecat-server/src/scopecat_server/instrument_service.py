@@ -86,6 +86,7 @@ from scopecat.sdk.instruments.backend import (
     lower_backend_collect_request,
     lower_backend_invoke_request,
 )
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectCommand,
@@ -362,6 +363,12 @@ class InstrumentService:
             provider_id=endpoint.provider_id,
             describe=lambda context: endpoint.describe(context.bindings),
         )
+
+    def driver_catalog(self) -> DriverCatalog:
+        endpoint = self._endpoint
+        if endpoint is None:
+            raise BackendConflict("project does not configure an instrument backend")
+        return endpoint.driver_catalog
 
     def get_instrument(self, instrument_id: str) -> InstrumentView:
         instruments = self.list_instruments()

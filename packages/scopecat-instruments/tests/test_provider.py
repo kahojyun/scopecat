@@ -75,6 +75,43 @@ def test_registered_driver_ids_match_the_lightweight_catalog() -> None:
     } == SUPPORTED_DRIVER_IDS
 
 
+def test_driver_catalog_exposes_connection_option_schemas() -> None:
+    catalog = ConfiguredInstrumentProvider().driver_catalog
+
+    assert catalog.provider_id == ConfiguredInstrumentProvider.provider_id
+    assert {driver.driver_id for driver in catalog.drivers} == SUPPORTED_DRIVER_IDS
+    gs200 = catalog.get(YOKOGAWA_GS200)
+    assert gs200 is not None
+    assert (gs200.label, gs200.manufacturer, gs200.model) == (
+        "Yokogawa GS200",
+        "Yokogawa",
+        "GS200",
+    )
+    [connection] = gs200.connections
+    assert connection.kind == "tcpip_socket"
+    assert connection.options_schema["properties"] == {
+        "monitor_option": {
+            "default": False,
+            "title": "Monitor Option",
+            "type": "boolean",
+        },
+        "remote_sense": {
+            "default": False,
+            "title": "Remote Sense",
+            "type": "boolean",
+        },
+        "guard_enabled": {
+            "default": False,
+            "title": "Guard Enabled",
+            "type": "boolean",
+        },
+    }
+    virtual = catalog.get(VIRTUAL_DC_SOURCE)
+    assert virtual is not None
+    assert virtual.connections[0].kind == "virtual"
+    assert virtual.connections[0].options_schema["properties"] == {}
+
+
 class _IdnServer:
     def __init__(
         self,

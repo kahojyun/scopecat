@@ -42,6 +42,7 @@ from scopecat.sdk.instruments.backend import (
     lower_backend_collect_request,
     lower_backend_invoke_request,
 )
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     CollectCommand,
     InstrumentStateAssignment,
@@ -75,6 +76,7 @@ def compose_test_instruments(
 ) -> TestInstrumentComposition:
     backend = InstrumentBackend(
         provider=provider,
+        driver_catalog=DriverCatalog(provider_id=provider.provider_id),
         payload_codecs=payload_codecs,
     )
     return TestInstrumentComposition(

@@ -29,6 +29,7 @@ from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.catalog import DriverCatalog
 
 from scopecat_server import (
     BackendConflict,
@@ -146,6 +147,9 @@ class FakeInstruments:
             config_content_hash=config_content_hash(config),
             provider_id=None,
         )
+
+    def driver_catalog(self) -> DriverCatalog:
+        return DriverCatalog(provider_id="tests.fake")
 
     def provision_run(
         self,
@@ -274,6 +278,17 @@ def test_instrument_contract_route_resolves_the_exact_config_body() -> None:
     catalog = InstrumentContractCatalog.model_validate(response.json())
     assert catalog.config_content_hash == config_content_hash(command.config)
     assert backend.instruments.last_contract_config == command.config
+
+
+def test_driver_catalog_route_returns_project_backend_catalog() -> None:
+    client = TestClient(_create_test_app(FakeApplication()))
+
+    response = client.get("/api/v1/instrument-drivers")
+
+    assert response.status_code == 200
+    assert DriverCatalog.model_validate_json(response.content) == DriverCatalog(
+        provider_id="tests.fake"
+    )
 
 
 def test_instrument_session_heartbeat_renews_the_lease() -> None:

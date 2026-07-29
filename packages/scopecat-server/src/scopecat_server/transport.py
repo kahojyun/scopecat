@@ -85,6 +85,7 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
@@ -219,6 +220,10 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/instruments")
     def list_instruments() -> InstrumentListView:
         return application.instruments.list_instruments()
+
+    @app.get(f"{_API_PREFIX}/instrument-drivers")
+    def get_driver_catalog() -> DriverCatalog:
+        return application.instruments.driver_catalog()
 
     @app.get(f"{_API_PREFIX}/instruments/{{instrument_id}}")
     def get_instrument(instrument_id: str) -> InstrumentView:

@@ -36,6 +36,7 @@ from scopecat.sdk.instruments.backend import (
     BackendPropertyWrite,
     decode_driver_operation,
 )
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecCatalog
 from tests.testkit.instrument_drivers import (
     SignalInstrumentDriver,
@@ -152,6 +153,11 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
     @override
     def provider_id(self) -> str:
         return "tests.actor_provider"
+
+    @property
+    @override
+    def driver_catalog(self) -> DriverCatalog:
+        return DriverCatalog(provider_id=self.provider_id)
 
     @property
     @override

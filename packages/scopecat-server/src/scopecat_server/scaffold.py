@@ -103,6 +103,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat.sdk.instruments import (
+    DriverCatalog,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentDriver,
@@ -115,6 +116,7 @@ class LocalProvider:
     """Let the starter experiment run before real instruments are connected."""
 
     provider_id = "scopecat-lab.local"
+    driver_catalog = DriverCatalog(provider_id=provider_id)
 
     def describe(
         self,
@@ -130,7 +132,11 @@ class LocalProvider:
 
 
 def create_backend(_project_root: Path) -> InstrumentBackend:
-    return InstrumentBackend(provider=LocalProvider())
+    provider = LocalProvider()
+    return InstrumentBackend(
+        provider=provider,
+        driver_catalog=provider.driver_catalog,
+    )
 
 
 __all__ = ["create_backend"]

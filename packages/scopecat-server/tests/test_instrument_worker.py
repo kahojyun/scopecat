@@ -68,6 +68,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
     [binding] = instrument_bindings(config)
     [expected] = endpoint.describe((binding,)).instruments
     assert endpoint.provider_id == "tests.spawned_provider"
+    assert endpoint.driver_catalog.provider_id == endpoint.provider_id
     assert endpoint.payload_catalog.codecs[0].schema_id == "pulse_program"
     describe_context = json.loads(
         (project / "describe-context.json").read_text(encoding="utf-8")

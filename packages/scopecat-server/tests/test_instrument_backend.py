@@ -6,6 +6,7 @@ import pytest
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import instrument_bindings
 from scopecat.sdk.instruments import (
+    DriverCatalog,
     DriverPayload,
     InstrumentBackend,
     InstrumentConnectionContext,
@@ -74,6 +75,7 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
     endpoint = LocalInstrumentBackendEndpoint(
         InstrumentBackend(
             provider=provider,
+            driver_catalog=DriverCatalog(provider_id=provider.provider_id),
             payload_codecs=json_payload_codecs("tests.program/v1"),
         )
     )
@@ -124,9 +126,20 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
         endpoint.read_state(connection.handle)
 
 
+def test_local_backend_rejects_a_catalog_for_another_provider() -> None:
+    with pytest.raises(ValueError, match="provider_id"):
+        InstrumentBackend(
+            provider=_Provider(),
+            driver_catalog=DriverCatalog(provider_id="tests.other-provider"),
+        )
+
+
 def test_local_backend_rejects_foreign_handles_and_changed_contracts() -> None:
     provider = _Provider()
-    backend = InstrumentBackend(provider=provider)
+    backend = InstrumentBackend(
+        provider=provider,
+        driver_catalog=DriverCatalog(provider_id=provider.provider_id),
+    )
     endpoint = LocalInstrumentBackendEndpoint(backend)
     other = LocalInstrumentBackendEndpoint(backend)
     config = load_config()
@@ -158,6 +171,7 @@ def test_local_backend_decodes_payloads_before_driver_dispatch() -> None:
     endpoint = LocalInstrumentBackendEndpoint(
         InstrumentBackend(
             provider=provider,
+            driver_catalog=DriverCatalog(provider_id=provider.provider_id),
             payload_codecs=json_payload_codecs("tests.program/v1"),
         )
     )
@@ -185,6 +199,7 @@ def test_local_backend_rejects_payload_decode_before_driver_dispatch() -> None:
     endpoint = LocalInstrumentBackendEndpoint(
         InstrumentBackend(
             provider=provider,
+            driver_catalog=DriverCatalog(provider_id=provider.provider_id),
             payload_codecs=PayloadCodecRegistry(
                 {
                     "tests.program/v1": PayloadCodec(
@@ -218,7 +233,12 @@ def test_local_backend_rejects_payload_decode_before_driver_dispatch() -> None:
 
 def test_local_backend_shutdown_disconnects_handles_and_fences_new_work() -> None:
     provider = _Provider()
-    endpoint = LocalInstrumentBackendEndpoint(InstrumentBackend(provider=provider))
+    endpoint = LocalInstrumentBackendEndpoint(
+        InstrumentBackend(
+            provider=provider,
+            driver_catalog=DriverCatalog(provider_id=provider.provider_id),
+        )
+    )
     config = load_config()
     [binding] = instrument_bindings(config)
     [expected] = endpoint.describe((binding,)).instruments

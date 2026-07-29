@@ -5,11 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from scopecat.sdk.instruments import (
+    DriverCatalog,
+    DriverConnectionSpec,
     DriverFault,
+    DriverSpec,
     InstrumentBindingSpec,
     InstrumentConnectionContext,
     InstrumentDescription,
@@ -74,7 +77,7 @@ class _IdentifiableDriver(InstrumentDriver, Protocol):
 
 @dataclass(frozen=True, slots=True)
 class _TcpScpiDriverDefinition:
-    driver_id: str
+    spec: DriverSpec
     create: Callable[
         [str, ScpiTransport, dict[str, JsonValue]],
         _IdentifiableDriver,
@@ -83,7 +86,7 @@ class _TcpScpiDriverDefinition:
 
 @dataclass(frozen=True, slots=True)
 class _VirtualDriverDefinition:
-    driver_id: str
+    spec: DriverSpec
     factory: Callable[[str, VirtualLabWorld], InstrumentDriver]
 
 
@@ -92,6 +95,11 @@ type _DriverDefinition = _TcpScpiDriverDefinition | _VirtualDriverDefinition
 
 def _tcp_driver_definition[OptionsT: _ConnectionOptions](
     driver_id: str,
+    *,
+    implementation_version: str,
+    label: str,
+    manufacturer: str,
+    model: str,
     options_type: type[OptionsT],
     factory: Callable[[str, ScpiTransport, OptionsT], _IdentifiableDriver],
 ) -> _TcpScpiDriverDefinition:
@@ -107,16 +115,62 @@ def _tcp_driver_definition[OptionsT: _ConnectionOptions](
         )
 
     return _TcpScpiDriverDefinition(
-        driver_id=driver_id,
+        spec=DriverSpec(
+            driver_id=driver_id,
+            implementation_version=implementation_version,
+            label=label,
+            manufacturer=manufacturer,
+            model=model,
+            connections=(
+                DriverConnectionSpec(
+                    kind="tcpip_socket",
+                    options_schema=_options_schema(options_type),
+                ),
+            ),
+        ),
         create=create,
     )
+
+
+def _virtual_driver_definition(
+    driver_id: str,
+    *,
+    implementation_version: str,
+    label: str,
+    factory: Callable[[str, VirtualLabWorld], InstrumentDriver],
+) -> _VirtualDriverDefinition:
+    return _VirtualDriverDefinition(
+        spec=DriverSpec(
+            driver_id=driver_id,
+            implementation_version=implementation_version,
+            label=label,
+            connections=(
+                DriverConnectionSpec(
+                    kind="virtual",
+                    options_schema=_options_schema(_NoConnectionOptions),
+                ),
+            ),
+        ),
+        factory=factory,
+    )
+
+
+def _options_schema(
+    options_type: type[_ConnectionOptions],
+) -> dict[str, JsonValue]:
+    schema = cast("dict[str, JsonValue]", options_type.model_json_schema())
+    return {key: value for key, value in schema.items() if key != "title"}
 
 
 _DEFINITIONS: tuple[_DriverDefinition, ...] = (
     _tcp_driver_definition(
         YOKOGAWA_GS200,
-        _Gs200ConnectionOptions,
-        lambda instrument_id, transport, options: YokogawaGS200(
+        implementation_version=YokogawaGS200.implementation_version,
+        label="Yokogawa GS200",
+        manufacturer="Yokogawa",
+        model="GS200",
+        options_type=_Gs200ConnectionOptions,
+        factory=lambda instrument_id, transport, options: YokogawaGS200(
             instrument_id,
             transport,
             monitor_option=options.monitor_option,
@@ -126,40 +180,73 @@ _DEFINITIONS: tuple[_DriverDefinition, ...] = (
     ),
     _tcp_driver_definition(
         ROHDE_SCHWARZ_SGS100A,
-        _NoConnectionOptions,
-        lambda instrument_id, transport, _options: RohdeSchwarzSGS100A(
+        implementation_version=RohdeSchwarzSGS100A.implementation_version,
+        label="Rohde & Schwarz SGS100A",
+        manufacturer="Rohde & Schwarz",
+        model="SGS100A",
+        options_type=_NoConnectionOptions,
+        factory=lambda instrument_id, transport, _options: RohdeSchwarzSGS100A(
             instrument_id,
             transport,
         ),
     ),
     _tcp_driver_definition(
         LAKESHORE_372,
-        _NoConnectionOptions,
-        lambda instrument_id, transport, _options: LakeShore372(
+        implementation_version=LakeShore372.implementation_version,
+        label="Lake Shore 372",
+        manufacturer="Lake Shore",
+        model="372",
+        options_type=_NoConnectionOptions,
+        factory=lambda instrument_id, transport, _options: LakeShore372(
             instrument_id,
             transport,
         ),
     ),
     _tcp_driver_definition(
         KEYSIGHT_E5080B,
-        _E5080BConnectionOptions,
-        lambda instrument_id, transport, options: KeysightE5080B(
+        implementation_version=KeysightE5080B.implementation_version,
+        label="Keysight E5080B",
+        manufacturer="Keysight",
+        model="E5080B",
+        options_type=_E5080BConnectionOptions,
+        factory=lambda instrument_id, transport, options: KeysightE5080B(
             instrument_id,
             transport,
             channel=options.channel,
             measurement=options.measurement,
         ),
     ),
-    _VirtualDriverDefinition(VIRTUAL_RF_SOURCE, VirtualRfSource),
-    _VirtualDriverDefinition(VIRTUAL_DC_SOURCE, VirtualDcSource),
-    _VirtualDriverDefinition(
-        VIRTUAL_TEMPERATURE_MONITOR,
-        VirtualTemperatureMonitor,
+    _virtual_driver_definition(
+        VIRTUAL_RF_SOURCE,
+        implementation_version=VirtualRfSource.implementation_version,
+        label="Virtual RF source",
+        factory=VirtualRfSource,
     ),
-    _VirtualDriverDefinition(VIRTUAL_VNA, VirtualNetworkAnalyzer),
+    _virtual_driver_definition(
+        VIRTUAL_DC_SOURCE,
+        implementation_version=VirtualDcSource.implementation_version,
+        label="Virtual DC source",
+        factory=VirtualDcSource,
+    ),
+    _virtual_driver_definition(
+        VIRTUAL_TEMPERATURE_MONITOR,
+        implementation_version=VirtualTemperatureMonitor.implementation_version,
+        label="Virtual temperature monitor",
+        factory=VirtualTemperatureMonitor,
+    ),
+    _virtual_driver_definition(
+        VIRTUAL_VNA,
+        implementation_version=VirtualNetworkAnalyzer.implementation_version,
+        label="Virtual network analyzer",
+        factory=VirtualNetworkAnalyzer,
+    ),
 )
-_DRIVERS = {definition.driver_id: definition for definition in _DEFINITIONS}
+_DRIVERS = {definition.spec.driver_id: definition for definition in _DEFINITIONS}
 SUPPORTED_DRIVER_IDS = frozenset(_DRIVERS)
+_DRIVER_CATALOG = DriverCatalog(
+    provider_id="scopecat.instruments.configured",
+    drivers=tuple(definition.spec for definition in _DEFINITIONS),
+)
 
 
 class ConfiguredInstrumentProvider:
@@ -171,6 +258,7 @@ class ConfiguredInstrumentProvider:
     """
 
     provider_id = "scopecat.instruments.configured"
+    driver_catalog = _DRIVER_CATALOG
 
     def __init__(
         self,
@@ -276,7 +364,7 @@ def _create_virtual_driver(
 ) -> InstrumentDriver:
     connection = binding.connection
     if not isinstance(connection, VirtualInstrumentConnection):
-        raise ValueError(f"{definition.driver_id} requires a virtual connection")
+        raise ValueError(f"{definition.spec.driver_id} requires a virtual connection")
     _NoConnectionOptions.model_validate(connection.options)
     return definition.factory(binding.id, world)
 
@@ -288,7 +376,7 @@ def _require_tcp_connection(
     connection = binding.connection
     if not isinstance(connection, TcpipSocketInstrumentConnection):
         raise ValueError(
-            f"{definition.driver_id} supports only tcpip_socket connections"
+            f"{definition.spec.driver_id} supports only tcpip_socket connections"
         )
     return connection
 

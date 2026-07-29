@@ -17,8 +17,10 @@ def create_quantum_lab_backend(
     from quantum_lab_demo.payloads import quantum_lab_payload_codecs
     from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 
+    provider = QuantumLabVirtualProvider(profile=virtual_lab_profile)
     return InstrumentBackend(
-        provider=QuantumLabVirtualProvider(profile=virtual_lab_profile),
+        provider=provider,
+        driver_catalog=provider.driver_catalog,
         payload_codecs=quantum_lab_payload_codecs(),
     )
 

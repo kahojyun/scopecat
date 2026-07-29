@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from scopecat.sdk.instruments import (
     DriverAcquisition,
+    DriverCatalog,
     DriverOperation,
     DriverOutcome,
     DriverReadback,
@@ -32,6 +33,12 @@ class InstrumentDemoProvider:
 
     def __init__(self, *, seed: int = 7) -> None:
         self._configured = ConfiguredInstrumentProvider(seed=seed)
+
+    @property
+    def driver_catalog(self) -> DriverCatalog:
+        return self._configured.driver_catalog.model_copy(
+            update={"provider_id": self.provider_id}
+        )
 
     @property
     def world(self) -> VirtualLabWorld:

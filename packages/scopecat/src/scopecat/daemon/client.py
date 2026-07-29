@@ -92,6 +92,7 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
@@ -235,6 +236,12 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/instruments",
             InstrumentListView,
+        )
+
+    def driver_catalog(self) -> DriverCatalog:
+        return self._get_model(
+            f"{_API_PREFIX}/instrument-drivers",
+            DriverCatalog,
         )
 
     def get_instrument(self, instrument_id: str) -> InstrumentView:

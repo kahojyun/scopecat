@@ -15,6 +15,7 @@ from scopecat.sdk.instruments.authoring import (
     DriverOperation,
     DriverPayload,
 )
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -131,7 +132,12 @@ class InstrumentBackend:
     """Keep one provider and its driver-side payload codecs process-long."""
 
     provider: InstrumentProvider
+    driver_catalog: DriverCatalog
     payload_codecs: PayloadCodecRegistry = field(default_factory=PayloadCodecRegistry)
+
+    def __post_init__(self) -> None:
+        if self.driver_catalog.provider_id != self.provider.provider_id:
+            raise ValueError("driver catalog provider_id does not match its provider")
 
 
 def lower_backend_apply_request(

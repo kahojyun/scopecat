@@ -31,6 +31,7 @@ from scopecat.sdk.instruments.backend import (
     InstrumentBackend,
     decode_driver_operation,
 )
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
@@ -85,6 +86,9 @@ class InstrumentBackendEndpoint(Protocol):
     def provider_id(self) -> str: ...
 
     @property
+    def driver_catalog(self) -> DriverCatalog: ...
+
+    @property
     def payload_catalog(self) -> PayloadCodecCatalog: ...
 
     def describe(
@@ -137,6 +141,7 @@ class LocalInstrumentBackendEndpoint:
 
     def __init__(self, backend: InstrumentBackend) -> None:
         self._provider = backend.provider
+        self._driver_catalog = backend.driver_catalog
         self._payload_codecs = backend.payload_codecs
         self._endpoint_id = uuid4().hex
         self._connections: dict[InstrumentHandle, _LocalConnection] = {}
@@ -152,6 +157,10 @@ class LocalInstrumentBackendEndpoint:
     @property
     def provider_id(self) -> str:
         return self._provider.provider_id
+
+    @property
+    def driver_catalog(self) -> DriverCatalog:
+        return self._driver_catalog
 
     @property
     def payload_catalog(self) -> PayloadCodecCatalog:

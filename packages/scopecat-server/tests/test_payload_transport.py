@@ -34,6 +34,7 @@ from scopecat.planning.provider_validation import instrument_contract_fingerprin
 from scopecat.records.artifact import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
+    DriverCatalog,
     DriverOperation,
     DriverOutcome,
     DriverPayload,
@@ -791,6 +792,7 @@ def _runtime(
         instrument_endpoint=LocalInstrumentBackendEndpoint(
             InstrumentBackend(
                 provider=provider,
+                driver_catalog=DriverCatalog(provider_id=provider.provider_id),
                 payload_codecs=(
                     _payload_codecs() if payload_codecs is None else payload_codecs
                 ),

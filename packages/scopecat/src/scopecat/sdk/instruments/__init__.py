@@ -36,6 +36,12 @@ if TYPE_CHECKING:
         DriverUnknown,
     )
     from scopecat.sdk.instruments.backend import InstrumentBackend
+    from scopecat.sdk.instruments.catalog import (
+        DriverCatalog,
+        DriverConnectionSpec,
+        DriverSpec,
+        InstrumentConnectionKind,
+    )
     from scopecat.sdk.instruments.commands import (
         ApplyReceipt,
         CollectReceipt,
@@ -159,6 +165,11 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.authoring",
         "DriverAcquisition",
     ),
+    "DriverCatalog": ("scopecat.sdk.instruments.catalog", "DriverCatalog"),
+    "DriverConnectionSpec": (
+        "scopecat.sdk.instruments.catalog",
+        "DriverConnectionSpec",
+    ),
     "DriverArgument": ("scopecat.sdk.instruments.authoring", "DriverArgument"),
     "DriverFault": ("scopecat.sdk.instruments.provider", "DriverFault"),
     "DriverOperation": ("scopecat.sdk.instruments.authoring", "DriverOperation"),
@@ -172,6 +183,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.sdk.instruments.authoring",
         "DriverStatePatch",
     ),
+    "DriverSpec": ("scopecat.sdk.instruments.catalog", "DriverSpec"),
     "DriverSuccess": ("scopecat.sdk.instruments.authoring", "DriverSuccess"),
     "DriverUnknown": ("scopecat.sdk.instruments.authoring", "DriverUnknown"),
     "FixedAcquisitionSpec": (
@@ -187,6 +199,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentConnectionContext": (
         "scopecat.sdk.instruments.provider",
         "InstrumentConnectionContext",
+    ),
+    "InstrumentConnectionKind": (
+        "scopecat.sdk.instruments.catalog",
+        "InstrumentConnectionKind",
     ),
     "InstrumentDescription": (
         "scopecat.sdk.instruments.contracts",

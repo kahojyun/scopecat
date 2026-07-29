@@ -158,6 +158,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-drivers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Driver Catalog */
+        get: operations["get_driver_catalog_api_v1_instrument_drivers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instrument-sessions": {
         parameters: {
             query?: never;
@@ -1228,6 +1245,36 @@ export interface components {
             /** Kind */
             kind: string;
         };
+        /** DriverCatalog */
+        DriverCatalog: {
+            /**
+             * Drivers
+             * @default []
+             */
+            drivers: components["schemas"]["DriverSpec"][];
+            provider_id: components["schemas"]["_NonEmptyText"];
+        };
+        /** DriverConnectionSpec */
+        DriverConnectionSpec: {
+            kind: components["schemas"]["InstrumentConnectionKind"];
+            /** Options Schema */
+            options_schema: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
+        };
+        /** DriverSpec */
+        DriverSpec: {
+            /** Connections */
+            connections: [
+                components["schemas"]["DriverConnectionSpec"],
+                ...components["schemas"]["DriverConnectionSpec"][]
+            ];
+            driver_id: components["schemas"]["_NonEmptyText"];
+            implementation_version: components["schemas"]["_NonEmptyText"];
+            label: components["schemas"]["_NonEmptyText"];
+            manufacturer?: components["schemas"]["_NonEmptyText"] | null;
+            model?: components["schemas"]["_NonEmptyText"] | null;
+        };
         /** DurableEvent */
         DurableEvent: {
             /** Event Id */
@@ -1389,6 +1436,8 @@ export interface components {
         };
         "InstrumentConnection-Input": components["schemas"]["VirtualInstrumentConnection-Input"] | components["schemas"]["TcpipSocketInstrumentConnection-Input"];
         "InstrumentConnection-Output": components["schemas"]["VirtualInstrumentConnection-Output"] | components["schemas"]["TcpipSocketInstrumentConnection-Output"];
+        /** @enum {string} */
+        InstrumentConnectionKind: "virtual" | "tcpip_socket";
         InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"];
         /** InstrumentDescription */
         InstrumentDescription: {
@@ -3009,6 +3058,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DaemonHealth"];
+                };
+            };
+        };
+    };
+    get_driver_catalog_api_v1_instrument_drivers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DriverCatalog"];
                 };
             };
         };

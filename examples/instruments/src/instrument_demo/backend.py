@@ -10,7 +10,11 @@ from .provider import InstrumentDemoProvider
 
 
 def create_backend(_project_root: Path) -> InstrumentBackend:
-    return InstrumentBackend(provider=InstrumentDemoProvider(seed=7))
+    provider = InstrumentDemoProvider(seed=7)
+    return InstrumentBackend(
+        provider=provider,
+        driver_catalog=provider.driver_catalog,
+    )
 
 
 __all__ = ["create_backend"]

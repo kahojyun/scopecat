@@ -51,6 +51,7 @@ from scopecat.records.config import config_content_hash
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
     InstrumentOperationArgument,
     InvokeCommand,
@@ -128,6 +129,25 @@ def test_resolve_instrument_contracts_posts_the_exact_config_snapshot() -> None:
     assert InstrumentContractCatalogRequest.model_validate_json(request.content) == (
         InstrumentContractCatalogRequest(config=config)
     )
+
+
+def test_driver_catalog_reads_project_backend_metadata() -> None:
+    requests: list[httpx2.Request] = []
+    catalog = DriverCatalog(provider_id="tests.provider")
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(catalog)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.driver_catalog() == catalog
+    [request] = requests
+    assert request.method == "GET"
+    assert request.url.path == "/api/v1/instrument-drivers"
 
 
 def test_run_instrument_provision_retries_the_same_operation_after_response_loss() -> (
