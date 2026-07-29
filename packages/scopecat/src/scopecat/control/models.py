@@ -317,6 +317,8 @@ class InstrumentSession(_ControlModel):
     exclusivity_keys: tuple[str, ...] = Field(min_length=1)
     state: InstrumentSessionState
     acquired_at: datetime
+    renewed_at: datetime
+    expires_at: datetime
     attention_reason: str | None = None
     active_operation_id: str | None = None
     active_operation_kind: InstrumentOperationKind | None = None
@@ -339,6 +341,12 @@ class InstrumentSession(_ControlModel):
         if len(value) != len(set(value)):
             raise ValueError("instrument session exclusivity keys must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_lifetime(self) -> InstrumentSession:
+        if self.expires_at <= self.renewed_at:
+            raise ValueError("instrument session must expire after its renewal time")
+        return self
 
     @model_validator(mode="after")
     def validate_state(self) -> InstrumentSession:

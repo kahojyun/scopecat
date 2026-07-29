@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
 from typing import Never, override
@@ -74,6 +75,7 @@ from scopecat.sdk.instruments.contracts import (
 from tests.testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from tests.testkit.payload_codecs import json_payload_codecs
 
+import scopecat_server.instrument_service as instrument_service_module
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.errors import BackendConflict
 from scopecat_server.instrument_backend import LocalInstrumentBackendEndpoint
@@ -86,6 +88,7 @@ _DC = InterfaceRef("test.dc/v1")
 _DC_MODE = _DC.property("mode")
 _DC_VOLTAGE_LEVEL = _DC.property("voltage_level")
 _DC_CURRENT_LEVEL = _DC.property("current_level")
+_SESSION_LEASE_TTL = timedelta(seconds=90)
 
 
 class _TrackingDriver(SignalInstrumentDriver):
@@ -1306,6 +1309,108 @@ def test_sequential_sessions_reuse_connection_but_not_state_or_replay_scope(
             assert driver.disconnect_count == 0
 
 
+def test_expired_session_releases_owner_and_reuses_fresh_connection(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider(_ResyncDriver)
+    with (
+        _runtime(
+            tmp_path,
+            provider,
+            session_lease_ttl=timedelta(seconds=30),
+        ) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        daemon = _daemon_client(transport)
+        first = daemon.open_instrument_session(
+            InstrumentSessionOpenCommand(
+                operation_id="open-expiring-owner",
+                actor="alice",
+                instrument_ids=("source-0",),
+            )
+        )
+        renewed = daemon.renew_instrument_session(first.session_id)
+
+        runtime.application.instruments.expire_leases(at=first.expires_at)
+        assert (
+            runtime.application.executor._control.get_instrument_session(
+                first.session_id
+            ).state
+            == "active"
+        )
+
+        runtime.application.instruments.expire_leases(at=renewed.expires_at)
+        assert (
+            runtime.application.executor._control.get_instrument_session(
+                first.session_id
+            ).state
+            == "closed"
+        )
+        with pytest.raises(DaemonConflictError, match="not active"):
+            daemon.renew_instrument_session(first.session_id)
+        [driver] = provider.drivers
+        assert isinstance(driver, _ResyncDriver)
+        assert driver.abort_count == 0
+        assert driver.disconnect_count == 0
+
+        driver.change_from_front_panel(5.1)
+        second = daemon.open_instrument_session(
+            InstrumentSessionOpenCommand(
+                operation_id="open-after-owner-expiry",
+                actor="bob",
+                instrument_ids=("source-0",),
+            )
+        )
+
+        assert provider.drivers == [driver]
+        assert driver.read_count == 2
+        frequency = next(
+            property_.value.root
+            for property_ in second.observed_state[0].properties
+            if property_.property_id == "frequency"
+        )
+        assert frequency == Quantity(value=5.1, unit="GHz")
+        daemon.close_instrument_session(second.session_id)
+
+
+def test_session_expiry_during_recorded_operation_quarantines_owner(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:  # noqa: SIM117
+        with TestClient(runtime.app()) as transport:
+            daemon = _daemon_client(transport)
+            session = daemon.open_instrument_session(
+                InstrumentSessionOpenCommand(
+                    operation_id="open-expiring-operation",
+                    actor="alice",
+                    instrument_ids=("source-0",),
+                )
+            )
+            control = runtime.application.executor._control
+            control.start_instrument_operation(
+                session.session_id,
+                instrument_id="source-0",
+                operation_id="in-flight-operation",
+                kind="invoke",
+            )
+
+            runtime.application.instruments.expire_leases(at=session.expires_at)
+
+            durable = control.get_instrument_session(session.session_id)
+            assert durable.state == "attention_required"
+            assert (
+                durable.attention_reason
+                == "instrument_session_lease_expired_during_operation"
+            )
+            with control.transaction() as connection:
+                [claim] = control.list_resource_claims_in_transaction(connection)
+            assert claim.status == "quarantined"
+            [driver] = provider.drivers
+            assert driver.abort_count == 1
+            assert driver.disconnect_count == 1
+
+
 def test_config_activation_reuses_matching_connection_with_fresh_state(
     tmp_path: Path,
 ) -> None:
@@ -1681,6 +1786,112 @@ def test_shutdown_fences_an_owner_that_finishes_opening_after_the_drain_starts(
             "attention_required",
             "closed",
         }
+
+
+def test_shutdown_owns_a_session_already_selected_for_lease_expiry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _TrackingProvider()
+    with _runtime(tmp_path, provider) as runtime:
+        instruments = runtime.application.instruments
+        session = instruments.open_session(
+            InstrumentSessionOpenCommand(
+                operation_id="open-expiry-shutdown-race",
+                actor="alice",
+                instrument_ids=("source-0",),
+            )
+        )
+        release_started = Event()
+        drain_started = Event()
+        continue_release = Event()
+        release_calls = 0
+        original_release: Callable[..., bool] = (
+            instrument_service_module._release_instruments
+        )
+        original_drain: Callable[..., None] = instruments._drain_shutdown
+
+        def delayed_release(*args: object, **kwargs: object) -> bool:
+            nonlocal release_calls
+            release_calls += 1
+            release_started.set()
+            assert continue_release.wait(timeout=3)
+            return original_release(*args, **kwargs)
+
+        def observed_drain(*args: object, **kwargs: object) -> None:
+            drain_started.set()
+            original_drain(*args, **kwargs)
+
+        monkeypatch.setattr(
+            instrument_service_module,
+            "_release_instruments",
+            delayed_release,
+        )
+        monkeypatch.setattr(instruments, "_drain_shutdown", observed_drain)
+        expiry = Thread(target=lambda: instruments.expire_leases(at=session.expires_at))
+        shutdown = Thread(target=instruments.shutdown)
+
+        expiry.start()
+        assert release_started.wait(timeout=3)
+        shutdown.start()
+        assert drain_started.wait(timeout=3)
+        continue_release.set()
+        expiry.join(timeout=3)
+        shutdown.join(timeout=3)
+
+        assert not expiry.is_alive()
+        assert not shutdown.is_alive()
+        assert release_calls == 1
+        durable = runtime.application.executor._control.get_instrument_session(
+            session.session_id
+        )
+        assert durable.state == "closed"
+        assert durable.end_status == "aborted"
+
+
+def test_session_heartbeat_is_independent_of_another_slow_open(
+    tmp_path: Path,
+) -> None:
+    provider = _ShutdownRaceProvider()
+    with _runtime(tmp_path, provider, config=_two_instrument_config()) as runtime:
+        instruments = runtime.application.instruments
+        first = instruments.open_session(
+            InstrumentSessionOpenCommand(
+                operation_id="open-heartbeat-owner",
+                actor="alice",
+                instrument_ids=("source-0",),
+            )
+        )
+        opened: list[str] = []
+        open_errors: list[BaseException] = []
+
+        def open_second() -> None:
+            try:
+                session = instruments.open_session(
+                    InstrumentSessionOpenCommand(
+                        operation_id="open-slow-owner",
+                        actor="bob",
+                        instrument_ids=("source-1",),
+                    )
+                )
+                opened.append(session.session_id)
+            except BaseException as error:
+                open_errors.append(error)
+
+        opening = Thread(target=open_second)
+        opening.start()
+        assert provider.read_entered.wait(timeout=3)
+
+        renewed = instruments.renew_session(first.session_id)
+
+        provider.release_read.set()
+        opening.join(timeout=3)
+        assert not opening.is_alive()
+        assert not open_errors
+        assert len(opened) == 1
+        assert renewed.expires_at > first.expires_at
+        instruments.close_session(first.session_id)
+        instruments.close_session(opened[0])
 
 
 def test_provider_rejection_closes_the_daemon_session(tmp_path: Path) -> None:
@@ -2638,6 +2849,7 @@ def _runtime(
     provider: InstrumentProvider,
     *,
     config: ConfigProfileSnapshot | None = None,
+    session_lease_ttl: timedelta = _SESSION_LEASE_TTL,
 ) -> LocalDaemonRuntime:
     return LocalDaemonRuntime(
         root,
@@ -2648,6 +2860,7 @@ def _runtime(
                 payload_codecs=json_payload_codecs("pulse_program"),
             )
         ),
+        instrument_session_lease_ttl=session_lease_ttl,
     )
 
 

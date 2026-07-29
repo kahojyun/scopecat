@@ -16,6 +16,7 @@ import {
   invokeInstrumentOperation,
   openInstrumentSession,
   publishInstrumentConnection,
+  renewInstrumentSession,
   type ActiveConfig,
   type InstrumentAcquisitionTarget,
 } from "./instrument-api";
@@ -121,6 +122,32 @@ describe("instrument configuration publishing", () => {
         port: 5025,
       }),
     ).toBe("TCP/IP · 192.0.2.24:5025");
+  });
+});
+
+describe("instrument session lease", () => {
+  it("renews with an empty heartbeat request", async () => {
+    const renewed = {
+      session_id: "session-1",
+      renewed_at: "2026-07-27T08:00:10Z",
+      expires_at: "2026-07-27T08:01:10Z",
+    };
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        new Response(JSON.stringify(renewed), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(renewInstrumentSession("session-1")).resolves.toEqual(renewed);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/instrument-sessions/session-1/heartbeat",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBeUndefined();
   });
 });
 
@@ -422,6 +449,8 @@ function session(): InstrumentSession {
     descriptions: [],
     observed_state: [],
     opened_at: "2026-07-27T08:00:00Z",
+    renewed_at: "2026-07-27T08:00:00Z",
+    expires_at: "2026-07-27T08:01:00Z",
   };
 }
 

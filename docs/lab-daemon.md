@@ -131,8 +131,9 @@ worker.
 
 The process-owner lock answers only “which daemon owns this lab instance?” It is
 not a run coordination mechanism. Resource claims coordinate experiments and
-direct sessions, executor leases fence external run execution, and SQLite
-transactions make durable commits atomic.
+direct sessions, renewable ownership leases reclaim abandoned clients, executor
+tokens fence external run execution, and SQLite transactions make durable
+commits atomic.
 
 The default transport is a same-user local control plane. It binds to loopback
 and restricts accepted host names; it is not an authenticated remote service.

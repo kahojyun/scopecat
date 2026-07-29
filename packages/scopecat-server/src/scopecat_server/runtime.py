@@ -35,14 +35,15 @@ from .services import (
     CommandPayloadService,
     ConfigService,
     DaemonApplication,
-    ExecutorLeaseSupervisor,
     ExecutorService,
     InstrumentService,
+    OwnershipLeaseSupervisor,
     RunService,
 )
 from .transport import create_app
 
 _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE = timedelta(seconds=5)
+_DEFAULT_INSTRUMENT_SESSION_LEASE_TTL = timedelta(seconds=90)
 
 
 class LocalDaemonRuntime:
@@ -57,6 +58,9 @@ class LocalDaemonRuntime:
         instrument_backend_spec: str | None = None,
         instrument_endpoint: InstrumentBackendEndpoint | None = None,
         instrument_shutdown_grace: timedelta = _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE,
+        instrument_session_lease_ttl: timedelta = (
+            _DEFAULT_INSTRUMENT_SESSION_LEASE_TTL
+        ),
         lease_ttl: timedelta | None = None,
     ) -> None:
         self._close_lock = Lock()
@@ -136,6 +140,7 @@ class LocalDaemonRuntime:
                 payloads=payloads,
                 actors=instrument_actors,
                 shutdown_grace_seconds=instrument_shutdown_grace.total_seconds(),
+                session_lease_ttl=instrument_session_lease_ttl,
             )
             executor = ExecutorService(
                 control=control,
@@ -144,8 +149,7 @@ class LocalDaemonRuntime:
                 lease_ttl=lease_ttl,
             )
             project_id = _project_id(self.project_root)
-            lease_supervisor = ExecutorLeaseSupervisor(
-                control=control,
+            lease_supervisor = OwnershipLeaseSupervisor(
                 instruments=instruments,
                 shutdown_timeout_seconds=instrument_shutdown_grace.total_seconds(),
             )

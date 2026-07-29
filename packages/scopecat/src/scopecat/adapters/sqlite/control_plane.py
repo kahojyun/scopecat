@@ -757,11 +757,13 @@ class SQLiteControlPlane:
         config_content_hash: str,
         instrument_ids: tuple[str, ...],
         exclusivity_keys: tuple[str, ...],
+        ttl: timedelta,
         expected_config_generation: int | None,
         at: datetime | None = None,
     ) -> InstrumentSession:
         """Atomically reserve instruments for one direct-interaction session."""
 
+        _ttl(ttl)
         if not operation_id:
             raise ValueError("instrument session operation id must be non-empty")
         if not actor:
@@ -786,6 +788,7 @@ class SQLiteControlPlane:
             raise ValueError("instrument session exclusivity keys must be unique")
 
         started_at = at or datetime.now(tz=UTC)
+        expires_at = started_at + ttl
         session_id = f"instrument-{uuid4().hex}"
         resources = tuple(
             ResourceKey(kind="instrument", id=exclusivity_key)
@@ -811,6 +814,10 @@ class SQLiteControlPlane:
                 if retry.state != "active":
                     raise ControlPlaneConflict(
                         "instrument session open retry is no longer active"
+                    )
+                if retry.expires_at <= started_at:
+                    raise ControlPlaneConflict(
+                        "instrument session open retry has expired"
                     )
                 return retry
             if expected_config_generation is None:
@@ -841,10 +848,14 @@ class SQLiteControlPlane:
                     session_id, open_operation_id, actor, config_entry_id,
                     config_content_hash,
                     instrument_ids_json, exclusivity_keys_json, state, acquired_at,
+                    renewed_at, expires_at,
                     attention_reason, active_operation_id,
                     active_operation_kind, end_status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, NULL, NULL, NULL)
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?,
+                    NULL, NULL, NULL, NULL
+                )
                 """,
                 (
                     session_id,
@@ -863,6 +874,8 @@ class SQLiteControlPlane:
                         separators=(",", ":"),
                     ),
                     _timestamp(started_at),
+                    _timestamp(started_at),
+                    _timestamp(expires_at),
                 ),
             )
             connection.executemany(
@@ -972,14 +985,69 @@ class SQLiteControlPlane:
                 )
         return tuple(_instrument_session(row) for row in rows)
 
+    def renew_instrument_session(
+        self,
+        session_id: str,
+        *,
+        ttl: timedelta,
+        at: datetime | None = None,
+    ) -> InstrumentSession:
+        """Renew one live direct-session lease without adding an event."""
+
+        _ttl(ttl)
+        renewed_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            self._live_instrument_session(
+                connection,
+                session_id=session_id,
+                at=renewed_at,
+            )
+            connection.execute(
+                """
+                UPDATE instrument_sessions SET renewed_at = ?, expires_at = ?
+                WHERE session_id = ? AND state = 'active'
+                """,
+                (
+                    _timestamp(renewed_at),
+                    _timestamp(renewed_at + ttl),
+                    session_id,
+                ),
+            )
+            return self._instrument_session_row(connection, session_id)
+
+    def expired_instrument_sessions(
+        self,
+        *,
+        at: datetime | None = None,
+    ) -> tuple[InstrumentSession, ...]:
+        """List active direct sessions whose leases have elapsed."""
+
+        checked_at = at or datetime.now(tz=UTC)
+        with closing(self._connect()) as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT * FROM instrument_sessions
+                    WHERE state = 'active' AND expires_at <= ?
+                    ORDER BY expires_at, session_id
+                    """,
+                    (_timestamp(checked_at),),
+                )
+            )
+        return tuple(_instrument_session(row) for row in rows)
+
     def validate_instrument_session(
         self,
         session_id: str,
+        *,
+        at: datetime | None = None,
     ) -> InstrumentSession:
+        checked_at = at or datetime.now(tz=UTC)
         with closing(self._connect()) as connection:
-            return self._active_instrument_session(
+            return self._live_instrument_session(
                 connection,
                 session_id=session_id,
+                at=checked_at,
             )
 
     def start_instrument_operation(
@@ -997,9 +1065,10 @@ class SQLiteControlPlane:
             raise ValueError("instrument operation id must be non-empty")
         started_at = at or datetime.now(tz=UTC)
         with self._transaction() as connection:
-            session = self._active_instrument_session(
+            session = self._live_instrument_session(
                 connection,
                 session_id=session_id,
+                at=started_at,
             )
             if session.active_operation_id is not None:
                 raise ControlPlaneConflict(
@@ -1040,9 +1109,10 @@ class SQLiteControlPlane:
     ) -> InstrumentSession:
         finished_at = at or datetime.now(tz=UTC)
         with self._transaction() as connection:
-            session = self._active_instrument_session(
+            session = self._live_instrument_session(
                 connection,
                 session_id=session_id,
+                at=finished_at,
             )
             if (
                 session.active_operation_id != operation_id
@@ -1106,6 +1176,38 @@ class SQLiteControlPlane:
             )
             return self._instrument_session_row(connection, session_id)
 
+    def expire_instrument_session(
+        self,
+        session_id: str,
+        *,
+        at: datetime | None = None,
+    ) -> InstrumentSession:
+        """Close one expired idle session after its actor has been released."""
+
+        expired_at = at or datetime.now(tz=UTC)
+        with self._transaction() as connection:
+            current = self._instrument_session_row(connection, session_id)
+            if current.state == "closed":
+                return current
+            if current.state != "active":
+                raise InstrumentSessionNotActive(
+                    "instrument session requires operator attention"
+                )
+            if current.expires_at > expired_at:
+                raise ControlPlaneConflict("instrument session lease has not expired")
+            if current.active_operation_id is not None:
+                raise ControlPlaneConflict(
+                    "instrument session cannot expire during an active operation"
+                )
+            self._close_instrument_session_in_transaction(
+                connection,
+                current,
+                status="aborted",
+                at=expired_at,
+                event_kind="instrument_session_lease_expired",
+            )
+            return self._instrument_session_row(connection, session_id)
+
     def mark_instrument_session_unknown(
         self,
         session_id: str,
@@ -1117,10 +1219,9 @@ class SQLiteControlPlane:
             raise ValueError("instrument session attention reason must be non-empty")
         lost_at = at or datetime.now(tz=UTC)
         with self._transaction() as connection:
-            self._active_instrument_session(
-                connection,
-                session_id=session_id,
-            )
+            current = self._instrument_session_row(connection, session_id)
+            if current.state != "active":
+                raise InstrumentSessionNotActive("instrument session is not active")
             self._lose_instrument_session(
                 connection,
                 session_id,
@@ -1481,10 +1582,11 @@ class SQLiteControlPlane:
         return True
 
     @staticmethod
-    def _active_instrument_session(
+    def _live_instrument_session(
         connection: sqlite3.Connection,
         *,
         session_id: str,
+        at: datetime,
     ) -> InstrumentSession:
         row = _one(
             connection.execute(
@@ -1499,6 +1601,8 @@ class SQLiteControlPlane:
         session = _instrument_session(row)
         if session.state != "active":
             raise InstrumentSessionNotActive("instrument session is not active")
+        if session.expires_at <= at:
+            raise InstrumentSessionNotActive("instrument session lease has expired")
         return session
 
     @staticmethod
@@ -1731,6 +1835,8 @@ def _instrument_session(row: sqlite3.Row) -> InstrumentSession:
             ),
             "state": _text(row, "state"),
             "acquired_at": _datetime(_text(row, "acquired_at")),
+            "renewed_at": _datetime(_text(row, "renewed_at")),
+            "expires_at": _datetime(_text(row, "expires_at")),
             "attention_reason": _optional_text(row, "attention_reason"),
             "active_operation_id": _optional_text(row, "active_operation_id"),
             "active_operation_kind": _optional_text(row, "active_operation_kind"),

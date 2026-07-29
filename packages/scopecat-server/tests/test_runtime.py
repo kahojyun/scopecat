@@ -336,7 +336,7 @@ def test_runtime_cleans_up_partially_started_supervisor(
             raise RuntimeError("startup reconciliation failed")
 
         monkeypatch.setattr(
-            daemon_services.ExecutorLeaseSupervisor,
+            daemon_services.OwnershipLeaseSupervisor,
             "_reconcile_startup",
             fail_reconciliation,
         )
@@ -441,7 +441,7 @@ def test_runtime_shutdown_bounds_a_stuck_lease_supervisor(
     try:
         assert not closer.is_alive()
         assert isinstance(close_error, RuntimeError)
-        assert str(close_error) == "executor lease supervisor did not stop"
+        assert str(close_error) == "ownership lease supervisor did not stop"
         with pytest.raises(RuntimeError, match="already has a running daemon"):
             LocalDaemonRuntime(tmp_path)
     finally:
@@ -935,6 +935,7 @@ def test_inventory_migration_release_before_commit_fences_old_session_claim(
                 instrument_ids=("source-0",),
                 exclusivity_keys=("source-0",),
                 expected_config_generation=active.activation.generation,
+                ttl=timedelta(seconds=30),
             )
 
         monkeypatch.setattr(

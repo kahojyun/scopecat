@@ -4,7 +4,7 @@ from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
 from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
 from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 16
+PROJECT_SCHEMA_VERSION = 17
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (
@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS instrument_sessions (
         state IN ('active', 'attention_required', 'closed')
     ),
     acquired_at TEXT NOT NULL,
+    renewed_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
     attention_reason TEXT,
     active_operation_id TEXT,
     active_operation_kind TEXT CHECK (

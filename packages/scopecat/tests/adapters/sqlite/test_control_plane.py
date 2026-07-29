@@ -20,6 +20,7 @@ from scopecat.control.models import (
     DurableEvent,
     DurableEventInput,
     ExecutorLease,
+    InstrumentSession,
     InventoryMigrationBlocker,
     ResourceClaim,
     ResourceKey,
@@ -31,11 +32,32 @@ from scopecat.control.models import (
 
 NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 SUBMISSION_HASH = "1" * 64
+SESSION_TTL = timedelta(minutes=5)
 
 
 def _store(path: Path) -> SQLiteControlPlane:
     SQLiteProjectStore(path, path.parent / "objects").bootstrap()
     return SQLiteControlPlane(path)
+
+
+def _open_instrument_session(
+    store: SQLiteControlPlane,
+    name: str,
+    *,
+    ttl: timedelta = SESSION_TTL,
+    at: datetime = NOW,
+) -> InstrumentSession:
+    return store.open_instrument_session(
+        operation_id=f"open-{name}",
+        actor="alice",
+        config_entry_id="baseline",
+        config_content_hash=f"sha256:{'a' * 64}",
+        instrument_ids=(name,),
+        exclusivity_keys=(f"visa:{name}",),
+        ttl=ttl,
+        expected_config_generation=0,
+        at=at,
+    )
 
 
 def _admission(
@@ -403,6 +425,7 @@ def test_inventory_migration_blockers_include_active_instrument_session(
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("scope",),
         exclusivity_keys=(key.id,),
+        ttl=SESSION_TTL,
         expected_config_generation=0,
         at=NOW,
     )
@@ -435,6 +458,7 @@ def test_inventory_migration_blockers_include_quarantined_session_claim(
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("scope",),
         exclusivity_keys=(key.id,),
+        ttl=SESSION_TTL,
         expected_config_generation=0,
         at=NOW,
     )
@@ -659,6 +683,7 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("scope",),
         exclusivity_keys=("visa:scope",),
+        ttl=SESSION_TTL,
         expected_config_generation=0,
         at=NOW,
     )
@@ -669,6 +694,7 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
         config_content_hash=f"sha256:{'b' * 64}",
         instrument_ids=("scope",),
         exclusivity_keys=("visa:replacement",),
+        ttl=SESSION_TTL,
         expected_config_generation=None,
         at=NOW + timedelta(seconds=1),
     )
@@ -700,6 +726,7 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=("scope",),
             exclusivity_keys=("visa:scope",),
+            ttl=SESSION_TTL,
             expected_config_generation=None,
             at=NOW + timedelta(seconds=1),
         )
@@ -734,6 +761,143 @@ def test_instrument_session_retry_operation_recovery_and_explicit_close(
         store.validate_instrument_session(first.session_id)
 
 
+def test_instrument_session_lease_renews_silently_and_expires_idle_session(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    opened = _open_instrument_session(
+        store,
+        "scope",
+        ttl=timedelta(seconds=10),
+    )
+
+    assert opened.acquired_at == NOW
+    assert opened.renewed_at == NOW
+    assert opened.expires_at == NOW + timedelta(seconds=10)
+    with pytest.raises(ValueError, match="expire after its renewal time"):
+        InstrumentSession.model_validate(
+            {
+                **opened.model_dump(),
+                "expires_at": opened.renewed_at,
+            }
+        )
+
+    events_before_renewal = store.list_events().items
+    renewed = store.renew_instrument_session(
+        opened.session_id,
+        ttl=timedelta(seconds=20),
+        at=NOW + timedelta(seconds=5),
+    )
+
+    assert renewed.acquired_at == NOW
+    assert renewed.renewed_at == NOW + timedelta(seconds=5)
+    assert renewed.expires_at == NOW + timedelta(seconds=25)
+    assert store.list_events().items == events_before_renewal
+    [claim] = _resource_claims(store)
+    assert claim.acquired_at == NOW
+    assert store.expired_instrument_sessions(at=NOW + timedelta(seconds=24)) == ()
+    assert store.expired_instrument_sessions(at=NOW + timedelta(seconds=25)) == (
+        renewed,
+    )
+
+    with pytest.raises(ControlPlaneConflict, match="has not expired"):
+        store.expire_instrument_session(
+            opened.session_id,
+            at=NOW + timedelta(seconds=24),
+        )
+    with pytest.raises(InstrumentSessionNotActive, match="expired"):
+        store.renew_instrument_session(
+            opened.session_id,
+            ttl=timedelta(minutes=1),
+            at=NOW + timedelta(seconds=25),
+        )
+    with pytest.raises(ControlPlaneConflict, match="open retry has expired"):
+        store.open_instrument_session(
+            operation_id="open-scope",
+            actor="alice",
+            config_entry_id="replacement",
+            config_content_hash=f"sha256:{'b' * 64}",
+            instrument_ids=("scope",),
+            exclusivity_keys=("visa:replacement",),
+            ttl=timedelta(minutes=1),
+            expected_config_generation=None,
+            at=NOW + timedelta(seconds=25),
+        )
+    assert store.get_instrument_session(opened.session_id) == renewed
+
+    closed = store.expire_instrument_session(
+        opened.session_id,
+        at=NOW + timedelta(seconds=25),
+    )
+
+    assert closed.state == "closed"
+    assert closed.end_status == "aborted"
+    assert _resource_claims(store) == ()
+    expired_event = store.list_events().items[-1]
+    assert expired_event.kind == "instrument_session_lease_expired"
+    assert expired_event.occurred_at == NOW + timedelta(seconds=25)
+    assert (
+        store.expire_instrument_session(
+            opened.session_id,
+            at=NOW + timedelta(seconds=26),
+        )
+        == closed
+    )
+
+
+def test_expired_instrument_session_fences_active_operations(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    ttl = timedelta(seconds=10)
+    validated = _open_instrument_session(store, "validated", ttl=ttl)
+    starting = _open_instrument_session(store, "starting", ttl=ttl)
+    finishing = _open_instrument_session(store, "finishing", ttl=ttl)
+    store.start_instrument_operation(
+        finishing.session_id,
+        instrument_id="finishing",
+        operation_id="collect-1",
+        kind="collect",
+        at=NOW + timedelta(seconds=9),
+    )
+
+    assert (
+        store.validate_instrument_session(
+            validated.session_id,
+            at=NOW + timedelta(seconds=9),
+        )
+        == validated
+    )
+    with pytest.raises(InstrumentSessionNotActive, match="expired"):
+        store.validate_instrument_session(
+            validated.session_id,
+            at=NOW + ttl,
+        )
+    with pytest.raises(InstrumentSessionNotActive, match="expired"):
+        store.start_instrument_operation(
+            starting.session_id,
+            instrument_id="starting",
+            operation_id="apply-1",
+            kind="apply",
+            at=NOW + ttl,
+        )
+    with pytest.raises(InstrumentSessionNotActive, match="expired"):
+        store.finish_instrument_operation(
+            finishing.session_id,
+            instrument_id="finishing",
+            operation_id="collect-1",
+            kind="collect",
+            status="collected",
+            at=NOW + ttl,
+        )
+    assert (
+        store.get_instrument_session(finishing.session_id).active_operation_id
+        == "collect-1"
+    )
+    with pytest.raises(ControlPlaneConflict, match="active operation"):
+        store.expire_instrument_session(finishing.session_id, at=NOW + ttl)
+
+
 def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
     tmp_path: Path,
 ) -> None:
@@ -745,6 +909,7 @@ def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("idle-scope",),
         exclusivity_keys=("visa:idle-scope",),
+        ttl=timedelta(seconds=2),
         expected_config_generation=0,
         at=NOW,
     )
@@ -755,6 +920,7 @@ def test_restart_releases_idle_session_and_quarantines_unfinished_operation(
         config_content_hash=f"sha256:{'a' * 64}",
         instrument_ids=("active-scope",),
         exclusivity_keys=("visa:active-scope",),
+        ttl=timedelta(seconds=2),
         expected_config_generation=0,
         at=NOW,
     )
@@ -805,6 +971,7 @@ def test_instrument_session_cannot_claim_a_run_owned_resource(
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=("scope",),
             exclusivity_keys=("visa:scope",),
+            ttl=SESSION_TTL,
             expected_config_generation=0,
             at=NOW,
         )
@@ -839,6 +1006,7 @@ def test_instrument_session_rejects_invalid_exclusivity_keys(
             config_content_hash=f"sha256:{'a' * 64}",
             instrument_ids=instrument_ids,
             exclusivity_keys=exclusivity_keys,
+            ttl=SESSION_TTL,
             expected_config_generation=0,
             at=NOW,
         )

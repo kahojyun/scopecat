@@ -19,6 +19,7 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     InstrumentContractCatalogRequest,
+    InstrumentSessionLeaseReceipt,
     RunAdmission,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
@@ -134,6 +135,7 @@ class FakeInstruments:
     def __init__(self) -> None:
         self.last_run_provision: tuple[str, RunInstrumentProvisionCommand] | None = None
         self.last_contract_config: ConfigProfileSnapshot | None = None
+        self.last_renewed_session_id: str | None = None
 
     def resolve_instrument_contracts(
         self,
@@ -155,6 +157,14 @@ class FakeInstruments:
             run_id=run_id,
             operation_id=command.operation_id,
             status="ready",
+        )
+
+    def renew_session(self, session_id: str) -> InstrumentSessionLeaseReceipt:
+        self.last_renewed_session_id = session_id
+        return InstrumentSessionLeaseReceipt(
+            session_id=session_id,
+            renewed_at=_NOW,
+            expires_at=_NOW + timedelta(minutes=1),
         )
 
 
@@ -264,6 +274,18 @@ def test_instrument_contract_route_resolves_the_exact_config_body() -> None:
     catalog = InstrumentContractCatalog.model_validate(response.json())
     assert catalog.config_content_hash == config_content_hash(command.config)
     assert backend.instruments.last_contract_config == command.config
+
+
+def test_instrument_session_heartbeat_renews_the_lease() -> None:
+    backend = FakeApplication()
+    client = TestClient(_create_test_app(backend))
+
+    response = client.post("/api/v1/instrument-sessions/session-1/heartbeat")
+
+    assert response.status_code == 200
+    receipt = InstrumentSessionLeaseReceipt.model_validate(response.json())
+    assert receipt.session_id == "session-1"
+    assert backend.instruments.last_renewed_session_id == "session-1"
 
 
 def test_static_dist_serves_files_and_spa_without_shadowing_api(

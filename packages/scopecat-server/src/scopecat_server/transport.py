@@ -54,6 +54,7 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionEndReceipt,
+    InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
@@ -234,6 +235,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: InstrumentSessionOpenCommand,
     ) -> InstrumentSessionOpenReceipt:
         return application.instruments.open_session(command)
+
+    @app.post(f"{_API_PREFIX}/instrument-sessions/{{session_id}}/heartbeat")
+    def renew_instrument_session(
+        session_id: str,
+    ) -> InstrumentSessionLeaseReceipt:
+        return application.instruments.renew_session(session_id)
 
     @app.get(
         f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"

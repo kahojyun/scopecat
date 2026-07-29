@@ -76,12 +76,14 @@ configuration editing.
 `InstrumentSession` and an admitted run are ownership epochs, not connections.
 The daemon pins the config revision, claims all requested instruments, and
 acquires their actors until release or abort. Owner-scoped state and replay
-evidence are cleared at the end of every epoch. There is no client lease, TTL,
-or heartbeat: losing a GUI tab does not imply that hardware state changed. The
-session remains visible and another GUI or notebook client can explicitly close
-or abort it. New run and session claims compare the activation generation in
-the same SQLite writer transaction, so a concurrent config activation cannot
-commit ownership derived from a stale physical inventory.
+evidence are cleared at the end of every epoch. Direct sessions carry a
+renewable ownership lease; GUI and Notebook clients renew it explicitly at one
+third of its duration. Renewal changes no hardware state and emits no durable
+event. An expired idle session releases its actor without aborting, resetting,
+or disconnecting a healthy cached connection. New run and session claims compare
+the activation generation in the same SQLite writer transaction, so a concurrent
+config activation cannot commit ownership derived from a stale physical
+inventory.
 
 A submitted run carries logical resource requirements only. Admission verifies
 its complete instrument inventory against daemon-owned configuration, then
@@ -456,17 +458,20 @@ still means its consequence cannot be determined. NaN and infinity are never
 missing-value encodings. An unavailable array marks the whole result; element
 validity belongs in the future chunked-data representation.
 
-A stale interactive owner remains visible in the Instruments workspace, where
-an operator can disconnect it through the daemon's safe abort path.
+An abandoned idle interactive owner expires automatically. If its lease expires
+during a recorded hardware operation, the daemon faults the connection and
+keeps the claim quarantined for operator resolution.
 
 ## Concurrency and failure semantics
 
 Runs and direct sessions claim the same resource key, so an instrument cannot
 be manually adjusted while an experiment owns it. Multi-instrument acquisition
 is all-or-nothing. The daemon acquires the durable claim before contacting
-hardware. Only the external notebook executor needs a renewable lease and
-fencing token; direct calls are already fenced by the owning daemon and reach
-the same instrument worker as experiment calls.
+hardware. Both external executors and direct clients renew ownership explicitly;
+ordinary hardware calls do not extend either lease. Executor calls additionally
+carry a fencing token because execution effects cross the process boundary.
+Direct calls use their unique session id and reach the same daemon-owned
+instrument worker as experiment calls.
 
 Reads are observational: a failed read reports an error but does not by itself
 claim the physical state changed. Apply, invoke, and collect are consequential:

@@ -53,6 +53,7 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
     InstrumentSessionEndReceipt,
+    InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
@@ -260,6 +261,18 @@ class DaemonClient:
             f"{_API_PREFIX}/instrument-sessions",
             command,
             InstrumentSessionOpenReceipt,
+        )
+
+    def renew_instrument_session(
+        self,
+        session_id: str,
+    ) -> InstrumentSessionLeaseReceipt:
+        return self._post_empty_idempotent_model(
+            (
+                f"{_API_PREFIX}/instrument-sessions/"
+                f"{quote(session_id, safe='')}/heartbeat"
+            ),
+            InstrumentSessionLeaseReceipt,
         )
 
     def read_instrument_state(

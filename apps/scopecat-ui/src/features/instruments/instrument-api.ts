@@ -11,6 +11,7 @@ import type {
   InstrumentInvokeReceipt,
   InstrumentOperation,
   InstrumentSession,
+  InstrumentSessionLease,
   InstrumentState,
   InstrumentStateValue,
   InstrumentView,
@@ -75,6 +76,14 @@ export async function openInstrumentSession(
       actor,
       instrument_ids: [instrumentId],
     } satisfies DaemonUiApi["instrumentSessionOpenCommand"]),
+  );
+}
+
+export async function renewInstrumentSession(sessionId: string): Promise<InstrumentSessionLease> {
+  return request<InstrumentSessionLease>(
+    `${SESSION_API}/${encodeURIComponent(sessionId)}/heartbeat`,
+    undefined,
+    { method: "POST" },
   );
 }
 

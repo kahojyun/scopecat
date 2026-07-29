@@ -41,6 +41,7 @@ from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
+    InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenReceipt,
     MeasurementAppendCommand,
     RunHardwareBatchCommand,
@@ -614,6 +615,8 @@ def test_instrument_session_open_requires_ordered_observed_state() -> None:
         descriptions=descriptions,
         observed_state=observed_state,
         opened_at=datetime(2026, 7, 29, tzinfo=UTC),
+        renewed_at=datetime(2026, 7, 29, tzinfo=UTC),
+        expires_at=datetime(2026, 7, 29, 0, 1, tzinfo=UTC),
     )
 
     assert (
@@ -632,6 +635,43 @@ def test_instrument_session_open_requires_ordered_observed_state() -> None:
                 **receipt.model_dump(exclude={"observed_state"}),
                 observed_state=invalid_state,
             )
+    with pytest.raises(ValidationError, match="must follow renewed_at"):
+        InstrumentSessionOpenReceipt(
+            **receipt.model_dump(exclude={"expires_at"}),
+            expires_at=receipt.renewed_at,
+        )
+
+
+def test_instrument_session_lease_requires_an_aware_ordered_window() -> None:
+    renewed_at = datetime(2026, 7, 29, tzinfo=UTC)
+    receipt = InstrumentSessionLeaseReceipt(
+        session_id="session-1",
+        renewed_at=renewed_at,
+        expires_at=renewed_at + timedelta(minutes=1),
+    )
+
+    assert (
+        InstrumentSessionLeaseReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="renewed_at must include a UTC offset"):
+        InstrumentSessionLeaseReceipt(
+            session_id="session-1",
+            renewed_at=renewed_at.replace(tzinfo=None),
+            expires_at=receipt.expires_at,
+        )
+    with pytest.raises(ValidationError, match="expires_at must include a UTC offset"):
+        InstrumentSessionLeaseReceipt(
+            session_id="session-1",
+            renewed_at=renewed_at,
+            expires_at=receipt.expires_at.replace(tzinfo=None),
+        )
+    with pytest.raises(ValidationError, match="must follow renewed_at"):
+        InstrumentSessionLeaseReceipt(
+            session_id="session-1",
+            renewed_at=renewed_at,
+            expires_at=renewed_at,
+        )
 
 
 def test_configured_defaults_apply_command_requires_operation_identity() -> None:

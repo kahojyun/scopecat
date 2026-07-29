@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
+from threading import Event, Lock, Thread
 from types import TracebackType
 from typing import Self
 from uuid import uuid4
+from weakref import finalize
 
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import InstrumentListView, InstrumentView
@@ -42,6 +45,58 @@ from scopecat.sdk.instruments.members import (
 type OperationArgumentValue = (
     bool | int | float | str | Quantity | StateValue | CommandPayload
 )
+
+_HEARTBEAT_JOIN_SECONDS = 0.2
+
+
+class _InstrumentSessionHeartbeat:
+    def __init__(
+        self,
+        client: DaemonClient,
+        session: InstrumentSessionOpenReceipt,
+    ) -> None:
+        self._client = client
+        self._session_id = session.session_id
+        self._initial_renewal_at = (
+            session.renewed_at + (session.expires_at - session.renewed_at) / 3
+        )
+        self._stop = Event()
+        self._lock = Lock()
+        self._failure: Exception | None = None
+        self._thread = Thread(
+            target=self._run,
+            name="scopecat-instrument-session-heartbeat",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def require_live(self) -> None:
+        with self._lock:
+            failure = self._failure
+        if failure is not None:
+            raise RuntimeError("instrument session lease renewal failed") from failure
+
+    def request_stop(self) -> None:
+        self._stop.set()
+
+    def close(self) -> None:
+        self.request_stop()
+        self._thread.join(timeout=_HEARTBEAT_JOIN_SECONDS)
+
+    def _run(self) -> None:
+        renewal_at = self._initial_renewal_at
+        while not self._stop.wait(
+            max((renewal_at - datetime.now(UTC)).total_seconds(), 0.0)
+        ):
+            try:
+                lease = self._client.renew_instrument_session(self._session_id)
+            except Exception as error:
+                with self._lock:
+                    self._failure = error
+                return
+            renewal_at = lease.renewed_at + (lease.expires_at - lease.renewed_at) / 3
 
 
 class LabInstrumentOperations:
@@ -95,6 +150,8 @@ class InstrumentSessionHandle:
         self._actor = actor
         self._open_operation_id = _new_command_id("open", instrument_ids[0])
         self._session: InstrumentSessionOpenReceipt | None = None
+        self._heartbeat: _InstrumentSessionHeartbeat | None = None
+        self._heartbeat_finalizer: finalize[[], Self] | None = None
         self._ended = False
 
     def __enter__(self) -> Self:
@@ -310,20 +367,42 @@ class InstrumentSessionHandle:
             else self._client.close_instrument_session(session.session_id)
         )
         self._ended = True
+        self._stop_heartbeat()
         return receipt
 
     def _ensure_open(self) -> InstrumentSessionOpenReceipt:
         if self._ended:
             raise RuntimeError("instrument session is already closed")
-        if self._session is None:
-            self._session = self._client.open_instrument_session(
+        session = self._session
+        if session is None:
+            session = self._client.open_instrument_session(
                 InstrumentSessionOpenCommand(
                     operation_id=self._open_operation_id,
                     actor=self._actor,
                     instrument_ids=self._instrument_ids,
                 )
             )
-        return self._session
+            heartbeat = _InstrumentSessionHeartbeat(self._client, session)
+            self._session = session
+            self._heartbeat = heartbeat
+            self._heartbeat_finalizer = finalize(self, heartbeat.request_stop)
+            heartbeat.start()
+        else:
+            heartbeat = self._heartbeat
+            assert heartbeat is not None
+            heartbeat.require_live()
+        return session
+
+    def _stop_heartbeat(self) -> None:
+        heartbeat = self._heartbeat
+        if heartbeat is None:
+            return
+        heartbeat.close()
+        finalizer = self._heartbeat_finalizer
+        if finalizer is not None:
+            finalizer.detach()
+        self._heartbeat = None
+        self._heartbeat_finalizer = None
 
     def _require_session(self) -> InstrumentSessionOpenReceipt:
         return self._ensure_open()

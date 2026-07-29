@@ -226,6 +226,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-sessions/{session_id}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renew Instrument Session */
+        post: operations["renew_instrument_session_api_v1_instrument_sessions__session_id__heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/collect": {
         parameters: {
             query?: never;
@@ -1456,6 +1473,20 @@ export interface components {
              */
             status: "closed" | "aborted";
         };
+        /** InstrumentSessionLeaseReceipt */
+        InstrumentSessionLeaseReceipt: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Renewed At
+             * Format: date-time
+             */
+            renewed_at: string;
+            session_id: components["schemas"]["NonEmptyText"];
+        };
         /**
          * InstrumentSessionOpenCommand
          * @description Acquire and synchronize instruments against the active config.
@@ -1481,6 +1512,11 @@ export interface components {
             configured_default_instrument_ids: components["schemas"]["NonEmptyText"][];
             /** Descriptions */
             descriptions: components["schemas"]["InstrumentDescription"][];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
             /** Instrument Ids */
             instrument_ids: [
                 components["schemas"]["NonEmptyText"],
@@ -1493,6 +1529,11 @@ export interface components {
              * Format: date-time
              */
             opened_at: string;
+            /**
+             * Renewed At
+             * Format: date-time
+             */
+            renewed_at: string;
             session_id: components["schemas"]["NonEmptyText"];
         };
         /**
@@ -3082,6 +3123,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InstrumentSessionEndReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renew_instrument_session_api_v1_instrument_sessions__session_id__heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentSessionLeaseReceipt"];
                 };
             };
             /** @description Validation Error */

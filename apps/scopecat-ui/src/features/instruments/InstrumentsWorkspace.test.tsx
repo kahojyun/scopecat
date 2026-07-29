@@ -2,12 +2,13 @@
 
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api";
 import type {
   InstrumentInterface,
   InstrumentSession,
+  InstrumentSessionLease,
   InstrumentState,
   InstrumentView,
 } from "../../api-contract";
@@ -24,6 +25,7 @@ import {
   openInstrumentSession,
   publishInstrumentConnection,
   readInstrumentState,
+  renewInstrumentSession,
   resolveInstrumentAttention,
 } from "./instrument-api";
 
@@ -40,6 +42,7 @@ vi.mock("./instrument-api", async (importOriginal) => ({
   openInstrumentSession: vi.fn(),
   publishInstrumentConnection: vi.fn(),
   readInstrumentState: vi.fn(),
+  renewInstrumentSession: vi.fn(),
   resolveInstrumentAttention: vi.fn(),
 }));
 
@@ -51,6 +54,7 @@ beforeEach(() => {
   });
   vi.mocked(getActiveConfig).mockResolvedValue(activeConfig());
   vi.mocked(openInstrumentSession).mockResolvedValue(session());
+  vi.mocked(renewInstrumentSession).mockResolvedValue(sessionLease());
   vi.mocked(readInstrumentState).mockResolvedValue(instrumentState());
   vi.mocked(applyInstrumentConfiguredDefaults).mockResolvedValue(
     configuredDefaultsReceipt("applied", instrumentState(6_000_000_000)),
@@ -201,6 +205,46 @@ describe("instrument workspace", () => {
     rendered.unmount();
 
     await waitFor(() => expect(closeInstrumentSession).toHaveBeenCalledWith("session-1", true));
+  });
+
+  it("schedules from authoritative lease time and drops a current session on failure", async () => {
+    vi.useFakeTimers();
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({
+        renewed_at: "2026-07-27T09:00:00Z",
+        expires_at: "2026-07-27T09:00:30Z",
+      }),
+    );
+    vi.mocked(renewInstrumentSession)
+      .mockResolvedValueOnce(
+        sessionLease({
+          renewed_at: "2026-07-27T09:00:10Z",
+          expires_at: "2026-07-27T09:01:40Z",
+        }),
+      )
+      .mockRejectedValueOnce(new Error("daemon unavailable"));
+    renderWorkspace();
+
+    await vi.waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Drive source" })).toBeVisible(),
+    );
+    vi.setSystemTime(new Date("2026-07-27T09:00:05Z"));
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await vi.waitFor(() => expect(screen.getByText("Interactive session connected")).toBeVisible());
+
+    await act(async () => vi.advanceTimersByTimeAsync(4_000));
+    expect(renewInstrumentSession).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(renewInstrumentSession).toHaveBeenCalledOnce();
+    expect(renewInstrumentSession).toHaveBeenLastCalledWith("session-1");
+
+    await act(async () => vi.advanceTimersByTimeAsync(29_000));
+    expect(renewInstrumentSession).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+    expect(renewInstrumentSession).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/instrument session lease was lost/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeVisible();
   });
 
   it("shows and applies only session-authoritative configured defaults", async () => {
@@ -1519,6 +1563,17 @@ function session(overrides: Partial<InstrumentSession> = {}): InstrumentSession 
     descriptions: [instrument().description!],
     observed_state: [instrumentState()],
     opened_at: "2026-07-27T09:00:00Z",
+    renewed_at: "2026-07-27T09:00:00Z",
+    expires_at: "2026-07-27T09:01:00Z",
+    ...overrides,
+  };
+}
+
+function sessionLease(overrides: Partial<InstrumentSessionLease> = {}): InstrumentSessionLease {
+  return {
+    session_id: "session-1",
+    renewed_at: "2026-07-27T09:01:00Z",
+    expires_at: "2026-07-27T09:02:00Z",
     ...overrides,
   };
 }

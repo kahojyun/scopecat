@@ -67,6 +67,10 @@ export interface DaemonUiApi {
     paths["/api/v1/instrument-sessions/{session_id}/close"]["post"],
     200
   >;
+  instrumentSessionLease: JsonResponse<
+    paths["/api/v1/instrument-sessions/{session_id}/heartbeat"]["post"],
+    200
+  >;
   configPublishCommand: JsonRequest<paths["/api/v1/config-registry/default"]["post"]>;
   configDraftCommand: JsonRequest<paths["/api/v1/config-registry/drafts/preview"]["post"]>;
   configActivationCommand: JsonRequest<paths["/api/v1/config-registry/active"]["post"]>;
@@ -120,6 +124,7 @@ export type InstrumentInvokeReceipt = DaemonUiApi["instrumentInvokeReceipt"];
 export type InstrumentOperation = components["schemas"]["OperationSpec"];
 export type InstrumentProperty = components["schemas"]["PropertySpec"];
 export type InstrumentSession = DaemonUiApi["instrumentSession"];
+export type InstrumentSessionLease = DaemonUiApi["instrumentSessionLease"];
 export type InstrumentSpec = components["schemas"]["InstrumentSpec-Input"];
 export type InstrumentState = DaemonUiApi["instrumentState"];
 export type InstrumentStateValue = components["schemas"]["StateValue"];

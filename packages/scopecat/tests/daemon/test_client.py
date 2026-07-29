@@ -33,6 +33,7 @@ from scopecat.daemon.wire import (
     InstrumentContractCatalogRequest,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
+    InstrumentSessionLeaseReceipt,
     PayloadObjectReceipt,
     RunAdmission,
     RunInstrumentProvisionCommand,
@@ -204,6 +205,30 @@ def test_apply_configured_defaults_posts_the_typed_command_to_the_instrument() -
         InstrumentConfiguredDefaultsApplyCommand.model_validate_json(request.content)
         == command
     )
+
+
+def test_renew_instrument_session_posts_an_empty_heartbeat() -> None:
+    requests: list[httpx2.Request] = []
+    receipt = InstrumentSessionLeaseReceipt(
+        session_id="session-1",
+        renewed_at=_NOW,
+        expires_at=_NOW + timedelta(minutes=1),
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.renew_instrument_session("session-1") == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/instrument-sessions/session-1/heartbeat"
+    assert request.content == b""
 
 
 def test_migrate_instrument_inventory_posts_the_typed_command() -> None:

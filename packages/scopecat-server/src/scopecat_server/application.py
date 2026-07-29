@@ -17,7 +17,7 @@ from .admission_service import AdmissionService
 from .config_service import ConfigService
 from .executor_service import ExecutorService
 from .instrument_service import InstrumentService
-from .lease_supervisor import ExecutorLeaseSupervisor
+from .lease_supervisor import OwnershipLeaseSupervisor
 from .payload_service import CommandPayloadService
 from .run_service import RunService
 
@@ -37,7 +37,7 @@ class DaemonApplication:
         executor: ExecutorService,
         instruments: InstrumentService,
         payloads: CommandPayloadService,
-        lease_supervisor: ExecutorLeaseSupervisor,
+        lease_supervisor: OwnershipLeaseSupervisor,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.project_id = project_id

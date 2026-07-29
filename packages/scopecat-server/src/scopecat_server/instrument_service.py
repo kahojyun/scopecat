@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from threading import Lock, RLock, Timer
 from typing import Literal, cast
 
@@ -33,6 +34,7 @@ from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentSessionEndReceipt,
+    InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
     InstrumentSessionOpenReceipt,
     RunHardwareBatchCommand,
@@ -196,6 +198,12 @@ class _OwnershipRuntime:
     lock: RLock = field(default_factory=RLock)
 
 
+@dataclass(slots=True)
+class _SessionContext:
+    runtime: _OwnershipRuntime
+    lease_lock: RLock = field(default_factory=RLock)
+
+
 @dataclass(frozen=True, slots=True)
 class _RunFinalizing:
     pass
@@ -243,7 +251,10 @@ class InstrumentService:
         payloads: CommandPayloadService,
         actors: InstrumentActorRegistry,
         shutdown_grace_seconds: float,
+        session_lease_ttl: timedelta,
     ) -> None:
+        if session_lease_ttl.total_seconds() <= 0:
+            raise ValueError("instrument session lease TTL must be positive")
         self._control = control
         self._runs = runs
         self._config = config
@@ -251,7 +262,8 @@ class InstrumentService:
         self._payloads = payloads
         self._actors = actors
         self._shutdown_grace_seconds = shutdown_grace_seconds
-        self._sessions: dict[str, _OwnershipRuntime] = {}
+        self._session_lease_ttl = session_lease_ttl
+        self._sessions: dict[str, _SessionContext] = {}
         self._run_contexts: dict[str, _RunContext] = {}
         self._sessions_lock = RLock()
         self._open_lock = RLock()
@@ -1667,13 +1679,10 @@ class InstrumentService:
                     for instrument_id in command.instrument_ids
                 ),
                 expected_config_generation=active.activation.generation,
+                ttl=self._session_lease_ttl,
             )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
-        with self._sessions_lock:
-            existing_runtime = self._sessions.get(session.session_id)
-        if existing_runtime is not None:
-            return self._wire_session(session, existing_runtime)
 
         try:
             runtime, _ = self._open_ownership(
@@ -1699,11 +1708,14 @@ class InstrumentService:
             self._abort_open_session(session)
             raise BackendConflict("instrument state could not be observed") from error
         try:
+            # The client cannot heartbeat until open returns, so a successful
+            # acquisition starts with a fresh renewal window.
+            session = self._renew_open_session(session)
             with self._lifecycle_lock:
                 if self._stopping:
                     raise BackendConflict("instrument service is shutting down")
                 with self._sessions_lock:
-                    self._sessions[session.session_id] = runtime
+                    self._sessions[session.session_id] = _SessionContext(runtime)
         except BackendConflict:
             _fault_ownership(runtime, abort=False)
             self._abort_open_session(session)
@@ -1724,10 +1736,48 @@ class InstrumentService:
                 instrument_ids=command.instrument_ids,
                 exclusivity_keys=existing.exclusivity_keys,
                 expected_config_generation=None,
+                ttl=self._session_lease_ttl,
             )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
         return self._wire_session(session, self._live_runtime(session.session_id))
+
+    def _renew_open_session(self, session: InstrumentSession) -> InstrumentSession:
+        try:
+            return self._control.renew_instrument_session(
+                session.session_id,
+                ttl=self._session_lease_ttl,
+            )
+        except ControlPlaneNotFound as error:
+            raise BackendConflict(str(error)) from error
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
+
+    def renew_session(self, session_id: str) -> InstrumentSessionLeaseReceipt:
+        """Renew direct ownership without touching instrument state."""
+
+        self._require_running()
+        try:
+            context = self._live_session_context(session_id)
+        except BackendConflict:
+            try:
+                self._control.validate_instrument_session(session_id)
+            except ControlPlaneNotFound as error:
+                raise BackendNotFound(str(error)) from error
+            except ControlPlaneConflict as error:
+                raise BackendConflict(str(error)) from error
+            raise
+        with context.lease_lock:
+            try:
+                session = self._control.renew_instrument_session(
+                    session_id,
+                    ttl=self._session_lease_ttl,
+                )
+            except ControlPlaneNotFound as error:
+                raise BackendNotFound(str(error)) from error
+            except ControlPlaneConflict as error:
+                raise BackendConflict(str(error)) from error
+        return self._wire_session_lease(session)
 
     def _abort_open_session(self, session: InstrumentSession) -> None:
         try:
@@ -2462,23 +2512,92 @@ class InstrumentService:
 
     def _cleanup_session_runtime(self, session_id: str) -> None:
         with self._sessions_lock:
-            runtime = self._sessions.get(session_id)
-        if runtime is None:
+            context = self._sessions.get(session_id)
+        if context is None:
             return
+        runtime = context.runtime
         with runtime.lock:
             with self._sessions_lock:
-                if self._sessions.get(session_id) is not runtime:
+                if self._sessions.get(session_id) is not context:
                     return
             _fault_ownership(runtime, abort=True)
             with self._sessions_lock:
-                if self._sessions.get(session_id) is runtime:
+                if self._sessions.get(session_id) is context:
                     self._sessions.pop(session_id)
 
-    def expire_leases(self) -> None:
-        """Fence expired executors and finish their daemon-owned cleanup."""
+    def expire_leases(self, *, at: datetime | None = None) -> None:
+        """Fence expired owners and finish their daemon-owned cleanup."""
 
+        checked_at = at or datetime.now(tz=UTC)
         with self._attention_lock:
-            self.expire_runs(self._control.expire_executor_leases())
+            self.expire_runs(self._control.expire_executor_leases(at=checked_at))
+        with self._open_lock:
+            expired_sessions = self._control.expired_instrument_sessions(at=checked_at)
+        for session in expired_sessions:
+            self._expire_session(session, checked_at=checked_at)
+
+    def _expire_session(
+        self,
+        expired: InstrumentSession,
+        *,
+        checked_at: datetime,
+    ) -> None:
+        try:
+            context = self._live_session_context(expired.session_id)
+        except BackendConflict:
+            with self._lifecycle_lock:
+                if self._stopping:
+                    return
+                current = self._control.get_instrument_session(expired.session_id)
+                if current.state != "active" or current.expires_at > checked_at:
+                    return
+                self._mark_unknown(
+                    current,
+                    reason="instrument_session_lease_runtime_missing",
+                )
+            return
+
+        with context.lease_lock:
+            with self._sessions_lock:
+                if self._sessions.get(expired.session_id) is not context:
+                    return
+            runtime = context.runtime
+            with runtime.lock:
+                current = self._control.get_instrument_session(expired.session_id)
+                if current.state != "active" or current.expires_at > checked_at:
+                    return
+                if current.active_operation_id is not None:
+                    _fault_ownership(runtime, abort=True)
+                    self._pop_runtime(current.session_id)
+                    self._mark_unknown(
+                        current,
+                        reason="instrument_session_lease_expired_during_operation",
+                    )
+                    return
+
+                if _release_instruments(runtime.instruments.values()):
+                    _fault_ownership(runtime, abort=False)
+                    self._pop_runtime(current.session_id)
+                    self._mark_unknown(
+                        current,
+                        reason="instrument_session_lease_release_failed",
+                    )
+                    return
+
+                self._pop_runtime(current.session_id)
+                try:
+                    self._control.expire_instrument_session(
+                        current.session_id,
+                        at=checked_at,
+                    )
+                except Exception as error:
+                    self._mark_unknown(
+                        current,
+                        reason="instrument_session_lease_close_failed",
+                    )
+                    raise BackendConflict(
+                        "expired instrument ownership could not be released"
+                    ) from error
 
     def finalize_run(self, run_id: str, *, token: str) -> None:
         """Release any instrument ownership left before a terminal commit."""
@@ -2618,20 +2737,22 @@ class InstrumentService:
     def _drain_shutdown(
         self,
         *,
-        sessions: tuple[tuple[str, _OwnershipRuntime], ...],
+        sessions: tuple[tuple[str, _SessionContext], ...],
         run_contexts: tuple[tuple[str, _RunContext], ...],
     ) -> None:
-        for session_id, runtime in sessions:
-            try:
-                session = self._control.get_instrument_session(session_id)
-            except ControlPlaneNotFound:
-                session = None
-            if session is not None and session.state == "active":
-                with runtime.lock:
-                    if session.active_operation_id is None:
-                        failed = _release_instruments(runtime.instruments.values())
-                    else:
-                        failed = _fault_ownership(runtime, abort=True)
+        for session_id, context in sessions:
+            runtime = context.runtime
+            with context.lease_lock, runtime.lock:
+                try:
+                    session = self._control.get_instrument_session(session_id)
+                except ControlPlaneNotFound:
+                    continue
+                if session.state != "active":
+                    continue
+                if session.active_operation_id is None:
+                    failed = _release_instruments(runtime.instruments.values())
+                else:
+                    failed = _fault_ownership(runtime, abort=True)
                 if failed or session.active_operation_id is not None:
                     self._mark_unknown(
                         session,
@@ -2741,15 +2862,19 @@ class InstrumentService:
         return session, runtime, instrument
 
     def _live_runtime(self, session_id: str) -> _OwnershipRuntime:
+        return self._live_session_context(session_id).runtime
+
+    def _live_session_context(self, session_id: str) -> _SessionContext:
         with self._sessions_lock:
-            runtime = self._sessions.get(session_id)
-        if runtime is None:
+            context = self._sessions.get(session_id)
+        if context is None:
             raise BackendConflict("instrument session has no owned daemon instruments")
-        return runtime
+        return context
 
     def _pop_runtime(self, session_id: str) -> _OwnershipRuntime | None:
         with self._sessions_lock:
-            return self._sessions.pop(session_id, None)
+            context = self._sessions.pop(session_id, None)
+        return None if context is None else context.runtime
 
     def _lose_runtime(
         self,
@@ -2985,6 +3110,18 @@ class InstrumentService:
                 state.model_copy(deep=True) for state in runtime.opening_state
             ),
             opened_at=session.acquired_at,
+            renewed_at=session.renewed_at,
+            expires_at=session.expires_at,
+        )
+
+    @staticmethod
+    def _wire_session_lease(
+        session: InstrumentSession,
+    ) -> InstrumentSessionLeaseReceipt:
+        return InstrumentSessionLeaseReceipt(
+            session_id=session.session_id,
+            renewed_at=session.renewed_at,
+            expires_at=session.expires_at,
         )
 
     def _pinned_session_config(

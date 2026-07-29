@@ -453,6 +453,17 @@ class InstrumentSessionOpenCommand(_WireModel):
         return value
 
 
+class InstrumentSessionLeaseReceipt(_WireModel):
+    session_id: NonEmptyText
+    renewed_at: datetime
+    expires_at: datetime
+
+    @model_validator(mode="after")
+    def validate_lease(self) -> InstrumentSessionLeaseReceipt:
+        _validate_instrument_session_lease(self.renewed_at, self.expires_at)
+        return self
+
+
 class InstrumentSessionOpenReceipt(_WireModel):
     """Daemon-owned direct-control session opened against one config revision."""
 
@@ -465,10 +476,13 @@ class InstrumentSessionOpenReceipt(_WireModel):
     descriptions: tuple[InstrumentDescription, ...]
     observed_state: tuple[InstrumentStateSnapshot, ...]
     opened_at: datetime
+    renewed_at: datetime
+    expires_at: datetime
 
     @model_validator(mode="after")
     def validate_contents(self) -> InstrumentSessionOpenReceipt:
         _aware_datetime(self.opened_at, field_name="opened_at")
+        _validate_instrument_session_lease(self.renewed_at, self.expires_at)
         described_ids = tuple(
             description.instrument_id for description in self.descriptions
         )
@@ -539,6 +553,16 @@ def _aware_datetime(value: datetime, *, field_name: str) -> datetime:
     return value
 
 
+def _validate_instrument_session_lease(
+    renewed_at: datetime,
+    expires_at: datetime,
+) -> None:
+    renewed_at = _aware_datetime(renewed_at, field_name="renewed_at")
+    expires_at = _aware_datetime(expires_at, field_name="expires_at")
+    if expires_at <= renewed_at:
+        raise ValueError("expires_at must follow renewed_at")
+
+
 def _validated_base64(value: str) -> str:
     try:
         b64decode(value, validate=True)
@@ -574,6 +598,7 @@ __all__ = [
     "InstrumentInventoryMigrationCommand",
     "InstrumentInventoryMigrationReceipt",
     "InstrumentSessionEndReceipt",
+    "InstrumentSessionLeaseReceipt",
     "InstrumentSessionOpenCommand",
     "InstrumentSessionOpenReceipt",
     "ManualConfigDraftRevisionSource",

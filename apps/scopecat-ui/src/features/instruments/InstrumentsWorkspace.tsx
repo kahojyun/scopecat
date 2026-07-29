@@ -8,7 +8,7 @@ import {
   RefreshCw,
   ServerCrash,
 } from "lucide-react";
-import type { InstrumentSession, InstrumentView } from "../../api-contract";
+import type { InstrumentSession, InstrumentSessionLease, InstrumentView } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
 import { InstrumentConnectionDialog } from "./InstrumentConnectionDialog";
 import { AvailabilityBadge, InstrumentInspector } from "./InstrumentInspector";
@@ -20,6 +20,7 @@ import {
   getActiveConfig,
   getInstruments,
   openInstrumentSession,
+  renewInstrumentSession,
   retryTransientInstrumentMutation,
 } from "./instrument-api";
 
@@ -78,7 +79,7 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
       sessionRef.current = undefined;
       closingRef.current = true;
       void closeInstrumentSession(current.session_id, true).catch(() => {
-        // The daemon keeps the session visible so a later client can abort it.
+        // Lease expiry releases the session if this fast close cannot reach the daemon.
       });
     };
     window.addEventListener("beforeunload", releaseOnExit);
@@ -178,6 +179,44 @@ export function InstrumentsWorkspace({ daemonUnavailable }: { daemonUnavailable:
     setSessionError(undefined);
     endMutation.mutate({ sessionId, abort });
   };
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    let timeout: number | undefined;
+
+    const scheduleRenewal = (lease: InstrumentSessionLease) => {
+      const renewedAt = Date.parse(lease.renewed_at);
+      const leaseDuration = Date.parse(lease.expires_at) - renewedAt;
+      const delay = Math.max(0, renewedAt + leaseDuration / 3 - Date.now());
+      timeout = window.setTimeout(() => {
+        void renewInstrumentSession(lease.session_id).then(
+          (renewed) => {
+            const current = sessionRef.current;
+            if (cancelled || current?.session_id !== renewed.session_id) return;
+            const next = { ...current, ...renewed };
+            sessionRef.current = next;
+            setSession(next);
+            scheduleRenewal(renewed);
+          },
+          () => {
+            if (cancelled || sessionRef.current?.session_id !== lease.session_id) return;
+            loseCurrent(
+              "The instrument session lease was lost. The daemon will release the instrument when the lease expires.",
+            );
+          },
+        );
+      }, delay);
+    };
+
+    scheduleRenewal(session);
+    return () => {
+      cancelled = true;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+    };
+    // Renewal reschedules itself from each authoritative lease receipt.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.session_id]);
 
   useEffect(() => {
     if (!session) return;
