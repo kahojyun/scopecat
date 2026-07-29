@@ -13,29 +13,14 @@ concurrency:
 
 jobs:
   python-tests:
-    name: Python tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version-file: .python-version
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          enable-cache: true
-
-      - name: Run tests
-        run: uv run --locked pytest
-
-  python-tests-windows:
-    name: Python tests (Windows)
-    runs-on: windows-latest
+    name: Python tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - name: Check out repository
@@ -163,7 +148,6 @@ jobs:
     if: ${{ always() }}
     needs:
       - python-tests
-      - python-tests-windows
       - python-quality
       - ui
     runs-on: ubuntu-latest
@@ -172,11 +156,9 @@ jobs:
       - name: Require successful jobs
         env:
           PYTHON_TESTS_RESULT: ${{ needs['python-tests'].result }}
-          PYTHON_TESTS_WINDOWS_RESULT: ${{ needs['python-tests-windows'].result }}
           PYTHON_QUALITY_RESULT: ${{ needs['python-quality'].result }}
           UI_RESULT: ${{ needs.ui.result }}
         run: |
           test "$PYTHON_TESTS_RESULT" = success
-          test "$PYTHON_TESTS_WINDOWS_RESULT" = success
           test "$PYTHON_QUALITY_RESULT" = success
           test "$UI_RESULT" = success
