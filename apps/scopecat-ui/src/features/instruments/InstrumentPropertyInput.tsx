@@ -25,8 +25,9 @@ export function InstrumentPropertyInput({
   const value = draft?.raw ?? inputValue(currentValue, type.type);
   if (type.type === "bool") {
     return (
-      <span className="boolean-editor">
+      <span className="flex items-center gap-2 text-[0.63rem] text-text-soft">
         <input
+          className="size-[15px] accent-accent"
           type="checkbox"
           checked={typeof value === "boolean" ? value : false}
           disabled={!editable}
@@ -40,6 +41,7 @@ export function InstrumentPropertyInput({
   if (type.type === "string" && type.choices) {
     return (
       <select
+        className={propertyInput}
         value={typeof value === "string" ? value : ""}
         disabled={!editable}
         aria-label={ariaLabel}
@@ -58,8 +60,9 @@ export function InstrumentPropertyInput({
   }
   if (type.type === "int" || type.type === "float" || type.type === "quantity") {
     return (
-      <span className="number-unit-editor">
+      <span className="grid grid-cols-[minmax(0,1fr)_auto] items-stretch">
         <input
+          className={`${propertyInput} rounded-r-none!`}
           type="number"
           step={type.type === "int" ? 1 : "any"}
           min={type.minimum ?? undefined}
@@ -91,12 +94,17 @@ export function InstrumentPropertyInput({
             onChange({ raw, value: typed });
           }}
         />
-        {type.type === "quantity" && <span>{type.unit ?? "unit required"}</span>}
+        {type.type === "quantity" && (
+          <span className="grid min-w-[42px] place-items-center rounded-r-sm border border-l-0 border-line bg-panel-strong px-2 text-[0.57rem] text-text-dim">
+            {type.unit ?? "unit required"}
+          </span>
+        )}
       </span>
     );
   }
   return (
     <input
+      className={propertyInput}
       type="text"
       value={typeof value === "string" ? value : ""}
       placeholder={editable ? "Enter value" : "—"}
@@ -106,6 +114,9 @@ export function InstrumentPropertyInput({
     />
   );
 }
+
+const propertyInput =
+  "min-h-[34px] w-full min-w-0 rounded-sm border border-line bg-bg px-[9px] text-[0.64rem] text-text outline-0 focus:border-accent disabled:cursor-not-allowed disabled:text-text-dim disabled:opacity-70 aria-invalid:border-red";
 
 function inputValue(
   value: InstrumentStateValue | undefined,

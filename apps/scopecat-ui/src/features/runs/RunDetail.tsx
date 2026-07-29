@@ -65,7 +65,10 @@ export function RunDetail({
 }) {
   return (
     <>
-      <header className="flex items-start justify-between gap-7 border-b border-line px-0.5 pb-[17px] max-[680px]:block">
+      <header
+        className="flex items-start justify-between gap-7 border-b border-line px-0.5 pb-[17px] max-[680px]:block"
+        data-testid="run-detail-header"
+      >
         <div className="min-w-0">
           <div className="mb-2.5 flex items-center gap-2.5 text-[0.68rem] font-bold text-text-dim">
             <span
@@ -73,6 +76,7 @@ export function RunDetail({
                 "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[0.62rem] font-extrabold tracking-[0.04em] uppercase",
                 runStatusBadge[run.status],
               )}
+              data-testid="run-status"
             >
               <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
               {run.stateLabel}
@@ -249,7 +253,7 @@ function AnalysisCard({
   pending: boolean;
 }) {
   return (
-    <article className={detailCard}>
+    <article className={detailCard} data-testid="resource-card">
       <CardHeading
         icon={<Atom size={17} />}
         title="Analyses"
@@ -325,6 +329,7 @@ function ResourceCard({ run }: { run: ProjectRun }) {
           {run.resources.map((resource) => (
             <li
               className="flex min-w-0 items-center gap-[9px] rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)] p-[9px]"
+              data-testid={`resource-${resource.id}`}
               key={`${resource.kind}:${resource.id}`}
             >
               <span
@@ -372,7 +377,10 @@ function TimelineCard({
   pending: boolean;
 }) {
   return (
-    <article className={classes(detailCard, "row-span-2 max-[680px]:row-auto")}>
+    <article
+      className={classes(detailCard, "row-span-2 max-[680px]:row-auto")}
+      data-testid="timeline-card"
+    >
       <CardHeading
         icon={<Activity size={17} />}
         title="Recent events"
@@ -476,7 +484,10 @@ function DataCard({
     run.plan.coordinateIds.length > 0 ||
     run.plan.recordIds.length > 0;
   return (
-    <article className={classes(detailCard, "[&>.run-inline-empty]:mt-2.5")}>
+    <article
+      className={classes(detailCard, "[&>.run-inline-empty]:mt-2.5")}
+      data-testid="data-card"
+    >
       <CardHeading
         icon={<Database size={17} />}
         title="Data contents"
@@ -663,7 +674,9 @@ function MeasurementRecords({
           {preview.nextOffset !== undefined ? "+" : ""} records
         </span>
       </div>
-      <pre className={previewContent}>{JSON.stringify(preview.items, null, 2)}</pre>
+      <pre className={previewContent} data-testid="measurement-preview">
+        {JSON.stringify(preview.items, null, 2)}
+      </pre>
       {hasMore && (
         <div className="flex justify-center border-t border-line px-2.5 py-[9px]">
           <button

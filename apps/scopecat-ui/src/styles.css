@@ -26,10 +26,6 @@
   --shadow-panel: 0 10px 30px rgb(0 0 0 / 24%);
 }
 
-/*
- * Legacy aliases exist only while feature slices are being converted. Each
- * alias disappears with the last old stylesheet that consumes it.
- */
 :root {
   color-scheme: dark;
   font-family:
@@ -41,28 +37,6 @@
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-
-  --bg: var(--color-bg);
-  --bg-raised: var(--color-bg-raised);
-  --panel: var(--color-panel);
-  --panel-strong: var(--color-panel-strong);
-  --panel-soft: var(--color-panel-soft);
-  --line: var(--color-line);
-  --line-strong: var(--color-line-strong);
-  --text: var(--color-text);
-  --text-soft: var(--color-text-soft);
-  --text-dim: var(--color-text-dim);
-  --accent-rgb: 128 163 207;
-  --accent: var(--color-accent);
-  --accent-soft: var(--color-accent-soft);
-  --blue: var(--color-blue);
-  --blue-soft: var(--color-blue-soft);
-  --yellow: var(--color-yellow);
-  --yellow-soft: var(--color-yellow-soft);
-  --red: var(--color-red);
-  --red-soft: var(--color-red-soft);
-  --purple: var(--color-purple);
-  --shadow: var(--shadow-panel);
 }
 
 @layer base {

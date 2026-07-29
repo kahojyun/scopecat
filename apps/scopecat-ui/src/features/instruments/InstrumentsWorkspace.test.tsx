@@ -184,10 +184,9 @@ describe("instrument workspace", () => {
 
     renderWorkspace();
 
-    const heading = (await screen.findByText("Interfaces")).closest(".interface-heading");
-    expect(heading).not.toBeNull();
-    expect(within(heading as HTMLElement).queryByText("virtual.rf_source")).not.toBeInTheDocument();
-    expect(within(heading as HTMLElement).queryByText("v1")).not.toBeInTheDocument();
+    const heading = await screen.findByTestId("interface-heading");
+    expect(within(heading).queryByText("virtual.rf_source")).not.toBeInTheDocument();
+    expect(within(heading).queryByText("v1")).not.toBeInTheDocument();
   });
 
   it("uses session-open state without another read, refreshes explicitly, and closes", async () => {
@@ -574,12 +573,12 @@ describe("instrument workspace", () => {
 
     const card = screen
       .getByRole("heading", { name: "DC source", level: 4 })
-      .closest(".interface-card");
-    expect(card).not.toBeNull();
+      .closest('[data-testid^="interface-card-"]');
+    if (!card) throw new Error("Expected the DC source interface card.");
     expect(
-      Array.from(card!.querySelectorAll(".property-label strong")).map(
-        (element) => element.textContent,
-      ),
+      within(card as HTMLElement)
+        .getAllByTestId("property-label")
+        .map((element) => element.textContent),
     ).toEqual(["Source mode", "DC output", "Voltage range"]);
   });
 
@@ -843,7 +842,7 @@ describe("instrument workspace", () => {
     });
 
     const discriminator = screen.getByRole("combobox", { name: /Source mode/ });
-    const discriminatorEditor = discriminator.closest(".interface-property");
+    const discriminatorEditor = discriminator.closest('[data-testid^="interface-property-"]');
     expect(discriminatorEditor).not.toBeNull();
     fireEvent.click(
       within(discriminatorEditor as HTMLElement).getByRole("button", {
@@ -1359,7 +1358,9 @@ describe("instrument workspace", () => {
     });
     fireEvent.click(configureFrequency);
     expect(within(dialog).getByRole("button", { name: "Publish default" })).toBeDisabled();
-    const frequencyRow = configureFrequency.closest(".instrument-default-property");
+    const frequencyRow = configureFrequency.closest(
+      '[data-testid^="instrument-default-property-"]',
+    );
     if (!frequencyRow) throw new Error("Expected the frequency default row.");
     fireEvent.change(within(frequencyRow as HTMLElement).getByRole("spinbutton"), {
       target: { value: "6200000000" },
@@ -1406,7 +1407,7 @@ describe("instrument workspace", () => {
       name: "Configure default for Source mode",
     });
     fireEvent.click(configureMode);
-    const modeRow = configureMode.closest(".instrument-default-property");
+    const modeRow = configureMode.closest('[data-testid^="instrument-default-property-"]');
     if (!modeRow) throw new Error("Expected the source mode default row.");
     fireEvent.change(within(modeRow as HTMLElement).getByRole("combobox"), {
       target: { value: "voltage" },
@@ -1420,7 +1421,7 @@ describe("instrument workspace", () => {
       within(dialog).queryByRole("checkbox", { name: "Configure default for Current range" }),
     ).not.toBeInTheDocument();
     fireEvent.click(configureRange);
-    const rangeRow = configureRange.closest(".instrument-default-property");
+    const rangeRow = configureRange.closest('[data-testid^="instrument-default-property-"]');
     if (!rangeRow) throw new Error("Expected the voltage range default row.");
     fireEvent.change(within(rangeRow as HTMLElement).getByRole("spinbutton"), {
       target: { value: "10" },

@@ -250,8 +250,8 @@ function InstrumentConfigEditor({
               </Dialog.Close>
             </header>
 
-            <div className="instrument-config-form grid gap-3 p-[18px]">
-              <div className="instrument-config-fields">
+            <div className="grid gap-3 p-[18px] [&_label>span]:text-[0.53rem] [&_label>span]:font-extrabold [&_label>span]:tracking-[0.07em] [&_label>span]:text-text-dim [&_label>span]:uppercase [&_input:not([type=checkbox])]:min-h-[34px] [&_input:not([type=checkbox])]:w-full [&_input:not([type=checkbox])]:min-w-0 [&_input:not([type=checkbox])]:rounded-sm [&_input:not([type=checkbox])]:border [&_input:not([type=checkbox])]:border-line [&_input:not([type=checkbox])]:bg-bg [&_input:not([type=checkbox])]:px-[9px] [&_input:not([type=checkbox])]:text-[0.64rem] [&_input:not([type=checkbox])]:text-text [&_input:not([type=checkbox])]:outline-0 [&_input:not([type=checkbox]):focus]:border-accent [&_select]:min-h-[34px] [&_select]:w-full [&_select]:min-w-0 [&_select]:rounded-sm [&_select]:border [&_select]:border-line [&_select]:bg-bg [&_select]:px-[9px] [&_select]:text-[0.64rem] [&_select]:text-text [&_select]:outline-0 [&_select:focus]:border-accent">
+              <div className="grid grid-cols-2 gap-2.5 max-[680px]:grid-cols-2 max-[460px]:grid-cols-1 [&_label]:grid [&_label]:gap-[5px]">
                 <label>
                   <span>Instrument ID</span>
                   <input
@@ -299,9 +299,11 @@ function InstrumentConfigEditor({
               )}
 
               {optionFields.length > 0 && (
-                <fieldset className="instrument-driver-options">
-                  <legend>Driver options</legend>
-                  <div className="instrument-option-fields">
+                <fieldset className="m-0 min-w-0 rounded-sm border border-line p-2.5">
+                  <legend className="px-[5px] text-[0.53rem] font-extrabold tracking-[0.07em] text-text-dim uppercase">
+                    Driver options
+                  </legend>
+                  <div className="grid grid-cols-3 gap-2.5 max-[680px]:grid-cols-2 max-[460px]:grid-cols-1 [&_label:not([data-toggle])]:grid [&_label:not([data-toggle])]:gap-[5px]">
                     {optionFields.map((field) => (
                       <OptionInput
                         key={field.id}
@@ -320,7 +322,7 @@ function InstrumentConfigEditor({
               )}
 
               {existing && existing.driver_id !== driverId && (
-                <p className="instrument-config-note">
+                <p className={configNote}>
                   Changing the driver clears configured startup state because property contracts may
                   differ.
                 </p>
@@ -338,8 +340,8 @@ function InstrumentConfigEditor({
                 />
               )}
 
-              <div className="instrument-config-audit">
-                <label>
+              <div className="grid grid-cols-1 gap-2.5 border-t border-line pt-3">
+                <label className="grid gap-[5px]">
                   <span>Note</span>
                   <input
                     value={note}
@@ -349,7 +351,7 @@ function InstrumentConfigEditor({
                 </label>
               </div>
 
-              <div className="instrument-probe-row">
+              <div className="flex min-h-[34px] items-center gap-2.5">
                 <button
                   type="button"
                   className={secondaryButton}
@@ -367,7 +369,7 @@ function InstrumentConfigEditor({
               </div>
 
               {error && (
-                <div className="instrument-inline-error" role="alert">
+                <div className={inlineError} role="alert">
                   {error}
                 </div>
               )}
@@ -406,7 +408,7 @@ function TcpConnectionFields({
   onChange: (connection: TcpConnection) => void;
 }) {
   return (
-    <div className="instrument-connection-fields">
+    <div className="grid grid-cols-3 gap-2.5 max-[680px]:grid-cols-2 max-[460px]:grid-cols-1 [&_label]:grid [&_label]:gap-[5px]">
       <label>
         <span>Host</span>
         <input
@@ -443,13 +445,16 @@ function OptionInput({
 }) {
   if (field.type === "boolean") {
     return (
-      <label className="instrument-option-toggle">
+      <label className="flex min-h-[34px] items-center gap-[7px]" data-toggle>
         <input
+          className="min-h-[15px] w-[15px]"
           type="checkbox"
           checked={value === true}
           onChange={(event) => onChange(event.target.checked)}
         />
-        <span>{field.label}</span>
+        <span className="text-[0.62rem] font-normal tracking-normal text-text-soft normal-case">
+          {field.label}
+        </span>
       </label>
     );
   }
@@ -498,7 +503,10 @@ function NumberField({
 function ProbeResult({ receipt }: { receipt: InstrumentDriverProbeReceipt }) {
   if (receipt.status === "connected") {
     return (
-      <span className="instrument-probe-result connected" role="status">
+      <span
+        className="inline-flex items-center gap-[5px] text-[0.6rem] leading-[1.4] text-accent"
+        role="status"
+      >
         <Check size={14} />
         {receipt.description?.label
           ? `Connected to ${receipt.description.label}`
@@ -507,11 +515,19 @@ function ProbeResult({ receipt }: { receipt: InstrumentDriverProbeReceipt }) {
     );
   }
   return (
-    <span className="instrument-probe-result rejected" role="status">
+    <span
+      className="inline-flex items-center gap-[5px] text-[0.6rem] leading-[1.4] text-red"
+      role="status"
+    >
       {receipt.problems.map((problem) => problem.message).join(" ") || "Connection rejected"}
     </span>
   );
 }
+
+const configNote =
+  "m-0 rounded-sm border border-[rgb(128_163_207_/_20%)] bg-accent-soft px-2.5 py-[9px] text-[0.58rem] leading-normal text-text-dim";
+const inlineError =
+  "flex items-center gap-2 rounded-md border border-[rgb(215_126_121_/_25%)] bg-red-soft px-3 py-2.5 text-[0.66rem] leading-normal text-[#edb5b2]";
 
 function proposedSpec(
   instrumentId: string,

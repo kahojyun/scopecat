@@ -9,6 +9,7 @@ import type {
   InstrumentStateValue,
 } from "../../api-contract";
 import { titleCase } from "../../lib/presentation";
+import { classes } from "../../ui/styles";
 import { InstrumentPropertyInput, type InstrumentPropertyDraft } from "./InstrumentPropertyInput";
 
 type RunStartPolicy = InstrumentSpec["run_start"];
@@ -99,15 +100,20 @@ export function InstrumentDefaultsEditor({
   };
 
   return (
-    <section className="instrument-defaults-editor">
-      <header>
-        <div>
-          <strong>Experiment start</strong>
-          <small>Synchronize first, then optionally apply this sparse default state.</small>
+    <section className="grid gap-2.5 border-y border-line py-3">
+      <header className="flex items-end justify-between gap-3.5 max-[460px]:flex-col max-[460px]:items-stretch">
+        <div className="grid gap-[3px]">
+          <strong className="text-[0.66rem] text-text-soft">Experiment start</strong>
+          <small className="text-[0.56rem] leading-normal text-text-dim">
+            Synchronize first, then optionally apply this sparse default state.
+          </small>
         </div>
-        <label>
-          <span>Start policy</span>
+        <label className="grid min-w-[210px] gap-[5px] max-[460px]:min-w-0">
+          <span className="text-[0.53rem] font-extrabold tracking-[0.07em] text-text-dim uppercase">
+            Start policy
+          </span>
           <select
+            className="min-h-[34px] w-full min-w-0 rounded-sm border border-line bg-bg px-[9px] text-[0.64rem] text-text outline-0 focus:border-accent"
             value={runStart}
             onChange={(event) => onRunStartChange(event.target.value as RunStartPolicy)}
           >
@@ -118,7 +124,7 @@ export function InstrumentDefaultsEditor({
       </header>
 
       {description ? (
-        <div className="instrument-default-scopes">
+        <div className="grid max-h-[330px] gap-2.5 overflow-auto pr-[3px] [scrollbar-color:#344252_transparent] [scrollbar-width:thin]">
           {(description.interfaces ?? []).map((instrumentInterface) => (
             <DefaultScope
               key={instrumentInterface.id}
@@ -134,7 +140,7 @@ export function InstrumentDefaultsEditor({
           ))}
         </div>
       ) : (
-        <p className="instrument-defaults-unavailable">
+        <p className={defaultsUnavailable}>
           Test the connection to load interface-derived default settings.
           {defaultState.length > 0 &&
             ` ${defaultState.length} existing ${
@@ -144,12 +150,12 @@ export function InstrumentDefaultsEditor({
       )}
 
       {runStart === "apply_default_state" && defaultState.length === 0 && (
-        <p className="instrument-config-note" role="status">
+        <p className={configNote} role="status">
           Select at least one default value before enabling automatic apply.
         </p>
       )}
       {requiredMissing.length > 0 && (
-        <p className="instrument-config-note" role="status">
+        <p className={configNote} role="status">
           The selected mode requires: {requiredMissing.map(propertyLabelFromKey).join(", ")}.
         </p>
       )}
@@ -196,19 +202,31 @@ function DefaultScope({
       ? (member.label ?? interfaceId)
       : (member.label ?? titleCase(componentPath.at(-1) ?? ""));
   return (
-    <section className="instrument-default-scope">
+    <section
+      className={classes(
+        "grid gap-[7px]",
+        componentPath.length > 0 && "border-l border-line pl-2.5",
+      )}
+    >
       {properties.length > 0 && (
         <>
-          <h5>{label}</h5>
-          <div className="instrument-default-properties">
+          <h5 className="m-0 text-[0.54rem] font-extrabold tracking-[0.05em] text-text-dim uppercase">
+            {label}
+          </h5>
+          <div className="grid gap-1.5">
             {properties.map((property) => {
               const key = propertyKey(interfaceId, componentPath, property.id);
               const assignment = defaultState.find((item) => defaultPropertyKey(item) === key);
               const enabled = assignment !== undefined || key in drafts;
               return (
-                <div className="instrument-default-property" key={property.id}>
-                  <label className="instrument-default-toggle">
+                <div
+                  className="grid grid-cols-[minmax(180px,1fr)_minmax(170px,0.9fr)] items-center gap-2.5 rounded-sm border border-line bg-panel-soft px-2 py-[7px] max-[680px]:grid-cols-2 max-[460px]:grid-cols-1"
+                  data-testid={`instrument-default-property-${property.id}`}
+                  key={property.id}
+                >
+                  <label className="flex min-w-0 items-center gap-2">
                     <input
+                      className="min-h-[15px]! w-[15px] flex-none p-0! accent-accent"
                       type="checkbox"
                       checked={enabled}
                       aria-label={`Configure default for ${
@@ -218,9 +236,15 @@ function DefaultScope({
                         onToggle(interfaceId, componentPath, member, property, event.target.checked)
                       }
                     />
-                    <span>
-                      <strong>{property.label ?? titleCase(property.id)}</strong>
-                      {requiredMissing.has(key) && <small>Required for selected mode</small>}
+                    <span className="grid min-w-0 gap-0.5">
+                      <strong className="overflow-hidden text-[0.61rem] text-ellipsis whitespace-nowrap text-text-soft">
+                        {property.label ?? titleCase(property.id)}
+                      </strong>
+                      {requiredMissing.has(key) && (
+                        <small className="text-[0.51rem] text-yellow">
+                          Required for selected mode
+                        </small>
+                      )}
                     </span>
                   </label>
                   <InstrumentPropertyInput
@@ -255,6 +279,11 @@ function DefaultScope({
     </section>
   );
 }
+
+const configNote =
+  "m-0 rounded-sm border border-[rgb(128_163_207_/_20%)] bg-accent-soft px-2.5 py-[9px] text-[0.58rem] leading-normal text-text-dim";
+const defaultsUnavailable =
+  "m-0 rounded-sm border border-dashed border-line px-2.5 py-[9px] text-[0.56rem] leading-normal text-text-dim";
 
 function visibleDefaultProperties(
   interfaceId: string,

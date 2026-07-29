@@ -425,6 +425,7 @@ function RunListItem({
         "relative grid min-h-[76px] w-full cursor-pointer grid-cols-[9px_minmax(0,1fr)_16px] items-start gap-[9px] rounded-md border border-transparent bg-transparent p-[9px] text-left text-text transition-[border-color,background] duration-150 hover:border-line hover:bg-[rgb(255_255_255_/_2%)]",
         selected && "border-line-strong bg-panel-strong",
       )}
+      data-testid="run-list-item"
       onClick={onSelect}
       aria-current={selected ? "true" : undefined}
       title={`Inspect run ${run.runId}`}

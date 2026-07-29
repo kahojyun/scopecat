@@ -366,6 +366,7 @@ function ParameterAtomView({
         "text-[0.64rem] whitespace-nowrap text-text",
         prominent && "text-[1.02rem] text-accent",
       )}
+      data-testid="parameter-atom"
     >
       {parameterAtomLabel(value)}
     </code>

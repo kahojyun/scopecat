@@ -73,6 +73,7 @@ export function RunProposals({ runId }: { runId: string }) {
         detailCard,
         "col-span-full overflow-hidden p-0 max-[680px]:col-auto max-[680px]:row-auto",
       )}
+      data-testid="run-proposals-card"
     >
       <header className="grid grid-cols-[30px_minmax(0,1fr)_auto_auto] items-center gap-2.5 border-b border-line px-[17px] py-4 max-[680px]:grid-cols-[30px_minmax(0,1fr)_auto]">
         <span
