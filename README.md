@@ -2,19 +2,18 @@
 
 <p align="center"><img src="assets/branding/app-icon.svg" alt="Scopecat app icon" width="160"></p>
 
-Scopecat is a local-first Python control plane for describing experiments and
-keeping their accepted inputs, execution evidence, measurements, analysis, and
-candidate configuration changes together.
+Scopecat is a local-first Python toolkit for controlling laboratory
+instruments, running scans, and keeping measurements and their context
+together. It is designed to fit into notebooks and existing Python workflows
+without making ordinary experiments more complicated than ad hoc scripts or
+small internal scan frameworks.
 
-The long-term direction is captured in the
-[project charter](docs/project-charter.md) and the
-[experiment execution semantics](docs/experiment-execution-model.md). The
-[lab daemon model](docs/lab-daemon.md) defines durable ownership
-across the GUI, notebooks, and executors, while
-[instrument control](docs/instrument-control.md) defines direct device
-sessions and connection UX.
-Implementation contracts and design rationale live beside the code that owns
-them.
+The [project charter](docs/project-charter.md) defines the current product
+priorities. The execution, daemon, and instrument-control documents describe
+the current architecture; they are implementation choices rather than product
+requirements and may be simplified to improve the primary workflows.
+Implementation contracts and local design rationale live beside the code that
+owns them.
 
 ## Repository
 

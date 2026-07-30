@@ -1,8 +1,11 @@
 # Experiment Execution Semantics
 
-This document records the stable contract between experiment authoring, system
-planning, domain compilers, and execution. Local design rationale belongs with
-the types and functions that enforce it.
+This document describes the current contract between experiment authoring,
+system planning, domain compilers, and execution. It is an implementation
+design, not a product requirement or roadmap. The design may be simplified
+when doing so improves the current-stage workflows in the
+[project charter](project-charter.md). Local rationale belongs with the types
+and functions that enforce it.
 
 ## Program Boundaries
 
