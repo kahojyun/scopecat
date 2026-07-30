@@ -39,6 +39,10 @@ consequential effects. The sequence may contain desired state, acquisitions,
 domain executions, and child-module occurrences.
 Composing a child scopes its resource, value, product, and effect identities to
 that instance and places its effects exactly once.
+Domain-program calls are distinct occurrences: each call owns its result
+products and is placed directly in the ordered effects. A child module is
+needed only when those effects are deliberately composed into a larger reusable
+workflow.
 
 Logical resource ports and interface requirements form the reusable boundary
 between a module and the physical configuration selected for a run. Authoring
@@ -48,7 +52,8 @@ alone owns their finite physical endpoint mapping.
 
 Product declaration, acquisition, and recording are distinct:
 
-1. A module declares the identity and shape of products it can make.
+1. A module or native domain call declares the identity and shape of products
+   it can make.
 2. An acquisition places instrument realization at an exact effect position
    and names one logical port, one versioned interface, one acquisition, and
    its result ids.

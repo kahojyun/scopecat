@@ -55,8 +55,9 @@ call = x90_count(
 ```
 
 Program inputs may bind directly to Scopecat values such as
-`scopecat.parameter_lookup(...)`. A `Program` call owns its domain effect,
-execution options, and named result products. Place it with
+`scopecat.parameter_lookup(...)`. A `Program` call is a native domain
+occurrence that owns its effect, execution options, and named result products.
+Place it with
 `ModuleContext.call(call)` inside `@sc.module`, or with
 `ExperimentContext.run(call)` inside `@sc.template`.
 
