@@ -32,6 +32,7 @@
   },
   "domain_target": {
     "id": "tests.domain.target",
+    "exclusivity_key": "tests.domain.target",
     "kind": "tests.domain",
     "members": []
   },

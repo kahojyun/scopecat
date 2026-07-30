@@ -556,6 +556,7 @@ def _config_with_domain_resources(
             "instrument_registry": registry,
             "domain_target": DomainTargetBinding(
                 id="tests.domain.target",
+                exclusivity_key="tests.domain.target",
                 kind="tests.domain",
                 members=[
                     DomainTargetInstrumentMember(
@@ -1094,7 +1095,11 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
 def test_system_rejects_a_compiler_for_a_different_target() -> None:
     compiler = _DomainCompiler("tests.target-mismatch")
     config = _config_with_domain_resources()
-    mismatched = DomainTargetBinding(id="other.target", kind="tests.domain")
+    mismatched = DomainTargetBinding(
+        id="other.target",
+        exclusivity_key="other.target",
+        kind="tests.domain",
+    )
     mismatched_config = config.model_copy(
         update={
             "system": config.system.model_copy(update={"domain_target": mismatched})
@@ -1121,6 +1126,7 @@ def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
     config = _config_with_domain_resources()
     mismatched = DomainTargetBinding(
         id="tests.domain.target",
+        exclusivity_key="tests.domain.target",
         kind="tests.other-domain",
     )
     mismatched_config = config.model_copy(

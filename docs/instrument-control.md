@@ -98,7 +98,12 @@ storage, resource claims, and actor lookup.
 A domain target may also own private connection endpoints that have no
 standalone instrument contract. Such endpoints are configured as named target
 members, remain invisible in the Instruments workspace, and are covered by the
-target ownership claim. Hardware that remains useful independently is instead
+target ownership claim. The target has its own stable `exclusivity_key`; its
+logical id may change without changing the physical access domain, while
+ordinary activation cannot silently replace that key. Admission compares the
+complete submitted target binding, including member roles and private
+connections, with daemon-owned active configuration before issuing the
+canonical claim. Hardware that remains useful independently is instead
 configured as an instrument member so direct sessions and other runs conflict
 with the target through the same physical resource claim.
 

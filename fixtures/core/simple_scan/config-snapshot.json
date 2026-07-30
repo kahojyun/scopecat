@@ -1,5 +1,5 @@
 {
-  "format_version": "scopecat.config_snapshot.v6",
+  "format_version": "scopecat.config_snapshot.v7",
   "id": "simple-scan-profile",
   "system": {
     "id": "simple-scan-system",
@@ -35,6 +35,7 @@
     },
     "domain_target": {
       "id": "tests.domain.target",
+      "exclusivity_key": "tests.domain.target",
       "kind": "tests.domain",
       "members": []
     },

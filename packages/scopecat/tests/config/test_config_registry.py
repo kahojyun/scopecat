@@ -684,6 +684,85 @@ def test_publish_rejects_rekeying_an_existing_logical_instrument(
     ] == ["seed"]
 
 
+def test_publish_rejects_rekeying_an_existing_domain_target(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    target = config.domain_target
+    assert target is not None
+    changed = config.model_copy(
+        update={
+            "id": "rekeyed-target",
+            "system": config.system.model_copy(
+                update={
+                    "domain_target": target.model_copy(
+                        update={"exclusivity_key": "replacement-target-key"}
+                    )
+                }
+            ),
+        }
+    )
+
+    with pytest.raises(Conflict) as error:
+        _publish_direct_revision(
+            config=changed,
+            unit_of_work=unit_of_work,
+            entry_id="rekeyed-target",
+            actor="operator",
+        )
+
+    assert error.value.problems[0].code == (
+        "config_registry.domain_target_exclusivity_key_changed"
+    )
+    assert current_config_registry_generation(unit_of_work=unit_of_work) == 1
+
+
+def test_publish_allows_domain_target_rename_with_the_same_key(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
+    config = load_config()
+    _publish_direct_revision(
+        config=config,
+        unit_of_work=unit_of_work,
+        entry_id="seed",
+        actor="operator",
+    )
+    target = config.domain_target
+    assert target is not None
+    renamed = config.model_copy(
+        update={
+            "id": "renamed-target",
+            "system": config.system.model_copy(
+                update={
+                    "domain_target": target.model_copy(
+                        update={"id": "tests.renamed-domain-target"}
+                    )
+                }
+            ),
+        }
+    )
+
+    _publish_direct_revision(
+        config=renamed,
+        unit_of_work=unit_of_work,
+        entry_id="renamed-target",
+        actor="operator",
+    )
+
+    activated = load_active_config_registry_config(unit_of_work=unit_of_work)
+    assert activated.domain_target is not None
+    assert activated.domain_target.id == "tests.renamed-domain-target"
+    assert activated.domain_target.exclusivity_key == target.exclusivity_key
+
+
 def test_publish_allows_logical_instrument_rename_with_the_same_key(
     tmp_path: Path,
 ) -> None:

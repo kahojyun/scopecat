@@ -244,6 +244,7 @@ class DomainTargetBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1)
+    exclusivity_key: str = Field(min_length=1)
     kind: str = Field(min_length=1)
     members: list[DomainTargetMember] = Field(default_factory=list)
 

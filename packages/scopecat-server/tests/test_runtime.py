@@ -73,6 +73,7 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetInstrumentMember,
+    DomainTargetPrivateEndpoint,
     TcpipSocketInstrumentConnection,
     config_content_hash,
 )
@@ -192,12 +193,13 @@ def _domain_only_config() -> ConfigProfileSnapshot:
                     "instrument_registry": registry,
                     "domain_target": target.model_copy(
                         update={
+                            "exclusivity_key": "rack-a/domain-target",
                             "members": [
                                 DomainTargetInstrumentMember(
                                     role="source",
                                     instrument_id="source-0",
                                 )
-                            ]
+                            ],
                         }
                     ),
                 }
@@ -1484,7 +1486,7 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
     assert control.admission.plan.run_resource_requirements == logical_requirements
     assert control.admission.resource_claims == (
         ResourceKey(id="rack-a/source", kind="instrument"),
-        ResourceKey(id=target.id, kind="target"),
+        ResourceKey(id="rack-a/domain-target", kind="target"),
     )
     assert tuple(item.resource.id for item in public.resources) == (
         "source-0",
@@ -1573,6 +1575,75 @@ def test_admission_rejects_domain_requirement_outside_active_authority(
             _domain_only_submission(
                 submitted,
                 submission_id="domain-invalid-authority",
+                requirements=requirements,
+            )
+        )
+
+
+def test_admission_rejects_changed_private_domain_endpoint(
+    tmp_path: Path,
+) -> None:
+    config = _domain_only_config()
+    target = config.domain_target
+    assert target is not None
+    configured_target = target.model_copy(
+        update={
+            "members": [
+                *target.members,
+                DomainTargetPrivateEndpoint(
+                    role="controller",
+                    connection=TcpipSocketInstrumentConnection(
+                        host="controller.active.test",
+                        port=9000,
+                    ),
+                ),
+            ]
+        }
+    )
+    active = config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={"domain_target": configured_target}
+            )
+        }
+    )
+    submitted_target = configured_target.model_copy(
+        update={
+            "members": [
+                *target.members,
+                DomainTargetPrivateEndpoint(
+                    role="controller",
+                    connection=TcpipSocketInstrumentConnection(
+                        host="controller.submitted.test",
+                        port=9000,
+                    ),
+                ),
+            ]
+        }
+    )
+    submitted = active.model_copy(
+        update={
+            "system": active.system.model_copy(
+                update={"domain_target": submitted_target}
+            )
+        }
+    )
+    requirements = (
+        RunResourceRequirement(id="source-0", kind="instrument"),
+        RunResourceRequirement(id=submitted_target.id, kind="target"),
+    )
+
+    with (
+        LocalDaemonRuntime(tmp_path, bootstrap_config=active) as runtime,
+        pytest.raises(
+            BackendConflict,
+            match="domain target configuration differs",
+        ),
+    ):
+        runtime.application.submit_run(
+            _domain_only_submission(
+                submitted,
+                submission_id="changed-private-endpoint",
                 requirements=requirements,
             )
         )

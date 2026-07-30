@@ -43,6 +43,7 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.config import (
     ConfigProfileSnapshot,
+    DomainTargetBinding,
     InstrumentConnection,
     config_content_hash,
 )
@@ -95,6 +96,11 @@ class AdmissionService:
                 submitted=submission.config,
                 authoritative=active_config,
             )
+            if submission.plan.domain_target_requirement is not None:
+                _require_authoritative_domain_target(
+                    submitted=submission.config,
+                    authoritative=active_config,
+                )
             skeleton = build_run_admission(
                 config=submission.config,
                 request=submission.request,
@@ -111,15 +117,7 @@ class AdmissionService:
                         instrument.id: instrument.exclusivity_key
                         for instrument in active_config.instrument_registry.instruments
                     },
-                    domain_target=(
-                        None
-                        if active_config.domain_target is None
-                        else (
-                            active_config.domain_target.id,
-                            active_config.domain_target.kind,
-                            tuple(sorted(active_config.domain_target.instrument_ids)),
-                        )
-                    ),
+                    domain_target=active_config.domain_target,
                 ),
                 admitted_at=skeleton.manifest.created_at,
             )
@@ -402,11 +400,22 @@ def _instrument_inventory(
     }
 
 
+def _require_authoritative_domain_target(
+    *,
+    submitted: ConfigProfileSnapshot,
+    authoritative: ConfigProfileSnapshot,
+) -> None:
+    if submitted.domain_target != authoritative.domain_target:
+        raise BackendConflict(
+            "run domain target configuration differs from the active configuration"
+        )
+
+
 def _canonical_resource_claims(
     plan: RunPlanSummary,
     *,
     instrument_keys: dict[str, str],
-    domain_target: tuple[str, str, tuple[str, ...]] | None,
+    domain_target: DomainTargetBinding | None,
 ) -> tuple[ResourceKey, ...]:
     """Resolve logical requirements into canonical scheduler claims."""
 
@@ -426,14 +435,17 @@ def _canonical_resource_claims(
         domain_target is None
         or target
         != RunDomainTargetRequirement(
-            id=domain_target[0],
-            kind=domain_target[1],
-            instrument_ids=domain_target[2],
+            id=domain_target.id,
+            kind=domain_target.kind,
+            instrument_ids=tuple(sorted(domain_target.instrument_ids)),
         )
     ):
         raise BackendConflict(
             "run domain target requirement differs from the active configuration"
         )
+    target_exclusivity_key = (
+        None if domain_target is None else domain_target.exclusivity_key
+    )
 
     claims = tuple(
         ResourceKey(
@@ -441,7 +453,7 @@ def _canonical_resource_claims(
             id=(
                 instrument_keys[requirement.id]
                 if requirement.kind == "instrument"
-                else requirement.id
+                else cast("str", target_exclusivity_key)
             ),
         )
         for requirement in plan.run_resource_requirements

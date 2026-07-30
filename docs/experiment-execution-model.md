@@ -153,14 +153,16 @@ flat run-level claim set from the concrete effects: the configured domain target
 and its independently addressable instrument members, plus each instrument
 actually used by residual host operations. Target-private endpoints are
 connections owned exclusively by the target backend; they are not advertised as
-instruments and are covered by the target claim. This lets a composite target
-mix shared lab instruments with hardware that has no meaningful standalone
-contract without inventing an operator-facing device API. The flat claim set is
-leased once across provider provisioning and the whole effect program. Channel
-and topology-group bindings remain exact command data; the scheduler does not
-pretend they form a hierarchical lease model. Compatibility that depends on
-values or simultaneous hardware operation belongs to the provider or domain
-compiler.
+instruments and are covered by the target claim. The target claim uses a stable
+configuration-owned exclusivity key rather than the logical target id, and
+admission authorizes the complete member binding before resolving that key.
+This lets a composite target mix shared lab instruments with hardware that has
+no meaningful standalone contract without inventing an operator-facing device
+API. The flat claim set is leased once across provider provisioning and the
+whole effect program. Channel and topology-group bindings remain exact command
+data; the scheduler does not pretend they form a hierarchical lease model.
+Compatibility that depends on values or simultaneous hardware operation
+belongs to the provider or domain compiler.
 
 ## Execution, Outcomes, and Measurements
 

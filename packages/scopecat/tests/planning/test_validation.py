@@ -23,6 +23,19 @@ def test_valid_example_has_no_problems() -> None:
     assert not bool(problems)
 
 
+def test_domain_target_exclusivity_key_is_required_and_non_empty() -> None:
+    config_data = load_config().model_dump(mode="json")
+    target = config_data["system"]["domain_target"]
+    del target["exclusivity_key"]
+
+    with pytest.raises(ValidationError, match="exclusivity_key"):
+        ConfigProfileSnapshot.model_validate(config_data)
+
+    target["exclusivity_key"] = ""
+    with pytest.raises(ValidationError, match="exclusivity_key"):
+        ConfigProfileSnapshot.model_validate(config_data)
+
+
 def test_domain_target_instruments_must_be_registered() -> None:
     config_data = load_config().model_dump(mode="json")
     config_data["system"]["domain_target"]["members"] = [
