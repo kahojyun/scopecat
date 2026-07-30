@@ -31,7 +31,7 @@ class _HardwareModel(BaseModel):
 class RunHardwareApply(_HardwareModel):
     kind: Literal["apply"] = "apply"
     effect_id: str = Field(min_length=1)
-    point_index: int = Field(ge=0)
+    point_index: int | None = Field(default=None, ge=0)
     instrument_id: str = Field(min_length=1)
     assignments: tuple[InstrumentStateAssignment, ...] = Field(min_length=1)
 

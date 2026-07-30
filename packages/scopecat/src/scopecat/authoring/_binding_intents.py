@@ -114,7 +114,7 @@ def prefix_resource_port(
 
 
 def bind_property(
-    port_id: str,
+    port_id: str | LogicalResourcePortId,
     *,
     interface: InterfaceId,
     property: str,
@@ -124,8 +124,13 @@ def bind_property(
     """Build a property binding with explicit interface and component identity."""
 
     selected_component_path = tuple(component_path)
+    selected_port_id = (
+        port_id
+        if isinstance(port_id, LogicalResourcePortId)
+        else logical_resource_port_id(port_id)
+    )
     if (
-        not port_id
+        not selected_port_id.qualified_name
         or not property
         or any(not component for component in selected_component_path)
     ):
@@ -134,7 +139,7 @@ def bind_property(
     if _is_payload_value(value):
         raise TypeError("persistent properties cannot contain opaque payloads")
     return BindingIntent(
-        port_id=logical_resource_port_id(port_id),
+        port_id=selected_port_id,
         interface_id=require_interface_id(interface),
         component_path=selected_component_path,
         property_id=property,

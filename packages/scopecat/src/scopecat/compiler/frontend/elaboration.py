@@ -170,6 +170,7 @@ class SemanticExperimentIR(_ExperimentEnvelope):
         compare=False,
     )
     effects: tuple[AssemblyEffect, ...] = ()
+    postcondition: EnsureStateIntent | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -180,7 +181,7 @@ class SemanticExperimentIR(_ExperimentEnvelope):
 
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
-        return tuple(
+        effect_bindings = tuple(
             binding
             for effect in self.effects
             for binding in (
@@ -190,6 +191,10 @@ class SemanticExperimentIR(_ExperimentEnvelope):
                 if isinstance(effect, EnsureStateIntent)
                 else ()
             )
+        )
+        return (
+            *effect_bindings,
+            *(() if self.postcondition is None else self.postcondition.assignments),
         )
 
     @property

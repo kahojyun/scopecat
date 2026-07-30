@@ -9,6 +9,10 @@ import scopecat as sc
 from scopecat.authoring._module_ir import ModuleEnsureEffect
 from scopecat.compiler.typed.state import EnsureStateSpec
 from scopecat.execution.local.program import ApplyStateOperation
+from scopecat.planning.local_materialization import (
+    materialize_local_postcondition,
+    prepare_local_target,
+)
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
 from tests.testkit.authoring import link_invocation, template_fixture
 from tests.testkit.local_materialization import materialize_local_execution
@@ -139,3 +143,65 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
     )
     assert len(operations) == 2
     assert [operation.targets[0].value.root for operation in operations] == [1.0, 2.0]
+
+
+def test_root_postcondition_is_materialized_outside_point_effects() -> None:
+    module = (
+        sc.module_body(id="test.postcondition-module")
+        .resource("source", requires=(_SOURCE,))
+        .build()
+    )
+
+    @sc.template(id="test.postcondition", kind="desired-state")
+    def experiment_definition(level: float = 0.0) -> sc.ExperimentBody:
+        call = module()
+        return sc.experiment(call).postcondition(
+            call.resources.source,
+            _SourceTarget(level=level, enabled=False),
+        )
+
+    linked = link_invocation(
+        experiment_definition(),
+        config_profile=config_with_physical_resources(
+            {"source-device": (_SOURCE.interface_id,)}
+        ),
+    )
+
+    assert linked.program.effects == ()
+    postcondition = linked.program.postcondition
+    assert isinstance(postcondition, EnsureStateSpec)
+    assert [assignment.property_id for assignment in postcondition.assignments] == [
+        "level",
+        "enabled",
+    ]
+    target = prepare_local_target(
+        linked,
+        product_use_ids=frozenset(),
+        instrument_order=("source-device",),
+    )
+    [operation] = materialize_local_postcondition(linked, target=target)
+    assert operation.instrument_id == "source-device"
+    assert [target.property_id for target in operation.targets] == [
+        "level",
+        "enabled",
+    ]
+    assert operation.targets[0].value.root == 0.0
+
+
+def test_root_postcondition_rejects_scan_coordinates() -> None:
+    module = (
+        sc.module_body(id="test.postcondition-coordinate")
+        .resource("source", requires=(_SOURCE,))
+        .build()
+    )
+    call = module()
+    level = sc.coordinate("level", sc.ScalarType(sc.FloatType()))
+
+    with pytest.raises(
+        ValueError,
+        match="postcondition cannot depend on scan coordinates",
+    ):
+        sc.experiment(call).postcondition(
+            call.resources.source,
+            _SourceTarget(level=level, enabled=False),
+        )

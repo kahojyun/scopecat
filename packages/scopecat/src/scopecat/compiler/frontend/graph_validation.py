@@ -111,6 +111,7 @@ def verify_assembly_graph(
     if semantic_graph is not None:
         _verify_binding_compute_values(assembly, semantic_graph, problems)
     _verify_property_resource_ports(assembly, resource_ports, problems)
+    _verify_postcondition_dependencies(assembly, resource_ports, problems)
     if semantic_graph is not None:
         _verify_static_value_dependencies(assembly, problems)
     if problems:
@@ -343,6 +344,59 @@ def _verify_static_value_dependencies(
                         location,
                     )
                 )
+
+
+def _verify_postcondition_dependencies(
+    assembly: SemanticExperimentIR,
+    ports: Mapping[LogicalResourcePortId, ResourcePort],
+    problems: list[Problem],
+) -> None:
+    postcondition = assembly.postcondition
+    if postcondition is None:
+        return
+    selected_ports: set[LogicalResourcePortId] = set()
+    for index, assignment in enumerate(postcondition.assignments):
+        selected_ports.add(assignment.port_id)
+        value = assignment.value
+        if not isinstance(value, ValueRef):
+            continue
+        location = model_location("postcondition", index, "value")
+        if internal_value_ref_requires_execution(value):
+            problems.append(
+                _problem(
+                    "experiment_postcondition_requires_execution",
+                    "experiment postcondition cannot depend on point-local compute",
+                    location,
+                )
+            )
+        if internal_value_ref_point_dependencies(value):
+            problems.append(
+                _problem(
+                    "experiment_postcondition_depends_on_point",
+                    "experiment postcondition cannot depend on scan coordinates",
+                    location,
+                )
+            )
+    for port_id in selected_ports:
+        port = ports.get(port_id)
+        if port is None:
+            continue
+        for index, value in enumerate(port.selector.entity_inputs):
+            if not internal_value_ref_point_dependencies(value):
+                continue
+            problems.append(
+                _problem(
+                    "experiment_postcondition_resource_depends_on_point",
+                    "experiment postcondition resource cannot depend on "
+                    "scan coordinates",
+                    model_location(
+                        "postcondition",
+                        "resources",
+                        port_id.qualified_name,
+                        index,
+                    ),
+                )
+            )
 
 
 def _verify_resource_entity_input(

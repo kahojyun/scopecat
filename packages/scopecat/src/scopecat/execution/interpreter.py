@@ -331,6 +331,7 @@ def _execute_instrument_effects(
     return engine.run(
         program.coverage,
         points=program.points.points,
+        postcondition=program.postcondition,
     )
 
 

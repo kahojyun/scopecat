@@ -105,6 +105,36 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     assert result.admitted_points == points
 
 
+def test_normal_completion_applies_postcondition_after_point_coverage() -> None:
+    driver = SignalInstrumentDriver(instrument_id="source-0")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("postcondition-point"), {}),
+        (_gain_operation("source-0", 1.0),),
+        resource_order=("source-0",),
+        resource_requirements=_requirements("source-0"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="postcondition-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((driver,)),
+        journal=FakeExecutionJournal(),
+    ).run(
+        complete_coverage_operations(program),
+        points=program.points,
+        postcondition=(_gain_operation("source-0", 0.0),),
+    )
+
+    assert not result.problems and not result.indeterminate
+    assert len(driver.applied) == 2
+    [final] = result.final_state
+    assert next(
+        item.value
+        for item in final.properties
+        if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
+    ) == StateValue(0.0)
+
+
 class _SingleDriverProvider:
     def __init__(self, driver: SignalInstrumentDriver) -> None:
         self.driver = driver
@@ -519,6 +549,30 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     assert len(first.applied) == 1
     assert second.applied == []
     assert result.final_state == result.prepared_state
+
+
+def test_failed_coverage_does_not_apply_normal_completion_postcondition() -> None:
+    driver = _BlockingStateDriver(instrument_id="source-0")
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("failed-postcondition-point"), {}),
+        (_gain_operation("source-0", 1.0),),
+        resource_order=("source-0",),
+        resource_requirements=_requirements("source-0"),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="failed-postcondition-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((driver,)),
+        journal=FakeExecutionJournal(),
+    ).run(
+        complete_coverage_operations(program),
+        points=program.points,
+        postcondition=(_gain_operation("source-0", 0.0),),
+    )
+
+    assert result.problems
+    assert len(driver.applied) == 1
 
 
 class _UnexpectedResultDriver(SignalInstrumentDriver):

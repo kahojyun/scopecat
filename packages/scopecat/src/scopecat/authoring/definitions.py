@@ -16,10 +16,13 @@ from typing import (
     overload,
 )
 
+from scopecat.authoring._binding_intents import ExperimentBindingIntent
 from scopecat.authoring._module_handles import (
     ExperimentModule,
     ModuleBuilder,
     ModuleInvocation,
+    ModuleResource,
+    build_ensure_state_intent,
     build_module_ir,
     create_experiment_module_internal,
     module_use_invocation,
@@ -30,8 +33,14 @@ from scopecat.authoring._products import (
     record_coordinate,
     record_product,
 )
-from scopecat.authoring._value_refs import ValueRef, empty_frozen_mapping
+from scopecat.authoring._value_refs import (
+    ValueRef,
+    empty_frozen_mapping,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_requires_execution,
+)
 from scopecat.authoring.scans import Scan
+from scopecat.authoring.state import DesiredState
 from scopecat.authoring.templates import (
     ExperimentDefinition,
     ExperimentInvocation,
@@ -91,6 +100,7 @@ class ExperimentBody:
     module: ModuleBuilder = field(default_factory=ModuleBuilder)
     scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
+    postcondition_bindings: tuple[ExperimentBindingIntent, ...] = ()
 
     def scan(
         self,
@@ -151,6 +161,43 @@ class ExperimentBody:
         return replace(
             self,
             record_selections=(*self.record_selections, *selections),
+        )
+
+    def postcondition(
+        self,
+        resource: ModuleResource,
+        target: DesiredState,
+    ) -> ExperimentBody:
+        """Declare the desired hardware state after normal run completion."""
+
+        owners = {
+            effect.invocation_key
+            for effect in self.module.procedure
+            if isinstance(effect, ModuleInvocation)
+        }
+        if resource.owner not in owners:
+            raise ValueError(
+                "experiment postcondition resource must belong to this experiment"
+            )
+        intent = build_ensure_state_intent(resource.port_id, target)
+        for assignment in intent.assignments:
+            value = assignment.value
+            if not isinstance(value, ValueRef):
+                continue
+            if internal_value_ref_requires_execution(value):
+                raise ValueError(
+                    "experiment postcondition cannot depend on point-local compute"
+                )
+            if internal_value_ref_point_dependencies(value):
+                raise ValueError(
+                    "experiment postcondition cannot depend on scan coordinates"
+                )
+        return replace(
+            self,
+            postcondition_bindings=(
+                *self.postcondition_bindings,
+                *intent.assignments,
+            ),
         )
 
 
@@ -448,6 +495,7 @@ def _close_experiment_body(
         input_defaults=input_defaults,
         required_inputs=required_inputs,
         default_scans=body.scans,
+        postcondition_bindings=body.postcondition_bindings,
         metadata=metadata,
     )
 

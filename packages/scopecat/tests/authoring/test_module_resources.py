@@ -3,15 +3,20 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._binding_intents import BindingIntent
+from scopecat.authoring._binding_intents import (
+    BindingIntent,
+    EnsureStateIntent,
+    InvocationIntent,
+)
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.semantic.model import AcquireEffect
+from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     core_state,
 )
-from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -224,6 +229,10 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         if isinstance(effect, BindingIntent)
         else ("acquire", effect.id.qualified_name)
         if isinstance(effect, AcquireEffect)
+        else ("ensure", str(len(effect.assignments)))
+        if isinstance(effect, EnsureStateIntent)
+        else ("invoke", effect.id)
+        if isinstance(effect, InvocationIntent)
         else ("domain", effect.id)
         for effect in assembly.effects
     ] == [
@@ -247,6 +256,10 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         if isinstance(effect, SetStateSpec)
         else f"acquire:{effect.id.qualified_name}"
         if isinstance(effect, AcquireEffect)
+        else f"ensure:{len(effect.assignments)}"
+        if isinstance(effect, EnsureStateSpec)
+        else f"invoke:{effect.id.qualified_name}"
+        if isinstance(effect, InvokeEffect)
         else f"domain:{effect.id}"
         for effect in linked.program.effects
     ] == [

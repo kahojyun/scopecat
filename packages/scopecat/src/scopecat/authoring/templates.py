@@ -7,6 +7,10 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
+from scopecat.authoring._binding_intents import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+)
 from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._validation import (
@@ -57,6 +61,7 @@ class ExperimentDefinition:
     inputs: tuple[ExperimentInput, ...] = ()
     default_scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
+    postcondition: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
 
@@ -142,6 +147,7 @@ def create_experiment_definition_internal(
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
     default_scans: Sequence[Scan] = (),
+    postcondition_bindings: Sequence[ExperimentBindingIntent] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentDefinition:
     """Normalize all experiment semantics at one immutable boundary."""
@@ -188,6 +194,11 @@ def create_experiment_definition_internal(
         inputs=normalized_inputs,
         default_scans=selected_scans,
         record_selections=selected_records,
+        postcondition=(
+            EnsureStateIntent(tuple(postcondition_bindings))
+            if postcondition_bindings
+            else None
+        ),
         metadata=freeze_json_mapping(metadata or {}),
     )
 

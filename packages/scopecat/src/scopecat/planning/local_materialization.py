@@ -324,6 +324,64 @@ def materialize_local_execution(
     )
 
 
+def materialize_local_postcondition(
+    linked: LinkedPlan,
+    *,
+    target: LocalTargetPlan,
+) -> tuple[ApplyStateOperation, ...]:
+    """Materialize the fixed desired state applied after normal completion."""
+
+    postcondition = target.program.postcondition
+    if postcondition is None:
+        return ()
+    problems: list[Problem] = []
+    resources = _select_resources(
+        target.program,
+        target.resource_ports,
+        ctx=EvalContext(params=linked.environment.parameters),
+        context="normal completion",
+        problems=problems,
+        selected_port_ids=frozenset(
+            assignment.resource_target.port_id
+            for assignment in postcondition.assignments
+        ),
+    )
+    records: list[StateRecord] = []
+    for assignment in postcondition.assignments:
+        try:
+            records.extend(
+                evaluate_state_spec(
+                    assignment,
+                    point_index=0,
+                    ctx=EvalContext(params=linked.environment.parameters),
+                )
+            )
+        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+            problems.append(
+                _problem(
+                    "experiment_postcondition_evaluation_failed",
+                    f"experiment postcondition evaluation failed: {error}",
+                    model_location("postcondition"),
+                )
+            )
+    desired = _bind_desired_state(
+        records,
+        point_uid=f"{target.program.id}.postcondition",
+        state_group_index=len(target.program.effects),
+        resources=resources,
+        point_index=0,
+        problems=problems,
+        state_context="normal completion",
+        state_location=model_location("postcondition"),
+    )
+    if problems:
+        raise CheckFailed(problems)
+    return _order_instrument_operations(
+        desired,
+        instrument_order=target.instrument_order,
+    )
+
+
 def prepare_local_target(
     linked: LinkedPlan,
     *,
@@ -460,12 +518,34 @@ def _select_point_resources(
     params: ParameterRelationData,
     problems: list[Problem],
 ) -> Mapping[LogicalResourcePortId, _ResourceEntitySelection]:
+    return _select_resources(
+        program,
+        resource_ports,
+        ctx=EvalContext(params=params, point_row=point.row),
+        context=f"point {point.logical_ordinal}",
+        problems=problems,
+    )
+
+
+def _select_resources(
+    program: CoreProgram,
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
+    *,
+    ctx: EvalContext,
+    context: str,
+    problems: list[Problem],
+    selected_port_ids: AbstractSet[LogicalResourcePortId] | None = None,
+) -> Mapping[LogicalResourcePortId, _ResourceEntitySelection]:
     selected: dict[LogicalResourcePortId, _ResourceEntitySelection] = {}
     for requirement in program.resource_requirements:
+        if (
+            selected_port_ids is not None
+            and requirement.port_id not in selected_port_ids
+        ):
+            continue
         manifest = resource_ports.get(requirement.port_id)
         if manifest is None:
             continue
-        ctx = EvalContext(params=params, point_row=point.row)
         entity_values: list[object] = []
         failed = False
         for use in requirement.entity_uses:
@@ -477,8 +557,7 @@ def _select_point_resources(
                     _problem(
                         "experiment_resource_entity_evaluation_failed",
                         f"resource {requirement.port_id.qualified_name} entity "
-                        "expression failed for "
-                        f"point {point.logical_ordinal}: {error}",
+                        f"expression failed for {context}: {error}",
                         model_location(
                             "resources",
                             requirement.port_id.qualified_name,
@@ -531,6 +610,8 @@ def _active_resource_port_ids(
             selected.add(effect.resource_port_id)
         elif not isinstance(effect, TypedDomainExecution):
             selected.update(_state_resource_port_ids(effect))
+    if program.postcondition is not None:
+        selected.update(_state_resource_port_ids(program.postcondition))
     return frozenset(selected)
 
 
@@ -550,7 +631,15 @@ def _bind_desired_state(
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     point_index: int,
     problems: list[Problem],
+    state_context: str | None = None,
+    state_location: ModelLocation | None = None,
 ) -> tuple[ApplyStateOperation, ...]:
+    selected_context = state_context or f"point {point_index}"
+    selected_location = state_location or model_location(
+        "points",
+        point_index,
+        "desired_state",
+    )
     grouped: dict[
         str,
         dict[
@@ -664,8 +753,8 @@ def _bind_desired_state(
                     f"{resource}.{interface}/"
                     f"{'/'.join(component_path)}.{property_id} receives "
                     "multiple values "
-                    f"at point {point_index}",
-                    model_location("points", point_index, "desired_state"),
+                    f"at {selected_context}",
+                    selected_location,
                 )
             )
     for (
@@ -682,8 +771,8 @@ def _bind_desired_state(
                     "experiment_aliased_desired_state_target",
                     f"{resource}.{interface}/"
                     f"{'/'.join(component_path)}.{property_id} is owned by multiple "
-                    f"resource targets at point {point_index}",
-                    model_location("points", point_index, "desired_state"),
+                    f"resource targets at {selected_context}",
+                    selected_location,
                 )
             )
     return tuple(

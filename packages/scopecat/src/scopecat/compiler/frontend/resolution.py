@@ -12,6 +12,10 @@ from scopecat.authoring._scan_intents import (
     AxisSpec,
     scan_parameter_contracts,
 )
+from scopecat.authoring._value_refs import (
+    ValueRef,
+    internal_value_ref_parameter_contracts,
+)
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.authoring.values import ModuleInput
@@ -123,6 +127,13 @@ def _compile_invocation_definition(
         definition.module,
         **module_inputs,
     )
+    postcondition = definition.postcondition
+    postcondition_contracts = tuple(
+        contract
+        for assignment in (() if postcondition is None else postcondition.assignments)
+        if isinstance((value := assignment.value), ValueRef)
+        for contract in internal_value_ref_parameter_contracts(value)
+    )
     return replace(
         assembly,
         experiment_id=definition.id,
@@ -131,6 +142,11 @@ def _compile_invocation_definition(
             *assembly.record_selections,
             *definition.record_selections,
         ),
+        parameter_contracts=merge_parameter_contracts(
+            assembly.parameter_contracts,
+            postcondition_contracts,
+        ),
+        postcondition=postcondition,
     )
 
 

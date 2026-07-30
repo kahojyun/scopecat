@@ -207,6 +207,7 @@ class CoreProgram:
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
     effects: tuple[CoreEffect, ...] = ()
+    postcondition: EnsureStateSpec | None = None
     measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
@@ -226,7 +227,7 @@ def core_acquisitions(program: CoreProgram) -> tuple[AcquireEffect, ...]:
 
 
 def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
-    return tuple(
+    effect_state = tuple(
         state
         for effect in program.effects
         for state in (
@@ -236,6 +237,10 @@ def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
             if isinstance(effect, EnsureStateSpec)
             else ()
         )
+    )
+    return (
+        *effect_state,
+        *(() if program.postcondition is None else program.postcondition.assignments),
     )
 
 

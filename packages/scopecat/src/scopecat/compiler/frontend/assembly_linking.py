@@ -163,6 +163,15 @@ def _bind_verified_assembly(
         else domain_effects[effect.id]
         for effect in assembly.effects
     )
+    postcondition = (
+        None
+        if assembly.postcondition is None
+        else lower_ensure_state(
+            assembly.postcondition,
+            inputs=inputs,
+            type_bindings=type_bindings,
+        )
+    )
     return CoreProgram(
         id=verified.experiment_id,
         kind=verified.kind,
@@ -170,6 +179,7 @@ def _bind_verified_assembly(
         resource_requirements=tuple(resource_requirements),
         compute_nodes=compute_nodes,
         effects=ordered_effects,
+        postcondition=postcondition,
         measurement_postprocessors=measurement_postprocessors.postprocessors,
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(

@@ -5,6 +5,8 @@ from scopecat.authoring._module_handles import (
     ModuleBuilder,
     ModuleInvocation,
     ModuleOutputs,
+    ModuleResource,
+    ModuleResources,
 )
 from scopecat.authoring._products import (
     ProductAxis,
@@ -122,6 +124,8 @@ __all__ = [
     "ModuleInput",
     "ModuleInvocation",
     "ModuleOutputs",
+    "ModuleResource",
+    "ModuleResources",
     "ParameterKeyInput",
     "PayloadType",
     "ProductAxis",

@@ -193,9 +193,39 @@ capture = (
 
 A target is a coherent state intention, not an instruction to write every
 field unconditionally. Omitted fields remain unspecified. After point values
-are resolved, contiguous assignments from one `ensure(...)` lower to one local
-state-application effect; the driver still receives the minimal validated
-patch required to reach that target.
+are resolved, one `ensure(...)` remains one typed state effect and lowers to
+one state application per selected instrument. Adjacent `ensure(...)` calls
+remain ordered effects rather than being merged accidentally; the driver still
+receives the minimal validated patch required to reach each target.
+
+Reusable modules describe the ordered work needed at each point. A
+normal-completion state belongs instead to the root experiment because two
+experiments may intentionally leave the same module's hardware differently:
+
+```python
+capture_module = capture.build()
+
+@sc.template(id="resonator.capture", kind="resonator")
+def capture_experiment() -> sc.ExperimentBody:
+    run = capture_module()
+    return sc.experiment(run).postcondition(
+        run.resources.flux,
+        DCSourceVoltageTarget(
+            level=sc.Quantity(0, "V"),
+            output_enabled=False,
+        ),
+    )
+```
+
+All chained `postcondition(...)` declarations form one desired state applied
+only after every point and measurement block completes successfully. A
+postcondition may use fixed values, experiment inputs, or configuration
+parameters, but not scan coordinates or point-local compute results: there is
+no distinguished scan point after the scan. Failure, cancellation, and unknown
+hardware outcomes skip this normal-completion state and remain governed by the
+daemon's configured safety/finalization policy. Consequently modules do not
+register global `finalize` callbacks, and an experiment postcondition is not a
+substitute for safety cleanup.
 
 The direct API uses separate `Patch` dataclasses because its semantics are
 different: a call requests a transition now and returns a receipt. Reusing the

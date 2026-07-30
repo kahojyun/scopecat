@@ -331,35 +331,16 @@ class ModuleBuilder:
         one state-application effect.
         """
 
-        assignments = tuple(target.target_assignments().items())
-        if not assignments:
-            raise ValueError("ensure requires at least one target assignment")
-
-        bindings: list[ExperimentBindingIntent] = []
-        for property, value in assignments:
-            if _is_payload_binding_input(value):
-                raise TypeError("persistent properties cannot contain opaque payloads")
-            if not _is_public_binding_input(value):
-                msg = "module bindings require a scalar typed value or scalar literal"
-                raise TypeError(msg)
-            bindings.append(
-                binding_property(
-                    resource,
-                    interface=property.interface_id,
-                    component_path=property.component_path,
-                    property=property.property_id,
-                    value=cast(
-                        "BindingInput",
-                        _capture_binding_literal(value),
-                    ),
-                )
-            )
-
         return replace(
             self,
             procedure=(
                 *self.procedure,
-                ModuleEnsureEffect(EnsureStateIntent(tuple(bindings))),
+                ModuleEnsureEffect(
+                    build_ensure_state_intent(
+                        logical_resource_port_id(resource),
+                        target,
+                    )
+                ),
             ),
         )
 
@@ -618,6 +599,68 @@ class ModuleInvocation:
                 for port in relative_ports
             }
         )
+
+    @property
+    def resources(self) -> ModuleResources:
+        """Typed references to this instance's logical resource ports."""
+
+        return ModuleResources(
+            _values=FrozenMapping(
+                (
+                    port.qualified_id,
+                    ModuleResource(
+                        owner=self._key,
+                        port_id=self.resource_bindings.get(
+                            port.symbol_id,
+                            port.symbol_id.prefixed(self.instance_id),
+                        ),
+                    ),
+                )
+                for port in self.module.resource_ports
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleResource:
+    """One logical resource as seen from a concrete module invocation."""
+
+    owner: InvocationKey = field(repr=False)
+    port_id: LogicalResourcePortId
+
+    @property
+    def id(self) -> str:
+        return self.port_id.qualified_name
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ModuleResources(Mapping[str, ModuleResource]):
+    """Read-only attribute and mapping view of invocation resources."""
+
+    _values: Mapping[str, ModuleResource]
+
+    @override
+    def __getitem__(self, resource_id: str) -> ModuleResource:
+        return self._values[resource_id]
+
+    @override
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    @override
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getattr__(self, resource_id: str) -> ModuleResource:
+        try:
+            return self._values[resource_id]
+        except KeyError:
+            msg = f"module instance has no resource {resource_id!r}"
+            raise AttributeError(msg) from None
+
+    @override
+    def __dir__(self) -> list[str]:
+        return sorted((*super().__dir__(), *self._values))
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -939,6 +982,38 @@ def _capture_binding_literal(value: object) -> object:
     if isinstance(value, ValueRef):
         return value
     return capture_runtime_input(value)
+
+
+def build_ensure_state_intent(
+    resource: LogicalResourcePortId,
+    target: DesiredState,
+) -> EnsureStateIntent:
+    """Normalize one public desired-state target at an authoring boundary."""
+
+    assignments = tuple(target.target_assignments().items())
+    if not assignments:
+        raise ValueError("ensure requires at least one target assignment")
+
+    bindings: list[ExperimentBindingIntent] = []
+    for property, value in assignments:
+        if _is_payload_binding_input(value):
+            raise TypeError("persistent properties cannot contain opaque payloads")
+        if not _is_public_binding_input(value):
+            msg = "module bindings require a scalar typed value or scalar literal"
+            raise TypeError(msg)
+        bindings.append(
+            binding_property(
+                resource,
+                interface=property.interface_id,
+                component_path=property.component_path,
+                property=property.property_id,
+                value=cast(
+                    "BindingInput",
+                    _capture_binding_literal(value),
+                ),
+            )
+        )
+    return EnsureStateIntent(tuple(bindings))
 
 
 def _is_payload_binding_input(value: object) -> bool:
