@@ -72,6 +72,7 @@ from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import (
     ConfigProfileSnapshot,
+    DomainTargetInstrumentMember,
     TcpipSocketInstrumentConnection,
     config_content_hash,
 )
@@ -190,7 +191,14 @@ def _domain_only_config() -> ConfigProfileSnapshot:
                 update={
                     "instrument_registry": registry,
                     "domain_target": target.model_copy(
-                        update={"instrument_ids": ["source-0"]}
+                        update={
+                            "members": [
+                                DomainTargetInstrumentMember(
+                                    role="source",
+                                    instrument_id="source-0",
+                                )
+                            ]
+                        }
                     ),
                 }
             )
@@ -1531,7 +1539,7 @@ def test_admission_rejects_invalid_domain_only_requirements(
     [
         {"id": "tests.forged-target"},
         {"kind": "tests.forged-domain"},
-        {"instrument_ids": []},
+        {"members": []},
     ],
 )
 def test_admission_rejects_domain_requirement_outside_active_authority(
