@@ -1,5 +1,11 @@
 # Instrument Control
 
+This document describes the current instrument-control architecture. It is not
+a product requirement or roadmap. Session, ownership, replay, and recovery
+mechanisms may be simplified when they make ordinary direct control and scan
+workflows harder than the alternatives identified in the
+[project charter](project-charter.md).
+
 Scopecat treats direct instrument interaction as a first-class lab activity,
 not as an experiment with one point. The GUI and notebook API open explicit
 sessions owned by the lab daemon, while experiments and interactive sessions

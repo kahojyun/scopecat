@@ -1,5 +1,10 @@
 # Lab Daemon
 
+This document describes the current daemon architecture. It is not a product
+requirement or roadmap. Ownership, persistence, and process boundaries may be
+simplified when that makes the workflows in the
+[project charter](project-charter.md) easier to adopt and use.
+
 Scopecat has one durable writer per lab instance: a long-running local daemon.
 GUI and Python processes are clients, even when Python executes an experiment
 itself.

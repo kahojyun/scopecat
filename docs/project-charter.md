@@ -1,43 +1,58 @@
 # Scopecat Project Charter
 
-Scopecat is a local-first Python platform for research labs that want
-experiment workflows to become easier to run, understand, and reproduce
-without replacing their existing notebooks, scripts, and instrument code.
+Scopecat is a local-first Python toolkit for running laboratory experiments
+with less setup and less repetitive code than ad hoc scripts and small internal
+scan frameworks.
 
-## Product Goals
+It should fit naturally into notebooks and existing Python workflows. Users
+should gain useful structure, live visibility, and reusable results without
+first adopting a new operational process.
 
-Scopecat should make it practical to:
+## Current Stage
 
-- describe and validate experiment intent before hardware effects;
-- preserve enough configuration, data, analysis, and execution evidence to
-  understand and reproduce a run;
-- give consequential configuration changes an explicit, traceable acceptance
-  decision, whether made by a person or a named automatic policy;
-- let manual Python workflows grow into reusable experiments incrementally;
-- integrate laboratory-specific domain semantics and hardware without coupling
-  them to the core platform.
+Scopecat is an early, single-user project. Its current goal is to prove that it
+is easier and more useful than the tools researchers already use.
+
+Success currently means:
+
+- a new user can run a virtual experiment quickly;
+- direct instrument control remains familiar to Python users;
+- common scans require little application code;
+- progress, measurements, and failures are easy to inspect;
+- results remain available after the notebook finishes;
+- moving from scratch code to a reusable experiment is incremental.
+
+New features and abstractions that do not improve one of these paths should
+normally wait.
+
+## Product Direction
+
+Scopecat should help users:
+
+- control instruments and build scans through clear Python APIs;
+- organize measurements automatically by run and scan point;
+- inspect live progress and completed results from a local GUI;
+- reuse experiment definitions without hiding ordinary Python;
+- retain enough configuration and context to understand useful results;
+- add lab-specific devices and domain logic without changing the core.
 
 ## Principles
 
-- Stay local-first, Python-first, and useful from existing lab workflows.
-- Favor explicit, inspectable state over behavior hidden in mutable sessions.
-- Preserve provenance between intent, configuration, measurements, analysis,
-  and effects where it helps users understand a run.
-- Treat uncertain hardware effects honestly; never silently retry when doing so
-  may repeat an effect.
-- Keep the core domain-neutral and add abstractions only when demonstrated
-  workflows need them.
-- Prefer simpler models and direct breaking changes while the project remains
-  internal and compatibility is not a product requirement.
-- Version independently evolving storage and document boundaries, not each
-  internal model or message.
-- Upgrade core, daemon, GUI, and SDK together; convert valuable experimental
-  data explicitly instead of maintaining speculative compatibility layers.
+- Optimize first use and common workflows before rare failure modes.
+- Keep ordinary use no more complicated than a small internal scan framework.
+- Introduce concepts only when demonstrated workflows require them.
+- Hide storage, coordination, and execution machinery from normal user code.
+- Make advanced provenance and recovery available progressively.
+- Do not silently retry a hardware write when its outcome is unknown.
+- Prefer simple models and direct breaking changes while the project is internal.
+- Judge architecture by the user workflows it enables, not by theoretical
+  completeness.
 
-## Non-Goals
+## Current Non-Goals
 
-- Replacing existing notebooks, drivers, plotting tools, or analysis scripts.
-- Generalizing every domain and backend into one universal representation.
-- Requiring centralized infrastructure for first use.
-- Becoming a full ELN, LIMS, data warehouse, plotting application, or general
-  automation platform.
+- Comprehensive laboratory safety or interlock enforcement.
+- Multi-user scheduling or distributed execution.
+- General recovery from every interrupted hardware operation.
+- Replacing plotting, analysis libraries, notebooks, or all existing drivers.
+- A universal representation for every laboratory domain.
+- Becoming an ELN, LIMS, data warehouse, or general automation platform.
