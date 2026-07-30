@@ -14,9 +14,9 @@ from tests.testkit.workflow_fixtures import load_config
 def test_config_snapshot_document_rejects_previous_format() -> None:
     content = config_snapshot_document_json(load_config()).replace(
         CONFIG_SNAPSHOT_FORMAT_VERSION,
-        "scopecat.config_snapshot.v4",
+        "scopecat.config_snapshot.v5",
         1,
     )
 
-    with pytest.raises(ValidationError, match=r"scopecat\.config_snapshot\.v5"):
+    with pytest.raises(ValidationError, match=r"scopecat\.config_snapshot\.v6"):
         parse_config_snapshot_document(content)

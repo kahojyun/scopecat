@@ -33,7 +33,7 @@
   "domain_target": {
     "id": "tests.domain.target",
     "kind": "tests.domain",
-    "instrument_ids": []
+    "members": []
   },
   "parameter_catalog": {
     "id": "example-parameter-definitions-catalog",

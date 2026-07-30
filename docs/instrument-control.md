@@ -95,6 +95,13 @@ footprint as one structured requirement. Ordinary run and instrument views
 project claims back to logical ids. Scheduler keys remain confined to admission
 storage, resource claims, and actor lookup.
 
+A domain target may also own private connection endpoints that have no
+standalone instrument contract. Such endpoints are configured as named target
+members, remain invisible in the Instruments workspace, and are covered by the
+target ownership claim. Hardware that remains useful independently is instead
+configured as an instrument member so direct sessions and other runs conflict
+with the target through the same physical resource claim.
+
 Executable Python remains in the client, so admission validates and authorizes
 the declared plan rather than reconstructing it. Treating a hostile client as a
 planner requires a future daemon-signed or daemon-built plan, not broader

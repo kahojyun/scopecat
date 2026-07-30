@@ -108,9 +108,17 @@
   "domain_target": {
     "id": "quantum-lab-demo.fake-list-mode.v1",
     "kind": "quantum_lab_demo.fake-list-mode",
-    "instrument_ids": [
-      "drive-stack",
-      "readout-stack"
+    "members": [
+      {
+        "kind": "instrument",
+        "role": "drive-stack",
+        "instrument_id": "drive-stack"
+      },
+      {
+        "kind": "instrument",
+        "role": "readout-stack",
+        "instrument_id": "readout-stack"
+      }
     ]
   }
 }

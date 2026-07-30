@@ -1,5 +1,5 @@
 {
-  "format_version": "scopecat.config_snapshot.v5",
+  "format_version": "scopecat.config_snapshot.v6",
   "id": "simple-scan-profile",
   "system": {
     "id": "simple-scan-system",
@@ -36,7 +36,7 @@
     "domain_target": {
       "id": "tests.domain.target",
       "kind": "tests.domain",
-      "instrument_ids": []
+      "members": []
     },
     "parameter_catalog": {
       "id": "example-parameter-definitions-catalog",

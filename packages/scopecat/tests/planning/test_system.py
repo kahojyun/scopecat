@@ -76,6 +76,7 @@ from scopecat.planning.system import ExperimentSystem, build_experiment_system
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
+    DomainTargetInstrumentMember,
     config_content_hash,
 )
 from scopecat.sdk.domain import (
@@ -556,7 +557,13 @@ def _config_with_domain_resources(
             "domain_target": DomainTargetBinding(
                 id="tests.domain.target",
                 kind="tests.domain",
-                instrument_ids=list(instrument_ids),
+                members=[
+                    DomainTargetInstrumentMember(
+                        role=instrument_id,
+                        instrument_id=instrument_id,
+                    )
+                    for instrument_id in instrument_ids
+                ],
             ),
         }
     )
