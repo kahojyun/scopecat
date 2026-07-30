@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.authoring._binding_intents import (
+    EnsureStateIntent,
     ExperimentBindingIntent,
     InvocationIntent,
 )
@@ -86,6 +87,7 @@ class SemanticElaboration:
     implementations: Mapping[OperationId, LocalPythonImplementation]
     effects: tuple[
         ExperimentBindingIntent
+        | EnsureStateIntent
         | InvocationIntent
         | SemanticDomainExecution
         | AcquireEffect,
@@ -100,6 +102,7 @@ def elaborate_semantic_graph(
     measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
     effects: Sequence[
         ExperimentBindingIntent
+        | EnsureStateIntent
         | InvocationIntent
         | LoweredDomainExecution
         | AcquireEffect
@@ -282,6 +285,7 @@ class _SemanticGraphBuilder:
         *,
         effects: tuple[
             ExperimentBindingIntent
+            | EnsureStateIntent
             | InvocationIntent
             | SemanticDomainExecution
             | AcquireEffect,

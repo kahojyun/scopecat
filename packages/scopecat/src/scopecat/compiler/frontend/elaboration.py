@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.authoring._binding_intents import (
+    EnsureStateIntent,
     ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
@@ -24,6 +25,7 @@ from scopecat.authoring._module_ir import (
     ModuleAcquireEffect,
     ModuleBindingEffect,
     ModuleDomainEffect,
+    ModuleEnsureEffect,
     ModuleInstanceIR,
     ModuleInvokeEffect,
     ModuleIR,
@@ -88,10 +90,18 @@ from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 
 type _FragmentEffect = (
-    ExperimentBindingIntent | InvocationIntent | LoweredDomainExecution | AcquireEffect
+    ExperimentBindingIntent
+    | EnsureStateIntent
+    | InvocationIntent
+    | LoweredDomainExecution
+    | AcquireEffect
 )
 type AssemblyEffect = (
-    ExperimentBindingIntent | InvocationIntent | SemanticDomainExecution | AcquireEffect
+    ExperimentBindingIntent
+    | EnsureStateIntent
+    | InvocationIntent
+    | SemanticDomainExecution
+    | AcquireEffect
 )
 
 
@@ -124,9 +134,15 @@ class _ModuleFragment(_ExperimentEnvelope):
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
         return tuple(
-            effect
+            binding
             for effect in self.effects
-            if isinstance(effect, ExperimentBindingIntent)
+            for binding in (
+                (effect,)
+                if isinstance(effect, ExperimentBindingIntent)
+                else effect.assignments
+                if isinstance(effect, EnsureStateIntent)
+                else ()
+            )
         )
 
 
@@ -165,9 +181,15 @@ class SemanticExperimentIR(_ExperimentEnvelope):
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
         return tuple(
-            effect
+            binding
             for effect in self.effects
-            if isinstance(effect, ExperimentBindingIntent)
+            for binding in (
+                (effect,)
+                if isinstance(effect, ExperimentBindingIntent)
+                else effect.assignments
+                if isinstance(effect, EnsureStateIntent)
+                else ()
+            )
         )
 
     @property
@@ -399,6 +421,7 @@ def _elaborate_module_ir(
 def _lower_module_effect(
     effect: (
         ModuleBindingEffect
+        | ModuleEnsureEffect
         | ModuleInvokeEffect
         | ModuleDomainEffect
         | ModuleAcquireEffect
@@ -408,6 +431,14 @@ def _lower_module_effect(
 ) -> _FragmentEffect:
     if isinstance(effect, ModuleBindingEffect):
         return _resolve_binding(effect.intent, resolver=resolver)
+    if isinstance(effect, ModuleEnsureEffect):
+        return replace(
+            effect.intent,
+            assignments=tuple(
+                _resolve_binding(assignment, resolver=resolver)
+                for assignment in effect.intent.assignments
+            ),
+        )
     if isinstance(effect, ModuleInvokeEffect):
         return _resolve_invocation(effect.intent, resolver=resolver)
     if isinstance(effect, ModuleDomainEffect):
@@ -892,6 +923,20 @@ def _scope_fragment_effect(
             scope=scope,
             origin=origin,
             resource_ids=resource_ids,
+        )
+    if isinstance(effect, EnsureStateIntent):
+        return replace(
+            effect,
+            assignments=tuple(
+                _scope_binding(
+                    assignment,
+                    inputs,
+                    scope=scope,
+                    origin=origin,
+                    resource_ids=resource_ids,
+                )
+                for assignment in effect.assignments
+            ),
         )
     if isinstance(effect, InvocationIntent):
         return _scope_invocation(

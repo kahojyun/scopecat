@@ -58,6 +58,17 @@ ExperimentBindingIntent = BindingIntent
 
 
 @dataclass(frozen=True)
+class EnsureStateIntent:
+    """One coherent desired-state assertion over a logical resource."""
+
+    assignments: tuple[ExperimentBindingIntent, ...]
+
+    def __post_init__(self) -> None:
+        if not self.assignments:
+            raise ValueError("desired state requires at least one assignment")
+
+
+@dataclass(frozen=True)
 class InvocationArgumentIntent:
     id: str
     value: InvocationArgumentValue

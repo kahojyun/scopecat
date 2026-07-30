@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from typing import Protocol, cast, overload, override
 
 from scopecat.authoring._binding_intents import (
+    EnsureStateIntent,
     ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
@@ -31,6 +32,7 @@ from scopecat.authoring._module_ir import (
     ModuleBodyIR,
     ModuleDomainEffect,
     ModuleEffectIR,
+    ModuleEnsureEffect,
     ModuleImportBinding,
     ModuleInstanceIR,
     ModuleInstanceLookup,
@@ -192,9 +194,15 @@ class ModuleBuilder:
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
         return tuple(
-            effect.intent
+            binding
             for effect in self.procedure
-            if isinstance(effect, ModuleBindingEffect)
+            for binding in (
+                (effect.intent,)
+                if isinstance(effect, ModuleBindingEffect)
+                else effect.intent.assignments
+                if isinstance(effect, ModuleEnsureEffect)
+                else ()
+            )
         )
 
     @property
@@ -327,31 +335,32 @@ class ModuleBuilder:
         if not assignments:
             raise ValueError("ensure requires at least one target assignment")
 
-        effects: list[ModuleBindingEffect] = []
+        bindings: list[ExperimentBindingIntent] = []
         for property, value in assignments:
             if _is_payload_binding_input(value):
                 raise TypeError("persistent properties cannot contain opaque payloads")
             if not _is_public_binding_input(value):
                 msg = "module bindings require a scalar typed value or scalar literal"
                 raise TypeError(msg)
-            effects.append(
-                ModuleBindingEffect(
-                    binding_property(
-                        resource,
-                        interface=property.interface_id,
-                        component_path=property.component_path,
-                        property=property.property_id,
-                        value=cast(
-                            "BindingInput",
-                            _capture_binding_literal(value),
-                        ),
-                    )
+            bindings.append(
+                binding_property(
+                    resource,
+                    interface=property.interface_id,
+                    component_path=property.component_path,
+                    property=property.property_id,
+                    value=cast(
+                        "BindingInput",
+                        _capture_binding_literal(value),
+                    ),
                 )
             )
 
         return replace(
             self,
-            procedure=(*self.procedure, *effects),
+            procedure=(
+                *self.procedure,
+                ModuleEnsureEffect(EnsureStateIntent(tuple(bindings))),
+            ),
         )
 
     def invoke(

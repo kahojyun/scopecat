@@ -48,6 +48,20 @@ class SetStateSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class EnsureStateSpec:
+    """One coherent desired-state assertion retained through planning."""
+
+    assignments: tuple[SetStateSpec, ...]
+
+    def __post_init__(self) -> None:
+        if not self.assignments:
+            raise ValueError("desired state requires at least one assignment")
+
+
+type StateEffect = SetStateSpec | EnsureStateSpec
+
+
+@dataclass(frozen=True, slots=True)
 class StateRecord:
     point_index: int
     resource_target: LogicalResourcePortId

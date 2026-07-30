@@ -8,6 +8,7 @@ from typing import cast
 
 from scopecat.authoring._binding_intents import (
     BindingIntent,
+    EnsureStateIntent,
     InvocationIntent,
     ResourcePort,
 )
@@ -40,7 +41,7 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     set_state_property,
 )
-from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.graph.relations.model import (
     LiteralScalarExpr,
     ScalarExpr,
@@ -83,6 +84,26 @@ def lower_state_binding(
                 expected_type=value_type,
             )
         ),
+    )
+
+
+def lower_ensure_state(
+    intent: EnsureStateIntent,
+    *,
+    inputs: Mapping[str, object],
+    type_bindings: RelationTypeBindings,
+) -> EnsureStateSpec:
+    """Lower one coherent authoring target into typed desired state."""
+
+    return EnsureStateSpec(
+        tuple(
+            lower_state_binding(
+                assignment,
+                inputs=inputs,
+                type_bindings=type_bindings,
+            )
+            for assignment in intent.assignments
+        )
     )
 
 

@@ -6,7 +6,13 @@ from dataclasses import dataclass
 import pytest
 
 import scopecat as sc
+from scopecat.authoring._module_ir import ModuleEnsureEffect
+from scopecat.compiler.typed.state import EnsureStateSpec
+from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
+from tests.testkit.authoring import link_invocation, template_fixture
+from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.materialized_effects import config_with_physical_resources
 
 _SOURCE = InterfaceRef("test.desired_source/v1")
 _SOURCE_LEVEL = _SOURCE.property("level")
@@ -52,6 +58,9 @@ def test_ensure_binds_one_declarative_target_with_point_resolved_values() -> Non
     ]
     assert builder.bindings[0].value is level
     assert builder.bindings[1].value is True
+    [effect] = builder.procedure
+    assert isinstance(effect, ModuleEnsureEffect)
+    assert len(effect.intent.assignments) == 2
 
 
 def test_ensure_rejects_an_empty_target() -> None:
@@ -60,3 +69,73 @@ def test_ensure_rejects_an_empty_target() -> None:
         match="ensure requires at least one target assignment",
     ):
         sc.module_body(id="test.empty-target").ensure("source", _EmptyTarget())
+
+
+def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
+    module = (
+        sc.module_body(id="test.coherent-target")
+        .resource("source", requires=(_SOURCE,))
+        .ensure("source", _SourceTarget(level=1.5, enabled=True))
+        .build()
+    )
+    template = template_fixture(
+        module,
+        id="test.coherent-target",
+        kind="desired-state",
+    )
+    linked = link_invocation(
+        template(),
+        config_profile=config_with_physical_resources(
+            {"source-device": (_SOURCE.interface_id,)}
+        ),
+    )
+
+    [effect] = linked.program.effects
+    assert isinstance(effect, EnsureStateSpec)
+    assert [assignment.property_id for assignment in effect.assignments] == [
+        "level",
+        "enabled",
+    ]
+
+    plan = materialize_local_execution(linked)
+    operations = tuple(
+        effect.operation
+        for effect in plan.effects
+        if isinstance(effect.operation, ApplyStateOperation)
+    )
+    assert len(operations) == 1
+    assert [target.property_id for target in operations[0].targets] == [
+        "level",
+        "enabled",
+    ]
+
+
+def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
+    module = (
+        sc.module_body(id="test.sequential-targets")
+        .resource("source", requires=(_SOURCE,))
+        .ensure("source", _SourceTarget(level=1.0, enabled=True))
+        .ensure("source", _SourceTarget(level=2.0, enabled=False))
+        .build()
+    )
+    template = template_fixture(
+        module,
+        id="test.sequential-targets",
+        kind="desired-state",
+    )
+    linked = link_invocation(
+        template(),
+        config_profile=config_with_physical_resources(
+            {"source-device": (_SOURCE.interface_id,)}
+        ),
+    )
+
+    assert all(isinstance(effect, EnsureStateSpec) for effect in linked.program.effects)
+    plan = materialize_local_execution(linked)
+    operations = tuple(
+        effect.operation
+        for effect in plan.effects
+        if isinstance(effect.operation, ApplyStateOperation)
+    )
+    assert len(operations) == 2
+    assert [operation.targets[0].value.root for operation in operations] == [1.0, 2.0]

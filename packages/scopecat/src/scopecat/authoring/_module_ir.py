@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Protocol, cast
 
 from scopecat.authoring._binding_intents import (
+    EnsureStateIntent,
     ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
@@ -208,6 +209,13 @@ class ModuleBindingEffect:
 
 
 @dataclass(frozen=True, slots=True)
+class ModuleEnsureEffect:
+    """Ensure one coherent desired state at this procedure position."""
+
+    intent: EnsureStateIntent
+
+
+@dataclass(frozen=True, slots=True)
 class ModuleInvokeEffect:
     """Invoke one atomic hardware operation at this procedure position."""
 
@@ -269,6 +277,7 @@ class ModuleAcquireEffect:
 type ModuleEffectIR = (
     ModuleInstanceIR
     | ModuleBindingEffect
+    | ModuleEnsureEffect
     | ModuleInvokeEffect
     | ModuleDomainEffect
     | ModuleAcquireEffect
@@ -381,9 +390,15 @@ class ModuleBodyIR:
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
         return tuple(
-            effect.intent
+            binding
             for effect in self.procedure
-            if isinstance(effect, ModuleBindingEffect)
+            for binding in (
+                (effect.intent,)
+                if isinstance(effect, ModuleBindingEffect)
+                else effect.intent.assignments
+                if isinstance(effect, ModuleEnsureEffect)
+                else ()
+            )
         )
 
     @property

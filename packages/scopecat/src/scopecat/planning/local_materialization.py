@@ -29,7 +29,9 @@ from scopecat.compiler.typed.point_domain import (
 )
 from scopecat.compiler.typed.program import CoreProgram, TypedDomainExecution
 from scopecat.compiler.typed.state import (
+    EnsureStateSpec,
     SetStateSpec,
+    StateEffect,
     StateRecord,
     evaluate_state_spec,
 )
@@ -237,24 +239,52 @@ def materialize_local_execution(
                         RunCoverageEffect(ordinal, invocation)
                     )
             continue
-        if effect_index and not isinstance(
+        if isinstance(effect, EnsureStateSpec):
+            for ordinal in ordinals:
+                point = point_by_ordinal[ordinal]
+                point_params = params_by_ordinal[ordinal]
+                resources = resources_by_ordinal[ordinal]
+                desired = _bind_desired_state(
+                    tuple(
+                        record
+                        for state in effect.assignments
+                        for record in _evaluate_state_records(
+                            state,
+                            effect_index,
+                            point,
+                            point_params,
+                            problems=problems,
+                        )
+                    ),
+                    point_uid=point.logical_id.value,
+                    state_group_index=effect_index,
+                    resources=resources,
+                    point_index=ordinal,
+                    problems=problems,
+                )
+                ordered = _order_instrument_operations(
+                    desired,
+                    instrument_order=selected_instrument_order,
+                )
+                effect_operations[effect_index].extend(
+                    RunCoverageEffect(ordinal, operation) for operation in ordered
+                )
+            continue
+        if effect_index and isinstance(
             program.effects[effect_index - 1],
-            TypedDomainExecution | AcquireEffect | InvokeEffect,
+            SetStateSpec,
         ):
             continue
         state_end = effect_index + 1
-        while state_end < len(program.effects) and not isinstance(
+        while state_end < len(program.effects) and isinstance(
             program.effects[state_end],
-            TypedDomainExecution | AcquireEffect | InvokeEffect,
+            SetStateSpec,
         ):
             state_end += 1
         state_group: list[tuple[int, SetStateSpec]] = []
         for index in range(effect_index, state_end):
             state = program.effects[index]
-            if isinstance(
-                state,
-                TypedDomainExecution | AcquireEffect | InvokeEffect,
-            ):
+            if not isinstance(state, SetStateSpec):
                 raise AssertionError("state group contains a non-state effect")
             state_group.append((index, state))
         for ordinal in ordinals:
@@ -505,9 +535,11 @@ def _active_resource_port_ids(
 
 
 def _state_resource_port_ids(
-    state: SetStateSpec,
+    state: StateEffect,
 ) -> tuple[LogicalResourcePortId, ...]:
-    return (state.resource_target.port_id,)
+    if isinstance(state, SetStateSpec):
+        return (state.resource_target.port_id,)
+    return tuple(assignment.resource_target.port_id for assignment in state.assignments)
 
 
 def _bind_desired_state(

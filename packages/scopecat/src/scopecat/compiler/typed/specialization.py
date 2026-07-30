@@ -33,7 +33,7 @@ from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     ValueInput,
 )
-from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.graph.relations.model import lit
 from scopecat.graph.relations.point_domain import (
     map_point_axis_centers,
@@ -110,10 +110,16 @@ def _live_compute_nodes(program: CoreProgram) -> tuple[TypedComputeNode, ...]:
     """Keep the dependency closure of compute results observed by effects."""
 
     demanded = {
-        effect.value_use.value_id
+        state.value_use.value_id
         for effect in program.effects
-        if isinstance(effect, SetStateSpec)
-        and isinstance(effect.value_use, ComputeResultRef)
+        for state in (
+            effect.assignments
+            if isinstance(effect, EnsureStateSpec)
+            else (effect,)
+            if isinstance(effect, SetStateSpec)
+            else ()
+        )
+        if isinstance(state.value_use, ComputeResultRef)
     }
     demanded.update(
         argument.value_use.value_id
@@ -245,6 +251,18 @@ def _specialize_effect(
                     ),
                 )
                 for argument in effect.arguments
+            ),
+        )
+    if isinstance(effect, EnsureStateSpec):
+        return replace(
+            effect,
+            assignments=tuple(
+                _specialize_state(
+                    state,
+                    known=known,
+                    parameter_cells=parameter_cells,
+                )
+                for state in effect.assignments
             ),
         )
     return _specialize_state(

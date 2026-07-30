@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from scopecat.authoring._binding_intents import (
+    EnsureStateIntent,
     ExperimentBindingIntent,
     InvocationIntent,
 )
@@ -22,6 +23,7 @@ from scopecat.compiler.frontend.assembly_lowering import (
 )
 from scopecat.compiler.frontend.binding_lowering import (
     build_resource_requirements,
+    lower_ensure_state,
     lower_invocation,
     lower_state_binding,
 )
@@ -144,6 +146,12 @@ def _bind_verified_assembly(
             type_bindings=type_bindings,
         )
         if isinstance(effect, ExperimentBindingIntent)
+        else lower_ensure_state(
+            effect,
+            inputs=inputs,
+            type_bindings=type_bindings,
+        )
+        if isinstance(effect, EnsureStateIntent)
         else lower_invocation(
             effect,
             inputs=inputs,
