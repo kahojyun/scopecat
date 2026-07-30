@@ -36,7 +36,6 @@ if TYPE_CHECKING:
         Desired,
         NetworkSweepTarget,
         RFOutputTarget,
-        TemperatureReadoutTarget,
     )
 
 
@@ -68,7 +67,6 @@ _TARGET_EXPORTS = {
     "Desired",
     "NetworkSweepTarget",
     "RFOutputTarget",
-    "TemperatureReadoutTarget",
 }
 
 

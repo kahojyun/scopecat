@@ -5,9 +5,18 @@ from typing import assert_type
 import scopecat as sc
 
 from scopecat_instruments import (
+    DCMonitorTarget,
+    DCSourceCurrentTarget,
     DCSourceTarget,
     DCSourceVoltageTarget,
     NetworkSweepTarget,
+    RFOutputTarget,
+)
+from scopecat_instruments.interfaces import (
+    dc_monitor_interface,
+    dc_source_interface,
+    network_sweep_interface,
+    rf_output_interface,
 )
 from scopecat_instruments.members import (
     DC_SOURCE_MODE,
@@ -53,3 +62,39 @@ def test_sparse_targets_omit_unspecified_properties() -> None:
         NETWORK_SWEEP_POINTS: 401,
         NETWORK_SWEEP_S_PARAMETER: "S21",
     }
+
+
+def test_every_first_party_target_assignment_is_writable() -> None:
+    targets = (
+        DCSourceTarget(output_enabled=False),
+        DCSourceVoltageTarget(
+            range=sc.Quantity(1.0, "V"),
+            level=sc.Quantity(0.0, "V"),
+        ),
+        DCSourceCurrentTarget(
+            range=sc.Quantity(1.0, "mA"),
+            level=sc.Quantity(0.0, "mA"),
+        ),
+        DCMonitorTarget(measurement_enabled=True),
+        RFOutputTarget(output_enabled=False),
+        NetworkSweepTarget(points=401),
+    )
+    interfaces = {
+        interface.id: interface
+        for interface in (
+            dc_source_interface(),
+            dc_monitor_interface(),
+            rf_output_interface(),
+            network_sweep_interface(),
+        )
+    }
+
+    for target in targets:
+        for property_ref in target.target_assignments():
+            interface = interfaces[property_ref.interface_id]
+            property_spec = next(
+                item
+                for item in interface.properties
+                if item.id == property_ref.property_id
+            )
+            assert property_spec.access != "read_only"

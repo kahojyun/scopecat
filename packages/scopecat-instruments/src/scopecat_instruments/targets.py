@@ -31,8 +31,6 @@ from scopecat_instruments.members import (
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
     RF_OUTPUT_REFERENCE_SOURCE,
-    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
-    TEMPERATURE_READOUT_SCAN_CHANNEL,
 )
 
 type Desired[T] = T | ValueRef
@@ -152,18 +150,6 @@ class NetworkSweepTarget:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class TemperatureReadoutTarget:
-    scan_channel: Desired[int] | None = None
-    autoscan_enabled: Desired[bool] | None = None
-
-    def target_assignments(self) -> dict[PropertyRef, StateBinding]:
-        return _target_assignments(
-            (TEMPERATURE_READOUT_SCAN_CHANNEL, self.scan_channel),
-            (TEMPERATURE_READOUT_AUTOSCAN_ENABLED, self.autoscan_enabled),
-        )
-
-
 def _target_assignments(
     *items: tuple[PropertyRef, StateBinding | None],
 ) -> dict[PropertyRef, StateBinding]:
@@ -178,5 +164,4 @@ __all__ = [
     "Desired",
     "NetworkSweepTarget",
     "RFOutputTarget",
-    "TemperatureReadoutTarget",
 ]
