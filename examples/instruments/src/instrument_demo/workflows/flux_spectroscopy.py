@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import scopecat as sc
 from scopecat_instruments.members import (
     DC_SOURCE,
@@ -45,65 +47,72 @@ _FREQUENCY_AXIS = sc.product_axis(
 
 
 @sc.module(id="instrument_demo.flux_spectroscopy.capture")
-def _flux_spectroscopy_module():
-    return (
-        sc.procedure()
-        .resource(FLUX_SOURCE_RESOURCE, requires=(DC_SOURCE,))
-        .resource(
-            TEMPERATURE_RESOURCE,
-            requires=(TEMPERATURE_READOUT,),
-        )
-        .resource(VNA_RESOURCE, requires=(NETWORK_SWEEP,))
-        .ensure(
-            FLUX_SOURCE_RESOURCE,
-            DCSourceVoltage(
-                range=sc.Quantity(1.0, "V"),
-                level=DC_BIAS,
-                current_protection=sc.Quantity(100.0, "uA"),
-                output_enabled=True,
-            ),
-        )
-        .ensure(
-            VNA_RESOURCE,
-            NetworkSweepState(
-                start_frequency=SWEEP_START,
-                stop_frequency=SWEEP_STOP,
-                points=TRACE_POINTS,
-                if_bandwidth=sc.Quantity(1.0, "kHz"),
-                source_power=sc.Quantity(-35.0, "dBm"),
-                s_parameter="S21",
-            ),
-        )
-        .product(
-            "frequency",
-            dtype="float64",
-            unit="Hz",
-            axes=(_FREQUENCY_AXIS,),
-        )
-        .product(
-            "s_parameter",
-            dtype="complex128",
-            unit="ratio",
-            axes=(_FREQUENCY_AXIS,),
-        )
-        .product("temperature", dtype="float64", unit="K")
-        .acquire(
-            "read-network-trace",
-            resource=VNA_RESOURCE,
-            results={
-                NETWORK_SWEEP_FREQUENCY_RESULT: "frequency",
-                NETWORK_SWEEP_S_PARAMETER_RESULT: "s_parameter",
-            },
-        )
-        .acquire(
-            "read-temperature",
-            resource=TEMPERATURE_RESOURCE,
-            results={TEMPERATURE_READOUT_TEMPERATURE_RESULT: "temperature"},
-        )
-        .ensure(
-            FLUX_SOURCE_RESOURCE,
-            DCSourceState(output_enabled=False),
-        )
+def _flux_spectroscopy_module(
+    module: sc.ModuleContext,
+    dc_bias: Annotated[
+        sc.Input[sc.Quantity],
+        sc.ScalarType(sc.QuantityType(unit="V")),
+    ],
+) -> None:
+    flux_source = module.resource(FLUX_SOURCE_RESOURCE, requires=(DC_SOURCE,))
+    temperature = module.resource(
+        TEMPERATURE_RESOURCE,
+        requires=(TEMPERATURE_READOUT,),
+    )
+    readout = module.resource(VNA_RESOURCE, requires=(NETWORK_SWEEP,))
+    module.ensure(
+        flux_source,
+        DCSourceVoltage(
+            range=sc.Quantity(1.0, "V"),
+            level=dc_bias,
+            current_protection=sc.Quantity(100.0, "uA"),
+            output_enabled=True,
+        ),
+    )
+    module.ensure(
+        readout,
+        NetworkSweepState(
+            start_frequency=SWEEP_START,
+            stop_frequency=SWEEP_STOP,
+            points=TRACE_POINTS,
+            if_bandwidth=sc.Quantity(1.0, "kHz"),
+            source_power=sc.Quantity(-35.0, "dBm"),
+            s_parameter="S21",
+        ),
+    )
+    frequency = module.product(
+        "frequency",
+        dtype="float64",
+        unit="Hz",
+        axes=(_FREQUENCY_AXIS,),
+    )
+    s_parameter = module.product(
+        "s_parameter",
+        dtype="complex128",
+        unit="ratio",
+        axes=(_FREQUENCY_AXIS,),
+    )
+    temperature_result = module.product(
+        "temperature",
+        dtype="float64",
+        unit="K",
+    )
+    module.acquire(
+        "read-network-trace",
+        resource=readout,
+        results={
+            NETWORK_SWEEP_FREQUENCY_RESULT: frequency,
+            NETWORK_SWEEP_S_PARAMETER_RESULT: s_parameter,
+        },
+    )
+    module.acquire(
+        "read-temperature",
+        resource=temperature,
+        results={TEMPERATURE_READOUT_TEMPERATURE_RESULT: temperature_result},
+    )
+    module.ensure(
+        flux_source,
+        DCSourceState(output_enabled=False),
     )
 
 
@@ -111,25 +120,22 @@ def _flux_spectroscopy_module():
     id=FLUX_SPECTROSCOPY_TEMPLATE_ID,
     kind=FLUX_SPECTROSCOPY_EXPERIMENT_ID,
 )
-def flux_spectroscopy_template() -> sc.ExperimentBody:
+def flux_spectroscopy_template(experiment: sc.ExperimentContext) -> None:
     """Scan DC bias and persist one VNA trace plus temperature per point."""
 
-    capture = _flux_spectroscopy_module()
-    return (
-        sc.experiment(capture)
-        .scan(
-            sc.axis(
-                DC_BIAS,
-                center=BIAS_CENTER,
-                span=BIAS_SPAN,
-                points=BIAS_POINTS,
-            )
+    capture = experiment.run(_flux_spectroscopy_module(DC_BIAS))
+    experiment.scan(
+        sc.axis(
+            DC_BIAS,
+            center=BIAS_CENTER,
+            span=BIAS_SPAN,
+            points=BIAS_POINTS,
         )
-        .record_coordinate(capture.products.frequency)
-        .record_product(
-            capture.products.s_parameter,
-            capture.products.temperature,
-        )
+    )
+    experiment.record_coordinate(capture.products.frequency)
+    experiment.record(
+        capture.products.s_parameter,
+        capture.products.temperature,
     )
 
 

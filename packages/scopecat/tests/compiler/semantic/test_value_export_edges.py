@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
 
 import scopecat as sc
@@ -91,16 +93,18 @@ def test_transform_requires_exact_value_type_preservation() -> None:
 
 
 def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    value = sc.input("value", value_type)
-    producer = (
-        sc.procedure(id="test.value-export.root-input-producer")
-        .inputs(value)
-        .export(value=value)
-        .build()
-        .instantiate("producer", value=1.0)
-    )
-    root = sc.procedure(id="test.value-export.root-input").build()
+    @sc.module(id="test.value-export.root-input-producer")
+    def producer_definition(
+        module: sc.ModuleContext,
+        value: Annotated[sc.Input[float], sc.FloatType()],
+    ) -> None:
+        module.export(value=sc.input_ref(value))
+
+    producer = producer_definition.instantiate("producer", value=1.0)
+
+    @sc.module(id="test.value-export.root-input")
+    def root(module: sc.ModuleContext) -> None:
+        del module
 
     with pytest.raises(ValueError, match="unresolved module export 'value'"):
         elaborate_module(root.ir, hidden=producer.outputs.value)

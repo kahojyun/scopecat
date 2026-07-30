@@ -57,25 +57,31 @@ def _domain_scenario(
         outputs={"summary": "summary"},
         kernel=summarize,
     )
-    module = (
-        sc.procedure(id=f"test.sdk.context.{namespace}")
-        .product("raw", "summary", unit="count", dtype="int64")
-        .measurement_postprocessors(postprocessor)
-    )
-    execution = sc.domain_execution(
-        program,
-        inputs={"count": count},
-        results={"raw": module.products["raw"]},
-    )
-    module_call = module.domain(execution).build()()
-    body = sc.experiment(module_call).scan(sc.axis(count, (1, 3, 5)))
-    if record_raw:
-        body = body.record_product(module_call.products.raw, record_id="raw")
-    body = body.record_product(module_call.products.summary, record_id="summary")
-    template = sc.template(
+
+    @sc.module(id=f"test.sdk.context.{namespace}")
+    def domain_module(module: sc.ModuleContext) -> None:
+        raw = module.product("raw", unit="count", dtype="int64")
+        module.product("summary", unit="count", dtype="int64")
+        module.measurement_postprocessor(postprocessor)
+        module.domain(
+            sc.domain_execution(
+                program,
+                inputs={"count": count},
+                results={"raw": raw},
+            )
+        )
+
+    @sc.template(
         id=f"test.sdk.context.{namespace}",
         kind="domain_context",
-    )(lambda: body)
+    )
+    def template(experiment: sc.ExperimentContext) -> None:
+        module_call = experiment.run(domain_module())
+        experiment.scan(sc.axis(count, (1, 3, 5)))
+        if record_raw:
+            experiment.record(module_call.products.raw, record_id="raw")
+        experiment.record(module_call.products.summary, record_id="summary")
+
     resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),

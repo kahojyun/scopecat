@@ -234,9 +234,10 @@ def test_program_rejects_conflicting_gate_definitions() -> None:
 def test_domain_execution_requires_exact_handle_bindings() -> None:
     declaration, x_count, raw_iq = _x_count_declaration()
     program = authoring._domain_program(declaration)
-    products = (
-        sc.procedure(id="test.quantum.bindings").product("integrated_iq_shots").build()
-    )
+
+    @sc.module(id="test.quantum.bindings")
+    def products(context: sc.ModuleContext) -> None:
+        context.product("integrated_iq_shots")
 
     with pytest.raises(ValueError, match="bind every declared port"):
         authoring._domain_execution(
@@ -263,7 +264,10 @@ def test_domain_execution_rejects_forged_ports_and_normalizes_number_literal() -
         authoring.sequence(drive(q0, amplitude=amplitude), readout),
     )
     program = authoring._domain_program(declaration)
-    products = sc.procedure(id="test.quantum.number-input").product("iq").build()
+
+    @sc.module(id="test.quantum.number-input")
+    def products(context: sc.ModuleContext) -> None:
+        context.product("iq")
 
     execution = authoring._domain_execution(
         program,

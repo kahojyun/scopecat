@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import override
+from typing import Annotated, override
 
 import scopecat as sc
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
@@ -66,6 +66,11 @@ from tests.testkit.runtime import FakeExecutionJournal
 _PLAY_PROGRAM = InterfaceRef("test.play_program/v1")
 _PLAY_PROGRAM_PLAY = _PLAY_PROGRAM.operation("play")
 _PLAY_PROGRAM_ARGUMENT = _PLAY_PROGRAM_PLAY.argument("program")
+
+type _SourceProgramInput = Annotated[
+    sc.Input[object],
+    sc.ScalarType(sc.PayloadType("source_program")),
+]
 
 
 def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
@@ -168,56 +173,55 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
 
     source_program_type = sc.ScalarType(sc.PayloadType("source_program"))
     pulse_program_type = sc.ScalarType(sc.PayloadType("pulse_program"))
-    program = sc.input("program", source_program_type)
 
     def consume(*, program: object) -> dict[str, object]:
         calls.append("consume")
         return {"consumed": program}
 
-    consume_program = sc.compute(
-        "consume-program",
-        fn=consume,
-        inputs={"program": program},
-        output_type=pulse_program_type,
-    )
-    child = (
-        sc.procedure(id="tests.compute_schedule.child")
-        .inputs(program)
-        .resource("source", requires=(_PLAY_PROGRAM,))
-        .computes(consume_program)
-        .invoke(
-            "play-program",
-            resource="source",
-            operation=_PLAY_PROGRAM_PLAY,
-            arguments={_PLAY_PROGRAM_ARGUMENT: consume_program.output},
+    @sc.module(id="tests.compute_schedule.child")
+    def child(
+        context: sc.ModuleContext,
+        program: _SourceProgramInput,
+    ) -> None:
+        consumed = context.compute(
+            "consume-program",
+            fn=consume,
+            inputs={"program": sc.input_ref(program)},
+            output_type=pulse_program_type,
         )
-        .build()
-    )
+        source = context.resource("source", requires=(_PLAY_PROGRAM,))
+        context.invoke(
+            "play-program",
+            resource=source,
+            operation=_PLAY_PROGRAM_PLAY,
+            arguments={_PLAY_PROGRAM_ARGUMENT: consumed},
+        )
 
     def produce() -> dict[str, object]:
         calls.append("produce")
         return {"source": "parent"}
 
-    produce_program = sc.compute(
-        "produce-program",
-        fn=produce,
-        output_type=source_program_type,
-    )
-    parent = (
-        sc.procedure(id="tests.compute_schedule.parent")
-        .computes(produce_program)
-        .use(
+    @sc.module(id="tests.compute_schedule.parent")
+    def parent(context: sc.ModuleContext) -> None:
+        produced = context.compute(
+            "produce-program",
+            fn=produce,
+            output_type=source_program_type,
+        )
+        context.call(
             child.instantiate(
                 "compute-schedule-child",
-                program=produce_program.output,
+                program=produced,
             )
         )
-        .build()
-    )
-    template = sc.template(
+
+    @sc.template(
         id="tests.compute_schedule",
         kind="characterization",
-    )(lambda: sc.experiment(parent()))
+    )
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(parent())
+
     driver = SignalInstrumentDriver()
     payload_codecs = json_payload_codecs("pulse_program")
     config = config_with_physical_resources({"source-0": ("test.play_program/v1",)})

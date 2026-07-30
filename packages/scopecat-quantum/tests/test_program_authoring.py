@@ -398,11 +398,10 @@ def test_domain_program_and_execution_expose_typed_ports() -> None:
     repetitions_type = sc.ScalarType(sc.IntType(minimum=0))
     repetitions_point = sc.coordinate("repetitions", repetitions_type)
     beta_point = sc.coordinate("beta", beta_type)
-    products = (
-        sc.procedure(id="test.quantum.typed-drag")
-        .product("integrated_iq_shots")
-        .build()
-    )
+
+    @sc.module(id="test.quantum.typed-drag")
+    def products(context: sc.ModuleContext) -> None:
+        context.product("integrated_iq_shots")
 
     domain_program = authoring._domain_program(declaration)
     execution = authoring._domain_execution(
@@ -479,9 +478,10 @@ def test_domain_execution_requires_the_exact_measurement_result_handle() -> None
     )
     declaration = authoring._close_program("explicit-acquire", capture)
     domain_program = authoring._domain_program(declaration)
-    products = (
-        sc.procedure(id="test.quantum.explicit-acquire").product("iq_shots").build()
-    )
+
+    @sc.module(id="test.quantum.explicit-acquire")
+    def products(context: sc.ModuleContext) -> None:
+        context.product("iq_shots")
 
     with pytest.raises(ValueError, match="bind every declared result"):
         authoring._domain_execution(

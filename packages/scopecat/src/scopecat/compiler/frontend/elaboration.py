@@ -346,7 +346,7 @@ def _elaborate_module_ir(
         for implementation in module.python_implementations
     }
     own_effects: list[_FragmentEffect] = []
-    for effect in module.body.procedure:
+    for effect in module.body.effects:
         if isinstance(effect, ModuleInstanceIR):
             continue
         own_effects.append(_lower_module_effect(effect, resolver=resolver))
@@ -410,7 +410,7 @@ def _elaborate_module_ir(
     )
     effects: list[_FragmentEffect] = []
     own_effect_iterator = iter(own.effects)
-    for effect in module.body.procedure:
+    for effect in module.body.effects:
         if isinstance(effect, ModuleInstanceIR):
             effects.extend(source_fragments[effect.invocation_key].effects)
         else:

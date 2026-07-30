@@ -118,11 +118,11 @@ def _domain_invocation() -> sc.ExperimentInvocation:
         dialect_version="1",
         body=object(),
     )
-    module = (
-        sc.procedure(id="test.check-domain")
-        .domain(sc.domain_execution(program))
-        .build()
-    )
+
+    @sc.module(id="test.check-domain")
+    def module(context: sc.ModuleContext) -> None:
+        context.domain(sc.domain_execution(program))
+
     return template_fixture(
         module,
         id="test.check-domain",

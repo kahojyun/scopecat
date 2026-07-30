@@ -1,4 +1,8 @@
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
+
+from typing import Annotated
 
 import pytest
 
@@ -20,7 +24,17 @@ from scopecat.sdk.domain._bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
-from tests.testkit.authoring import link_invocation, load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config
+
+
+def _domain_table_type() -> sc.TableType:
+    return sc.TableType(
+        columns=(
+            sc.TableColumn("id", sc.ScalarType(sc.IntType())),
+            sc.TableColumn("gain", sc.ScalarType(sc.FloatType())),
+        ),
+        primary_key=("id",),
+    )
 
 
 def _domain_module() -> tuple[sc.ExperimentModule[...], sc.DomainProgramDef, object]:
@@ -34,18 +48,25 @@ def _domain_module() -> tuple[sc.ExperimentModule[...], sc.DomainProgramDef, obj
         inputs={"x_count": value_type},
         results={"counts": {"kind": "counts"}},
     )
-    module = (
-        sc.procedure(id="test.domain.child")
-        .inputs(sc.input("x_count", value_type))
-        .product("counts", unit="count", dtype="int64")
-        .build()
-    )
+
+    @sc.module(id="test.domain.child")
+    def module(
+        context: sc.ModuleContext,
+        x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
+    ) -> None:
+        del x_count
+        context.product("counts", unit="count", dtype="int64")
+
     return module, program, body
 
 
 def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
     value_type = sc.ScalarType(sc.IntType())
-    product_module = sc.procedure(id="test.domain.products").product("result").build()
+
+    @sc.module(id="test.domain.products")
+    def product_module(context: sc.ModuleContext) -> None:
+        context.product("result")
+
     program = sc.domain_program(
         "program",
         dialect_id="test",
@@ -85,9 +106,11 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
         compiler_inputs={"calibration_revision": 7},
     )
 
-    semantic = elaborate_module(
-        sc.procedure(id="test.domain.compiler-inputs").domain(execution).build().ir
-    ).domain_executions[0]
+    @sc.module(id="test.domain.compiler-inputs")
+    def module(context: sc.ModuleContext) -> None:
+        context.domain(execution)
+
+    semantic = elaborate_module(module.ir).domain_executions[0]
 
     assert tuple(port.id for port in semantic.program.input_ports) == ("value",)
     assert tuple(port.id for port in semantic.program.compiler_input_ports) == (
@@ -100,13 +123,7 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
 
 
 def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> None:
-    table_type = sc.TableType(
-        columns=(
-            sc.TableColumn("id", sc.ScalarType(sc.IntType())),
-            sc.TableColumn("gain", sc.ScalarType(sc.FloatType())),
-        ),
-        primary_key=("id",),
-    )
+    table_type = _domain_table_type()
     program = sc.domain_program(
         "table-program",
         dialect_id="test",
@@ -114,39 +131,43 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         body=object(),
         compiler_inputs={"rows": table_type},
     )
-    leaf_rows = sc.input("rows", table_type)
-    leaf = (
-        sc.procedure(id="test.domain.table-leaf")
-        .inputs(leaf_rows)
-        .domain(
+
+    @sc.module(id="test.domain.table-leaf")
+    def leaf(
+        context: sc.ModuleContext,
+        rows: Annotated[list[dict[str, object]], _domain_table_type()],
+    ) -> None:
+        context.domain(
             sc.domain_execution(
                 program,
                 id="compile",
-                compiler_inputs={"rows": leaf_rows},
+                compiler_inputs={"rows": sc.input_ref(rows)},
             )
         )
-        .build()
-    )
-    middle_rows = sc.input("rows", table_type)
-    middle = (
-        sc.procedure(id="test.domain.table-middle")
-        .inputs(middle_rows)
-        .use(leaf.instantiate("leaf", rows=middle_rows))
-        .build()
-    )
-    root_rows = sc.input("rows", table_type)
-    root = (
-        sc.procedure(id="test.domain.table-root")
-        .inputs(root_rows)
-        .use(middle.instantiate("middle", rows=root_rows))
-        .build()
-    )
+
+    @sc.module(id="test.domain.table-middle")
+    def middle(
+        context: sc.ModuleContext,
+        rows: Annotated[list[dict[str, object]], _domain_table_type()],
+    ) -> None:
+        context.call(leaf.instantiate("leaf", rows=sc.input_ref(rows)))
+
+    @sc.module(id="test.domain.table-root")
+    def root(
+        context: sc.ModuleContext,
+        rows: Annotated[list[dict[str, object]], _domain_table_type()],
+    ) -> None:
+        context.call(middle.instantiate("middle", rows=sc.input_ref(rows)))
+
+    @sc.template(id="test.domain.table-forwarding", kind="domain")
+    def template(
+        experiment: sc.ExperimentContext,
+        rows: Annotated[list[dict[str, object]], _domain_table_type()],
+    ) -> None:
+        experiment.run(root(rows))
+
     linked = link_invocation(
-        template_fixture(
-            root,
-            id="test.domain.table-forwarding",
-            kind="domain",
-        ).bind(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
+        template(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
         config_profile=load_config(),
     )
 
@@ -232,15 +253,23 @@ def test_domain_execution_must_bind_a_product_from_the_template_module() -> None
         body=object(),
         results={"result": None},
     )
-    local = sc.procedure(id="test.domain.local").product("result")
-    foreign = sc.procedure(id="test.domain.foreign").product("result").build()
+
+    @sc.module(id="test.domain.foreign")
+    def foreign(context: sc.ModuleContext) -> None:
+        context.product("result")
+
     execution = sc.domain_execution(
         program,
         results={"result": foreign.products["result"]},
     )
 
     with pytest.raises(CheckFailed) as error:
-        local.domain(execution).build()
+
+        @sc.module(id="test.domain.local")
+        def local(context: sc.ModuleContext) -> None:
+            context.product("result")
+            context.domain(execution)
+
     assert "domain_execution_product_foreign_instance" in {
         problem.code for problem in error.value.problems
     }
@@ -255,12 +284,13 @@ def test_module_preserves_ordered_domain_executions() -> None:
     )
     first = sc.domain_execution(program, id="first")
     second = sc.domain_execution(program, id="second")
-    module = sc.procedure(id="test.domain.single").domain(first).domain(second).build()
-    template = template_fixture(module, id="test.domain", kind="test")
 
-    assert tuple(
-        call.id for call in template.definition.module.body.domain_executions
-    ) == (
+    @sc.module(id="test.domain.single")
+    def module(context: sc.ModuleContext) -> None:
+        context.domain(first)
+        context.domain(second)
+
+    assert tuple(call.id for call in module.domain_executions) == (
         "first",
         "second",
     )
@@ -274,17 +304,25 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
         body=object(),
         results={"result": None},
     )
-    base = sc.procedure(id="test.domain.reusable").product("result")
-    child = base.domain(
-        sc.domain_execution(
-            program,
-            id="call",
-            results={"result": base.products["result"]},
+
+    @sc.module(id="test.domain.reusable")
+    def child(context: sc.ModuleContext) -> None:
+        result = context.product("result")
+        context.domain(
+            sc.domain_execution(
+                program,
+                id="call",
+                results={"result": result},
+            )
         )
-    ).build()
+
     right = child.instantiate("right")
     left = child.instantiate("left")
-    root = sc.procedure(id="test.domain.composed").use(right, left).build()
+
+    @sc.module(id="test.domain.composed")
+    def root(context: sc.ModuleContext) -> None:
+        context.call(right)
+        context.call(left)
 
     assembly = elaborate_module(root.ir)
 
@@ -300,11 +338,6 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
 
 def test_domain_execution_rejects_execute_stage_compute_input() -> None:
     value_type = sc.ScalarType(sc.IntType())
-    compute = sc.compute(
-        "compute",
-        fn=lambda: 1,
-        output_type=value_type,
-    )
     program = sc.domain_program(
         "program",
         dialect_id="test",
@@ -313,15 +346,22 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         inputs={"value": value_type},
         results={"result": None},
     )
-    base = (
-        sc.procedure(id="test.domain.execute-input").computes(compute).product("result")
-    )
-    execution = sc.domain_execution(
-        program,
-        inputs={"value": compute.output},
-        results={"result": base.products["result"]},
-    )
-    module = base.domain(execution).build()
+
+    @sc.module(id="test.domain.execute-input")
+    def module(context: sc.ModuleContext) -> None:
+        compute = context.compute(
+            "compute",
+            fn=lambda: 1,
+            output_type=value_type,
+        )
+        result = context.product("result")
+        context.domain(
+            sc.domain_execution(
+                program,
+                inputs={"value": compute},
+                results={"result": result},
+            )
+        )
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(elaborate_module(module.ir))
@@ -334,29 +374,35 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     None
 ):
     child, program, body = _domain_module()
-    wrapper_x_count = sc.input("x_count", sc.ScalarType(sc.IntType(minimum=0)))
-    inner = child.instantiate("inner", x_count=wrapper_x_count)
-    wrapper = (
-        sc.procedure(id="test.domain.wrapper")
-        .inputs(wrapper_x_count)
-        .use(inner)
-        .build()
-    )
+
+    @sc.module(id="test.domain.wrapper")
+    def wrapper(
+        context: sc.ModuleContext,
+        x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
+    ) -> None:
+        context.call(child.instantiate("inner", x_count=x_count))
+
     point_x_count = sc.coordinate(
         "x_count",
         sc.ScalarType(sc.IntType(minimum=0)),
     )
-    outer = wrapper.instantiate("outer", x_count=point_x_count)
-    root = sc.procedure(id="test.domain.root").use(outer)
-    selected_product = root.products["outer/inner/counts"]
-    execution = sc.domain_execution(
-        program,
-        inputs={"x_count": point_x_count},
-        results={"counts": selected_product},
-    )
 
-    root_module = root.domain(execution).build()
-    assembly = elaborate_module(root_module.ir)
+    @sc.module(id="test.domain.root")
+    def root_module(
+        context: sc.ModuleContext,
+        x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
+    ) -> None:
+        outer = wrapper.instantiate("outer", x_count=x_count)
+        context.call(outer)
+        context.domain(
+            sc.domain_execution(
+                program,
+                inputs={"x_count": x_count},
+                results={"counts": outer.products["inner/counts"]},
+            )
+        )
+
+    assembly = elaborate_module(root_module.ir, x_count=point_x_count)
     assert len(assembly.domain_executions) == 1
     assert (
         assembly.domain_executions[0].program.symbol_id.qualified_name
@@ -366,18 +412,16 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         "outer/inner/counts"
     )
 
-    template = template_fixture(
-        root_module,
-        id="test.domain",
-        kind="domain",
-        scans=(sc.axis(point_x_count, (1, 2)),),
-        records=(
-            sc.record_product(selected_product, record_id="counts_first"),
-            sc.record_product(selected_product, record_id="counts_second"),
-        ),
-    )
+    @sc.template(id="test.domain", kind="domain")
+    def template(experiment: sc.ExperimentContext) -> None:
+        call = experiment.run(root_module(point_x_count))
+        selected_product = call.products["outer/inner/counts"]
+        experiment.scan(sc.axis(point_x_count, (1, 2)))
+        experiment.record(selected_product, record_id="counts_first")
+        experiment.record(selected_product, record_id="counts_second")
+
     resolved = link_invocation(
-        template.bind(),
+        template(),
         config_profile=load_config(),
     )
     typed = resolved.program
@@ -387,19 +431,13 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     assert typed_execution.program.body is body
     assert isinstance(typed_execution.inputs["x_count"], ValueInput)
     result = typed_execution.results[0]
-    assert result.product_id.qualified_name == selected_product.id
+    assert result.product_id.qualified_name == "root/outer/inner/counts"
     assert result.product_use_ids == tuple(use.id for use in typed.product_uses)
     assert len(result.product_use_ids) == 2
 
 
 def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
     value_type = sc.ScalarType(sc.IntType())
-    compute = sc.compute(
-        "domain",
-        fn=_identity_value,
-        inputs={"value": 1},
-        output_type=value_type,
-    )
     program = sc.domain_program(
         "program",
         dialect_id="test",
@@ -408,17 +446,23 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
         inputs={"value": value_type},
         results={"result": None},
     )
-    base = (
-        sc.procedure(id="test.domain.literal-namespace")
-        .computes(compute)
-        .product("result")
-    )
-    execution = sc.domain_execution(
-        program,
-        inputs={"value": 2},
-        results={"result": base.products["result"]},
-    )
-    module = base.domain(execution).build()
+
+    @sc.module(id="test.domain.literal-namespace")
+    def module(context: sc.ModuleContext) -> None:
+        context.compute(
+            "domain",
+            fn=_identity_value,
+            inputs={"value": 1},
+            output_type=value_type,
+        )
+        result = context.product("result")
+        context.domain(
+            sc.domain_execution(
+                program,
+                inputs={"value": 2},
+                results={"result": result},
+            )
+        )
 
     graph = elaborate_module(module.ir).semantic_graph
     value_ids = {definition.id.qualified_name for definition in graph.value_defs}

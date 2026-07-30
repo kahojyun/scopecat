@@ -44,22 +44,23 @@ _SET_POWER_VALUE = InterfaceRef("test.set_power/v1").property("value")
 
 def _resource_module() -> sc.ExperimentModule[...]:
     frequency = sc.Quantity(value=5.0, unit="GHz")
-    return (
-        sc.procedure(id="test.resources.child")
-        .resource("drive.v1", requires=(_SET_FREQUENCY,))
-        .bind_property(
-            "drive.v1",
+
+    @sc.module(id="test.resources.child")
+    def module(context: sc.ModuleContext) -> None:
+        drive = context.resource("drive.v1", requires=(_SET_FREQUENCY,))
+        context.bind_property(
+            drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=frequency,
         )
-        .product("signal")
-        .acquire(
+        signal = context.product("signal")
+        context.acquire(
             "read-signal",
-            resource="drive.v1",
-            results={_SET_FREQUENCY_SAMPLE_SIGNAL: "signal"},
+            resource=drive,
+            results={_SET_FREQUENCY_SAMPLE_SIGNAL: signal},
         )
-        .build()
-    )
+
+    return module
 
 
 def test_graph_proof_indexes_verified_product_declarations() -> None:
@@ -76,7 +77,11 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     child = _resource_module()
     left = child.instantiate("left.arm")
     right = child.instantiate("right.arm")
-    root = sc.procedure(id="test.resources.root").use(left, right).build()
+
+    @sc.module(id="test.resources.root")
+    def root(context: sc.ModuleContext) -> None:
+        context.call(left)
+        context.call(right)
 
     assembly = elaborate_module(root.ir)
     verify_assembly_graph(assembly)
@@ -100,8 +105,8 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     call = root()
 
     @sc.template(id="test.resources.root", kind="resources")
-    def template_definition() -> sc.ExperimentBody:
-        return sc.experiment(call)
+    def template_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.run(call)
 
     resolved = link_invocation(
         template_definition(),
@@ -130,12 +135,11 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
         "nested",
         resource_bindings={"drive.v1": "shared"},
     )
-    root = (
-        sc.procedure(id="test.resources.bound-root")
-        .resource("shared", requires=(_SET_FREQUENCY,))
-        .use(child)
-        .build()
-    )
+
+    @sc.module(id="test.resources.bound-root")
+    def root(context: sc.ModuleContext) -> None:
+        context.resource("shared", requires=(_SET_FREQUENCY,))
+        context.call(child)
 
     assembly = elaborate_module(root.ir)
 
@@ -150,9 +154,16 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
 
 def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     inner = _resource_module().instantiate("inner")
-    wrapper = sc.procedure(id="test.resources.wrapper").use(inner).build()
+
+    @sc.module(id="test.resources.wrapper")
+    def wrapper(context: sc.ModuleContext) -> None:
+        context.call(inner)
+
     outer = wrapper.instantiate("outer")
-    root = sc.procedure(id="test.resources.nested-root").use(outer).build()
+
+    @sc.module(id="test.resources.nested-root")
+    def root(context: sc.ModuleContext) -> None:
+        context.call(outer)
 
     assembly = elaborate_module(root.ir)
     verify_assembly_graph(assembly)
@@ -177,51 +188,50 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         dialect_version="1",
         body=object(),
     )
-    child_builder = (
-        sc.procedure(id="test.effects.child")
-        .resource("drive.v1", requires=(_SET_FREQUENCY,))
-        .bind_property(
-            "drive.v1",
+
+    @sc.module(id="test.effects.child")
+    def child_module(context: sc.ModuleContext) -> None:
+        drive = context.resource("drive.v1", requires=(_SET_FREQUENCY,))
+        context.bind_property(
+            drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
-        .domain(sc.domain_execution(program, id="call"))
-        .product("signal")
-    )
-    child = (
-        child_builder.acquire(
+        context.domain(sc.domain_execution(program, id="call"))
+        signal = context.product("signal")
+        context.acquire(
             "read-signal",
-            resource="drive.v1",
-            results={_SET_FREQUENCY_SAMPLE_SIGNAL: "signal"},
+            resource=drive,
+            results={_SET_FREQUENCY_SAMPLE_SIGNAL: signal},
         )
-        .build()
-        .instantiate(
-            "child",
-            resource_bindings={"drive.v1": "drive.v1"},
-        )
+
+    child = child_module.instantiate(
+        "child",
+        resource_bindings={"drive.v1": "drive.v1"},
     )
-    root_builder = (
-        sc.procedure(id="test.effects.root")
-        .resource("drive.v1", requires=(_SET_FREQUENCY,))
-        .bind_property(
-            "drive.v1",
+
+    @sc.module(id="test.effects.root")
+    def module(context: sc.ModuleContext) -> None:
+        drive = context.resource("drive.v1", requires=(_SET_FREQUENCY,))
+        context.bind_property(
+            drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
-        .use(child)
-        .bind_property(
-            "drive.v1",
+        context.call(child)
+        context.bind_property(
+            drive,
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
-        .domain(sc.domain_execution(program, id="root-call"))
-        .product("root-signal")
-    )
-    module = root_builder.acquire(
-        "root-read",
-        resource="drive.v1",
-        results={_SET_FREQUENCY_SAMPLE_SIGNAL: "root-signal"},
-    ).build()
+        context.domain(sc.domain_execution(program, id="root-call"))
+        root_signal = context.product("root-signal")
+        context.acquire(
+            "root-read",
+            resource=drive,
+            results={_SET_FREQUENCY_SAMPLE_SIGNAL: root_signal},
+        )
+
     assembly = elaborate_module(module.ir)
 
     assert [
@@ -287,9 +297,17 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     child = _resource_module()
     direct = child.instantiate("outer/inner")
     nested_child = child.instantiate("inner")
-    wrapper = sc.procedure(id="test.resources.wrapper").use(nested_child).build()
+
+    @sc.module(id="test.resources.wrapper")
+    def wrapper(context: sc.ModuleContext) -> None:
+        context.call(nested_child)
+
     nested = wrapper.instantiate("outer")
-    root = sc.procedure(id="test.resources.identity-root").use(direct, nested).build()
+
+    @sc.module(id="test.resources.identity-root")
+    def root(context: sc.ModuleContext) -> None:
+        context.call(direct)
+        context.call(nested)
 
     assembly = elaborate_module(root.ir)
     verify_assembly_graph(assembly)
@@ -311,41 +329,22 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     }
 
 
-def test_acquire_resource_references_are_checked_before_linking() -> None:
-    with pytest.raises(CheckFailed) as error:
-        (
-            sc.procedure(id="test.resources.missing-record-port")
-            .product("exported")
-            .acquire(
-                "read-exported",
-                resource="missing",
-                results={_MEASURE_IQ_SAMPLE_EXPORTED: "exported"},
-            )
-            .build()
-        )
-
-    assert [problem.code for problem in error.value.problems] == [
-        "module_resource_undeclared",
-    ]
-
-
 def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
-    module = (
-        sc.procedure(id="test.resources.missing-record-interface")
-        .resource("readout", requires=(_MEASURE_IQ,))
-        .product("fixed", "exported")
-        .acquire(
+    @sc.module(id="test.resources.missing-record-interface")
+    def module(context: sc.ModuleContext) -> None:
+        readout = context.resource("readout", requires=(_MEASURE_IQ,))
+        fixed = context.product("fixed")
+        exported = context.product("exported")
+        context.acquire(
             "read-fixed",
-            resource="readout",
-            results={_MEASURE_PHASE_SAMPLE_FIXED: "fixed"},
+            resource=readout,
+            results={_MEASURE_PHASE_SAMPLE_FIXED: fixed},
         )
-        .acquire(
+        context.acquire(
             "read-exported",
-            resource="readout",
-            results={_MEASURE_POPULATION_SAMPLE_EXPORTED: "exported"},
+            resource=readout,
+            results={_MEASURE_POPULATION_SAMPLE_EXPORTED: exported},
         )
-        .build()
-    )
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(elaborate_module(module.ir))
@@ -360,34 +359,15 @@ def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
     ]
 
 
-def test_state_resource_references_are_checked_before_linking() -> None:
-    with pytest.raises(CheckFailed) as error:
-        (
-            sc.procedure(id="test.resources.missing-state-port")
-            .bind_property(
-                "missing-binding",
-                _SET_OFFSET_VALUE,
-                value=1.0,
-            )
-            .build()
-        )
-
-    assert [problem.code for problem in error.value.problems] == [
-        "module_resource_undeclared",
-    ]
-
-
 def test_state_resource_interfaces_are_checked_before_linking() -> None:
-    module = (
-        sc.procedure(id="test.resources.missing-state-interface")
-        .resource("drive", requires=(_SET_FREQUENCY,))
-        .bind_property(
-            "drive",
+    @sc.module(id="test.resources.missing-state-interface")
+    def module(context: sc.ModuleContext) -> None:
+        drive = context.resource("drive", requires=(_SET_FREQUENCY,))
+        context.bind_property(
+            drive,
             _SET_POWER_VALUE,
             value=1.0,
         )
-        .build()
-    )
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(elaborate_module(module.ir))
@@ -398,23 +378,26 @@ def test_state_resource_interfaces_are_checked_before_linking() -> None:
 
 
 def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
-    child = (
-        sc.procedure(id="test.resources.structured-state")
-        .resource("source", requires=(_SET_OFFSET,))
-        .bind_property(
-            "source",
+    @sc.module(id="test.resources.structured-state")
+    def child(context: sc.ModuleContext) -> None:
+        source = context.resource("source", requires=(_SET_OFFSET,))
+        context.bind_property(
+            source,
             _SET_OFFSET_VALUE_PATH,
             value=1.0,
         )
-        .build()
-    )
+
     instance = child.instantiate("state.arm")
-    root = sc.procedure(id="test.resources.structured-state-root").use(instance).build()
+
+    @sc.module(id="test.resources.structured-state-root")
+    def root(context: sc.ModuleContext) -> None:
+        context.call(instance)
+
     call = root()
 
     @sc.template(id="test.resources.structured-state", kind="resources")
-    def template_definition() -> sc.ExperimentBody:
-        return sc.experiment(call)
+    def template_definition(experiment: sc.ExperimentContext) -> None:
+        experiment.run(call)
 
     resolved = link_invocation(
         template_definition(),

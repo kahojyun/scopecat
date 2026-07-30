@@ -7,7 +7,6 @@ from scopecat.authoring import (
     QuantityType,
     ScalarType,
     parameter,
-    record_product,
 )
 from scopecat.authoring.scans import axis
 from scopecat.compiler.typed.program import CoreProgram
@@ -20,9 +19,8 @@ from scopecat.runs.access import (
 )
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
-    SIMPLE_MODULE,
     link_invocation,
-    template_fixture,
+    simple_template,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
 from tests.testkit.runtime import sqlite_run_repository
@@ -42,12 +40,10 @@ def load_experiment() -> CoreProgram:
 
 
 def load_invocation() -> ExperimentInvocation:
-    return template_fixture(
-        SIMPLE_MODULE,
-        id="test.workflow_scan",
-        kind="simple_scan",
-        required_inputs=("subject",),
-        scans=(
+    return (
+        simple_template(id="test.workflow_scan")
+        .bind(subject="q0")
+        .scan(
             axis(
                 DRIVE_FREQUENCY_POINT,
                 center=parameter(
@@ -56,10 +52,9 @@ def load_invocation() -> ExperimentInvocation:
                 ),
                 span=Quantity(value=200.0, unit="MHz"),
                 points=3,
-            ),
-        ),
-        records=(record_product(SIMPLE_MODULE.products.signal),),
-    ).bind(subject="q0")
+            )
+        )
+    )
 
 
 def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:

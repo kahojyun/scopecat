@@ -43,11 +43,11 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert sc.ExperimentModule
     assert sc.ExperimentTemplate
     assert sc.ScratchDefinition
-    assert callable(sc.ModuleBuilder.bind_property)
-    assert callable(sc.ModuleBuilder.ensure)
+    assert callable(sc.ModuleContext.bind_property)
+    assert callable(sc.ModuleContext.ensure)
     assert sc.DesiredState
-    assert callable(sc.ExperimentBody.record_product)
-    assert callable(sc.ExperimentBody.record_coordinate)
+    assert callable(sc.ExperimentContext.record)
+    assert callable(sc.ExperimentContext.record_coordinate)
     assert callable(sc.record_coordinate)
     assert sc.ModuleOutputs
     assert sc.ProductOutputs
@@ -73,7 +73,7 @@ def test_user_facing_facades_expose_entry_points() -> None:
 
 
 def test_experiment_modules_are_closed_by_authoring_entry_points() -> None:
-    with pytest.raises(TypeError, match=r"@module or ModuleBuilder\.build"):
+    with pytest.raises(TypeError, match="@module"):
         sc.ExperimentModule()
 
 
@@ -84,21 +84,24 @@ def test_module_invocations_are_closed_by_their_definition_handles() -> None:
 
 def test_typed_values_are_the_public_module_wiring_surface() -> None:
     qubit_type = sc.ScalarType(sc.EntityType())
-    qubit = sc.input(
-        "qubit",
-        qubit_type,
-    )
-    build = sc.compute(
-        "select-qubit",
-        fn=_identity_entity,
-        inputs={"qubit": qubit},
-        output_type=qubit_type,
-    )
 
-    module = sc.procedure(id="test.typed_values").inputs(qubit).computes(build).build()
+    @sc.module(id="test.typed-values")
+    def typed_values(
+        module: sc.ModuleContext,
+        qubit: Annotated[
+            sc.Input[sc.EntityRef | str],
+            sc.ScalarType(sc.EntityType()),
+        ],
+    ) -> None:
+        module.compute(
+            "select-qubit",
+            fn=_identity_entity,
+            inputs={"qubit": qubit},
+            output_type=qubit_type,
+        )
 
-    assert isinstance(module, sc.ExperimentModule)
-    assert build.output.value_type == qubit_type
+    assert isinstance(typed_values, sc.ExperimentModule)
+    assert typed_values.operations[0].output_type == qubit_type
 
     rows = sc.input(
         "rows",
@@ -114,9 +117,8 @@ def test_experiment_inputs_reject_non_finite_numbers() -> None:
         id="test.closed-runtime-input",
         kind="closed-runtime-input",
     )
-    def template(subject: float) -> sc.ExperimentBody:
-        del subject
-        return sc.experiment()
+    def template(experiment: sc.ExperimentContext, subject: float) -> None:
+        del experiment, subject
 
     with pytest.raises(TypeError, match="closed runtime data"):
         template.bind(subject=float("nan"))
@@ -128,10 +130,10 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
         kind="immutable-runtime-input",
     )
     def template(
+        experiment: sc.ExperimentContext,
         settings: Annotated[dict[str, object], sc.PayloadType("test.settings")],
-    ) -> sc.ExperimentBody:
-        del settings
-        return sc.experiment()
+    ) -> None:
+        del experiment, settings
 
     labels = ["q0"]
     nested_settings: dict[str, object] = {"labels": labels}
@@ -150,10 +152,10 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
 
     @sc.template(id="test.immutable-entity", kind="immutable-entity")
     def entity_template(
+        experiment: sc.ExperimentContext,
         settings: Annotated[sc.EntityRef | str, sc.EntityType()],
-    ) -> sc.ExperimentBody:
-        del settings
-        return sc.experiment()
+    ) -> None:
+        del experiment, settings
 
     entity_invocation = entity_template.bind(settings=entity)
     labels_metadata.append("changed")
@@ -164,15 +166,20 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
     assert copy.deepcopy(captured_entity) == captured_entity
     assert captured_entity.model_copy(deep=True) == captured_entity
 
-    payload = sc.input(
-        "payload",
-        sc.ScalarType(sc.PayloadType("test.payload")),
-    )
-    module = sc.procedure(id="test.immutable-module-input").inputs(payload).build()
+    @sc.module(id="test.immutable-module-input")
+    def payload_module(
+        module: sc.ModuleContext,
+        payload: Annotated[
+            sc.Input[dict[str, object]],
+            sc.PayloadType("test.payload"),
+        ],
+    ) -> None:
+        del module, payload
+
     items = [1]
     nested_payload: dict[str, object] = {"items": items}
     payload_source: dict[str, object] = {"nested": nested_payload}
-    module_invocation = module.instantiate(
+    module_invocation = payload_module.instantiate(
         "immutable-input",
         payload=cast("authoring.ModuleInput", payload_source),
     )
@@ -201,12 +208,12 @@ def test_public_input_boundaries_reject_invalid_recursive_values() -> None:
         kind="recursive-runtime-input",
     )
     def template(
+        experiment: sc.ExperimentContext,
         settings: Annotated[
             dict[str, object], sc.PayloadType("test.settings")
         ] = default_settings,
-    ) -> sc.ExperimentBody:
-        del settings
-        return sc.experiment()
+    ) -> None:
+        del experiment, settings
 
     default_items.append("changed")
     default_nested["mode"] = "changed"
@@ -217,12 +224,12 @@ def test_public_input_boundaries_reject_invalid_recursive_values() -> None:
 
         @sc.template
         def invalid_default(  # pyright: ignore[reportUnusedFunction]
+            experiment: sc.ExperimentContext,
             settings: Annotated[
                 dict[str, object], sc.PayloadType("test.settings")
             ] = cyclic_default,
-        ) -> sc.ExperimentBody:
-            del settings
-            return sc.experiment()
+        ) -> None:
+            del experiment, settings
 
     with pytest.raises(TypeError, match="closed runtime data"):
         template.bind(settings=cyclic)
@@ -233,18 +240,23 @@ def test_public_input_boundaries_reject_invalid_recursive_values() -> None:
             settings=cast("dict[str, object]", {"nested": {1: "invalid"}}),
         )
 
-    payload = sc.input(
-        "payload",
-        sc.ScalarType(sc.PayloadType("test.payload")),
-    )
-    module = sc.procedure(id="test.recursive-module-input").inputs(payload).build()
+    @sc.module(id="test.recursive-module-input")
+    def payload_module(
+        module: sc.ModuleContext,
+        payload: Annotated[
+            sc.Input[dict[str, object]],
+            sc.PayloadType("test.payload"),
+        ],
+    ) -> None:
+        del module, payload
+
     with pytest.raises(TypeError, match="typed values or closed literal data"):
-        module.instantiate(
+        payload_module.instantiate(
             "cyclic",
             payload=cast("authoring.ModuleInput", cyclic),
         )
     with pytest.raises(TypeError, match="typed values or closed literal data"):
-        module.instantiate(
+        payload_module.instantiate(
             "non-finite",
             payload=cast(
                 "authoring.ModuleInput",

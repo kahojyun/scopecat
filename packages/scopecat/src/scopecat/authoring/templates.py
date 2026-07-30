@@ -85,11 +85,22 @@ class ExperimentTemplate[**P]:
     def __signature__(self) -> inspect.Signature:
         return self._signature
 
-    def bind(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        """Bind any supplied inputs; completeness is checked at compilation."""
+    def bind(self, **inputs: object) -> ExperimentInvocation:
+        """Partially bind named inputs; compilation checks completeness."""
 
-        bound = self._signature.bind_partial(*args, **kwargs)
-        inputs = cast("dict[str, RuntimeInput]", dict(bound.arguments))
+        bound = self._signature.bind_partial(**inputs)
+        return self._invocation(cast("dict[str, RuntimeInput]", dict(bound.arguments)))
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
+        """Bind every required input through normal Python call semantics."""
+
+        bound = self._signature.bind(*args, **kwargs)
+        return self._invocation(cast("dict[str, RuntimeInput]", dict(bound.arguments)))
+
+    def _invocation(
+        self,
+        inputs: Mapping[str, RuntimeInput],
+    ) -> ExperimentInvocation:
         captured_inputs = _capture_experiment_inputs(inputs)
         validate_experiment_inputs(
             definitions=self.definition.inputs,
@@ -100,11 +111,6 @@ class ExperimentTemplate[**P]:
             inputs=captured_inputs,
             scans=(),
         )
-
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        """Bind this closed template through normal Python call syntax."""
-
-        return self.bind(*args, **kwargs)
 
 
 @dataclass(frozen=True, slots=True, repr=False)

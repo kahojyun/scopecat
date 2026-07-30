@@ -26,7 +26,7 @@ from scopecat.kernel.product_identity import ProductId
 
 @dataclass(frozen=True, slots=True)
 class DomainExecution:
-    """One identified domain-program effect placed in a module procedure."""
+    """One identified domain-program effect placed in a module effects."""
 
     id: str
     program: DomainProgramDef

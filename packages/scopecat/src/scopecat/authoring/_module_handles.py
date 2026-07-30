@@ -56,7 +56,6 @@ from scopecat.authoring._value_refs import (
     empty_frozen_mapping,
     internal_literal_value_ref,
     internal_module_export_value_ref,
-    internal_value_ref_input_id,
     internal_value_ref_operation_id,
 )
 from scopecat.authoring.domain import DomainExecution
@@ -140,20 +139,14 @@ def _resource_interfaces(
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ModuleBuilder:
-    """Fluent source builder for reusable experiment modules.
-
-    Modules deliberately stop before point generation and record selection.
-    That keeps a module composable: it can declare what it needs and what it can
-    produce without also choosing how a notebook should scan it or which
-    products a specific run should persist.
-    """
+class ModuleDefinitionState:
+    """Immutable state accumulated by one explicit module context."""
 
     id: str | None = None
     input_ports: tuple[ModuleInputPort, ...] = ()
     output_ports: tuple[ModuleValueExport, ...] = ()
     resources: tuple[ResourcePort, ...] = ()
-    procedure: tuple[ModuleInvocation | ModuleEffectIR, ...] = ()
+    effects: tuple[ModuleInvocation | ModuleEffectIR, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     measurement_postprocessor_intents: tuple[MeasurementPostprocessor, ...] = ()
@@ -162,12 +155,12 @@ class ModuleBuilder:
 
     @property
     def products(self) -> ProductOutputs:
-        """Stable references to products declared on this builder so far."""
+        """Stable references to products declared in this context so far."""
 
         products = (
             *(
                 product
-                for invocation in self.procedure
+                for invocation in self.effects
                 if isinstance(invocation, ModuleInvocation)
                 for product in invocation.products.values()
             ),
@@ -181,72 +174,17 @@ class ModuleBuilder:
         )
         return ProductOutputs({product.id: product for product in products})
 
-    def use(
+    def append_call(
         self,
         *modules: ModuleInvocation | ModuleCall,
-    ) -> ModuleBuilder:
+    ) -> ModuleDefinitionState:
         invocations = tuple(module_use_invocation(module) for module in modules)
         return replace(
             self,
-            procedure=(*self.procedure, *invocations),
+            effects=(*self.effects, *invocations),
         )
 
-    def sequence(self, *modules: ModuleInvocation | ModuleCall) -> ModuleBuilder:
-        """Append child procedures in deterministic sequence."""
-
-        return self.use(*modules)
-
-    @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
-        return tuple(
-            binding
-            for effect in self.procedure
-            for binding in (
-                (effect.intent,)
-                if isinstance(effect, ModuleBindingEffect)
-                else effect.intent.assignments
-                if isinstance(effect, ModuleEnsureEffect)
-                else ()
-            )
-        )
-
-    @property
-    def domain_executions(self) -> tuple[DomainExecution, ...]:
-        return tuple(
-            effect.execution
-            for effect in self.procedure
-            if isinstance(effect, ModuleDomainEffect)
-        )
-
-    @property
-    def acquisitions(self) -> tuple[ModuleAcquireEffect, ...]:
-        return tuple(
-            effect
-            for effect in self.procedure
-            if isinstance(effect, ModuleAcquireEffect)
-        )
-
-    @property
-    def invocations(self) -> tuple[InvocationIntent, ...]:
-        return tuple(
-            effect.intent
-            for effect in self.procedure
-            if isinstance(effect, ModuleInvokeEffect)
-        )
-
-    def inputs(self, *values: ValueRef) -> ModuleBuilder:
-        """Register typed input values declared with :func:`scopecat.input`."""
-
-        ports: list[ModuleInputPort] = []
-        for value in values:
-            input_id = internal_value_ref_input_id(value)
-            if input_id is None:
-                msg = "module inputs must be input value references"
-                raise TypeError(msg)
-            ports.append(ModuleInputPort(id=input_id, value_type=value.value_type))
-        return replace(self, input_ports=(*self.input_ports, *ports))
-
-    def export(self, **values: ValueRef) -> ModuleBuilder:
+    def export(self, **values: ValueRef) -> ModuleDefinitionState:
         """Export named typed values from each future module instance.
 
         Exports are value edges for composition, not persisted measurement
@@ -273,7 +211,7 @@ class ModuleBuilder:
         *,
         requires: Sequence[InterfaceRef] = (),
         for_entities: Sequence[ValueRef] = (),
-    ) -> ModuleBuilder:
+    ) -> ModuleDefinitionState:
         interfaces = _resource_interfaces(requires)
         for value in for_entities:
             if not _is_entity_input_type(value.value_type):
@@ -300,7 +238,7 @@ class ModuleBuilder:
         property: PropertyRef,
         *,
         value: BindingInput,
-    ) -> ModuleBuilder:
+    ) -> ModuleDefinitionState:
         """Bind one typed persistent device property."""
 
         if _is_payload_binding_input(value):
@@ -310,8 +248,8 @@ class ModuleBuilder:
             raise TypeError(msg)
         return replace(
             self,
-            procedure=(
-                *self.procedure,
+            effects=(
+                *self.effects,
                 ModuleBindingEffect(
                     binding_property(
                         resource,
@@ -328,7 +266,7 @@ class ModuleBuilder:
         self,
         resource: str,
         target: DesiredState,
-    ) -> ModuleBuilder:
+    ) -> ModuleDefinitionState:
         """Declare one coherent target state for a logical resource.
 
         Target values may be fixed literals, parameters, module inputs, or
@@ -338,8 +276,8 @@ class ModuleBuilder:
 
         return replace(
             self,
-            procedure=(
-                *self.procedure,
+            effects=(
+                *self.effects,
                 ModuleEnsureEffect(
                     build_ensure_state_intent(
                         logical_resource_port_id(resource),
@@ -356,7 +294,7 @@ class ModuleBuilder:
         resource: str,
         operation: OperationRef,
         arguments: Mapping[OperationArgumentRef, InvocationInput] | None = None,
-    ) -> ModuleBuilder:
+    ) -> ModuleDefinitionState:
         """Append one ordered atomic hardware operation."""
 
         selected_arguments = arguments or {}
@@ -370,8 +308,8 @@ class ModuleBuilder:
             raise TypeError("module invocation arguments require scalar values")
         return replace(
             self,
-            procedure=(
-                *self.procedure,
+            effects=(
+                *self.effects,
                 ModuleInvokeEffect(
                     invoke_operation(
                         id,
@@ -391,12 +329,12 @@ class ModuleBuilder:
             ),
         )
 
-    def domain(self, execution: DomainExecution) -> ModuleBuilder:
-        """Append one opaque domain-program effect to this module procedure."""
+    def domain(self, execution: DomainExecution) -> ModuleDefinitionState:
+        """Append one opaque domain-program effect to this module effects."""
 
         return replace(
             self,
-            procedure=(*self.procedure, ModuleDomainEffect(execution)),
+            effects=(*self.effects, ModuleDomainEffect(execution)),
         )
 
     def acquire(
@@ -406,7 +344,7 @@ class ModuleBuilder:
         resource: str,
         results: Mapping[AcquisitionResultRef, str | ProductRef],
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ModuleBuilder:
+    ) -> ModuleDefinitionState:
         """Map results from one typed acquisition target to declared products."""
 
         if not id or not results:
@@ -424,7 +362,7 @@ class ModuleBuilder:
                 or expected_product.origin != selected_product.origin
             ):
                 raise ValueError(
-                    "acquire result references a product outside this builder: "
+                    "acquire result references a product outside this module: "
                     f"{selected_product.id!r}"
                 )
             selected_results.append((result, expected_product))
@@ -439,8 +377,8 @@ class ModuleBuilder:
         selected_metadata = freeze_json_mapping(metadata or {})
         return replace(
             self,
-            procedure=(
-                *self.procedure,
+            effects=(
+                *self.effects,
                 ModuleAcquireEffect(
                     id=id,
                     resource_port_id=logical_resource_port_id(resource),
@@ -459,7 +397,7 @@ class ModuleBuilder:
             ),
         )
 
-    def computes(self, *definitions: Compute) -> ModuleBuilder:
+    def computes(self, *definitions: Compute) -> ModuleDefinitionState:
         """Register typed compute declarations and their output values."""
 
         operations: list[ModuleOperationDecl] = []
@@ -491,7 +429,7 @@ class ModuleBuilder:
     def measurement_postprocessors(
         self,
         *postprocessors: MeasurementPostprocessor,
-    ) -> ModuleBuilder:
+    ) -> ModuleDefinitionState:
         """Register point-local measurement calculations."""
 
         return replace(
@@ -509,11 +447,11 @@ class ModuleBuilder:
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ModuleBuilder:
+    ) -> ModuleDefinitionState:
         """Declare products exposed by this reusable module.
 
         This only defines product identity and shape. Use :meth:`acquire` to
-        place hardware realization in the procedure; select
+        place hardware realization in the effects; select
         durable records from a template or scratch experiment.
         """
 
@@ -535,18 +473,6 @@ class ModuleBuilder:
             ),
         )
 
-    def build(
-        self,
-        *,
-        id: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ExperimentModule[...]:
-        return build_module_from_builder(
-            self,
-            id=id,
-            metadata=metadata,
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class DefinitionResource:
@@ -565,10 +491,10 @@ class ModuleContext:
     __slots__ = ("_state",)
 
     def __init__(self) -> None:
-        self._state = ModuleBuilder()
+        self._state = ModuleDefinitionState()
 
     @property
-    def definition_state(self) -> ModuleBuilder:
+    def definition_state(self) -> ModuleDefinitionState:
         """Return the immutable state accumulated by this definition."""
 
         return self._state
@@ -577,7 +503,7 @@ class ModuleContext:
         """Append one explicitly constructed child-module invocation."""
 
         invocation = module_use_invocation(module)
-        self._state = self._state.use(invocation)
+        self._state = self._state.append_call(invocation)
         return invocation
 
     def export(self, **values: ValueRef) -> None:
@@ -913,8 +839,8 @@ class ExperimentModule[**P]:
         return self._ir.body.invocations
 
     @property
-    def procedure(self) -> tuple[ModuleEffectIR, ...]:
-        return self._ir.body.procedure
+    def effects(self) -> tuple[ModuleEffectIR, ...]:
+        return self._ir.body.effects
 
     @property
     def operations(self) -> tuple[ModuleOperationDecl, ...]:
@@ -1104,7 +1030,7 @@ def create_experiment_module_internal(
     definition: Callable[..., object] | None = None,
     signature: inspect.Signature,
 ) -> ExperimentModule[...]:
-    """Close one module IR behind the internal decorator/builder boundary."""
+    """Close one module IR behind the definition boundary."""
 
     module = object.__new__(ExperimentModule)
     object.__setattr__(module, "_ir", ir)
@@ -1195,37 +1121,37 @@ def _is_payload_binding_input(value: object) -> bool:
 
 
 def build_module_ir(
-    builder: ModuleBuilder,
+    state: ModuleDefinitionState,
     id: str | None = None,
     *,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ModuleIR:
-    """Close a builder at the single module-definition boundary."""
+    """Close accumulated context state at the module-definition boundary."""
 
-    module_id = id or builder.id
+    module_id = id or state.id
     if not module_id:
-        msg = "module builder requires an id before conversion to ModuleIR"
+        msg = "module definition requires an id before conversion to ModuleIR"
         raise ValueError(msg)
-    merged_metadata: dict[str, MetadataValue] = dict(builder.metadata)
+    merged_metadata: dict[str, MetadataValue] = dict(state.metadata)
     merged_metadata.update(dict(metadata or {}))
-    closed_procedure = tuple(
+    closed_effects = tuple(
         _module_instance_ir(effect) if isinstance(effect, ModuleInvocation) else effect
-        for effect in builder.procedure
+        for effect in state.effects
     )
     return ModuleIR(
         id=module_id,
         interface=ModuleInterfaceIR(
-            imports=builder.input_ports,
-            exports=builder.output_ports,
-            resources=builder.resources,
+            imports=state.input_ports,
+            exports=state.output_ports,
+            resources=state.resources,
         ),
         body=ModuleBodyIR(
-            procedure=closed_procedure,
-            operations=builder.operations,
-            measurement_postprocessors=builder.measurement_postprocessor_intents,
-            products=builder.product_declarations,
+            effects=closed_effects,
+            operations=state.operations,
+            measurement_postprocessors=state.measurement_postprocessor_intents,
+            products=state.product_declarations,
         ),
-        python_implementations=builder.python_implementations,
+        python_implementations=state.python_implementations,
         metadata=freeze_json_mapping(merged_metadata),
     )
 
@@ -1249,13 +1175,27 @@ def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
     )
 
 
-def build_module_from_builder(
-    builder: ModuleBuilder,
-    id: str | None = None,
+def create_programmatic_module_internal(
     *,
+    id: str,
+    inputs: Mapping[str, ValueRef],
+    define: Callable[[ModuleContext], None],
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentModule[...]:
-    module_ir = build_module_ir(builder, id=id, metadata=metadata)
+    """Close an adapter-generated module without exposing a second user DSL."""
+
+    context = ModuleContext()
+    define(context)
+    state = replace(
+        context.definition_state,
+        id=id,
+        input_ports=tuple(
+            ModuleInputPort(id=input_id, value_type=value.value_type)
+            for input_id, value in inputs.items()
+        ),
+        metadata=freeze_json_mapping(metadata or {}),
+    )
+    module_ir = build_module_ir(state)
     return create_experiment_module_internal(
         module_ir,
         signature=_module_signature(module_ir.interface.imports),

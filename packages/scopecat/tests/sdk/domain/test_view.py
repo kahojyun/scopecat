@@ -35,34 +35,37 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         inputs={"count": count_type},
         results={"counts": ("counts", "v1")},
     )
-    module = sc.procedure(id="test.domain.view").product(
-        "counts",
-        unit="count",
-        dtype="int64",
-        axes=(
-            sc.product_axis(
-                "shot",
-                size=8,
-                kind="shot",
-                shared_as="shot",
+
+    @sc.module(id="test.domain.view")
+    def domain_module(module: sc.ModuleContext) -> None:
+        counts = module.product(
+            "counts",
+            unit="count",
+            dtype="int64",
+            axes=(
+                sc.product_axis(
+                    "shot",
+                    size=8,
+                    kind="shot",
+                    shared_as="shot",
+                ),
             ),
-        ),
-    )
-    execution = sc.domain_execution(
-        program,
-        id="execution",
-        inputs={"count": count},
-        results={"counts": module.products["counts"]},
-    )
-    module_call = module.domain(execution).build()()
-    experiment_body = (
-        sc.experiment(module_call)
-        .scan(sc.axis(count, (1, 3, 5)))
-        .record_product(module_call.products.counts, record_id="counts")
-    )
-    template = sc.template(id="test.domain.view", kind="domain_view")(
-        lambda: experiment_body
-    )
+        )
+        module.domain(
+            sc.domain_execution(
+                program,
+                id="execution",
+                inputs={"count": count},
+                results={"counts": counts},
+            )
+        )
+
+    @sc.template(id="test.domain.view", kind="domain_view")
+    def template(experiment: sc.ExperimentContext) -> None:
+        module_call = experiment.run(domain_module())
+        experiment.scan(sc.axis(count, (1, 3, 5)))
+        experiment.record(module_call.products.counts, record_id="counts")
+
     resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),

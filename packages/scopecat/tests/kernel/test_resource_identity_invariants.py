@@ -16,24 +16,20 @@ _MEASURE_SIGNAL_VALUE = (
 
 
 def test_interface_less_authored_port_rejects_state_and_acquire_at_assembly() -> None:
-    module = (
-        sc.procedure(id="test.resource-identity.interface-less")
-        .resource("drive")
-        .bind_property(
-            "drive",
+    @sc.module(id="test.resource-identity.interface-less")
+    def module(context: sc.ModuleContext) -> None:
+        drive = context.resource("drive")
+        context.bind_property(
+            drive,
             _SET_FREQUENCY_VALUE,
             value=1.0,
         )
-        .product(
-            "signal",
-        )
-        .acquire(
+        signal = context.product("signal")
+        context.acquire(
             "read-signal",
-            resource="drive",
-            results={_MEASURE_SIGNAL_VALUE: "signal"},
+            resource=drive,
+            results={_MEASURE_SIGNAL_VALUE: signal},
         )
-        .build()
-    )
 
     with pytest.raises(CheckFailed) as caught:
         verify_assembly_graph(elaborate_module(module.ir))

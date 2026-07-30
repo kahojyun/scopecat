@@ -1,4 +1,8 @@
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
+
+from typing import Annotated
 
 import pytest
 
@@ -34,7 +38,7 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config
 
 _PLAY_WAVEFORMS = InterfaceRef("test.play_waveforms/v1")
 _PLAY_WAVEFORMS_PLAY = _PLAY_WAVEFORMS.operation("play")
@@ -44,9 +48,12 @@ _SET_GAIN_VALUE = _SET_GAIN.property("value")
 
 
 def _resolve(module: sc.ExperimentModule[...]) -> None:
-    invocation = template_fixture(module, id="test.graph", kind="graph").bind()
+    @sc.template(id="test.graph", kind="graph")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
     link_invocation(
-        invocation,
+        template(),
         config_profile=load_config(),
     )
 
@@ -69,17 +76,19 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
         "missing-parameter",
         sc.ScalarType(sc.FloatType()),
     )
-    consumer = sc.compute(
-        "consumer",
-        fn=_pair_values,
-        inputs={
-            "upstream": missing.output,
-            "parameter": missing_parameter,
-        },
-        output_type=sc.ScalarType(sc.FloatType()),
-    )
     with pytest.raises(CheckFailed) as error:
-        sc.procedure(id="test.graph.order").computes(consumer).build()
+
+        @sc.module(id="test.graph.order")
+        def module(context: sc.ModuleContext) -> None:
+            context.compute(
+                "consumer",
+                fn=_pair_values,
+                inputs={
+                    "upstream": missing.output,
+                    "parameter": missing_parameter,
+                },
+                output_type=sc.ScalarType(sc.FloatType()),
+            )
 
     assert error.value.problems[0].code == "module_compute_foreign_definition"
 
@@ -91,38 +100,34 @@ def test_invocation_rejects_an_unregistered_compute_output() -> None:
         output_type=sc.ScalarType(sc.PayloadType("pulse-program")),
     )
     with pytest.raises(CheckFailed) as error:
-        (
-            sc.procedure(id="test.graph.invocation-missing")
-            .resource("drive", requires=(_PLAY_WAVEFORMS,))
-            .invoke(
+
+        @sc.module(id="test.graph.invocation-missing")
+        def module(context: sc.ModuleContext) -> None:
+            drive = context.resource("drive", requires=(_PLAY_WAVEFORMS,))
+            context.invoke(
                 "play",
-                resource="drive",
+                resource=drive,
                 operation=_PLAY_WAVEFORMS_PLAY,
                 arguments={_PLAY_WAVEFORMS_PROGRAM: missing.output},
             )
-            .build()
-        )
 
     assert error.value.problems[0].code == "module_compute_foreign_definition"
 
 
 def test_state_rejects_a_non_payload_compute_output() -> None:
-    compute_value = sc.compute(
-        "numeric-value",
-        fn=lambda: 1.0,
-        output_type=sc.ScalarType(sc.FloatType()),
-    )
-    module = (
-        sc.procedure(id="test.graph.state-type")
-        .resource("drive", requires=(_SET_GAIN,))
-        .computes(compute_value)
-        .bind_property(
-            "drive",
-            _SET_GAIN_VALUE,
-            value=compute_value.output,
+    @sc.module(id="test.graph.state-type")
+    def module(context: sc.ModuleContext) -> None:
+        drive = context.resource("drive", requires=(_SET_GAIN,))
+        compute_value = context.compute(
+            "numeric-value",
+            fn=lambda: 1.0,
+            output_type=sc.ScalarType(sc.FloatType()),
         )
-        .build()
-    )
+        context.bind_property(
+            drive,
+            _SET_GAIN_VALUE,
+            value=compute_value,
+        )
 
     with pytest.raises(CheckFailed) as error:
         _resolve(module)
@@ -133,22 +138,24 @@ def test_state_rejects_a_non_payload_compute_output() -> None:
 
 
 def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
-    rows = sc.input(
-        "rows",
-        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
-    )
-
     with pytest.raises(TypeError, match="scalar typed value or scalar literal"):
-        (
-            sc.procedure(id="test.graph.table-state-binding")
-            .inputs(rows)
-            .resource("drive", requires=(_SET_GAIN,))
-            .bind_property(
-                "drive",
+
+        @sc.module(id="test.graph.table-state-binding")
+        def module(
+            context: sc.ModuleContext,
+            rows: Annotated[
+                list[dict[str, object]],
+                sc.TableType(
+                    columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)
+                ),
+            ],
+        ) -> None:
+            drive = context.resource("drive", requires=(_SET_GAIN,))
+            context.bind_property(
+                drive,
                 _SET_GAIN_VALUE,
-                value=rows,
+                value=sc.input_ref(rows),
             )
-        )
 
 
 def test_product_axes_reject_table_values_at_authoring_boundary() -> None:
@@ -169,41 +176,37 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         "missing-record-parameter",
         value_type,
     )
-    consume = sc.compute(
-        "consume-parameter",
-        fn=_identity_value,
-        inputs={"value": missing_parameter},
-        output_type=value_type,
-    )
     duplicate_axis = sc.product_axis("sample", size=2)
-    module = (
-        sc.procedure(id="test.graph.record-schema")
-        .computes(consume)
-        .product("signal", axes=(duplicate_axis, duplicate_axis))
-        .build()
-    )
+
+    @sc.module(id="test.graph.record-schema")
+    def module(context: sc.ModuleContext) -> None:
+        context.compute(
+            "consume-parameter",
+            fn=_identity_value,
+            inputs={"value": missing_parameter},
+            output_type=value_type,
+        )
+        context.product("signal", axes=(duplicate_axis, duplicate_axis))
 
     with pytest.raises(CheckFailed) as error:
         _resolve(module)
 
     assert error.value.problems[0].code == ("product_axis_duplicate")
     assert error.value.problems[0].location == model_location(
-        "products", "signal", "axes"
+        "products", "record-schema", "signal", "axes"
     )
 
 
 def test_product_rejects_duplicate_effective_dimensions() -> None:
-    module = (
-        sc.procedure(id="test.graph.duplicate-dimension")
-        .product(
+    @sc.module(id="test.graph.duplicate-dimension")
+    def module(context: sc.ModuleContext) -> None:
+        context.product(
             "signal",
             axes=(
                 sc.product_axis("i", size=2, shared_as="sample"),
                 sc.product_axis("q", size=2, shared_as="sample"),
             ),
         )
-        .build()
-    )
 
     with pytest.raises(CheckFailed) as error:
         _resolve(module)
@@ -214,30 +217,26 @@ def test_product_rejects_duplicate_effective_dimensions() -> None:
 
 
 def test_resource_selector_rejects_external_operation_value() -> None:
-    entity_type = sc.ScalarType(sc.EntityType())
-    subject = sc.input("subject", entity_type)
-    child = (
-        sc.procedure(id="test.stage.resource-child")
-        .inputs(subject)
-        .resource("drive", for_entities=(subject,))
-        .build()
-    )
-    produce_subject = sc.compute(
-        "produce-subject",
-        fn=lambda: "q0",
-        output_type=entity_type,
-    )
-    parent = (
-        sc.procedure(id="test.stage.resource-parent")
-        .computes(produce_subject)
-        .use(
+    @sc.module(id="test.stage.resource-child")
+    def child(
+        context: sc.ModuleContext,
+        subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],
+    ) -> None:
+        context.resource("drive", for_entities=(sc.input_ref(subject),))
+
+    @sc.module(id="test.stage.resource-parent")
+    def parent(context: sc.ModuleContext) -> None:
+        produce_subject = context.compute(
+            "produce-subject",
+            fn=lambda: "q0",
+            output_type=sc.ScalarType(sc.EntityType()),
+        )
+        context.call(
             child.instantiate(
                 "resource-child",
-                subject=produce_subject.output,
+                subject=produce_subject,
             )
         )
-        .build()
-    )
 
     with pytest.raises(CheckFailed) as error:
         _resolve(parent)
@@ -246,6 +245,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
     assert problem.code == "value_requires_execution"
     assert problem.location == model_location(
         "resources",
+        "resource-parent",
         "resource-child",
         "drive",
         "selector",
@@ -257,17 +257,17 @@ def test_resource_selector_rejects_external_operation_value() -> None:
 
 
 def test_product_axis_rejects_external_operation_value() -> None:
-    size = sc.compute(
-        "axis-size",
-        fn=lambda: 2,
-        output_type=sc.ScalarType(sc.IntType()),
-    )
-    module = (
-        sc.procedure(id="test.stage.record-execute")
-        .computes(size)
-        .product("signal", axes=(sc.product_axis("sample", size=size.output),))
-        .build()
-    )
+    @sc.module(id="test.stage.record-execute")
+    def module(context: sc.ModuleContext) -> None:
+        size = context.compute(
+            "axis-size",
+            fn=lambda: 2,
+            output_type=sc.ScalarType(sc.IntType()),
+        )
+        context.product(
+            "signal",
+            axes=(sc.product_axis("sample", size=size),),
+        )
 
     with pytest.raises(CheckFailed) as error:
         _resolve(module)
@@ -275,60 +275,63 @@ def test_product_axis_rejects_external_operation_value() -> None:
     problem = error.value.problems[0]
     assert problem.code == "product_axis_value_requires_execution"
     assert problem.location == model_location(
-        "products", "signal", "axes", "sample", "size"
+        "products", "record-execute", "signal", "axes", "sample", "size"
     )
 
 
 def test_product_axis_rejects_point_dependent_value() -> None:
     size = sc.coordinate("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
-    module = (
-        sc.procedure(id="test.stage.record-point")
-        .product("signal", axes=(sc.product_axis("sample", size=size),))
-        .build()
-    )
-    invocation = template_fixture(
-        module,
-        id="test.stage.record-point",
-        kind="graph",
-        scans=(sc.axis(size, (2, 3)),),
-    ).bind()
+
+    @sc.module(id="test.stage.record-point")
+    def module(
+        context: sc.ModuleContext,
+        size: Annotated[sc.Input[int], sc.IntType(minimum=1)],
+    ) -> None:
+        context.product(
+            "signal",
+            axes=(sc.product_axis("sample", size=sc.input_ref(size)),),
+        )
+
+    @sc.template(id="test.stage.record-point", kind="graph")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module(size))
+        experiment.scan(sc.axis(size, (2, 3)))
 
     with pytest.raises(CheckFailed) as error:
         link_invocation(
-            invocation,
+            template(),
             config_profile=load_config(),
         )
 
     problem = error.value.problems[0]
     assert problem.code == "product_axis_value_depends_on_point"
     assert problem.location == model_location(
-        "products", "signal", "axes", "sample", "size"
+        "products", "record-point", "signal", "axes", "sample", "size"
     )
 
 
 def test_direct_compute_edge_is_topologically_ordered() -> None:
     value_type = sc.ScalarType(sc.FloatType())
-    producer = sc.compute(
-        "producer",
-        fn=lambda: 1.0,
-        output_type=value_type,
-    )
-    consumer = sc.compute(
-        "consumer",
-        fn=_identity_value,
-        inputs={"value": producer.output},
-        output_type=value_type,
-    )
-    module = (
-        sc.procedure(id="test.graph.direct-edge").computes(consumer, producer).build()
-    )
 
-    invocation = template_fixture(
-        module,
-        id="test.graph.direct-edge",
-        kind="graph",
-    ).bind()
-    compiled = compile_invocation(invocation)
+    @sc.module(id="test.graph.direct-edge")
+    def module(context: sc.ModuleContext) -> None:
+        producer = context.compute(
+            "producer",
+            fn=lambda: 1.0,
+            output_type=value_type,
+        )
+        context.compute(
+            "consumer",
+            fn=_identity_value,
+            inputs={"value": producer},
+            output_type=value_type,
+        )
+
+    @sc.template(id="test.graph.direct-edge", kind="graph")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
+    compiled = compile_invocation(template())
 
     assert [
         operation.id.local_id
@@ -340,15 +343,14 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
 
 def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> None:
-    subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
-    module = sc.procedure(id="test.graph.verified-source").inputs(subject).build()
-    invocation = template_fixture(
-        module,
-        id="test.graph.verified-source",
-        kind="graph",
-    ).bind(subject="q0")
+    @sc.template(id="test.graph.verified-source", kind="graph")
+    def template(
+        experiment: sc.ExperimentContext,
+        subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],
+    ) -> None:
+        del experiment, subject
 
-    compiled = compile_invocation(invocation)
+    compiled = compile_invocation(template(subject="q0"))
 
     assert compiled.request.inputs == {"subject": "q0"}
     assert compiled.assembly.source.inputs == {"subject": EntityRef(id="q0")}
@@ -359,13 +361,14 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
 
 
 def test_compile_invocation_projects_request_metadata() -> None:
-    subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
-    module = sc.procedure(id="test.graph.prepared-request").inputs(subject).build()
-    invocation = template_fixture(
-        module,
-        id="test.graph.prepared-request",
-        kind="graph",
-    ).bind(subject="q0")
+    @sc.template(id="test.graph.prepared-request", kind="graph")
+    def template(
+        experiment: sc.ExperimentContext,
+        subject: Annotated[sc.Input[sc.EntityRef | str], sc.EntityType()],
+    ) -> None:
+        del experiment, subject
+
+    invocation = template(subject="q0")
 
     compiled = compile_invocation(
         invocation,
@@ -408,14 +411,12 @@ def test_compile_verifies_and_seals_the_final_program_once(
         "scopecat.compiler.linking.linked.seal_typed_program",
         counted_seal,
     )
-    module = sc.procedure(id="test.graph.single-proof").build()
-    invocation = template_fixture(
-        module,
-        id="test.graph.single-proof",
-        kind="graph",
-    ).bind()
 
-    compiled = compile_invocation(invocation)
+    @sc.template(id="test.graph.single-proof", kind="graph")
+    def template(experiment: sc.ExperimentContext) -> None:
+        del experiment
+
+    compiled = compile_invocation(template())
     resolved = resolve_compiled_invocation(
         compiled,
         environment=build_config_environment(load_config()),

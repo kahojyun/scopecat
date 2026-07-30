@@ -15,7 +15,7 @@ from scopecat.authoring import (
     ExperimentModule,
     FloatType,
     IntType,
-    ModuleBuilder,
+    ModuleContext,
     ModuleInvocation,
     ProductOutputs,
     ProductRef,
@@ -31,6 +31,9 @@ from scopecat.authoring import (
     domain_program as _core_domain_program,
 )
 from scopecat.authoring import input as core_input
+from scopecat.authoring._module_handles import (
+    create_programmatic_module_internal,
+)
 
 from scopecat_quantum._ids import (
     QuantumProgramId,
@@ -344,26 +347,35 @@ def _program_call_module(
         _SHOTS_INPUT_ID,
         ScalarType(IntType(minimum=1)),
     )
-    builder = ModuleBuilder(id=f"{program.id}.call").inputs(
-        *local_inputs.values(),
-        *local_compiler_inputs.values(),
-        shots_input,
-    )
-    for result in program.results:
-        contract = result.contract
-        builder = builder.product(
-            result.id,
-            unit=contract.unit,
-            dtype=contract.dtype,
-            axes=(shot_axis(shots_input, shared_as="shot"),),
+    module_inputs = {
+        **local_inputs,
+        **local_compiler_inputs,
+        _SHOTS_INPUT_ID: shots_input,
+    }
+
+    def define(context: ModuleContext) -> None:
+        result_products: dict[str, ProductRef] = {}
+        for result in program.results:
+            contract = result.contract
+            result_products[result.id] = context.product(
+                result.id,
+                unit=contract.unit,
+                dtype=contract.dtype,
+                axes=(shot_axis(shots_input, shared_as="shot"),),
+            )
+        execution = _domain_execution(
+            domain,
+            inputs={port: local_inputs[port.id] for port in program.ports},
+            compiler_inputs=local_compiler_inputs,
+            results={result: result_products[result.id] for result in program.results},
         )
-    execution = _domain_execution(
-        domain,
-        inputs={port: local_inputs[port.id] for port in program.ports},
-        compiler_inputs=local_compiler_inputs,
-        results={result: builder.products[result.id] for result in program.results},
+        context.domain(execution)
+
+    return create_programmatic_module_internal(
+        id=f"{program.id}.call",
+        inputs=module_inputs,
+        define=define,
     )
-    return builder.domain(execution).build()
 
 
 def _program_call(

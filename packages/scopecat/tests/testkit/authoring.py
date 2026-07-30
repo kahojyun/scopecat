@@ -99,62 +99,77 @@ def template_fixture(
     )
 
 
-_SIMPLE_SUBJECT = authoring.input(
-    "subject",
-    authoring.ScalarType(authoring.EntityType()),
-)
 DRIVE_FREQUENCY_POINT = authoring.coordinate(
     "drive_frequency",
     authoring.ScalarType(authoring.QuantityType(unit="GHz")),
 )
-SIMPLE_MODULE = (
-    authoring.procedure(id="test.simple_scan", metadata={"assembled_by": "module"})
-    .inputs(_SIMPLE_SUBJECT)
-    .resource(
+
+
+@authoring.module(
+    id="test.simple_scan",
+    metadata={"assembled_by": "module"},
+)
+def SIMPLE_MODULE(
+    module: authoring.ModuleContext,
+    subject: Annotated[
+        authoring.Input[EntityRef | str],
+        authoring.ScalarType(authoring.EntityType()),
+    ],
+    drive_frequency: Annotated[
+        authoring.Input[Quantity],
+        authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+    ],
+) -> None:
+    source = module.resource(
         "source",
         requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
     )
-    .bind_property(
-        "source",
+    module.bind_property(
+        source,
         _SET_FREQUENCY_VALUE,
-        value=DRIVE_FREQUENCY_POINT,
+        value=drive_frequency,
     )
-    .product("signal", unit="ratio")
-    .acquire(
+    signal = module.product("signal", unit="ratio")
+    module.acquire(
         "read-signal",
-        resource="source",
-        results={_SCALAR_SIGNAL_VALUE: "signal"},
+        resource=source,
+        results={_SCALAR_SIGNAL_VALUE: signal},
     )
-    .build()
-)
 
 
-def simple_template() -> ExperimentTemplate[...]:
+def simple_template(
+    *,
+    id: str = "test.simple_scan",
+    kind: str = "simple_scan",
+) -> ExperimentTemplate[...]:
     def definition(
+        experiment: authoring.ExperimentContext,
         subject: Annotated[
             authoring.Input[EntityRef | str],
-            _SIMPLE_SUBJECT.value_type,
+            authoring.ScalarType(authoring.EntityType()),
         ],
-    ) -> authoring.ExperimentBody:
-        module_call = SIMPLE_MODULE(subject=subject)
-        return (
-            authoring.experiment(module_call)
-            .scan(
-                axis(
-                    DRIVE_FREQUENCY_POINT,
-                    center=authoring.parameter(
-                        "drive_frequency",
-                        authoring.ScalarType(authoring.QuantityType()),
-                    ),
-                    span=Quantity(value=200.0, unit="MHz"),
-                    points=5,
-                ),
+    ) -> None:
+        module_call = experiment.run(
+            SIMPLE_MODULE(
+                subject=subject,
+                drive_frequency=DRIVE_FREQUENCY_POINT,
             )
-            .record_product(module_call.products.signal, record_id="signal")
         )
+        experiment.scan(
+            axis(
+                DRIVE_FREQUENCY_POINT,
+                center=authoring.parameter(
+                    "drive_frequency",
+                    authoring.ScalarType(authoring.QuantityType()),
+                ),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+            ),
+        )
+        experiment.record(module_call.products.signal, record_id="signal")
 
     return authoring.template(
-        id="test.simple_scan",
-        kind="simple_scan",
+        id=id,
+        kind=kind,
         metadata={"assembled_by": "template"},
     )(definition)

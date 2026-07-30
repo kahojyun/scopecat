@@ -113,9 +113,9 @@ def input(
 ) -> ValueRef:
     """Declare one typed module input value.
 
-    Register the returned value with :meth:`ModuleBuilder.inputs`, then pass the
-    same object to compute inputs, child modules, resource selections, records,
-    or bindings.
+    Prefer a typed ``@module`` parameter for user-authored module inputs. This
+    constructor exists for programmatic domain adapters and compiler-focused
+    tests.
     """
 
     return internal_input_value_ref(id, value_type)

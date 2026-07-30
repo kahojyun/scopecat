@@ -1,6 +1,6 @@
 """Explicit hierarchical IR for reusable authoring modules.
 
-The public builder and invocation objects are authoring handles.  ``ModuleIR``
+The public contexts and invocation objects are authoring handles. ``ModuleIR``
 is the immutable definition they elaborate into: its interface declares the
 values and logical resources visible at the boundary, while its body retains
 child instances and local intents until the dedicated elaboration pass lowers
@@ -210,14 +210,14 @@ class ModuleBindingEffect:
 
 @dataclass(frozen=True, slots=True)
 class ModuleEnsureEffect:
-    """Ensure one coherent desired state at this procedure position."""
+    """Ensure one coherent desired state at this effects position."""
 
     intent: EnsureStateIntent
 
 
 @dataclass(frozen=True, slots=True)
 class ModuleInvokeEffect:
-    """Invoke one atomic hardware operation at this procedure position."""
+    """Invoke one atomic hardware operation at this effects position."""
 
     intent: InvocationIntent
 
@@ -245,7 +245,7 @@ class ModuleAcquireResult:
 
 @dataclass(frozen=True, slots=True)
 class ModuleAcquireEffect:
-    """Realize selected products at this exact procedure position.
+    """Realize selected products at this exact effects position.
 
     Acquisition is an ordered effect because triggering or reading hardware is
     observable execution. Product shape remains a declaration and durable
@@ -286,9 +286,9 @@ type ModuleEffectIR = (
 
 @dataclass(frozen=True, slots=True)
 class ModuleBodyIR:
-    """A closed ordered procedure with derived child and product views."""
+    """A closed ordered effects with derived child and product views."""
 
-    procedure: tuple[ModuleEffectIR, ...] = ()
+    effects: tuple[ModuleEffectIR, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
     products: tuple[ModuleProductDecl, ...] = ()
@@ -365,10 +365,10 @@ class ModuleBodyIR:
 
     @property
     def child_instances(self) -> tuple[ModuleInstanceIR, ...]:
-        """Derive children so procedure remains the sole ordering authority."""
+        """Derive children so effects remains the sole ordering authority."""
 
         return tuple(
-            effect for effect in self.procedure if isinstance(effect, ModuleInstanceIR)
+            effect for effect in self.effects if isinstance(effect, ModuleInstanceIR)
         )
 
     @property
@@ -391,7 +391,7 @@ class ModuleBodyIR:
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
         return tuple(
             binding
-            for effect in self.procedure
+            for effect in self.effects
             for binding in (
                 (effect.intent,)
                 if isinstance(effect, ModuleBindingEffect)
@@ -405,7 +405,7 @@ class ModuleBodyIR:
     def domain_executions(self) -> tuple[DomainExecution, ...]:
         return tuple(
             effect.execution
-            for effect in self.procedure
+            for effect in self.effects
             if isinstance(effect, ModuleDomainEffect)
         )
 
@@ -413,16 +413,14 @@ class ModuleBodyIR:
     def invocations(self) -> tuple[InvocationIntent, ...]:
         return tuple(
             effect.intent
-            for effect in self.procedure
+            for effect in self.effects
             if isinstance(effect, ModuleInvokeEffect)
         )
 
     @property
     def acquisitions(self) -> tuple[ModuleAcquireEffect, ...]:
         return tuple(
-            effect
-            for effect in self.procedure
-            if isinstance(effect, ModuleAcquireEffect)
+            effect for effect in self.effects if isinstance(effect, ModuleAcquireEffect)
         )
 
 

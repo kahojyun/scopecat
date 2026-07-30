@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
 
 import scopecat as sc
@@ -10,7 +12,7 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     TableParameterValue,
 )
-from tests.testkit.authoring import link_invocation, load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config
 from tests.testkit.materialized_effects import materialized_effects_contract
 
 
@@ -25,23 +27,17 @@ def _capture(value: object) -> dict[str, object]:
 def _resolve_dependency(
     value: sc.ValueRef,
     config: ConfigProfileSnapshot,
-    *,
-    module_inputs: tuple[sc.ValueRef, ...] = (),
-    bound_inputs: dict[str, sc.RuntimeInput] | None = None,
 ) -> None:
-    dependency = sc.compute(
-        "consume-parameter-dependency",
-        fn=_capture,
-        inputs={"value": value},
-        output_type=sc.ScalarType(sc.PayloadType("parameter-dependency")),
-    )
-    module = (
-        sc.procedure(id="test.parameter-contract")
-        .inputs(*module_inputs)
-        .computes(dependency)
-        .build()
-    )
-    _resolve_module(module, config, inputs=bound_inputs)
+    @sc.module(id="test.parameter-contract")
+    def module(context: sc.ModuleContext) -> None:
+        context.compute(
+            "consume-parameter-dependency",
+            fn=_capture,
+            inputs={"value": value},
+            output_type=sc.ScalarType(sc.PayloadType("parameter-dependency")),
+        )
+
+    _resolve_module(module, config)
 
 
 def _resolve_table_dependency(
@@ -55,34 +51,50 @@ def _resolve_table_dependency(
         body=object(),
         compiler_inputs={"value": value.value_type},
     )
-    module = (
-        sc.procedure(id="test.parameter-table-contract")
-        .domain(
+
+    @sc.module(id="test.parameter-table-contract")
+    def module(context: sc.ModuleContext) -> None:
+        context.domain(
             sc.domain_execution(
                 program,
                 compiler_inputs={"value": value},
             )
         )
-        .build()
-    )
+
     _resolve_module(module, config)
 
 
 def _resolve_module(
     module: sc.ExperimentModule[...],
     config: ConfigProfileSnapshot,
-    *,
-    inputs: dict[str, sc.RuntimeInput] | None = None,
 ) -> None:
-    invocation = template_fixture(
-        module,
-        id="test.parameter-contract",
-        kind="parameter_contract",
-    ).bind(**(inputs or {}))
+    @sc.template(id="test.parameter-contract", kind="parameter_contract")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
     link_invocation(
-        invocation,
+        template(),
         config_profile=config,
     )
+
+
+def _empty_module(id: str) -> sc.ExperimentModule[...]:
+    @sc.module(id=id)
+    def module(context: sc.ModuleContext) -> None:
+        del context
+
+    return module
+
+
+def _scan_invocation(id: str, *scans: sc.Scan) -> sc.ExperimentInvocation:
+    module = _empty_module(id)
+
+    @sc.template(id=id, kind="parameter_contract")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+        experiment.scan(*scans)
+
+    return template()
 
 
 def _config_with_parameter_table(
@@ -216,26 +228,21 @@ def test_unknown_scalar_parameter_has_authoring_problem() -> None:
 
 
 def test_parameter_contract_survives_nested_elaboration() -> None:
-    frequency_type = sc.ScalarType(sc.StringType())
-    frequency = sc.input(
-        "frequency",
-        frequency_type,
-    )
-    dependency = sc.compute(
-        "consume-child-frequency",
-        fn=_identity,
-        inputs={"value": frequency},
-        output_type=frequency_type,
-    )
-    child = (
-        sc.procedure(id="test.parameter-contract-child")
-        .inputs(frequency)
-        .computes(dependency)
-        .build()
-    )
-    parent = (
-        sc.procedure(id="test.parameter-contract-parent")
-        .use(
+    @sc.module(id="test.parameter-contract-child")
+    def child(
+        context: sc.ModuleContext,
+        frequency: Annotated[sc.Input[str], sc.StringType()],
+    ) -> None:
+        context.compute(
+            "consume-child-frequency",
+            fn=_identity,
+            inputs={"value": frequency},
+            output_type=sc.ScalarType(sc.StringType()),
+        )
+
+    @sc.module(id="test.parameter-contract-parent")
+    def parent(context: sc.ModuleContext) -> None:
+        context.call(
             child.instantiate(
                 "parameter-contract-child",
                 frequency=sc.parameter(
@@ -244,8 +251,6 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
                 ),
             )
         )
-        .build()
-    )
 
     with pytest.raises(CheckFailed) as error:
         _resolve_module(parent, load_config())
@@ -254,26 +259,21 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
 
 
 def test_parameter_contract_survives_scan_lowering() -> None:
-    module = sc.procedure(id="test.parameter-contract-scan").build()
-    invocation = template_fixture(
-        module,
-        id="test.parameter-contract-scan",
-        kind="parameter_contract",
-        scans=(
-            sc.axis(
-                sc.coordinate(
-                    "frequency",
-                    sc.ScalarType(sc.QuantityType()),
-                ),
-                center=sc.parameter(
-                    "drive_frequency",
-                    sc.ScalarType(sc.QuantityType(unit="ns")),
-                ),
-                span=sc.Quantity(value=100, unit="MHz"),
-                points=3,
+    invocation = _scan_invocation(
+        "test.parameter-contract-scan",
+        sc.axis(
+            sc.coordinate(
+                "frequency",
+                sc.ScalarType(sc.QuantityType()),
             ),
+            center=sc.parameter(
+                "drive_frequency",
+                sc.ScalarType(sc.QuantityType(unit="ns")),
+            ),
+            span=sc.Quantity(value=100, unit="MHz"),
+            points=3,
         ),
-    ).bind()
+    )
 
     with pytest.raises(CheckFailed) as error:
         link_invocation(
@@ -317,13 +317,7 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
         ),
         values,
     )
-    module = sc.procedure(id="test.parameter-contract-scan-target").build()
-    invocation = template_fixture(
-        module,
-        id="test.parameter-contract-scan-target",
-        kind="parameter_contract",
-        scans=(scan,),
-    ).bind()
+    invocation = _scan_invocation("test.parameter-contract-scan-target", scan)
 
     with pytest.raises(CheckFailed) as error:
         link_invocation(
@@ -354,13 +348,7 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
         [5.0],
         unit="GHz",
     )
-    module = sc.procedure(id="test.parameter-contract-scan-key").build()
-    invocation = template_fixture(
-        module,
-        id="test.parameter-contract-scan-key",
-        kind="parameter_contract",
-        scans=(scan,),
-    ).bind()
+    invocation = _scan_invocation("test.parameter-contract-scan-key", scan)
 
     with pytest.raises(CheckFailed) as error:
         link_invocation(
@@ -377,25 +365,20 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
     config = _config_with_parameter_table()
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("scanned_frequency", frequency_type)
-    module = sc.procedure(id="test.parameter-around-scan").build()
-    invocation = template_fixture(
-        module,
-        id="test.parameter-around-scan",
-        kind="parameter_contract",
-        scans=(
-            sc.param_axis(
-                frequency,
-                sc.parameter_lookup(
-                    "device_parameters",
-                    key={"device": "q0"},
-                    column="frequency",
-                    value_type=frequency_type,
-                ),
-                span="200 MHz",
-                points=3,
+    invocation = _scan_invocation(
+        "test.parameter-around-scan",
+        sc.param_axis(
+            frequency,
+            sc.parameter_lookup(
+                "device_parameters",
+                key={"device": "q0"},
+                column="frequency",
+                value_type=frequency_type,
             ),
+            span="200 MHz",
+            points=3,
         ),
-    ).bind()
+    )
 
     resolved = link_invocation(invocation, config_profile=config)
     materialized = materialized_effects_contract(
@@ -433,13 +416,7 @@ def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
         [5.0],
         unit="GHz",
     )
-    module = sc.procedure(id="test.parameter-scan-write-type").build()
-    invocation = template_fixture(
-        module,
-        id="test.parameter-scan-write-type",
-        kind="parameter_contract",
-        scans=(scan,),
-    ).bind()
+    invocation = _scan_invocation("test.parameter-scan-write-type", scan)
 
     with pytest.raises(CheckFailed) as error:
         link_invocation(invocation, config_profile=config)
@@ -490,35 +467,40 @@ def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
 
 def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> None:
     config = _config_with_parameter_table()
-    typed_device = sc.input(
-        "device",
-        sc.ScalarType(sc.EntityType(entity_kind="logical_device")),
-    )
-    lookup = sc.parameter_lookup(
-        "device_parameters",
-        key={"device": typed_device},
-        column="frequency",
-        value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-    )
-    dependency = sc.compute(
-        "consume-typed-parameter-key",
-        fn=_identity,
-        inputs={"value": lookup},
-        output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-    )
-    module = (
-        sc.procedure(id="test.typed-parameter-key")
-        .inputs(typed_device)
-        .computes(dependency)
-        .build()
-    )
-    invocation = template_fixture(
-        module,
-        id="test.typed-parameter-key",
-        kind="parameter_contract",
-    ).bind(device="q0")
+
+    @sc.module(id="test.typed-parameter-key")
+    def module(
+        context: sc.ModuleContext,
+        device: Annotated[
+            sc.Input[sc.EntityRef | str],
+            sc.EntityType(entity_kind="logical_device"),
+        ],
+    ) -> None:
+        lookup = sc.parameter_lookup(
+            "device_parameters",
+            key={"device": device},
+            column="frequency",
+            value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+        )
+        context.compute(
+            "consume-typed-parameter-key",
+            fn=_identity,
+            inputs={"value": lookup},
+            output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+        )
+
+    @sc.template(id="test.typed-parameter-key", kind="parameter_contract")
+    def template(
+        experiment: sc.ExperimentContext,
+        device: Annotated[
+            sc.Input[sc.EntityRef | str],
+            sc.EntityType(entity_kind="logical_device"),
+        ],
+    ) -> None:
+        experiment.run(module(device))
+
     link_invocation(
-        invocation,
+        template(device="q0"),
         config_profile=config,
     )
 
@@ -532,22 +514,40 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             ),
             config,
         )
-    wrong_device = sc.input(
-        "device",
-        sc.ScalarType(sc.EntityType(entity_kind="logical_coupler")),
-    )
     with pytest.raises(CheckFailed) as wrong_key_type:
-        _resolve_dependency(
-            sc.parameter_lookup(
+
+        @sc.module(id="test.wrong-parameter-key")
+        def wrong_module(
+            context: sc.ModuleContext,
+            device: Annotated[
+                sc.Input[sc.EntityRef | str],
+                sc.EntityType(entity_kind="logical_coupler"),
+            ],
+        ) -> None:
+            lookup = sc.parameter_lookup(
                 "device_parameters",
-                key={"device": wrong_device},
+                key={"device": device},
                 column="frequency",
                 value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-            ),
-            config,
-            module_inputs=(wrong_device,),
-            bound_inputs={"device": "q0"},
-        )
+            )
+            context.compute(
+                "consume-wrong-parameter-key",
+                fn=_identity,
+                inputs={"value": lookup},
+                output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
+            )
+
+        @sc.template(id="test.wrong-parameter-key", kind="parameter_contract")
+        def wrong_template(
+            experiment: sc.ExperimentContext,
+            device: Annotated[
+                sc.Input[sc.EntityRef | str],
+                sc.EntityType(entity_kind="logical_coupler"),
+            ],
+        ) -> None:
+            experiment.run(wrong_module(device))
+
+        link_invocation(wrong_template(device="q0"), config_profile=config)
 
     assert wrong_key_shape.value.problems[0].code == (
         "authoring_parameter_lookup_key_mismatch"

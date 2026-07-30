@@ -76,35 +76,39 @@ def _preparation_context(
             "raw": ("raw", "v1"),
         },
     )
-    module = sc.procedure(id=f"test.sdk.preparation.{namespace}").product(
-        "raw",
-        unit=unit,
-        dtype=dtype,
-    )
-    execution = sc.domain_execution(
-        program,
-        inputs={"count": count},
-        results={"raw": module.products["raw"]},
-    )
-    module_call = module.domain(execution).build()()
-    body = sc.experiment(module_call).scan(sc.axis(count, (1, 3)))
-    if shared_product_uses:
-        body = body.record_product(
-            module_call.products.raw,
-            record_id="raw-first",
-        ).record_product(
-            module_call.products.raw,
-            record_id="raw-second",
+
+    @sc.module(id=f"test.sdk.preparation.{namespace}")
+    def domain_module(module: sc.ModuleContext) -> None:
+        raw = module.product(
+            "raw",
+            unit=unit,
+            dtype=dtype,
         )
-    else:
-        body = body.record_product(
-            module_call.products.raw,
-            record_id="raw",
+        module.domain(
+            sc.domain_execution(
+                program,
+                inputs={"count": count},
+                results={"raw": raw},
+            )
         )
-    selected = sc.template(
+
+    @sc.template(
         id=f"test.sdk.preparation.{namespace}",
         kind="domain_preparation",
-    )(lambda: body)
+    )
+    def selected(experiment: sc.ExperimentContext) -> None:
+        module_call = experiment.run(domain_module())
+        experiment.scan(sc.axis(count, (1, 3)))
+        experiment.record(
+            module_call.products.raw,
+            record_id="raw-first" if shared_product_uses else "raw",
+        )
+        if shared_product_uses:
+            experiment.record(
+                module_call.products.raw,
+                record_id="raw-second",
+            )
+
     resolved = link_invocation(
         selected.bind(),
         config_profile=load_config(),

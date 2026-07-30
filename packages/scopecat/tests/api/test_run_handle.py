@@ -24,22 +24,30 @@ _SET_FREQUENCY_VALUE = _SET_FREQUENCY.property("frequency")
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
 
-SIMPLE_FREQUENCY_SCAN = (
-    authoring.procedure(id="test.session.simple_frequency_scan")
-    .resource("source", requires=(_SET_FREQUENCY, _SCALAR_SIGNAL))
-    .bind_property(
+
+@authoring.module(id="test.session.simple_frequency_scan")
+def SIMPLE_FREQUENCY_SCAN(
+    module: authoring.ModuleContext,
+    frequency: Annotated[
+        authoring.Input[Quantity],
+        authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+    ],
+) -> None:
+    source = module.resource(
         "source",
+        requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
+    )
+    module.bind_property(
+        source,
         _SET_FREQUENCY_VALUE,
-        value=DRIVE_FREQUENCY_POINT,
+        value=frequency,
     )
-    .product("signal", unit="ratio")
-    .acquire(
+    signal = module.product("signal", unit="ratio")
+    module.acquire(
         "read-signal",
-        resource="source",
-        results={_SCALAR_SIGNAL_VALUE: "signal"},
+        resource=source,
+        results={_SCALAR_SIGNAL_VALUE: signal},
     )
-    .build()
-)
 
 
 def _quantity_coordinate(record: MeasurementRecord, coordinate_id: str) -> Quantity:
@@ -57,28 +65,28 @@ def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
 
 def simple_frequency_scan_template() -> ExperimentTemplate[...]:
     def definition(
+        experiment: authoring.ExperimentContext,
         subject: Annotated[
             authoring.Input[sc.EntityRef | str],
             authoring.EntityType(),
         ],
-    ) -> authoring.ExperimentBody:
+    ) -> None:
         del subject
-        module_call = SIMPLE_FREQUENCY_SCAN()
-        return (
-            authoring.experiment(module_call)
-            .scan(
-                sc.axis(
-                    DRIVE_FREQUENCY_POINT,
-                    center=authoring.parameter(
-                        "drive_frequency",
-                        authoring.ScalarType(authoring.QuantityType()),
-                    ),
-                    span=Quantity(value=200.0, unit="MHz"),
-                    points=3,
-                ),
-            )
-            .record_product(module_call.products.signal, record_id="signal")
+        module_call = experiment.run(
+            SIMPLE_FREQUENCY_SCAN(frequency=DRIVE_FREQUENCY_POINT)
         )
+        experiment.scan(
+            sc.axis(
+                DRIVE_FREQUENCY_POINT,
+                center=authoring.parameter(
+                    "drive_frequency",
+                    authoring.ScalarType(authoring.QuantityType()),
+                ),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=3,
+            ),
+        )
+        experiment.record(module_call.products.signal, record_id="signal")
 
     return authoring.template(
         id="test.session.simple_frequency_scan",

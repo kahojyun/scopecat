@@ -20,8 +20,8 @@ from typing import (
 from scopecat.authoring._binding_intents import ExperimentBindingIntent
 from scopecat.authoring._module_handles import (
     ExperimentModule,
-    ModuleBuilder,
     ModuleContext,
+    ModuleDefinitionState,
     ModuleInvocation,
     ModuleResource,
     build_ensure_state_intent,
@@ -96,10 +96,10 @@ class _DefinitionContract:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ExperimentBody:
-    """Shared return value for template and scratch definition functions."""
+class _ExperimentDefinitionState:
+    """Immutable state accumulated by one explicit experiment context."""
 
-    module: ModuleBuilder = field(default_factory=ModuleBuilder)
+    module: ModuleDefinitionState = field(default_factory=ModuleDefinitionState)
     scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
     postcondition_bindings: tuple[ExperimentBindingIntent, ...] = ()
@@ -107,7 +107,7 @@ class ExperimentBody:
     def scan(
         self,
         *scans: Scan,
-    ) -> ExperimentBody:
+    ) -> _ExperimentDefinitionState:
         return replace(
             self,
             scans=(*self.scans, *scans),
@@ -118,7 +118,7 @@ class ExperimentBody:
         *products: str | ProductRef,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ExperimentBody:
+    ) -> _ExperimentDefinitionState:
         if record_id is not None and len(products) != 1:
             raise ValueError("record_id can only be used with one product")
         return replace(
@@ -141,7 +141,7 @@ class ExperimentBody:
         *products: str | ProductRef,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ExperimentBody:
+    ) -> _ExperimentDefinitionState:
         if record_id is not None and len(products) != 1:
             raise ValueError("record_id can only be used with one product")
         return replace(
@@ -159,7 +159,7 @@ class ExperimentBody:
             ),
         )
 
-    def records(self, *selections: RecordSelection) -> ExperimentBody:
+    def records(self, *selections: RecordSelection) -> _ExperimentDefinitionState:
         return replace(
             self,
             record_selections=(*self.record_selections, *selections),
@@ -169,12 +169,12 @@ class ExperimentBody:
         self,
         resource: ModuleResource,
         target: DesiredState,
-    ) -> ExperimentBody:
+    ) -> _ExperimentDefinitionState:
         """Declare the desired hardware state after normal run completion."""
 
         owners = {
             effect.invocation_key
-            for effect in self.module.procedure
+            for effect in self.module.effects
             if isinstance(effect, ModuleInvocation)
         }
         if resource.owner not in owners:
@@ -209,10 +209,10 @@ class ExperimentContext:
     __slots__ = ("_body",)
 
     def __init__(self) -> None:
-        self._body = ExperimentBody()
+        self._body = _ExperimentDefinitionState()
 
     @property
-    def definition_body(self) -> ExperimentBody:
+    def definition_body(self) -> _ExperimentDefinitionState:
         """Return the immutable body accumulated by this definition."""
 
         return self._body
@@ -223,7 +223,7 @@ class ExperimentContext:
         invocation = _module_invocation(part)
         self._body = replace(
             self._body,
-            module=self._body.module.use(invocation),
+            module=self._body.module.append_call(invocation),
         )
         return invocation
 
@@ -362,29 +362,6 @@ def module[**P](
     return _module_from_function(definition, id=id, metadata=metadata)
 
 
-def procedure(
-    *,
-    id: str | None = None,
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> ModuleBuilder:
-    """Build the ordered procedure returned by an ``@module`` function."""
-
-    return ModuleBuilder(
-        id=id,
-        metadata=freeze_json_mapping(metadata or {}),
-    )
-
-
-def experiment(*parts: object) -> ExperimentBody:
-    """Compose explicit module calls into a template or scratch body."""
-
-    builder = ModuleBuilder()
-    for part in parts:
-        invocation = _module_invocation(part)
-        builder = builder.use(invocation)
-    return ExperimentBody(module=builder)
-
-
 @overload
 def template[**P](
     definition: Callable[Concatenate[ExperimentContext, P], None],
@@ -518,13 +495,13 @@ def _module_from_function[**P](
     doc = inspect.getdoc(fn)
     if doc is not None:
         selected_metadata.setdefault("description", doc)
-    builder = replace(
+    state = replace(
         body,
         id=id or _definition_id(fn),
         input_ports=tuple(_input_port(name, value) for name, value in values.items()),
         metadata=freeze_json_mapping({**body.metadata, **selected_metadata}),
     )
-    module_ir = build_module_ir(builder)
+    module_ir = build_module_ir(state)
     return create_experiment_module_internal(
         module_ir,
         definition=cast("Callable[P, object]", fn),
@@ -594,7 +571,7 @@ def _template_from_function[**P](
 
 
 def _close_experiment_body(
-    body: ExperimentBody,
+    body: _ExperimentDefinitionState,
     *,
     id: str,
     kind: str,
@@ -781,7 +758,7 @@ def _module_invocation(value: object) -> ModuleInvocation:
         return module_use_invocation(value)
     except TypeError as error:
         raise TypeError(
-            "experiment() requires explicit module or domain-program calls"
+            "ExperimentContext.run() requires a module or domain-program call"
         ) from error
 
 
@@ -790,12 +767,11 @@ def _definition_id(fn: DefinitionFunction) -> str:
 
 
 __all__ = [
-    "ExperimentBody",
+    "ExperimentContext",
     "Input",
     "ScratchDefinition",
-    "experiment",
+    "input_ref",
     "module",
-    "procedure",
     "scratch",
     "template",
 ]

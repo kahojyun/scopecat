@@ -292,8 +292,9 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
     assert call.results.iq_shots.id == "call/iq_shots"
 
     @sc.template(id="test.quantum.call-template", kind="x_count")
-    def experiment() -> sc.ExperimentBody:
-        return sc.experiment(call).record_product(call.results.iq_shots)
+    def experiment(context: sc.ExperimentContext) -> None:
+        context.run(call)
+        context.record(call.results.iq_shots)
 
     invocation = experiment()
     assert invocation.definition.record_selections[0].product_id.qualified_name == (
@@ -315,8 +316,9 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
     call = declaration("q0", "q1").with_shots(16)
 
     @sc.template(id="test.quantum.multi-result", kind="quantum")
-    def experiment() -> sc.ExperimentBody:
-        return sc.experiment(call).record_product(
+    def experiment(context: sc.ExperimentContext) -> None:
+        context.run(call)
+        context.record(
             call.results.first_iq,
             call.results.second_iq,
         )
@@ -382,18 +384,25 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
         return authoring.measure(qubit, result="iq")
 
     with pytest.raises(ValueError, match="duplicate module instance ids"):
-        sc.experiment(
-            declaration("q0").with_shots(8),
-            declaration("q0").with_shots(8),
-        ).module.build(id="test.quantum.repeated-defaults")
+
+        @sc.template(id="test.quantum.repeated-defaults")
+        def repeated_defaults(  # pyright: ignore[reportUnusedFunction]
+            context: sc.ExperimentContext,
+        ) -> None:
+            context.run(declaration("q0").with_shots(8))
+            context.run(declaration("q0").with_shots(8))
 
     left = declaration.call("left", "q0").with_shots(8)
     right = declaration.call("right", "q0").with_shots(8)
-    body = sc.experiment(left, right)
+
+    @sc.template(id="test.quantum.repeated-explicit")
+    def repeated_explicit(context: sc.ExperimentContext) -> None:
+        context.run(left)
+        context.run(right)
+
     assert [
-        item.instance_id
-        for item in body.module.procedure
-        if isinstance(item, sc.ModuleInvocation)
+        item.lookup.instance_id
+        for item in repeated_explicit.definition.module.body.child_instances
     ] == [
         "left",
         "right",
@@ -407,22 +416,24 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
     def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
 
-    call = declaration("q0").with_shots(16)
-    body = sc.procedure().use(call).product("probability_0", "probability_1")
-    postprocessor = binary_iq_probability_postprocessor(
-        "discriminate",
-        iq_shots=call.results.iq_shots,
-        probability_0=body.products.probability_0,
-        probability_1=body.products.probability_1,
-        discriminator=BinaryIqDiscriminator(
-            state_0_centroid=IqCentroid(real=-1, imag=0),
-            state_1_centroid=IqCentroid(real=1, imag=0),
-        ),
-    )
-
     @sc.module
-    def discriminate():
-        return body.measurement_postprocessors(postprocessor)
+    def discriminate(module: sc.ModuleContext) -> None:
+        call = declaration("q0").with_shots(16)
+        module.call(call)
+        probability_0 = module.product("probability_0")
+        probability_1 = module.product("probability_1")
+        module.measurement_postprocessor(
+            binary_iq_probability_postprocessor(
+                "discriminate",
+                iq_shots=call.results.iq_shots,
+                probability_0=probability_0,
+                probability_1=probability_1,
+                discriminator=BinaryIqDiscriminator(
+                    state_0_centroid=IqCentroid(real=-1, imag=0),
+                    state_1_centroid=IqCentroid(real=1, imag=0),
+                ),
+            )
+        )
 
     assert len(discriminate.ir.body.child_instances) == 1
     [lowered] = discriminate.ir.body.measurement_postprocessors

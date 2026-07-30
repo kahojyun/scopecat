@@ -1,7 +1,10 @@
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Annotated
 
 import pytest
 
@@ -14,7 +17,7 @@ from scopecat.planning.local_materialization import (
     prepare_local_target,
 )
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
-from tests.testkit.authoring import link_invocation, template_fixture
+from tests.testkit.authoring import link_invocation
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import config_with_physical_resources
 
@@ -42,27 +45,27 @@ class _EmptyTarget:
 
 
 def test_ensure_binds_one_declarative_target_with_point_resolved_values() -> None:
-    level = sc.coordinate(
-        "level",
-        sc.ScalarType(sc.QuantityType(unit="V")),
-    )
-
-    builder = (
-        sc.procedure(id="test.desired-state")
-        .resource("source", requires=(_SOURCE,))
-        .ensure(
-            "source",
+    @sc.module(id="test.desired-state")
+    def desired_state(
+        module: sc.ModuleContext,
+        level: Annotated[
+            sc.Input[sc.Quantity],
+            sc.ScalarType(sc.QuantityType(unit="V")),
+        ],
+    ) -> None:
+        source = module.resource("source", requires=(_SOURCE,))
+        module.ensure(
+            source,
             _SourceTarget(level=level, enabled=True),
         )
-    )
 
-    assert [binding.property_id for binding in builder.bindings] == [
+    assert [binding.property_id for binding in desired_state.bindings] == [
         "level",
         "enabled",
     ]
-    assert builder.bindings[0].value is level
-    assert builder.bindings[1].value is True
-    [effect] = builder.procedure
+    assert isinstance(desired_state.bindings[0].value, sc.ValueRef)
+    assert desired_state.bindings[1].value is True
+    [effect] = desired_state.effects
     assert isinstance(effect, ModuleEnsureEffect)
     assert len(effect.intent.assignments) == 2
 
@@ -72,21 +75,23 @@ def test_ensure_rejects_an_empty_target() -> None:
         ValueError,
         match="ensure requires at least one target assignment",
     ):
-        sc.procedure(id="test.empty-target").ensure("source", _EmptyTarget())
+
+        @sc.module(id="test.empty-target")
+        def empty_target(module: sc.ModuleContext) -> None:
+            source = module.resource("source")
+            module.ensure(source, _EmptyTarget())
 
 
 def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
-    module = (
-        sc.procedure(id="test.coherent-target")
-        .resource("source", requires=(_SOURCE,))
-        .ensure("source", _SourceTarget(level=1.5, enabled=True))
-        .build()
-    )
-    template = template_fixture(
-        module,
-        id="test.coherent-target",
-        kind="desired-state",
-    )
+    @sc.module(id="test.coherent-target")
+    def module(context: sc.ModuleContext) -> None:
+        source = context.resource("source", requires=(_SOURCE,))
+        context.ensure(source, _SourceTarget(level=1.5, enabled=True))
+
+    @sc.template(id="test.coherent-target", kind="desired-state")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
     linked = link_invocation(
         template(),
         config_profile=config_with_physical_resources(
@@ -115,18 +120,16 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
 
 
 def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
-    module = (
-        sc.procedure(id="test.sequential-targets")
-        .resource("source", requires=(_SOURCE,))
-        .ensure("source", _SourceTarget(level=1.0, enabled=True))
-        .ensure("source", _SourceTarget(level=2.0, enabled=False))
-        .build()
-    )
-    template = template_fixture(
-        module,
-        id="test.sequential-targets",
-        kind="desired-state",
-    )
+    @sc.module(id="test.sequential-targets")
+    def module(context: sc.ModuleContext) -> None:
+        source = context.resource("source", requires=(_SOURCE,))
+        context.ensure(source, _SourceTarget(level=1.0, enabled=True))
+        context.ensure(source, _SourceTarget(level=2.0, enabled=False))
+
+    @sc.template(id="test.sequential-targets", kind="desired-state")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
     linked = link_invocation(
         template(),
         config_profile=config_with_physical_resources(
@@ -146,16 +149,17 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
 
 
 def test_root_postcondition_is_materialized_outside_point_effects() -> None:
-    module = (
-        sc.procedure(id="test.postcondition-module")
-        .resource("source", requires=(_SOURCE,))
-        .build()
-    )
+    @sc.module(id="test.postcondition-module")
+    def module(context: sc.ModuleContext) -> None:
+        context.resource("source", requires=(_SOURCE,))
 
     @sc.template(id="test.postcondition", kind="desired-state")
-    def experiment_definition(level: float = 0.0) -> sc.ExperimentBody:
-        call = module()
-        return sc.experiment(call).postcondition(
+    def experiment_definition(
+        experiment: sc.ExperimentContext,
+        level: float = 0.0,
+    ) -> None:
+        call = experiment.run(module())
+        experiment.finalize(
             call.resources.source,
             _SourceTarget(level=level, enabled=False),
         )
@@ -189,11 +193,10 @@ def test_root_postcondition_is_materialized_outside_point_effects() -> None:
 
 
 def test_root_postcondition_rejects_scan_coordinates() -> None:
-    module = (
-        sc.procedure(id="test.postcondition-coordinate")
-        .resource("source", requires=(_SOURCE,))
-        .build()
-    )
+    @sc.module(id="test.postcondition-coordinate")
+    def module(context: sc.ModuleContext) -> None:
+        context.resource("source", requires=(_SOURCE,))
+
     call = module()
     level = sc.coordinate("level", sc.ScalarType(sc.FloatType()))
 
@@ -201,7 +204,11 @@ def test_root_postcondition_rejects_scan_coordinates() -> None:
         ValueError,
         match="postcondition cannot depend on scan coordinates",
     ):
-        sc.experiment(call).postcondition(
-            call.resources.source,
-            _SourceTarget(level=level, enabled=False),
-        )
+
+        @sc.template(id="test.postcondition-coordinate", kind="desired-state")
+        def experiment_definition(experiment: sc.ExperimentContext) -> None:
+            experiment.run(call)
+            experiment.finalize(
+                call.resources.source,
+                _SourceTarget(level=level, enabled=False),
+            )
