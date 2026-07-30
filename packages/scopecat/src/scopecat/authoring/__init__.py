@@ -1,8 +1,10 @@
 """User-facing experiment authoring API."""
 
 from scopecat.authoring._module_handles import (
+    DefinitionResource,
     ExperimentModule,
     ModuleBuilder,
+    ModuleContext,
     ModuleInvocation,
     ModuleOutputs,
     ModuleResource,
@@ -22,6 +24,7 @@ from scopecat.authoring._products import (
 )
 from scopecat.authoring.definitions import (
     ExperimentBody,
+    ExperimentContext,
     Input,
     ScratchDefinition,
     experiment,
@@ -105,6 +108,7 @@ __all__ = [
     "BoolType",
     "Compute",
     "ComputeInput",
+    "DefinitionResource",
     "DesiredState",
     "DomainExecution",
     "DomainInputPort",
@@ -112,6 +116,7 @@ __all__ = [
     "DomainResultPort",
     "EntityType",
     "ExperimentBody",
+    "ExperimentContext",
     "ExperimentInvocation",
     "ExperimentModule",
     "ExperimentTemplate",
@@ -121,6 +126,7 @@ __all__ = [
     "MeasurementPostprocessor",
     "MetadataValue",
     "ModuleBuilder",
+    "ModuleContext",
     "ModuleInput",
     "ModuleInvocation",
     "ModuleOutputs",

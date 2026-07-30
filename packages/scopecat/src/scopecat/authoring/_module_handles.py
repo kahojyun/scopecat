@@ -71,8 +71,13 @@ from scopecat.authoring.value_types import (
 from scopecat.authoring.value_types import ValueType
 from scopecat.authoring.values import (
     Compute,
+    ComputeFunction,
+    ComputeInput,
     MetadataValue,
     ModuleInput,
+)
+from scopecat.authoring.values import (
+    compute as define_compute,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -543,6 +548,171 @@ class ModuleBuilder:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class DefinitionResource:
+    """One logical resource owned by a module definition context."""
+
+    port_id: LogicalResourcePortId
+
+    @property
+    def id(self) -> str:
+        return self.port_id.local_id
+
+
+class ModuleContext:
+    """Explicit typed recorder injected into one ``@module`` definition."""
+
+    __slots__ = ("_state",)
+
+    def __init__(self) -> None:
+        self._state = ModuleBuilder()
+
+    @property
+    def definition_state(self) -> ModuleBuilder:
+        """Return the immutable state accumulated by this definition."""
+
+        return self._state
+
+    def call(self, module: ModuleInvocation | ModuleCall) -> ModuleInvocation:
+        """Append one explicitly constructed child-module invocation."""
+
+        invocation = module_use_invocation(module)
+        self._state = self._state.use(invocation)
+        return invocation
+
+    def export(self, **values: ValueRef) -> None:
+        """Expose typed values from each future invocation of this module."""
+
+        self._state = self._state.export(**values)
+
+    def resource(
+        self,
+        id: str,
+        *,
+        requires: Sequence[InterfaceRef] = (),
+        for_entities: Sequence[ValueRef] = (),
+    ) -> DefinitionResource:
+        """Declare and return one logical resource owned by this module."""
+
+        self._state = self._state.resource(
+            id,
+            requires=requires,
+            for_entities=for_entities,
+        )
+        return DefinitionResource(logical_resource_port_id(id))
+
+    def bind_property(
+        self,
+        resource: DefinitionResource,
+        property: PropertyRef,
+        *,
+        value: BindingInput,
+    ) -> None:
+        """Bind one typed persistent property on a logical resource."""
+
+        self._state = self._state.bind_property(
+            resource.id,
+            property,
+            value=value,
+        )
+
+    def ensure(
+        self,
+        resource: DefinitionResource,
+        target: DesiredState,
+    ) -> None:
+        """Declare one coherent target state for a logical resource."""
+
+        self._state = self._state.ensure(resource.id, target)
+
+    def invoke(
+        self,
+        id: str,
+        *,
+        resource: DefinitionResource,
+        operation: OperationRef,
+        arguments: Mapping[OperationArgumentRef, InvocationInput] | None = None,
+    ) -> None:
+        """Append one ordered atomic hardware operation."""
+
+        self._state = self._state.invoke(
+            id,
+            resource=resource.id,
+            operation=operation,
+            arguments=arguments,
+        )
+
+    def domain(self, execution: DomainExecution) -> DomainExecution:
+        """Append one opaque domain-program effect."""
+
+        self._state = self._state.domain(execution)
+        return execution
+
+    def product(
+        self,
+        id: str,
+        *,
+        unit: str | None = "ratio",
+        dtype: MeasurementDType = "float64",
+        axes: Sequence[ProductAxis] = (),
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> ProductRef:
+        """Declare and return one module-owned logical product."""
+
+        self._state = self._state.product(
+            id,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
+        )
+        return self._state.products[id]
+
+    def acquire(
+        self,
+        id: str,
+        *,
+        resource: DefinitionResource,
+        results: Mapping[AcquisitionResultRef, ProductRef],
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> None:
+        """Map one acquisition's typed results to declared products."""
+
+        self._state = self._state.acquire(
+            id,
+            resource=resource.id,
+            results=results,
+            metadata=metadata,
+        )
+
+    def compute(
+        self,
+        id: str,
+        *,
+        fn: ComputeFunction,
+        inputs: Mapping[str, ComputeInput] | None = None,
+        output_type: ScalarType,
+    ) -> ValueRef:
+        """Declare one compute node and return its typed result."""
+
+        definition = define_compute(
+            id,
+            fn=fn,
+            inputs=inputs,
+            output_type=output_type,
+        )
+        self._state = self._state.computes(definition)
+        return definition.output
+
+    def measurement_postprocessor(
+        self,
+        postprocessor: MeasurementPostprocessor,
+    ) -> None:
+        """Register one point-local measurement calculation."""
+
+        self._state = self._state.measurement_postprocessors(postprocessor)
+
+
 @dataclass(frozen=True, slots=True, repr=False, init=False)
 class ModuleInvocation:
     module: ExperimentModule[...]
@@ -705,7 +875,7 @@ class ExperimentModule[**P]:
     _signature: inspect.Signature = field(repr=False, compare=False)
 
     def __init__(self) -> None:
-        msg = "ExperimentModule is created by @module or ModuleBuilder.build()"
+        msg = "ExperimentModule is created by @module"
         raise TypeError(msg)
 
     @property
