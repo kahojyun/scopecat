@@ -26,7 +26,8 @@
         "connection": {
           "kind": "virtual"
         },
-        "run_start": "preserve"
+        "run_start": "preserve",
+        "failure_action": "abort_and_release"
       }
     ]
   },

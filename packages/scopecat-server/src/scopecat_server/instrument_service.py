@@ -76,7 +76,7 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentPropertyState, InstrumentStateSnapshot
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.instruments._projection import ProjectedInstrumentState
 from scopecat.sdk.instruments.backend import (
@@ -215,6 +215,7 @@ type _InstrumentOperationReplay = (
 @dataclass(slots=True)
 class _OwnershipRuntime:
     instruments: dict[str, OwnedInstrument]
+    specs: dict[str, InstrumentSpec]
     payload_catalog: PayloadCodecCatalog
     ledgers: dict[str, _InstrumentOperationLedger]
     opening_state: tuple[InstrumentStateSnapshot, ...] = ()
@@ -759,15 +760,12 @@ class InstrumentService:
         payload_catalog: PayloadCodecCatalog,
     ) -> tuple[_OwnershipRuntime, tuple[InstrumentStateSnapshot, ...]]:
         bindings = {binding.id: binding for binding in instrument_bindings(config)}
-        exclusivity_keys = {
-            spec.id: spec.exclusivity_key
-            for spec in config.instrument_registry.instruments
-        }
+        specs = {spec.id: spec for spec in config.instrument_registry.instruments}
         for attempt in range(2):
             runtime = self._acquire_ownership(
                 endpoint=endpoint,
                 bindings=bindings,
-                exclusivity_keys=exclusivity_keys,
+                specs=specs,
                 owner=owner,
                 instrument_ids=instrument_ids,
                 expected=expected,
@@ -800,7 +798,7 @@ class InstrumentService:
         *,
         endpoint: InstrumentBackendEndpoint,
         bindings: Mapping[str, InstrumentBindingSpec],
-        exclusivity_keys: Mapping[str, str],
+        specs: Mapping[str, InstrumentSpec],
         owner: InstrumentOwnerKey,
         instrument_ids: tuple[str, ...],
         expected: Mapping[str, InstrumentDescription],
@@ -810,7 +808,7 @@ class InstrumentService:
         try:
             for instrument_id in instrument_ids:
                 instruments[instrument_id] = self._actors.acquire(
-                    exclusivity_keys[instrument_id],
+                    specs[instrument_id].exclusivity_key,
                     instrument_id,
                     binding=InstrumentBindingKey(
                         provider_id=endpoint.provider_id,
@@ -841,6 +839,10 @@ class InstrumentService:
             ) from error
         return _OwnershipRuntime(
             instruments=instruments,
+            specs={
+                instrument_id: specs[instrument_id].model_copy(deep=True)
+                for instrument_id in instruments
+            },
             payload_catalog=payload_catalog,
             ledgers={
                 instrument_id: _InstrumentOperationLedger()
@@ -912,11 +914,12 @@ class InstrumentService:
             spec = specs[instrument_id]
             if spec.run_start != "apply_default_state":
                 continue
-            assignments = _configured_default_assignments(
-                spec,
-                runtime.instruments[instrument_id],
+            assignments = _configured_state_assignments(
+                instrument_id=spec.id,
+                configured_state=spec.default_state,
+                instrument=runtime.instruments[instrument_id],
             )
-            command = _pending_configured_defaults_command(
+            command = _pending_configured_state_command(
                 instrument_id=instrument_id,
                 assignments=assignments,
                 instrument=runtime.instruments[instrument_id],
@@ -1565,6 +1568,13 @@ class InstrumentService:
                         raise BackendConflict(
                             "instrument abort failed with unknown state"
                         ) from error
+                self._recover_failed_run_or_quarantine(
+                    run_id,
+                    token=token,
+                    runtime=runtime,
+                    operation_id=operation_id,
+                    problems=problems,
+                )
             final_state: list[InstrumentStateSnapshot] = []
             faulted: set[str] = set()
             for instrument_id, instrument in runtime.instruments.items():
@@ -1597,6 +1607,69 @@ class InstrumentService:
                 raise BackendConflict("instrument ownership release failed")
         self._pop_run_runtime(run_id, expected=runtime)
         return final_state, problems
+
+    def _recover_failed_run_or_quarantine(
+        self,
+        run_id: str,
+        *,
+        token: str,
+        runtime: _OwnershipRuntime,
+        operation_id: str,
+        problems: list[Problem],
+    ) -> None:
+        for instrument_id, instrument in runtime.instruments.items():
+            spec = runtime.specs[instrument_id]
+            if spec.failure_action != "abort_then_safe_state":
+                continue
+            try:
+                observed_state = observe_instrument(instrument)
+                assignments = _configured_state_assignments(
+                    instrument_id=spec.id,
+                    configured_state=spec.safe_state,
+                    instrument=instrument,
+                )
+                command = _pending_configured_state_command(
+                    instrument_id=instrument_id,
+                    assignments=assignments,
+                    instrument=instrument,
+                    observed_state=observed_state,
+                    operation_id=f"{operation_id}.safe_state.{instrument_id}",
+                )
+                if command is None:
+                    instrument.adopt_state(observed_state)
+                    continue
+                receipt = execute_instrument_apply(
+                    instrument,
+                    lower_backend_apply_request(command),
+                    assignments=command.assignments,
+                )
+            except (
+                BackendConflict,
+                InstrumentCommandExecutionError,
+            ) as error:
+                self._lose_run_runtime(
+                    run_id,
+                    runtime,
+                    token=token,
+                    reason="run_instrument_safe_state_unknown",
+                    abort=False,
+                )
+                raise BackendConflict(
+                    "instrument safe-state recovery failed with unknown state"
+                ) from error
+            if receipt.status == "unknown":
+                self._lose_run_runtime(
+                    run_id,
+                    runtime,
+                    token=token,
+                    reason="run_instrument_safe_state_unknown",
+                    abort=False,
+                )
+                raise BackendConflict(
+                    "instrument safe-state recovery failed with unknown state"
+                )
+            if receipt.status != "applied":
+                problems.extend(receipt.problems)
 
     def _create_run_context(self, run_id: str) -> _RunContext:
         with self._run_lock:
@@ -1983,7 +2056,11 @@ class InstrumentService:
                     ),
                 )
             try:
-                assignments = _configured_default_assignments(spec, instrument)
+                assignments = _configured_state_assignments(
+                    instrument_id=spec.id,
+                    configured_state=spec.default_state,
+                    instrument=instrument,
+                )
             except _DefaultStateReconciliationRejected as error:
                 return self._reject_configured_defaults(
                     session=session,
@@ -2001,7 +2078,7 @@ class InstrumentService:
                 raise
             instrument.adopt_state(observed)
             try:
-                state_command = _pending_configured_defaults_command(
+                state_command = _pending_configured_state_command(
                     instrument_id=instrument_id,
                     assignments=assignments,
                     instrument=instrument,
@@ -3336,22 +3413,24 @@ def _payload_codec_problems(
     )
 
 
-def _configured_default_assignments(
-    spec: InstrumentSpec,
+def _configured_state_assignments(
+    *,
+    instrument_id: str,
+    configured_state: Sequence[InstrumentPropertyState],
     instrument: OwnedInstrument,
 ) -> tuple[InstrumentStateAssignment, ...]:
     assignments = tuple(
         InstrumentStateAssignment(
-            resource_id=spec.id,
+            resource_id=instrument_id,
             interface_id=item.interface_id,
             component_path=list(item.component_path),
             property_id=item.property_id,
             value=item.value,
         )
-        for item in spec.default_state
+        for item in configured_state
     )
     problems = validate_reconciled_state_assignments(
-        instrument_id=spec.id,
+        instrument_id=instrument_id,
         assignments=assignments,
         description=instrument.description,
         require_explicit_state_case=True,
@@ -3363,7 +3442,7 @@ def _configured_default_assignments(
     return assignments
 
 
-def _pending_configured_defaults_command(
+def _pending_configured_state_command(
     *,
     instrument_id: str,
     assignments: Sequence[InstrumentStateAssignment],

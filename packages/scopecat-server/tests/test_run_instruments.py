@@ -1660,6 +1660,139 @@ def test_failed_finish_abort_failure_is_unknown(tmp_path: Path) -> None:
         _assert_run_state_discarded(instruments, run_id)
 
 
+def test_failed_finish_applies_configured_safe_state(tmp_path: Path) -> None:
+    provider = _Provider()
+    safe_frequency = InstrumentPropertyState(
+        interface_id="test.set_frequency/v1",
+        property_id="frequency",
+        value=StateValue(Quantity(value=4.25, unit="GHz")),
+    )
+    config = _config_with_safe_state(safe_frequency)
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=True,
+            ),
+        )
+
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        [applied] = driver.applied
+        [target] = applied.values
+        assert target.property_id == "frequency"
+        [final_state] = receipt.final_state
+        values = {
+            (item.interface_id, item.property_id): item.value.root
+            for item in final_state.properties
+        }
+        assert values[("test.set_frequency/v1", "frequency")] == Quantity(
+            value=4.25,
+            unit="GHz",
+        )
+        assert receipt.problems == ()
+
+
+def test_successful_finish_does_not_apply_failure_safe_state(tmp_path: Path) -> None:
+    provider = _Provider()
+    config = _config_with_safe_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=4.25, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        [driver] = provider.drivers
+        assert driver.abort_count == 0
+        assert driver.applied == []
+
+
+def test_rejected_failure_safe_state_is_reported_and_released(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(fail_action="reject_apply")
+    config = _config_with_safe_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=4.25, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=True,
+            ),
+        )
+
+        assert [item.code for item in receipt.problems] == ["test_apply_rejected"]
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        assert runtime.application.executor._control.get_run(run_id).state != (
+            "attention_required"
+        )
+
+
+def test_unknown_failure_safe_state_quarantines_the_run(tmp_path: Path) -> None:
+    provider = _Provider(fail_action="apply")
+    config = _config_with_safe_state(
+        InstrumentPropertyState(
+            interface_id="test.set_frequency/v1",
+            property_id="frequency",
+            value=StateValue(Quantity(value=4.25, unit="GHz")),
+        )
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(runtime, config)
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        with pytest.raises(BackendConflict, match="safe-state recovery failed"):
+            instruments.finish_run_hardware(
+                run_id,
+                RunHardwareFinishCommand(
+                    lease_id=lease_id,
+                    operation_id="hardware.finish",
+                    failed=True,
+                ),
+            )
+
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 1
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state == "attention_required"
+        assert durable.attention_reason == "run_instrument_safe_state_unknown"
+        _assert_run_state_discarded(instruments, run_id)
+
+
 def test_analysis_candidate_run_keeps_connection_until_shutdown(
     tmp_path: Path,
 ) -> None:
@@ -1880,6 +2013,27 @@ def _config_with_default_state(
         update={
             "run_start": run_start,
             "default_state": list(properties),
+        }
+    )
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured]}
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
+
+
+def _config_with_safe_state(
+    *properties: InstrumentPropertyState,
+) -> ConfigProfileSnapshot:
+    config = load_config()
+    [instrument] = config.instrument_registry.instruments
+    configured = instrument.model_copy(
+        update={
+            "safe_state": list(properties),
+            "failure_action": "abort_then_safe_state",
         }
     )
     registry = config.instrument_registry.model_copy(

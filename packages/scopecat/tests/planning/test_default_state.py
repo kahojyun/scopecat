@@ -59,12 +59,36 @@ def test_instrument_spec_requires_an_explicit_run_start_policy() -> None:
         InstrumentSpec.model_validate(_instrument_spec_data())
 
 
+def test_instrument_spec_requires_an_explicit_failure_action() -> None:
+    data = _instrument_spec_data()
+    data.pop("failure_action")
+    with pytest.raises(ValidationError, match="failure_action"):
+        InstrumentSpec.model_validate(
+            {
+                **data,
+                "run_start": "preserve",
+            }
+        )
+
+
 def test_apply_default_state_requires_declared_defaults() -> None:
     with pytest.raises(ValidationError, match="non-empty default state"):
         InstrumentSpec.model_validate(
             {
                 **_instrument_spec_data(),
                 "run_start": "apply_default_state",
+                "failure_action": "abort_and_release",
+            }
+        )
+
+
+def test_abort_then_safe_state_requires_declared_safe_state() -> None:
+    with pytest.raises(ValidationError, match="non-empty safe state"):
+        InstrumentSpec.model_validate(
+            {
+                **_instrument_spec_data(),
+                "run_start": "preserve",
+                "failure_action": "abort_then_safe_state",
             }
         )
 
@@ -107,6 +131,30 @@ def test_catalog_validates_preserved_default_state_independently() -> None:
         "instruments",
         0,
         "default_state",
+    )
+
+
+def test_catalog_validates_safe_state_against_advertised_interface() -> None:
+    result = _resolve_catalog(
+        _config_with_safe_state(
+            InstrumentPropertyState(
+                interface_id="test.set_frequency/v1",
+                property_id="missing",
+                value=StateValue(Quantity(5.0, "GHz")),
+            )
+        ),
+        TestSignalInstrumentProvider(),
+    )
+
+    [issue] = result.problems
+    assert issue.code == "instrument_driver_unsupported_property"
+    assert issue.location == model_location(
+        "config",
+        "system",
+        "instrument_registry",
+        "instruments",
+        0,
+        "safe_state",
     )
 
 
@@ -245,6 +293,7 @@ def _config_with_default_state(
         connection=configured.connection.model_copy(deep=True),
         default_state=[item.model_copy(deep=True) for item in properties],
         run_start=run_start,
+        failure_action="abort_and_release",
     )
     registry = config.instrument_registry.model_copy(
         update={"instruments": [instrument]},
@@ -258,12 +307,34 @@ def _config_with_default_state(
     )
 
 
+def _config_with_safe_state(
+    *properties: InstrumentPropertyState,
+) -> ConfigProfileSnapshot:
+    config = load_config()
+    [instrument] = config.instrument_registry.instruments
+    configured = instrument.model_copy(
+        update={
+            "safe_state": [item.model_copy(deep=True) for item in properties],
+            "failure_action": "abort_then_safe_state",
+        }
+    )
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured]}
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
+
+
 def _instrument_spec_data() -> dict[str, object]:
     return {
         "id": "source",
         "exclusivity_key": "source",
         "driver_id": "tests.source",
         "connection": {"kind": "virtual"},
+        "failure_action": "abort_and_release",
     }
 
 

@@ -199,6 +199,7 @@ def test_provider_probes_real_device_before_returning_driver() -> None:
                 port=server.port,
             ),
             run_start="preserve",
+            failure_action="abort_and_release",
         )
     )
 
@@ -223,6 +224,7 @@ def test_provider_rejects_wrong_device_identity() -> None:
                 port=server.port,
             ),
             run_start="preserve",
+            failure_action="abort_and_release",
         )
     )
 
@@ -259,6 +261,7 @@ def test_provider_connects_gs200_with_verified_monitor_profile() -> None:
                 },
             ),
             run_start="preserve",
+            failure_action="abort_and_release",
         )
     )
 
@@ -295,6 +298,7 @@ def test_provider_rejects_gs200_without_requested_monitor_option() -> None:
                 options={"monitor_option": True},
             ),
             run_start="preserve",
+            failure_action="abort_and_release",
         )
     )
 
@@ -371,6 +375,7 @@ def test_virtual_state_survives_driver_recreation() -> None:
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
             run_start="preserve",
+            failure_action="abort_and_release",
         ),
         InstrumentSpec(
             id="unused",
@@ -378,6 +383,7 @@ def test_virtual_state_survives_driver_recreation() -> None:
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
             run_start="preserve",
+            failure_action="abort_and_release",
         ),
     )
     provider = ConfiguredInstrumentProvider(seed=17)
@@ -412,6 +418,7 @@ def test_provider_connects_exact_requested_instrument() -> None:
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
             run_start="preserve",
+            failure_action="abort_and_release",
         ),
         InstrumentSpec(
             id="b",
@@ -419,6 +426,7 @@ def test_provider_connects_exact_requested_instrument() -> None:
             driver_id=VIRTUAL_DC_SOURCE,
             connection=VirtualInstrumentConnection(),
             run_start="preserve",
+            failure_action="abort_and_release",
         ),
     )
     provider = ConfiguredInstrumentProvider()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Literal
 
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
@@ -214,40 +215,62 @@ def _validate_described_instruments(
         if configured_item is not None:
             config_index, instrument = configured_item
             problems.extend(
-                _validate_default_state(
+                _validate_configured_state(
                     instrument=instrument,
                     config_index=config_index,
                     description=description,
+                    field_name="default_state",
+                )
+            )
+            problems.extend(
+                _validate_configured_state(
+                    instrument=instrument,
+                    config_index=config_index,
+                    description=description,
+                    field_name="safe_state",
                 )
             )
     for instrument_id, (config_index, instrument) in configured.items():
-        if instrument.default_state and instrument_id not in described_ids:
-            problems.append(
-                problem(
-                    "instrument_default_state_description_missing",
-                    f"instrument {instrument_id} default state cannot be validated "
-                    "without an advertised description",
-                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
-                    location=model_location(
-                        "config",
-                        "system",
-                        "instrument_registry",
-                        "instruments",
-                        config_index,
-                        "default_state",
-                    ),
-                )
+        for field_name in ("default_state", "safe_state"):
+            configured_state = (
+                instrument.default_state
+                if field_name == "default_state"
+                else instrument.safe_state
             )
+            if configured_state and instrument_id not in described_ids:
+                label = field_name.replace("_", " ")
+                problems.append(
+                    problem(
+                        f"instrument_{field_name}_description_missing",
+                        f"instrument {instrument_id} {label} cannot be validated "
+                        "without an advertised description",
+                        phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                        location=model_location(
+                            "config",
+                            "system",
+                            "instrument_registry",
+                            "instruments",
+                            config_index,
+                            field_name,
+                        ),
+                    )
+                )
     return problems
 
 
-def _validate_default_state(
+def _validate_configured_state(
     *,
     instrument: InstrumentSpec,
     config_index: int,
     description: InstrumentDescription,
+    field_name: Literal["default_state", "safe_state"],
 ) -> list[Problem]:
-    if not instrument.default_state:
+    configured_state = (
+        instrument.default_state
+        if field_name == "default_state"
+        else instrument.safe_state
+    )
+    if not configured_state:
         return []
     assignments = [
         InstrumentStateAssignment(
@@ -257,7 +280,7 @@ def _validate_default_state(
             property_id=item.property_id,
             value=item.value,
         )
-        for item in instrument.default_state
+        for item in configured_state
     ]
     issues = validate_reconciled_state_assignments(
         instrument_id=instrument.id,
@@ -271,7 +294,7 @@ def _validate_default_state(
         "instrument_registry",
         "instruments",
         config_index,
-        "default_state",
+        field_name,
     )
     normalized: list[Problem] = []
     for issue in issues:

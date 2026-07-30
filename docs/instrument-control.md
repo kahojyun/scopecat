@@ -331,7 +331,9 @@ Example:
     "options": {}
   },
   "default_state": [],
-  "run_start": "preserve"
+  "run_start": "preserve",
+  "safe_state": [],
+  "failure_action": "abort_and_release"
 }
 ```
 
@@ -352,6 +354,20 @@ neither guess nor overwrite them. A discriminated state case explicitly lists
 the properties required when entering it. Defaults that select a new case must
 provide those values, so startup does not activate safety-relevant settings left
 by an earlier use of that mode.
+
+`failure_action` is also required and has deliberately few choices:
+
+- `abort_and_release` stops owner-scoped work, reads terminal state, and
+  releases ownership.
+- `abort_then_safe_state` stops work, freshly observes the device, reconciles
+  the sparse `safe_state`, reads terminal state, and releases ownership.
+
+This recovery belongs to the pinned system configuration rather than an
+experiment. It runs only for failure, cancellation, or the terminal fallback;
+a successful run instead uses its experiment postcondition. A conclusive driver
+rejection is returned as a finalization problem. An unknown abort, observation,
+or apply outcome faults the connection, quarantines the run, and sends no
+further commands.
 
 A hardware reset or preset is an explicit `OperationSpec`, not a connection
 hook or session-open flag. It therefore participates in normal argument

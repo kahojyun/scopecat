@@ -99,12 +99,16 @@ class InstrumentBindingSpec(BaseModel):
 
 
 type InstrumentRunStartPolicy = Literal["preserve", "apply_default_state"]
+type InstrumentFailureAction = Literal[
+    "abort_and_release",
+    "abort_then_safe_state",
+]
 
 
 class InstrumentSpec(BaseModel):
     """Configured instrument with a stable physical access domain.
 
-    Defaults are sparse patches over freshly observed state.
+    Default and safe states are sparse patches over freshly observed state.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -115,10 +119,12 @@ class InstrumentSpec(BaseModel):
     connection: InstrumentConnection
     default_state: list[InstrumentPropertyState] = Field(default_factory=list)
     run_start: InstrumentRunStartPolicy
+    safe_state: list[InstrumentPropertyState] = Field(default_factory=list)
+    failure_action: InstrumentFailureAction
 
-    @field_validator("default_state")
+    @field_validator("default_state", "safe_state")
     @classmethod
-    def validate_unique_default_targets(
+    def validate_unique_state_targets(
         cls,
         value: list[InstrumentPropertyState],
     ) -> list[InstrumentPropertyState]:
@@ -131,13 +137,15 @@ class InstrumentSpec(BaseModel):
             for item in value
         ]
         if len(identities) != len(set(identities)):
-            raise ValueError("default state property targets must be unique")
+            raise ValueError("configured state property targets must be unique")
         return value
 
     @model_validator(mode="after")
-    def validate_run_start(self) -> InstrumentSpec:
+    def validate_lifecycle_state(self) -> InstrumentSpec:
         if self.run_start == "apply_default_state" and not self.default_state:
             raise ValueError("apply_default_state requires a non-empty default state")
+        if self.failure_action == "abort_then_safe_state" and not self.safe_state:
+            raise ValueError("abort_then_safe_state requires a non-empty safe state")
         return self
 
 
