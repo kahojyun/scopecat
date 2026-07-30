@@ -6,9 +6,9 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat_instruments import (
-    DCSourcePatch,
-    DCSourceVoltagePatch,
-    NetworkSweepPatch,
+    DCSourceState,
+    DCSourceVoltage,
+    NetworkSweepState,
     dc_source,
     network_sweep,
     temperature_readout,
@@ -36,7 +36,7 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         vna = devices[READOUT_VNA]
 
         source.apply(
-            DCSourceVoltagePatch(
+            DCSourceVoltage(
                 range=sc.Quantity(1.0, "V"),
                 level=sc.Quantity(0.05, "V"),
                 output_enabled=True,
@@ -45,7 +45,7 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
         try:
             temperature = chamber.sample()
             vna.apply(
-                NetworkSweepPatch(
+                NetworkSweepState(
                     start_frequency=sc.Quantity(4.8, "GHz"),
                     stop_frequency=sc.Quantity(5.2, "GHz"),
                     points=201,
@@ -65,7 +65,7 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
                 ),
             }
         finally:
-            source.apply(DCSourcePatch(output_enabled=False))
+            source.apply(DCSourceState(output_enabled=False))
 
 print("inventory:", inventory)
 print(

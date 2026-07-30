@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
 
 from scopecat.api._instruments import (
+    InstrumentClientChannel,
     InstrumentRef,
-    InstrumentSessionHandle,
     instrument,
 )
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateLiteral
+from scopecat.daemon.wire import InstrumentConfiguredDefaultsApplyReceipt
+from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.instruments import (
@@ -24,150 +23,22 @@ from scopecat.sdk.instruments import (
 from scopecat_instruments.members import (
     DC_MONITOR_ACQUISITION,
     DC_MONITOR_CURRENT_RESULT,
-    DC_MONITOR_INTEGRATION_CYCLES,
-    DC_MONITOR_MEASUREMENT_DELAY,
-    DC_MONITOR_MEASUREMENT_ENABLED,
     DC_MONITOR_VOLTAGE_RESULT,
-    DC_SOURCE_CURRENT_LEVEL,
-    DC_SOURCE_CURRENT_PROTECTION,
-    DC_SOURCE_CURRENT_RANGE,
-    DC_SOURCE_MODE,
-    DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_PROTECTION,
-    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP_ACQUISITION,
     NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_IF_BANDWIDTH,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER,
     NETWORK_SWEEP_S_PARAMETER_RESULT,
-    NETWORK_SWEEP_SOURCE_POWER,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
-    RF_OUTPUT_ENABLED,
-    RF_OUTPUT_FREQUENCY,
-    RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
     TEMPERATURE_READOUT_RESISTANCE_RESULT,
     TEMPERATURE_READOUT_SAMPLE,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
-
-type ReferenceSource = Literal["internal", "external"]
-type SParameter = Literal["S11", "S21", "S12", "S22"]
-
-
-@dataclass(frozen=True, slots=True)
-class DCSourcePatch:
-    """Sparse common-state transition that does not change source mode."""
-
-    voltage_protection: Quantity | None = None
-    current_protection: Quantity | None = None
-    output_enabled: bool | None = None
-
-    def assignments(self) -> dict[PropertyRef, StateLiteral]:
-        return _assignments(
-            (DC_SOURCE_VOLTAGE_PROTECTION, self.voltage_protection),
-            (DC_SOURCE_CURRENT_PROTECTION, self.current_protection),
-            (DC_SOURCE_OUTPUT_ENABLED, self.output_enabled),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class DCSourceVoltagePatch:
-    """Complete entry into voltage-source mode plus optional common state."""
-
-    range: Quantity
-    level: Quantity
-    voltage_protection: Quantity | None = None
-    current_protection: Quantity | None = None
-    output_enabled: bool | None = None
-
-    def assignments(self) -> dict[PropertyRef, StateLiteral]:
-        return {
-            DC_SOURCE_MODE: "voltage",
-            DC_SOURCE_VOLTAGE_RANGE: self.range,
-            DC_SOURCE_VOLTAGE_LEVEL: self.level,
-            **_assignments(
-                (DC_SOURCE_VOLTAGE_PROTECTION, self.voltage_protection),
-                (DC_SOURCE_CURRENT_PROTECTION, self.current_protection),
-                (DC_SOURCE_OUTPUT_ENABLED, self.output_enabled),
-            ),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class DCSourceCurrentPatch:
-    """Complete entry into current-source mode plus optional common state."""
-
-    range: Quantity
-    level: Quantity
-    voltage_protection: Quantity | None = None
-    current_protection: Quantity | None = None
-    output_enabled: bool | None = None
-
-    def assignments(self) -> dict[PropertyRef, StateLiteral]:
-        return {
-            DC_SOURCE_MODE: "current",
-            DC_SOURCE_CURRENT_RANGE: self.range,
-            DC_SOURCE_CURRENT_LEVEL: self.level,
-            **_assignments(
-                (DC_SOURCE_VOLTAGE_PROTECTION, self.voltage_protection),
-                (DC_SOURCE_CURRENT_PROTECTION, self.current_protection),
-                (DC_SOURCE_OUTPUT_ENABLED, self.output_enabled),
-            ),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class DCMonitorPatch:
-    measurement_enabled: bool | None = None
-    integration_cycles: int | None = None
-    measurement_delay: Quantity | None = None
-
-    def assignments(self) -> dict[PropertyRef, StateLiteral]:
-        return _assignments(
-            (DC_MONITOR_MEASUREMENT_ENABLED, self.measurement_enabled),
-            (DC_MONITOR_INTEGRATION_CYCLES, self.integration_cycles),
-            (DC_MONITOR_MEASUREMENT_DELAY, self.measurement_delay),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class RFOutputPatch:
-    frequency: Quantity | None = None
-    power: Quantity | None = None
-    output_enabled: bool | None = None
-    reference_source: ReferenceSource | None = None
-
-    def assignments(self) -> dict[PropertyRef, StateLiteral]:
-        return _assignments(
-            (RF_OUTPUT_FREQUENCY, self.frequency),
-            (RF_OUTPUT_POWER, self.power),
-            (RF_OUTPUT_ENABLED, self.output_enabled),
-            (RF_OUTPUT_REFERENCE_SOURCE, self.reference_source),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class NetworkSweepPatch:
-    start_frequency: Quantity | None = None
-    stop_frequency: Quantity | None = None
-    points: int | None = None
-    if_bandwidth: Quantity | None = None
-    source_power: Quantity | None = None
-    s_parameter: SParameter | None = None
-
-    def assignments(self) -> dict[PropertyRef, StateLiteral]:
-        return _assignments(
-            (NETWORK_SWEEP_START_FREQUENCY, self.start_frequency),
-            (NETWORK_SWEEP_STOP_FREQUENCY, self.stop_frequency),
-            (NETWORK_SWEEP_POINTS, self.points),
-            (NETWORK_SWEEP_IF_BANDWIDTH, self.if_bandwidth),
-            (NETWORK_SWEEP_SOURCE_POWER, self.source_power),
-            (NETWORK_SWEEP_S_PARAMETER, self.s_parameter),
-        )
+from scopecat_instruments.states import (
+    DCMonitorState,
+    DCSourceCurrent,
+    DCSourceState,
+    DCSourceVoltage,
+    NetworkSweepState,
+    RFOutputState,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +70,7 @@ class DCMonitorReadback:
 
 @dataclass(frozen=True, slots=True)
 class _InstrumentClient:
-    _session: InstrumentSessionHandle = field(repr=False)
+    _session: InstrumentClientChannel = field(repr=False)
     instrument_id: str
 
     def describe(self) -> InstrumentDescription:
@@ -211,16 +82,19 @@ class _InstrumentClient:
     def refresh(self) -> InstrumentStateSnapshot:
         return self._session.read_state(self.instrument_id)
 
+    def apply_defaults(self) -> InstrumentConfiguredDefaultsApplyReceipt:
+        """Apply the configured sparse default state for this instrument."""
+
+        return self._session.apply_configured_defaults(self.instrument_id)
+
 
 class DCSourceClient(_InstrumentClient):
     def apply(
         self,
-        patch: (
-            DCSourcePatch | DCSourceVoltagePatch | DCSourceCurrentPatch | DCMonitorPatch
-        ),
+        patch: (DCSourceState | DCSourceVoltage | DCSourceCurrent | DCMonitorState),
     ) -> ApplyReceipt:
         return self._session.apply(
-            patch.assignments(),
+            _concrete_assignments(patch),
             instrument_id=self.instrument_id,
         )
 
@@ -237,17 +111,17 @@ class DCSourceClient(_InstrumentClient):
 
 
 class RFOutputClient(_InstrumentClient):
-    def apply(self, patch: RFOutputPatch) -> ApplyReceipt:
+    def apply(self, patch: RFOutputState) -> ApplyReceipt:
         return self._session.apply(
-            patch.assignments(),
+            _concrete_assignments(patch),
             instrument_id=self.instrument_id,
         )
 
 
 class NetworkSweepClient(_InstrumentClient):
-    def apply(self, patch: NetworkSweepPatch) -> ApplyReceipt:
+    def apply(self, patch: NetworkSweepState) -> ApplyReceipt:
         return self._session.apply(
-            patch.assignments(),
+            _concrete_assignments(patch),
             instrument_id=self.instrument_id,
         )
 
@@ -306,10 +180,25 @@ def temperature_readout(instrument_id: str) -> InstrumentRef[TemperatureReadoutC
     return instrument(instrument_id, TemperatureReadoutClient)
 
 
-def _assignments(
-    *items: tuple[PropertyRef, StateLiteral | None],
+def _concrete_assignments(
+    state: (
+        DCSourceState
+        | DCSourceVoltage
+        | DCSourceCurrent
+        | DCMonitorState
+        | RFOutputState
+        | NetworkSweepState
+    ),
 ) -> dict[PropertyRef, StateLiteral]:
-    return {target: value for target, value in items if value is not None}
+    try:
+        return {
+            target: StateValue.model_validate(value).root
+            for target, value in state.target_assignments().items()
+        }
+    except ValueError as error:
+        raise TypeError(
+            "direct instrument state must contain concrete values"
+        ) from error
 
 
 def _readback_value(
@@ -321,19 +210,11 @@ def _readback_value(
 
 
 __all__ = [
-    "DCMonitorPatch",
     "DCMonitorReadback",
     "DCSourceClient",
-    "DCSourceCurrentPatch",
-    "DCSourcePatch",
-    "DCSourceVoltagePatch",
     "NetworkSweepClient",
-    "NetworkSweepPatch",
     "NetworkSweepReadback",
     "RFOutputClient",
-    "RFOutputPatch",
-    "ReferenceSource",
-    "SParameter",
     "TemperatureReadback",
     "TemperatureReadoutClient",
     "dc_source",

@@ -1,4 +1,4 @@
-"""Declarative experiment targets for first-party instrument interfaces."""
+"""Typed sparse states shared by direct control and experiment authoring."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 
 @dataclass(frozen=True, slots=True)
-class DCSourceTarget:
+class DCSourceState:
     """Sparse common DC-source state, without changing source mode."""
 
     voltage_protection: Desired[Quantity] | None = None
@@ -55,7 +55,7 @@ class DCSourceTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class DCSourceVoltageTarget:
+class DCSourceVoltage:
     """Desired voltage-source mode, with fixed or point-resolved fields."""
 
     range: Desired[Quantity]
@@ -78,7 +78,7 @@ class DCSourceVoltageTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class DCSourceCurrentTarget:
+class DCSourceCurrent:
     """Desired current-source mode, with fixed or point-resolved fields."""
 
     range: Desired[Quantity]
@@ -101,7 +101,7 @@ class DCSourceCurrentTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class DCMonitorTarget:
+class DCMonitorState:
     measurement_enabled: Desired[bool] | None = None
     integration_cycles: Desired[int] | None = None
     measurement_delay: Desired[Quantity] | None = None
@@ -115,7 +115,7 @@ class DCMonitorTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class RFOutputTarget:
+class RFOutputState:
     frequency: Desired[Quantity] | None = None
     power: Desired[Quantity] | None = None
     output_enabled: Desired[bool] | None = None
@@ -131,7 +131,7 @@ class RFOutputTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class NetworkSweepTarget:
+class NetworkSweepState:
     start_frequency: Desired[Quantity] | None = None
     stop_frequency: Desired[Quantity] | None = None
     points: Desired[int] | None = None
@@ -157,11 +157,11 @@ def _target_assignments(
 
 
 __all__ = [
-    "DCMonitorTarget",
-    "DCSourceCurrentTarget",
-    "DCSourceTarget",
-    "DCSourceVoltageTarget",
+    "DCMonitorState",
+    "DCSourceCurrent",
+    "DCSourceState",
+    "DCSourceVoltage",
     "Desired",
-    "NetworkSweepTarget",
-    "RFOutputTarget",
+    "NetworkSweepState",
+    "RFOutputState",
 ]

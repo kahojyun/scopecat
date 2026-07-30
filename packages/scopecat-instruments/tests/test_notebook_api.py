@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# pyright: reportPrivateUsage=false
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from gc import collect as collect_garbage
@@ -9,6 +10,7 @@ from weakref import ref
 
 import pytest
 from scopecat.api._instruments import (
+    InstrumentClientChannel,
     InstrumentRef,
     InstrumentSessionHandle,
     LabInstrumentOperations,
@@ -45,7 +47,7 @@ _HEARTBEAT_LEASE_DURATION = timedelta(milliseconds=30)
 
 @dataclass(frozen=True, slots=True)
 class _TypedSourceClient:
-    session: InstrumentSessionHandle
+    session: InstrumentClientChannel
     instrument_id: str
 
 
@@ -233,7 +235,7 @@ def test_session_handle_renews_lease_in_background() -> None:
     )
 
     try:
-        handle.observed_state()
+        handle._observed_state()
 
         assert daemon.renew_attempted.wait(timeout=1)
         assert daemon.renew_calls >= 1
@@ -254,7 +256,7 @@ def test_typed_instrument_ref_binds_a_statically_known_client() -> None:
 
     client = handle[source]
     assert_type(client, _TypedSourceClient)
-    assert client.session is handle
+    assert isinstance(client.session, InstrumentClientChannel)
     assert client.instrument_id == "source-a"
     assert handle.instrument_ids == ("source-a",)
     assert daemon.open_commands == []
@@ -289,7 +291,7 @@ def test_session_handle_immediately_renews_a_late_open_lease() -> None:
     )
 
     try:
-        handle.observed_state()
+        handle._observed_state()
 
         assert daemon.renew_attempted.wait(timeout=1)
     finally:
@@ -306,7 +308,7 @@ def test_session_handle_close_stops_heartbeat() -> None:
     )
 
     try:
-        handle.observed_state()
+        handle._observed_state()
         heartbeat = handle._heartbeat
         assert heartbeat is not None
         assert daemon.renew_attempted.wait(timeout=1)
@@ -331,7 +333,7 @@ def test_session_handle_surfaces_renewal_failure() -> None:
     )
 
     try:
-        handle.observed_state()
+        handle._observed_state()
         heartbeat = handle._heartbeat
         assert heartbeat is not None
         assert daemon.renew_attempted.wait(timeout=1)
@@ -341,7 +343,7 @@ def test_session_handle_surfaces_renewal_failure() -> None:
             RuntimeError,
             match="instrument session lease renewal failed",
         ) as caught:
-            handle.read_state()
+            handle._read_state()
 
         assert caught.value.__cause__ is failure
     finally:
@@ -359,7 +361,7 @@ def test_session_handle_keeps_heartbeat_after_close_failure() -> None:
     )
 
     try:
-        handle.observed_state()
+        handle._observed_state()
         heartbeat = handle._heartbeat
         assert heartbeat is not None
 
@@ -389,7 +391,7 @@ def test_discarded_session_handle_requests_heartbeat_stop() -> None:
         instrument_ids=("source-a",),
         actor="test",
     )
-    handle.observed_state()
+    handle._observed_state()
     heartbeat = handle._heartbeat
     assert heartbeat is not None
     handle_reference = ref(handle)
@@ -414,7 +416,7 @@ def test_apply_configured_defaults_lazily_opens_and_generates_operation_id() -> 
     try:
         assert daemon.open_commands == []
 
-        receipt = handle.apply_configured_defaults()
+        receipt = handle._apply_configured_defaults()
 
         assert len(daemon.open_commands) == 1
         [(session_id, instrument_id, command)] = daemon.apply_calls
@@ -443,12 +445,12 @@ def test_session_handle_exposes_opening_observation_without_refresh() -> None:
     )
 
     try:
-        observed = handle.observed_state()
+        observed = handle._observed_state()
 
         assert observed == state
         assert observed is not state
         assert daemon.state_reads == 0
-        assert handle.read_state() == state
+        assert handle._read_state() == state
         assert daemon.state_reads == 1
     finally:
         daemon.close()
@@ -467,11 +469,11 @@ def test_apply_configured_defaults_requires_multi_instrument_selection() -> None
             ValueError,
             match="multi-instrument sessions require an instrument_id",
         ):
-            handle.apply_configured_defaults()
+            handle._apply_configured_defaults()
 
         assert daemon.open_commands == []
 
-        receipt = handle.apply_configured_defaults(instrument_id="source-b")
+        receipt = handle._apply_configured_defaults(instrument_id="source-b")
 
         assert receipt.instrument_id == "source-b"
         [(_, instrument_id, _)] = daemon.apply_calls
@@ -498,7 +500,7 @@ def test_notebook_collect_sends_unspecified_results_without_reading_state() -> N
     )
 
     try:
-        receipt = handle.collect(DC_MONITOR_ACQUISITION)
+        receipt = handle._collect(DC_MONITOR_ACQUISITION)
     finally:
         daemon.close()
 
@@ -533,7 +535,7 @@ def test_notebook_collect_sends_explicit_result_identity() -> None:
     )
 
     try:
-        handle.collect(
+        handle._collect(
             DC_MONITOR_ACQUISITION,
             DC_MONITOR_CURRENT_RESULT,
         )
@@ -566,7 +568,7 @@ def test_notebook_collect_rejects_a_result_from_another_acquisition() -> None:
             ValueError,
             match="collect results must belong to the selected acquisition",
         ):
-            handle.collect(
+            handle._collect(
                 DC_MONITOR_ACQUISITION,
                 NETWORK_SWEEP_FREQUENCY_RESULT,
             )

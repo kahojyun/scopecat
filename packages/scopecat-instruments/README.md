@@ -18,7 +18,7 @@ required for direct instrument work:
 ```python
 import scopecat as sc
 from scopecat_instruments import (
-    NetworkSweepPatch,
+    NetworkSweepState,
     network_sweep,
 )
 
@@ -33,7 +33,7 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.describe())
         print(vna.observed_state())
         vna.apply(
-            NetworkSweepPatch(
+            NetworkSweepState(
                 start_frequency=sc.Quantity(5.9, "GHz"),
                 stop_frequency=sc.Quantity(6.1, "GHz"),
                 points=401,
@@ -43,18 +43,17 @@ with sc.open_project(".").connect(operator="alice") as lab:
 ```
 
 Typed physical references retain project-owned instrument identity and bind a
-statically known client inside the daemon-owned session. Patch dataclasses keep
+statically known client inside the daemon-owned session. State dataclasses keep
 property names and Python value types correlated, while acquisition clients
 return named readback fields. The lower-level member catalog continues to carry
 interface, component, and member identity for drivers and experiment lowering.
 
-Experiment modules use declarative target dataclasses instead of imperative
-patches. Target fields accept either fixed values or typed Scopecat value
-references:
+Experiment modules reuse the same state dataclasses. Their fields accept either
+fixed values or typed Scopecat value references:
 
 ```python
 import scopecat as sc
-from scopecat_instruments import DCSourceVoltageTarget
+from scopecat_instruments import DCSourceVoltage
 from scopecat_instruments.members import DC_SOURCE
 
 dc_bias = sc.coordinate(
@@ -62,23 +61,26 @@ dc_bias = sc.coordinate(
     sc.ScalarType(sc.QuantityType(unit="V")),
 )
 
-capture = (
-    sc.module_body(id="capture")
+@sc.module(id="capture")
+def capture():
+    return (
+        sc.module_body()
     .resource("flux", requires=(DC_SOURCE,))
     .ensure(
         "flux",
-        DCSourceVoltageTarget(
+        DCSourceVoltage(
             range=sc.Quantity(1, "V"),
             level=dc_bias,
             output_enabled=True,
         ),
     )
-)
+    )
 ```
 
-`Patch` means “perform this concrete transition now”; `Target` means “make
-these fields true at each experiment point.” Unspecified target fields are
-preserved, while coordinate- and parameter-backed fields resolve per point.
+The verb carries the distinction: `apply(...)` performs a concrete transition
+now, while `ensure(...)` makes the supplied fields true at each experiment
+point. Unspecified fields are preserved, while coordinate- and parameter-backed
+fields resolve per point.
 
 The context manager opens a durable daemon-owned session and closes it on exit.
 Runs and interactive sessions compete for the same exclusive resource claim.

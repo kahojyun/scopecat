@@ -9,17 +9,11 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from scopecat_instruments.clients import (
-        DCMonitorPatch,
         DCMonitorReadback,
         DCSourceClient,
-        DCSourceCurrentPatch,
-        DCSourcePatch,
-        DCSourceVoltagePatch,
         NetworkSweepClient,
-        NetworkSweepPatch,
         NetworkSweepReadback,
         RFOutputClient,
-        RFOutputPatch,
         TemperatureReadback,
         TemperatureReadoutClient,
         dc_source,
@@ -28,29 +22,25 @@ if TYPE_CHECKING:
         temperature_readout,
     )
     from scopecat_instruments.provider import ConfiguredInstrumentProvider
-    from scopecat_instruments.targets import (
-        DCMonitorTarget,
-        DCSourceCurrentTarget,
-        DCSourceTarget,
-        DCSourceVoltageTarget,
+    from scopecat_instruments.states import (
+        DCMonitorState,
+        DCSourceCurrent,
+        DCSourceState,
+        DCSourceVoltage,
         Desired,
-        NetworkSweepTarget,
-        RFOutputTarget,
+        NetworkSweepState,
+        ReferenceSource,
+        RFOutputState,
+        SParameter,
     )
 
 
 _CLIENT_EXPORTS = {
-    "DCMonitorPatch",
     "DCMonitorReadback",
     "DCSourceClient",
-    "DCSourceCurrentPatch",
-    "DCSourcePatch",
-    "DCSourceVoltagePatch",
     "NetworkSweepClient",
-    "NetworkSweepPatch",
     "NetworkSweepReadback",
     "RFOutputClient",
-    "RFOutputPatch",
     "TemperatureReadback",
     "TemperatureReadoutClient",
     "dc_source",
@@ -59,14 +49,16 @@ _CLIENT_EXPORTS = {
     "temperature_readout",
 }
 
-_TARGET_EXPORTS = {
-    "DCMonitorTarget",
-    "DCSourceCurrentTarget",
-    "DCSourceTarget",
-    "DCSourceVoltageTarget",
+_STATE_EXPORTS = {
+    "DCMonitorState",
+    "DCSourceCurrent",
+    "DCSourceState",
+    "DCSourceVoltage",
     "Desired",
-    "NetworkSweepTarget",
-    "RFOutputTarget",
+    "NetworkSweepState",
+    "RFOutputState",
+    "ReferenceSource",
+    "SParameter",
 }
 
 
@@ -81,10 +73,10 @@ def __getattr__(name: str) -> object:
             "object",
             getattr(import_module("scopecat_instruments.clients"), name),
         )
-    elif name in _TARGET_EXPORTS:
+    elif name in _STATE_EXPORTS:
         value = cast(
             "object",
-            getattr(import_module("scopecat_instruments.targets"), name),
+            getattr(import_module("scopecat_instruments.states"), name),
         )
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -98,9 +90,9 @@ def __dir__() -> list[str]:
             *globals(),
             "ConfiguredInstrumentProvider",
             *_CLIENT_EXPORTS,
-            *_TARGET_EXPORTS,
+            *_STATE_EXPORTS,
         )
     )
 
 
-__all__ = sorted(("ConfiguredInstrumentProvider", *_CLIENT_EXPORTS, *_TARGET_EXPORTS))
+__all__ = sorted(("ConfiguredInstrumentProvider", *_CLIENT_EXPORTS, *_STATE_EXPORTS))

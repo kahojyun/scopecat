@@ -157,8 +157,8 @@ Notebook control and experiment authoring deliberately expose different verbs:
 ```python
 import scopecat as sc
 from scopecat_instruments import (
-    DCSourceVoltageTarget,
-    NetworkSweepTarget,
+    DCSourceVoltage,
+    NetworkSweepState,
 )
 from scopecat_instruments.members import DC_SOURCE, NETWORK_SWEEP
 
@@ -167,13 +167,15 @@ dc_bias = sc.coordinate(
     sc.ScalarType(sc.QuantityType(unit="V")),
 )
 
-capture = (
-    sc.module_body(id="resonator.capture")
+@sc.module(id="resonator.capture")
+def capture():
+    return (
+        sc.module_body()
     .resource("flux", requires=(DC_SOURCE,))
     .resource("vna", requires=(NETWORK_SWEEP,))
     .ensure(
         "flux",
-        DCSourceVoltageTarget(
+        DCSourceVoltage(
             range=sc.Quantity(1, "V"),     # fixed for every point
             level=dc_bias,                 # resolved from the scan point
             output_enabled=True,
@@ -181,14 +183,14 @@ capture = (
     )
     .ensure(
         "vna",
-        NetworkSweepTarget(
+        NetworkSweepState(
             start_frequency=sc.Quantity(4.9, "GHz"),
             stop_frequency=sc.Quantity(5.1, "GHz"),
             points=751,
             s_parameter="S21",
         ),
     )
-)
+    )
 ```
 
 A target is a coherent state intention, not an instruction to write every
@@ -203,14 +205,12 @@ normal-completion state belongs instead to the root experiment because two
 experiments may intentionally leave the same module's hardware differently:
 
 ```python
-capture_module = capture.build()
-
 @sc.template(id="resonator.capture", kind="resonator")
 def capture_experiment() -> sc.ExperimentBody:
-    run = capture_module()
+    run = capture()
     return sc.experiment(run).postcondition(
         run.resources.flux,
-        DCSourceVoltageTarget(
+        DCSourceVoltage(
             level=sc.Quantity(0, "V"),
             output_enabled=False,
         ),
@@ -227,10 +227,10 @@ daemon's configured safety/finalization policy. Consequently modules do not
 register global `finalize` callbacks, and an experiment postcondition is not a
 substitute for safety cleanup.
 
-The direct API uses separate `Patch` dataclasses because its semantics are
-different: a call requests a transition now and returns a receipt. Reusing the
-same dataclass for both surfaces would hide the important distinction between a
-concrete command and a declarative state containing symbolic point values.
+The same typed state objects are shared by direct control and experiment
+authoring. The verb supplies the semantics: `apply(...)` requests a transition
+now and requires concrete values, while `ensure(...)` declares desired state
+and also accepts symbolic point values.
 
 ## Interface boundaries
 
@@ -465,7 +465,7 @@ The normal project connection exposes the same daemon-owned path:
 ```python
 import scopecat as sc
 from scopecat_instruments import (
-    NetworkSweepPatch,
+    NetworkSweepState,
     network_sweep,
 )
 
@@ -481,7 +481,7 @@ with sc.open_project(".").connect(operator="alice") as lab:
         print(vna.observed_state())
 
         receipt = vna.apply(
-            NetworkSweepPatch(
+            NetworkSweepState(
                 start_frequency=sc.Quantity(4.8, "GHz"),
                 stop_frequency=sc.Quantity(5.2, "GHz"),
                 points=401,
@@ -491,7 +491,7 @@ with sc.open_project(".").connect(operator="alice") as lab:
 ```
 
 Typed physical refs bind a project-owned instrument id to a statically known
-client inside the daemon-owned session. Patch dataclasses correlate property
+client inside the daemon-owned session. State dataclasses correlate property
 names with Python value types, and typed acquisitions expose named result
 fields. Experiment lowering and the low-level dynamic API continue to use
 nominal member refs, so an acquisition result cannot be accidentally paired
@@ -509,7 +509,7 @@ coherent set:
 
 ```python
 from scopecat_instruments import (
-    DCSourceVoltagePatch,
+    DCSourceVoltage,
     dc_source,
     network_sweep,
 )
@@ -522,7 +522,7 @@ with lab.instruments.open(FLUX_SOURCE, READOUT_VNA) as devices:
     vna = devices[READOUT_VNA]
 
     source.apply(
-        DCSourceVoltagePatch(
+        DCSourceVoltage(
             range=sc.Quantity(1.0, "V"),
             level=sc.Quantity(0.05, "V"),
             output_enabled=True,

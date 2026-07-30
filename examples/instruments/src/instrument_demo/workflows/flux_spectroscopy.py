@@ -11,10 +11,10 @@ from scopecat_instruments.members import (
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
 )
-from scopecat_instruments.targets import (
-    DCSourceTarget,
-    DCSourceVoltageTarget,
-    NetworkSweepTarget,
+from scopecat_instruments.states import (
+    DCSourceState,
+    DCSourceVoltage,
+    NetworkSweepState,
 )
 
 FLUX_SPECTROSCOPY_TEMPLATE_ID = "instrument_demo.flux_spectroscopy"
@@ -44,9 +44,10 @@ _FREQUENCY_AXIS = sc.product_axis(
 )
 
 
-def _flux_spectroscopy_module() -> sc.ExperimentModule[...]:
+@sc.module(id="instrument_demo.flux_spectroscopy.capture")
+def _flux_spectroscopy_module():
     return (
-        sc.module_body(id="instrument_demo.flux_spectroscopy.capture")
+        sc.module_body()
         .resource(FLUX_SOURCE_RESOURCE, requires=(DC_SOURCE,))
         .resource(
             TEMPERATURE_RESOURCE,
@@ -55,7 +56,7 @@ def _flux_spectroscopy_module() -> sc.ExperimentModule[...]:
         .resource(VNA_RESOURCE, requires=(NETWORK_SWEEP,))
         .ensure(
             FLUX_SOURCE_RESOURCE,
-            DCSourceVoltageTarget(
+            DCSourceVoltage(
                 range=sc.Quantity(1.0, "V"),
                 level=DC_BIAS,
                 current_protection=sc.Quantity(100.0, "uA"),
@@ -64,7 +65,7 @@ def _flux_spectroscopy_module() -> sc.ExperimentModule[...]:
         )
         .ensure(
             VNA_RESOURCE,
-            NetworkSweepTarget(
+            NetworkSweepState(
                 start_frequency=SWEEP_START,
                 stop_frequency=SWEEP_STOP,
                 points=TRACE_POINTS,
@@ -101,9 +102,8 @@ def _flux_spectroscopy_module() -> sc.ExperimentModule[...]:
         )
         .ensure(
             FLUX_SOURCE_RESOURCE,
-            DCSourceTarget(output_enabled=False),
+            DCSourceState(output_enabled=False),
         )
-        .build()
     )
 
 
@@ -114,7 +114,7 @@ def _flux_spectroscopy_module() -> sc.ExperimentModule[...]:
 def flux_spectroscopy_template() -> sc.ExperimentBody:
     """Scan DC bias and persist one VNA trace plus temperature per point."""
 
-    capture = _flux_spectroscopy_module()()
+    capture = _flux_spectroscopy_module()
     return (
         sc.experiment(capture)
         .scan(
