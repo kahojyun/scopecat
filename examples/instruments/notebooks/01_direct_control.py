@@ -5,19 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat_instruments.members import (
-    DC_SOURCE_MODE,
-    DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    NETWORK_SWEEP_ACQUISITION,
-    NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER_RESULT,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
+from scopecat_instruments import (
+    DCSourcePatch,
+    DCSourceVoltagePatch,
+    NetworkSweepPatch,
+    dc_source,
+    network_sweep,
+    temperature_readout,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+FLUX_SOURCE = dc_source("flux-source")
+MIXING_CHAMBER = temperature_readout("mixing-chamber")
+READOUT_VNA = network_sweep("readout-vna")
 
 
 # %%
@@ -27,62 +27,59 @@ with sc.open_project(PROJECT_ROOT).connect(operator="notebook-demo") as lab:
     ]
 
     with lab.instruments.open(
-        "flux-source",
-        "mixing-chamber",
-        "readout-vna",
-    ) as instruments:
-        instruments.apply(
-            {
-                DC_SOURCE_MODE: "voltage",
-                DC_SOURCE_VOLTAGE_LEVEL: sc.Quantity(0.05, "V"),
-                DC_SOURCE_OUTPUT_ENABLED: True,
-            },
-            instrument_id="flux-source",
+        FLUX_SOURCE,
+        MIXING_CHAMBER,
+        READOUT_VNA,
+    ) as devices:
+        source = devices[FLUX_SOURCE]
+        chamber = devices[MIXING_CHAMBER]
+        vna = devices[READOUT_VNA]
+
+        source.apply(
+            DCSourceVoltagePatch(
+                range=sc.Quantity(1.0, "V"),
+                level=sc.Quantity(0.05, "V"),
+                output_enabled=True,
+            )
         )
         try:
-            temperature = instruments.read_state("mixing-chamber")
-            instruments.apply(
-                {
-                    NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(4.8, "GHz"),
-                    NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(5.2, "GHz"),
-                    NETWORK_SWEEP_POINTS: 201,
-                },
-                instrument_id="readout-vna",
+            temperature = chamber.sample()
+            vna.apply(
+                NetworkSweepPatch(
+                    start_frequency=sc.Quantity(4.8, "GHz"),
+                    stop_frequency=sc.Quantity(5.2, "GHz"),
+                    points=201,
+                )
             )
-            trace = instruments.collect(
-                NETWORK_SWEEP_ACQUISITION,
-                NETWORK_SWEEP_FREQUENCY_RESULT,
-                NETWORK_SWEEP_S_PARAMETER_RESULT,
-                instrument_id="readout-vna",
-            )
-            trace_results = (
-                {
-                    name: value.model_dump(mode="json", include={"shape"})
-                    for name, value in trace.readback.values.items()
-                }
-                if trace.readback is not None
-                else {}
-            )
+            trace = vna.sweep()
+            trace_results = {
+                "frequency": (
+                    None
+                    if trace.frequency is None
+                    else trace.frequency.model_dump(mode="json", include={"shape"})
+                ),
+                "s_parameter": (
+                    None
+                    if trace.s_parameter is None
+                    else trace.s_parameter.model_dump(mode="json", include={"shape"})
+                ),
+            }
         finally:
-            instruments.apply(
-                {DC_SOURCE_OUTPUT_ENABLED: False},
-                instrument_id="flux-source",
-            )
+            source.apply(DCSourcePatch(output_enabled=False))
 
 print("inventory:", inventory)
 print(
     "temperature:",
     {
-        f"{property_state.interface_id}.{property_state.property_id}": (
-            property_state.value.root
-        )
-        for property_state in temperature.properties
+        "status": temperature.receipt.status,
+        "temperature": temperature.temperature,
+        "resistance": temperature.resistance,
     },
 )
 print(
     "trace:",
     {
-        "status": trace.status,
+        "status": trace.receipt.status,
         "results": trace_results,
     },
 )

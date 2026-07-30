@@ -355,41 +355,39 @@ The normal project connection exposes the same daemon-owned path:
 
 ```python
 import scopecat as sc
-from scopecat_instruments.members import (
-    NETWORK_SWEEP_ACQUISITION,
-    NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER_RESULT,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
+from scopecat_instruments import (
+    NetworkSweepPatch,
+    network_sweep,
 )
+
+READOUT_VNA = network_sweep("readout-vna")
 
 with sc.open_project(".").connect(operator="alice") as lab:
     for item in lab.instruments.list().items:
         print(item.instrument_id, item.availability)
 
-    with lab.instruments.open("readout-vna") as vna:
+    with lab.instruments.open(READOUT_VNA) as devices:
+        vna = devices[READOUT_VNA]
         print(vna.describe())
         print(vna.observed_state())
 
-        prepared = vna.apply_configured_defaults()
         receipt = vna.apply(
-            {
-                NETWORK_SWEEP_START_FREQUENCY: sc.Quantity(4.8, "GHz"),
-                NETWORK_SWEEP_STOP_FREQUENCY: sc.Quantity(5.2, "GHz"),
-                NETWORK_SWEEP_POINTS: 401,
-            }
+            NetworkSweepPatch(
+                start_frequency=sc.Quantity(4.8, "GHz"),
+                stop_frequency=sc.Quantity(5.2, "GHz"),
+                points=401,
+            )
         )
-        trace = vna.collect(
-            NETWORK_SWEEP_ACQUISITION,
-            NETWORK_SWEEP_FREQUENCY_RESULT,
-            NETWORK_SWEEP_S_PARAMETER_RESULT,
-        )
+        trace = vna.sweep()
 ```
 
-Experiment authoring and interactive Python calls use nominal member refs, so
-an acquisition result cannot be accidentally paired with another interface or
-component. Specs, compiler IR, and daemon requests lower them to physical ids.
+Typed physical refs bind a project-owned instrument id to a statically known
+client inside the daemon-owned session. Patch dataclasses correlate property
+names with Python value types, and typed acquisitions expose named result
+fields. Experiment lowering and the low-level dynamic API continue to use
+nominal member refs, so an acquisition result cannot be accidentally paired
+with another interface or component. Specs, compiler IR, and daemon requests
+lower them to physical ids.
 
 Values with physical units may be passed as Scopecat `Quantity` values. Plain
 numbers remain valid only where the declared property type accepts them. A
@@ -401,30 +399,27 @@ A multi-instrument session is available when an operation must reserve a
 coherent set:
 
 ```python
-from scopecat_instruments.members import (
-    DC_SOURCE_MODE,
-    DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_RANGE,
-    NETWORK_SWEEP_ACQUISITION,
-    NETWORK_SWEEP_S_PARAMETER_RESULT,
+from scopecat_instruments import (
+    DCSourceVoltagePatch,
+    dc_source,
+    network_sweep,
 )
 
-with lab.instruments.open("flux-source", "readout-vna") as session:
-    session.apply(
-        {
-            DC_SOURCE_MODE: "voltage",
-            DC_SOURCE_VOLTAGE_RANGE: sc.Quantity(1.0, "V"),
-            DC_SOURCE_VOLTAGE_LEVEL: sc.Quantity(0.05, "V"),
-            DC_SOURCE_OUTPUT_ENABLED: True,
-        },
-        instrument_id="flux-source",
+FLUX_SOURCE = dc_source("flux-source")
+READOUT_VNA = network_sweep("readout-vna")
+
+with lab.instruments.open(FLUX_SOURCE, READOUT_VNA) as devices:
+    source = devices[FLUX_SOURCE]
+    vna = devices[READOUT_VNA]
+
+    source.apply(
+        DCSourceVoltagePatch(
+            range=sc.Quantity(1.0, "V"),
+            level=sc.Quantity(0.05, "V"),
+            output_enabled=True,
+        )
     )
-    trace = session.collect(
-        NETWORK_SWEEP_ACQUISITION,
-        NETWORK_SWEEP_S_PARAMETER_RESULT,
-        instrument_id="readout-vna",
-    )
+    trace = vna.sweep()
 ```
 
 The handle is synchronous to match the existing notebook API and releases

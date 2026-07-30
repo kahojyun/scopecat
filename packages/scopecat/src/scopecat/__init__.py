@@ -13,6 +13,11 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from scopecat.api._instruments import (
+        InstrumentClientFactory,
+        InstrumentRef,
+        instrument,
+    )
     from scopecat.api.analysis import (
         Analysis,
         AnalysisContext,
@@ -171,9 +176,15 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "update_parameter_rows": ("scopecat.config.parameters", "update_parameter_rows"),
     "Analysis": ("scopecat.api.analysis", "Analysis"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
+    "InstrumentClientFactory": (
+        "scopecat.api._instruments",
+        "InstrumentClientFactory",
+    ),
+    "InstrumentRef": ("scopecat.api._instruments", "InstrumentRef"),
     "Quantity": ("scopecat.kernel.quantity", "Quantity"),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
+    "instrument": ("scopecat.api._instruments", "instrument"),
 }
 
 

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Event, Lock, Thread
 from types import TracebackType
-from typing import Self
+from typing import Protocol, Self
 from uuid import uuid4
 from weakref import finalize
 
@@ -47,6 +48,54 @@ type OperationArgumentValue = (
 )
 
 _HEARTBEAT_JOIN_SECONDS = 0.2
+
+
+class InstrumentClientFactory[ClientT](Protocol):
+    """Bind one typed notebook client to an already selected instrument."""
+
+    def __call__(
+        self,
+        session: InstrumentSessionHandle,
+        instrument_id: str,
+        /,
+    ) -> ClientT: ...
+
+
+@dataclass(frozen=True, slots=True)
+class InstrumentRef[ClientT]:
+    """Project-owned physical instrument identity with a typed client contract."""
+
+    instrument_id: str
+    client_factory: InstrumentClientFactory[ClientT] = field(
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id:
+            raise ValueError("typed instrument id must be non-empty")
+
+
+def instrument[ClientT](
+    instrument_id: str,
+    client_factory: InstrumentClientFactory[ClientT],
+) -> InstrumentRef[ClientT]:
+    """Declare one typed physical instrument reference for notebook use."""
+
+    return InstrumentRef(
+        instrument_id=instrument_id,
+        client_factory=client_factory,
+    )
+
+
+class InstrumentIdentity(Protocol):
+    """Non-generic identity view accepted by heterogeneous session selection."""
+
+    @property
+    def instrument_id(self) -> str: ...
+
+
+type InstrumentSelection = str | InstrumentIdentity
 
 
 class _InstrumentSessionHeartbeat:
@@ -119,12 +168,16 @@ class LabInstrumentOperations:
 
     def open(
         self,
-        instrument_id: str,
-        *additional_instrument_ids: str,
+        instrument: InstrumentSelection,
+        *additional_instruments: InstrumentSelection,
     ) -> InstrumentSessionHandle:
+        instrument_ids = tuple(
+            _selected_instrument_id(item)
+            for item in (instrument, *additional_instruments)
+        )
         return InstrumentSessionHandle(
             client=self._client,
-            instrument_ids=(instrument_id, *additional_instrument_ids),
+            instrument_ids=instrument_ids,
             actor=self._operator,
         )
 
@@ -173,6 +226,12 @@ class InstrumentSessionHandle:
     @property
     def instrument_ids(self) -> tuple[str, ...]:
         return self._instrument_ids
+
+    def __getitem__[ClientT](self, target: InstrumentRef[ClientT]) -> ClientT:
+        """Bind the target's statically typed client inside this ownership epoch."""
+
+        selected = self._selected_instrument_id(target.instrument_id)
+        return target.client_factory(self, selected)
 
     def describe(
         self,
@@ -421,8 +480,17 @@ def _new_command_id(kind: str, subject: str) -> str:
     return f"interactive.{kind}.{subject}.{uuid4().hex}"
 
 
+def _selected_instrument_id(selection: InstrumentSelection) -> str:
+    return selection if isinstance(selection, str) else selection.instrument_id
+
+
 __all__ = [
+    "InstrumentClientFactory",
+    "InstrumentIdentity",
+    "InstrumentRef",
+    "InstrumentSelection",
     "InstrumentSessionHandle",
     "LabInstrumentOperations",
     "OperationArgumentValue",
+    "instrument",
 ]

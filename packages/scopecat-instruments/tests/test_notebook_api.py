@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from gc import collect as collect_garbage
 from threading import Event
-from typing import override
+from typing import assert_type, override
 from weakref import ref
 
 import pytest
-from scopecat.api._instruments import InstrumentSessionHandle
+from scopecat.api._instruments import (
+    InstrumentRef,
+    InstrumentSessionHandle,
+    LabInstrumentOperations,
+    instrument,
+)
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
@@ -35,6 +41,12 @@ from scopecat_instruments.members import (
 
 _DEFAULT_LEASE_DURATION = timedelta(seconds=30)
 _HEARTBEAT_LEASE_DURATION = timedelta(milliseconds=30)
+
+
+@dataclass(frozen=True, slots=True)
+class _TypedSourceClient:
+    session: InstrumentSessionHandle
+    instrument_id: str
 
 
 class _CollectingDaemon(DaemonClient):
@@ -228,6 +240,41 @@ def test_session_handle_renews_lease_in_background() -> None:
     finally:
         handle.close()
         daemon.close()
+
+
+def test_typed_instrument_ref_binds_a_statically_known_client() -> None:
+    daemon = _ConfiguredDefaultsDaemon()
+    source = instrument("source-a", _TypedSourceClient)
+    assert_type(source, InstrumentRef[_TypedSourceClient])
+
+    handle = LabInstrumentOperations(
+        daemon,
+        operator="test",
+    ).open(source)
+
+    client = handle[source]
+    assert_type(client, _TypedSourceClient)
+    assert client.session is handle
+    assert client.instrument_id == "source-a"
+    assert handle.instrument_ids == ("source-a",)
+    assert daemon.open_commands == []
+    daemon.close()
+
+
+def test_typed_instrument_ref_must_belong_to_the_session() -> None:
+    daemon = _ConfiguredDefaultsDaemon()
+    source = instrument("source-a", _TypedSourceClient)
+    other = instrument("source-b", _TypedSourceClient)
+    handle = LabInstrumentOperations(
+        daemon,
+        operator="test",
+    ).open(source)
+
+    with pytest.raises(ValueError, match="is not in this session"):
+        handle[other]
+
+    assert daemon.open_commands == []
+    daemon.close()
 
 
 def test_session_handle_immediately_renews_a_late_open_lease() -> None:
