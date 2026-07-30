@@ -139,6 +139,64 @@ network sweep. It requests one or more namespaced interface ids such as
 instrument. Experiment definitions therefore do not depend on addresses,
 vendors, or GUI concepts.
 
+## Python authoring model
+
+Notebook control and experiment authoring deliberately expose different verbs:
+
+- direct control is imperative: open typed physical references, call
+  `apply(...)`, `refresh()`, or an acquisition method, and inspect receipts;
+- an experiment declares desired state with `ensure(...)`; every target field
+  may be a fixed Python value or a point-resolved `ValueRef` from an input,
+  parameter, compute output, or scan coordinate.
+
+```python
+import scopecat as sc
+from scopecat_instruments import (
+    DCSourceVoltageTarget,
+    NetworkSweepTarget,
+)
+from scopecat_instruments.members import DC_SOURCE, NETWORK_SWEEP
+
+dc_bias = sc.coordinate(
+    "dc_bias",
+    sc.ScalarType(sc.QuantityType(unit="V")),
+)
+
+capture = (
+    sc.module_body(id="resonator.capture")
+    .resource("flux", requires=(DC_SOURCE,))
+    .resource("vna", requires=(NETWORK_SWEEP,))
+    .ensure(
+        "flux",
+        DCSourceVoltageTarget(
+            range=sc.Quantity(1, "V"),     # fixed for every point
+            level=dc_bias,                 # resolved from the scan point
+            output_enabled=True,
+        ),
+    )
+    .ensure(
+        "vna",
+        NetworkSweepTarget(
+            start_frequency=sc.Quantity(4.9, "GHz"),
+            stop_frequency=sc.Quantity(5.1, "GHz"),
+            points=751,
+            s_parameter="S21",
+        ),
+    )
+)
+```
+
+A target is a coherent state intention, not an instruction to write every
+field unconditionally. Omitted fields remain unspecified. After point values
+are resolved, contiguous assignments from one `ensure(...)` lower to one local
+state-application effect; the driver still receives the minimal validated
+patch required to reach that target.
+
+The direct API uses separate `Patch` dataclasses because its semantics are
+different: a call requests a transition now and returns a receipt. Reusing the
+same dataclass for both surfaces would hide the important distinction between a
+concrete command and a declarative state containing symbolic point values.
+
 ## Interface boundaries
 
 An interface id names stable behavior, not a driver implementation or current

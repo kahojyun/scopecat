@@ -5,22 +5,16 @@ from __future__ import annotations
 import scopecat as sc
 from scopecat_instruments.members import (
     DC_SOURCE,
-    DC_SOURCE_CURRENT_PROTECTION,
-    DC_SOURCE_MODE,
-    DC_SOURCE_OUTPUT_ENABLED,
-    DC_SOURCE_VOLTAGE_LEVEL,
-    DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP,
     NETWORK_SWEEP_FREQUENCY_RESULT,
-    NETWORK_SWEEP_IF_BANDWIDTH,
-    NETWORK_SWEEP_POINTS,
-    NETWORK_SWEEP_S_PARAMETER,
     NETWORK_SWEEP_S_PARAMETER_RESULT,
-    NETWORK_SWEEP_SOURCE_POWER,
-    NETWORK_SWEEP_START_FREQUENCY,
-    NETWORK_SWEEP_STOP_FREQUENCY,
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_TEMPERATURE_RESULT,
+)
+from scopecat_instruments.targets import (
+    DCSourceTarget,
+    DCSourceVoltageTarget,
+    NetworkSweepTarget,
 )
 
 FLUX_SPECTROSCOPY_TEMPLATE_ID = "instrument_demo.flux_spectroscopy"
@@ -59,60 +53,25 @@ def _flux_spectroscopy_module() -> sc.ExperimentModule[...]:
             requires=(TEMPERATURE_READOUT,),
         )
         .resource(VNA_RESOURCE, requires=(NETWORK_SWEEP,))
-        .bind_property(
+        .ensure(
             FLUX_SOURCE_RESOURCE,
-            DC_SOURCE_MODE,
-            value="voltage",
+            DCSourceVoltageTarget(
+                range=sc.Quantity(1.0, "V"),
+                level=DC_BIAS,
+                current_protection=sc.Quantity(100.0, "uA"),
+                output_enabled=True,
+            ),
         )
-        .bind_property(
-            FLUX_SOURCE_RESOURCE,
-            DC_SOURCE_VOLTAGE_RANGE,
-            value=sc.Quantity(1.0, "V"),
-        )
-        .bind_property(
-            FLUX_SOURCE_RESOURCE,
-            DC_SOURCE_CURRENT_PROTECTION,
-            value=sc.Quantity(100.0, "uA"),
-        )
-        .bind_property(
-            FLUX_SOURCE_RESOURCE,
-            DC_SOURCE_VOLTAGE_LEVEL,
-            value=DC_BIAS,
-        )
-        .bind_property(
-            FLUX_SOURCE_RESOURCE,
-            DC_SOURCE_OUTPUT_ENABLED,
-            value=True,
-        )
-        .bind_property(
+        .ensure(
             VNA_RESOURCE,
-            NETWORK_SWEEP_START_FREQUENCY,
-            value=SWEEP_START,
-        )
-        .bind_property(
-            VNA_RESOURCE,
-            NETWORK_SWEEP_STOP_FREQUENCY,
-            value=SWEEP_STOP,
-        )
-        .bind_property(
-            VNA_RESOURCE,
-            NETWORK_SWEEP_POINTS,
-            value=TRACE_POINTS,
-        )
-        .bind_property(
-            VNA_RESOURCE,
-            NETWORK_SWEEP_IF_BANDWIDTH,
-            value=sc.Quantity(1.0, "kHz"),
-        )
-        .bind_property(
-            VNA_RESOURCE,
-            NETWORK_SWEEP_SOURCE_POWER,
-            value=sc.Quantity(-35.0, "dBm"),
-        )
-        .bind_property(
-            VNA_RESOURCE,
-            NETWORK_SWEEP_S_PARAMETER,
-            value="S21",
+            NetworkSweepTarget(
+                start_frequency=SWEEP_START,
+                stop_frequency=SWEEP_STOP,
+                points=TRACE_POINTS,
+                if_bandwidth=sc.Quantity(1.0, "kHz"),
+                source_power=sc.Quantity(-35.0, "dBm"),
+                s_parameter="S21",
+            ),
         )
         .product(
             "frequency",
@@ -140,10 +99,9 @@ def _flux_spectroscopy_module() -> sc.ExperimentModule[...]:
             resource=TEMPERATURE_RESOURCE,
             results={TEMPERATURE_READOUT_TEMPERATURE_RESULT: "temperature"},
         )
-        .bind_property(
+        .ensure(
             FLUX_SOURCE_RESOURCE,
-            DC_SOURCE_OUTPUT_ENABLED,
-            value=False,
+            DCSourceTarget(output_enabled=False),
         )
         .build()
     )

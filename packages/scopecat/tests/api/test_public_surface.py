@@ -44,6 +44,8 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert sc.ExperimentTemplate
     assert sc.ScratchDefinition
     assert callable(sc.ModuleBuilder.bind_property)
+    assert callable(sc.ModuleBuilder.ensure)
+    assert sc.DesiredState
     assert callable(sc.ExperimentBody.record_product)
     assert callable(sc.ExperimentBody.record_coordinate)
     assert callable(sc.record_coordinate)

@@ -48,6 +48,38 @@ property names and Python value types correlated, while acquisition clients
 return named readback fields. The lower-level member catalog continues to carry
 interface, component, and member identity for drivers and experiment lowering.
 
+Experiment modules use declarative target dataclasses instead of imperative
+patches. Target fields accept either fixed values or typed Scopecat value
+references:
+
+```python
+import scopecat as sc
+from scopecat_instruments import DCSourceVoltageTarget
+from scopecat_instruments.members import DC_SOURCE
+
+dc_bias = sc.coordinate(
+    "dc_bias",
+    sc.ScalarType(sc.QuantityType(unit="V")),
+)
+
+capture = (
+    sc.module_body(id="capture")
+    .resource("flux", requires=(DC_SOURCE,))
+    .ensure(
+        "flux",
+        DCSourceVoltageTarget(
+            range=sc.Quantity(1, "V"),
+            level=dc_bias,
+            output_enabled=True,
+        ),
+    )
+)
+```
+
+`Patch` means “perform this concrete transition now”; `Target` means “make
+these fields true at each experiment point.” Unspecified target fields are
+preserved, while coordinate- and parameter-backed fields resolve per point.
+
 The context manager opens a durable daemon-owned session and closes it on exit.
 Runs and interactive sessions compete for the same exclusive resource claim.
 Consequential calls retain their replay identity automatically while retrying a

@@ -38,6 +38,10 @@ from scopecat.authoring.measurements import (
     MeasurementPostprocessor,
     measurement_postprocessor,
 )
+from scopecat.authoring.state import (
+    DesiredState,
+    StateBinding,
+)
 from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
@@ -99,6 +103,7 @@ __all__ = [
     "BoolType",
     "Compute",
     "ComputeInput",
+    "DesiredState",
     "DomainExecution",
     "DomainInputPort",
     "DomainProgramDef",
@@ -128,6 +133,7 @@ __all__ = [
     "ScalarInput",
     "ScalarType",
     "ScratchDefinition",
+    "StateBinding",
     "StringType",
     "TableColumn",
     "TableType",

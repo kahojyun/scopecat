@@ -59,6 +59,7 @@ from scopecat.authoring._value_refs import (
 )
 from scopecat.authoring.domain import DomainExecution
 from scopecat.authoring.measurements import MeasurementPostprocessor
+from scopecat.authoring.state import DesiredState, StateBinding
 from scopecat.authoring.value_types import (
     Entity as EntityType,
 )
@@ -91,8 +92,7 @@ from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.kernel.value_types import Payload
 from scopecat.measurements.results import MeasurementDType
 
-type StateLiteral = Quantity | EntityRef | str | int | float | bool | None
-type BindingInput = StateLiteral | ValueRef
+type BindingInput = StateBinding
 type InvocationInput = BindingInput
 
 
@@ -309,6 +309,49 @@ class ModuleBuilder:
                     )
                 ),
             ),
+        )
+
+    def ensure(
+        self,
+        resource: str,
+        target: DesiredState,
+    ) -> ModuleBuilder:
+        """Declare one coherent target state for a logical resource.
+
+        Target values may be fixed literals, parameters, module inputs, or
+        scanned coordinates.  Contiguous assignments are lowered together as
+        one state-application effect.
+        """
+
+        assignments = tuple(target.target_assignments().items())
+        if not assignments:
+            raise ValueError("ensure requires at least one target assignment")
+
+        effects: list[ModuleBindingEffect] = []
+        for property, value in assignments:
+            if _is_payload_binding_input(value):
+                raise TypeError("persistent properties cannot contain opaque payloads")
+            if not _is_public_binding_input(value):
+                msg = "module bindings require a scalar typed value or scalar literal"
+                raise TypeError(msg)
+            effects.append(
+                ModuleBindingEffect(
+                    binding_property(
+                        resource,
+                        interface=property.interface_id,
+                        component_path=property.component_path,
+                        property=property.property_id,
+                        value=cast(
+                            "BindingInput",
+                            _capture_binding_literal(value),
+                        ),
+                    )
+                )
+            )
+
+        return replace(
+            self,
+            procedure=(*self.procedure, *effects),
         )
 
     def invoke(
