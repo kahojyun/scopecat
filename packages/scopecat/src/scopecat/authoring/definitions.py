@@ -275,12 +275,12 @@ def module[**P](
     return _module_from_function(definition, id=id, metadata=metadata)
 
 
-def module_body(
+def procedure(
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ModuleBuilder:
-    """Start a low-level module body or an ``@module`` return value."""
+    """Build the ordered procedure returned by an ``@module`` function."""
 
     return ModuleBuilder(
         id=id,
@@ -402,7 +402,7 @@ def _module_from_function[**P](
     contract = _definition_contract(source, defaults=False)
     values = contract.values
     result = source(**values)
-    body = _module_body(result)
+    body = _procedure_body(result)
     if body.input_ports:
         raise ValueError("@module function bodies must declare inputs in the signature")
     selected_metadata = dict(metadata or {})
@@ -630,10 +630,10 @@ def _input_port(name: str, value: ValueRef):
     return ModuleInputPort(id=name, value_type=value.value_type)
 
 
-def _module_body(value: object) -> ModuleBuilder:
+def _procedure_body(value: object) -> ModuleBuilder:
     if isinstance(value, ModuleBuilder):
         return value
-    raise TypeError("@module functions must return module_body()")
+    raise TypeError("@module functions must return procedure()")
 
 
 def _experiment_body(value: object) -> ExperimentBody:
@@ -663,7 +663,7 @@ __all__ = [
     "ScratchDefinition",
     "experiment",
     "module",
-    "module_body",
+    "procedure",
     "scratch",
     "template",
 ]

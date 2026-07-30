@@ -62,9 +62,7 @@ def drag_beta_capture(
         .with_shots(DRAG_BETA_SHOTS)
     )
     body = (
-        sc.module_body()
-        .use(call)
-        .product("probability_0", "probability_1", unit="ratio")
+        sc.procedure().use(call).product("probability_0", "probability_1", unit="ratio")
     )
     postprocessor = binary_iq_probability_postprocessor(
         "binary-iq-probability",

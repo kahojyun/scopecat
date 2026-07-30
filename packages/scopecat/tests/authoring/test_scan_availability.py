@@ -21,7 +21,7 @@ def _quantity_scan_parts() -> tuple[sc.ValueRef, sc.Compute]:
 
 def test_default_scan_center_rejects_external_operation() -> None:
     target, center = _quantity_scan_parts()
-    module = sc.module_body(id="test.scan-stage.default").computes(center).build()
+    module = sc.procedure(id="test.scan-stage.default").computes(center).build()
     call = module()
 
     def template_definition() -> sc.ExperimentBody:
@@ -53,7 +53,7 @@ def test_default_scan_center_rejects_external_operation() -> None:
 
 def test_invocation_scan_center_rejects_external_operation() -> None:
     target, center = _quantity_scan_parts()
-    module = sc.module_body(id="test.scan-stage.invocation").computes(center).build()
+    module = sc.procedure(id="test.scan-stage.invocation").computes(center).build()
     call = module()
 
     @sc.template(id="test.scan-stage.invocation", kind="scan-stage")

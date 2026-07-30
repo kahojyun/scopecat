@@ -35,7 +35,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         inputs={"count": count_type},
         results={"counts": ("counts", "v1")},
     )
-    module = sc.module_body(id="test.domain.view").product(
+    module = sc.procedure(id="test.domain.view").product(
         "counts",
         unit="count",
         dtype="int64",

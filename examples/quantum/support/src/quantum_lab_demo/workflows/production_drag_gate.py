@@ -77,9 +77,7 @@ def production_drag_capture():
         .with_shots(PRODUCTION_DRAG_GATE_SHOTS)
     )
     body = (
-        sc.module_body()
-        .use(call)
-        .product("probability_0", "probability_1", unit="ratio")
+        sc.procedure().use(call).product("probability_0", "probability_1", unit="ratio")
     )
     postprocessor = binary_iq_probability_postprocessor(
         "binary-iq-probability",

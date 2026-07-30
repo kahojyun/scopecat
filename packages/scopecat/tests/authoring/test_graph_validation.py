@@ -79,7 +79,7 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
         output_type=sc.ScalarType(sc.FloatType()),
     )
     with pytest.raises(CheckFailed) as error:
-        sc.module_body(id="test.graph.order").computes(consumer).build()
+        sc.procedure(id="test.graph.order").computes(consumer).build()
 
     assert error.value.problems[0].code == "module_compute_foreign_definition"
 
@@ -92,7 +92,7 @@ def test_invocation_rejects_an_unregistered_compute_output() -> None:
     )
     with pytest.raises(CheckFailed) as error:
         (
-            sc.module_body(id="test.graph.invocation-missing")
+            sc.procedure(id="test.graph.invocation-missing")
             .resource("drive", requires=(_PLAY_WAVEFORMS,))
             .invoke(
                 "play",
@@ -113,7 +113,7 @@ def test_state_rejects_a_non_payload_compute_output() -> None:
         output_type=sc.ScalarType(sc.FloatType()),
     )
     module = (
-        sc.module_body(id="test.graph.state-type")
+        sc.procedure(id="test.graph.state-type")
         .resource("drive", requires=(_SET_GAIN,))
         .computes(compute_value)
         .bind_property(
@@ -140,7 +140,7 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
 
     with pytest.raises(TypeError, match="scalar typed value or scalar literal"):
         (
-            sc.module_body(id="test.graph.table-state-binding")
+            sc.procedure(id="test.graph.table-state-binding")
             .inputs(rows)
             .resource("drive", requires=(_SET_GAIN,))
             .bind_property(
@@ -177,7 +177,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
     )
     duplicate_axis = sc.product_axis("sample", size=2)
     module = (
-        sc.module_body(id="test.graph.record-schema")
+        sc.procedure(id="test.graph.record-schema")
         .computes(consume)
         .product("signal", axes=(duplicate_axis, duplicate_axis))
         .build()
@@ -194,7 +194,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
 
 def test_product_rejects_duplicate_effective_dimensions() -> None:
     module = (
-        sc.module_body(id="test.graph.duplicate-dimension")
+        sc.procedure(id="test.graph.duplicate-dimension")
         .product(
             "signal",
             axes=(
@@ -217,7 +217,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
     subject = sc.input("subject", entity_type)
     child = (
-        sc.module_body(id="test.stage.resource-child")
+        sc.procedure(id="test.stage.resource-child")
         .inputs(subject)
         .resource("drive", for_entities=(subject,))
         .build()
@@ -228,7 +228,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
         output_type=entity_type,
     )
     parent = (
-        sc.module_body(id="test.stage.resource-parent")
+        sc.procedure(id="test.stage.resource-parent")
         .computes(produce_subject)
         .use(
             child.instantiate(
@@ -263,7 +263,7 @@ def test_product_axis_rejects_external_operation_value() -> None:
         output_type=sc.ScalarType(sc.IntType()),
     )
     module = (
-        sc.module_body(id="test.stage.record-execute")
+        sc.procedure(id="test.stage.record-execute")
         .computes(size)
         .product("signal", axes=(sc.product_axis("sample", size=size.output),))
         .build()
@@ -282,7 +282,7 @@ def test_product_axis_rejects_external_operation_value() -> None:
 def test_product_axis_rejects_point_dependent_value() -> None:
     size = sc.coordinate("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
     module = (
-        sc.module_body(id="test.stage.record-point")
+        sc.procedure(id="test.stage.record-point")
         .product("signal", axes=(sc.product_axis("sample", size=size),))
         .build()
     )
@@ -320,7 +320,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
         output_type=value_type,
     )
     module = (
-        sc.module_body(id="test.graph.direct-edge").computes(consumer, producer).build()
+        sc.procedure(id="test.graph.direct-edge").computes(consumer, producer).build()
     )
 
     invocation = template_fixture(
@@ -341,7 +341,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
 def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> None:
     subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
-    module = sc.module_body(id="test.graph.verified-source").inputs(subject).build()
+    module = sc.procedure(id="test.graph.verified-source").inputs(subject).build()
     invocation = template_fixture(
         module,
         id="test.graph.verified-source",
@@ -360,7 +360,7 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
 
 def test_compile_invocation_projects_request_metadata() -> None:
     subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
-    module = sc.module_body(id="test.graph.prepared-request").inputs(subject).build()
+    module = sc.procedure(id="test.graph.prepared-request").inputs(subject).build()
     invocation = template_fixture(
         module,
         id="test.graph.prepared-request",
@@ -408,7 +408,7 @@ def test_compile_verifies_and_seals_the_final_program_once(
         "scopecat.compiler.linking.linked.seal_typed_program",
         counted_seal,
     )
-    module = sc.module_body(id="test.graph.single-proof").build()
+    module = sc.procedure(id="test.graph.single-proof").build()
     invocation = template_fixture(
         module,
         id="test.graph.single-proof",

@@ -36,7 +36,7 @@ def _resolve_dependency(
         output_type=sc.ScalarType(sc.PayloadType("parameter-dependency")),
     )
     module = (
-        sc.module_body(id="test.parameter-contract")
+        sc.procedure(id="test.parameter-contract")
         .inputs(*module_inputs)
         .computes(dependency)
         .build()
@@ -56,7 +56,7 @@ def _resolve_table_dependency(
         compiler_inputs={"value": value.value_type},
     )
     module = (
-        sc.module_body(id="test.parameter-table-contract")
+        sc.procedure(id="test.parameter-table-contract")
         .domain(
             sc.domain_execution(
                 program,
@@ -228,13 +228,13 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
         output_type=frequency_type,
     )
     child = (
-        sc.module_body(id="test.parameter-contract-child")
+        sc.procedure(id="test.parameter-contract-child")
         .inputs(frequency)
         .computes(dependency)
         .build()
     )
     parent = (
-        sc.module_body(id="test.parameter-contract-parent")
+        sc.procedure(id="test.parameter-contract-parent")
         .use(
             child.instantiate(
                 "parameter-contract-child",
@@ -254,7 +254,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
 
 
 def test_parameter_contract_survives_scan_lowering() -> None:
-    module = sc.module_body(id="test.parameter-contract-scan").build()
+    module = sc.procedure(id="test.parameter-contract-scan").build()
     invocation = template_fixture(
         module,
         id="test.parameter-contract-scan",
@@ -317,7 +317,7 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
         ),
         values,
     )
-    module = sc.module_body(id="test.parameter-contract-scan-target").build()
+    module = sc.procedure(id="test.parameter-contract-scan-target").build()
     invocation = template_fixture(
         module,
         id="test.parameter-contract-scan-target",
@@ -354,7 +354,7 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
         [5.0],
         unit="GHz",
     )
-    module = sc.module_body(id="test.parameter-contract-scan-key").build()
+    module = sc.procedure(id="test.parameter-contract-scan-key").build()
     invocation = template_fixture(
         module,
         id="test.parameter-contract-scan-key",
@@ -377,7 +377,7 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
     config = _config_with_parameter_table()
     frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
     frequency = sc.coordinate("scanned_frequency", frequency_type)
-    module = sc.module_body(id="test.parameter-around-scan").build()
+    module = sc.procedure(id="test.parameter-around-scan").build()
     invocation = template_fixture(
         module,
         id="test.parameter-around-scan",
@@ -433,7 +433,7 @@ def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
         [5.0],
         unit="GHz",
     )
-    module = sc.module_body(id="test.parameter-scan-write-type").build()
+    module = sc.procedure(id="test.parameter-scan-write-type").build()
     invocation = template_fixture(
         module,
         id="test.parameter-scan-write-type",
@@ -507,7 +507,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
         output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
     module = (
-        sc.module_body(id="test.typed-parameter-key")
+        sc.procedure(id="test.typed-parameter-key")
         .inputs(typed_device)
         .computes(dependency)
         .build()

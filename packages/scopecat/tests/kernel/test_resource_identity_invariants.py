@@ -17,7 +17,7 @@ _MEASURE_SIGNAL_VALUE = (
 
 def test_interface_less_authored_port_rejects_state_and_acquire_at_assembly() -> None:
     module = (
-        sc.module_body(id="test.resource-identity.interface-less")
+        sc.procedure(id="test.resource-identity.interface-less")
         .resource("drive")
         .bind_property(
             "drive",

@@ -408,7 +408,7 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
         return authoring.measure(qubit, result="iq_shots")
 
     call = declaration("q0").with_shots(16)
-    body = sc.module_body().use(call).product("probability_0", "probability_1")
+    body = sc.procedure().use(call).product("probability_0", "probability_1")
     postprocessor = binary_iq_probability_postprocessor(
         "discriminate",
         iq_shots=call.results.iq_shots,

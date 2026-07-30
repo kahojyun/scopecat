@@ -38,7 +38,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         output_type=payload_type,
     )
     child = (
-        sc.module_body(id="test.compiler.graph.child")
+        sc.procedure(id="test.compiler.graph.child")
         .inputs(child_input)
         .computes(consume)
         .build()
@@ -49,7 +49,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         output_type=payload_type,
     )
     parent = (
-        sc.module_body(id="test.compiler.graph.parent")
+        sc.procedure(id="test.compiler.graph.parent")
         .computes(produce)
         .use(
             child.instantiate("first-consumer", program=produce.output),

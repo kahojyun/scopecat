@@ -72,7 +72,7 @@ def test_module_requires_postprocessor_products_and_unique_ids() -> None:
 
     with pytest.raises(ValueError, match="undeclared local product 'raw'"):
         (
-            sc.module_body(id="test.postprocessor.missing")
+            sc.procedure(id="test.postprocessor.missing")
             .product("derived")
             .measurement_postprocessors(postprocessor)
             .build()
@@ -82,7 +82,7 @@ def test_module_requires_postprocessor_products_and_unique_ids() -> None:
         match="duplicate module measurement postprocessor ids",
     ):
         (
-            sc.module_body(id="test.postprocessor.duplicate")
+            sc.procedure(id="test.postprocessor.duplicate")
             .product("raw", "derived")
             .measurement_postprocessors(postprocessor, postprocessor)
             .build()
@@ -90,10 +90,10 @@ def test_module_requires_postprocessor_products_and_unique_ids() -> None:
 
 
 def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
-    child = sc.module_body(id="test.postprocessor.source").product("raw").build()
+    child = sc.procedure(id="test.postprocessor.source").product("raw").build()
     nested = child.instantiate("nested")
     builder = (
-        sc.module_body(id="test.postprocessor.parent").use(nested).product("derived")
+        sc.procedure(id="test.postprocessor.parent").use(nested).product("derived")
     )
     postprocessor = sc.measurement_postprocessor(
         "derive",
@@ -108,7 +108,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
     assert lowered.outputs[0][1].qualified_name == "derived"
 
     nested_module = (
-        sc.module_body(id="test.postprocessor.child")
+        sc.procedure(id="test.postprocessor.child")
         .product("raw", "derived")
         .measurement_postprocessors(
             _postprocessor("derive", source="raw", output="derived")
@@ -116,7 +116,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
         .build()
     )
     root = (
-        sc.module_body(id="test.postprocessor.root")
+        sc.procedure(id="test.postprocessor.root")
         .use(nested_module.instantiate("nested"))
         .build()
     )
@@ -127,7 +127,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
 
 def test_postprocessor_chaining_is_rejected() -> None:
     module = (
-        sc.module_body(id="test.postprocessor.chain")
+        sc.procedure(id="test.postprocessor.chain")
         .product("raw", "middle", "derived")
         .measurement_postprocessors(
             _postprocessor("first", source="raw", output="middle"),
@@ -152,7 +152,7 @@ def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
         results={"raw": None},
     )
     builder = (
-        sc.module_body(id="test.postprocessor.owner")
+        sc.procedure(id="test.postprocessor.owner")
         .product("source", "raw")
         .measurement_postprocessors(
             _postprocessor("derive", source="source", output="raw")

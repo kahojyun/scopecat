@@ -25,7 +25,7 @@ _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_VALUE = _SCALAR_SIGNAL.acquisition("sample").result("signal")
 
 SIMPLE_FREQUENCY_SCAN = (
-    authoring.module_body(id="test.session.simple_frequency_scan")
+    authoring.procedure(id="test.session.simple_frequency_scan")
     .resource("source", requires=(_SET_FREQUENCY, _SCALAR_SIGNAL))
     .bind_property(
         "source",

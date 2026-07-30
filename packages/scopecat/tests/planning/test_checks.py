@@ -119,7 +119,7 @@ def _domain_invocation() -> sc.ExperimentInvocation:
         body=object(),
     )
     module = (
-        sc.module_body(id="test.check-domain")
+        sc.procedure(id="test.check-domain")
         .domain(sc.domain_execution(program))
         .build()
     )

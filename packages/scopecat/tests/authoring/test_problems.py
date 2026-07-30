@@ -55,7 +55,7 @@ def test_unknown_experiment_inputs_are_reported_together_in_stable_order(
 
 def test_template_definition_reports_literal_errors() -> None:
     count = sc.input("count", sc.ScalarType(sc.IntType()))
-    module = sc.module_body(id="test.invalid-template").inputs(count).build()
+    module = sc.procedure(id="test.invalid-template").inputs(count).build()
 
     with pytest.raises(CheckFailed) as error:
         template_fixture(
@@ -75,7 +75,7 @@ def test_template_definition_reports_literal_errors() -> None:
 
 def test_template_bind_rejects_known_input_errors_without_requiring_missing() -> None:
     count = sc.input("count", sc.ScalarType(sc.IntType()))
-    module = sc.module_body(id="test.early-bind").inputs(count).build()
+    module = sc.procedure(id="test.early-bind").inputs(count).build()
     template = template_fixture(
         module,
         id="test.early-bind",
@@ -100,7 +100,7 @@ def test_template_bind_rejects_known_input_errors_without_requiring_missing() ->
 def test_compile_validates_default_scan_axes() -> None:
     first = sc.coordinate("first", sc.ScalarType(sc.FloatType()))
     second = sc.coordinate("second", sc.ScalarType(sc.FloatType()))
-    module = sc.module_body(id="test.invalid-default-scans").build()
+    module = sc.procedure(id="test.invalid-default-scans").build()
 
     template = template_fixture(
         module,
@@ -123,7 +123,7 @@ def test_compile_validates_default_scan_axes() -> None:
 
 def test_compile_rejects_repeated_scan_overrides_before_merging() -> None:
     point = sc.coordinate("point", sc.ScalarType(sc.FloatType()))
-    module = sc.module_body(id="test.repeated-scan-overrides").build()
+    module = sc.procedure(id="test.repeated-scan-overrides").build()
     template = template_fixture(
         module,
         id="test.repeated-scan-overrides",
@@ -181,7 +181,7 @@ def _module_consuming_input() -> tuple[sc.ExperimentModule[...], sc.ValueRef]:
         output_type=value_type,
     )
     module = (
-        sc.module_body(id="test.consumed-input").inputs(value).computes(consume).build()
+        sc.procedure(id="test.consumed-input").inputs(value).computes(consume).build()
     )
     return module, value
 
@@ -205,7 +205,7 @@ def test_consumed_module_input_requires_binding_during_authoring_compile() -> No
 
 def test_unconsumed_module_input_does_not_require_binding(tmp_path: Path) -> None:
     value = sc.input("unused", sc.ScalarType(sc.FloatType()))
-    module = sc.module_body(id="test.unused-input").inputs(value).build()
+    module = sc.procedure(id="test.unused-input").inputs(value).build()
     invocation = template_fixture(
         module,
         id="test.unused-input",
@@ -218,9 +218,9 @@ def test_unconsumed_module_input_does_not_require_binding(tmp_path: Path) -> Non
 def test_unused_child_binding_does_not_consume_outer_input(tmp_path: Path) -> None:
     child_value = sc.input("child_value", sc.ScalarType(sc.FloatType()))
     outer_value = sc.input("outer_value", sc.ScalarType(sc.FloatType()))
-    child = sc.module_body(id="test.unused-child").inputs(child_value).build()
+    child = sc.procedure(id="test.unused-child").inputs(child_value).build()
     outer = (
-        sc.module_body(id="test.unused-child-root")
+        sc.procedure(id="test.unused-child-root")
         .inputs(outer_value)
         .use(child.instantiate("unused-child", child_value=outer_value))
         .build()
@@ -240,11 +240,9 @@ def test_unused_child_expression_binding_does_not_consume_outer_input(
     value_type = sc.ScalarType(sc.FloatType())
     child_value = sc.input("child_value", value_type)
     outer_value = sc.input("outer_value", value_type)
-    child = (
-        sc.module_body(id="test.unused-child-expression").inputs(child_value).build()
-    )
+    child = sc.procedure(id="test.unused-child-expression").inputs(child_value).build()
     outer = (
-        sc.module_body(id="test.unused-child-expression-root")
+        sc.procedure(id="test.unused-child-expression-root")
         .inputs(outer_value)
         .use(
             child.instantiate(

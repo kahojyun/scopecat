@@ -48,7 +48,7 @@ def test_ensure_binds_one_declarative_target_with_point_resolved_values() -> Non
     )
 
     builder = (
-        sc.module_body(id="test.desired-state")
+        sc.procedure(id="test.desired-state")
         .resource("source", requires=(_SOURCE,))
         .ensure(
             "source",
@@ -72,12 +72,12 @@ def test_ensure_rejects_an_empty_target() -> None:
         ValueError,
         match="ensure requires at least one target assignment",
     ):
-        sc.module_body(id="test.empty-target").ensure("source", _EmptyTarget())
+        sc.procedure(id="test.empty-target").ensure("source", _EmptyTarget())
 
 
 def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
     module = (
-        sc.module_body(id="test.coherent-target")
+        sc.procedure(id="test.coherent-target")
         .resource("source", requires=(_SOURCE,))
         .ensure("source", _SourceTarget(level=1.5, enabled=True))
         .build()
@@ -116,7 +116,7 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
 
 def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
     module = (
-        sc.module_body(id="test.sequential-targets")
+        sc.procedure(id="test.sequential-targets")
         .resource("source", requires=(_SOURCE,))
         .ensure("source", _SourceTarget(level=1.0, enabled=True))
         .ensure("source", _SourceTarget(level=2.0, enabled=False))
@@ -147,7 +147,7 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
 
 def test_root_postcondition_is_materialized_outside_point_effects() -> None:
     module = (
-        sc.module_body(id="test.postcondition-module")
+        sc.procedure(id="test.postcondition-module")
         .resource("source", requires=(_SOURCE,))
         .build()
     )
@@ -190,7 +190,7 @@ def test_root_postcondition_is_materialized_outside_point_effects() -> None:
 
 def test_root_postcondition_rejects_scan_coordinates() -> None:
     module = (
-        sc.module_body(id="test.postcondition-coordinate")
+        sc.procedure(id="test.postcondition-coordinate")
         .resource("source", requires=(_SOURCE,))
         .build()
     )

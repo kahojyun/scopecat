@@ -170,7 +170,7 @@ dc_bias = sc.coordinate(
 @sc.module(id="resonator.capture")
 def capture():
     return (
-        sc.module_body()
+        sc.procedure()
     .resource("flux", requires=(DC_SOURCE,))
     .resource("vna", requires=(NETWORK_SWEEP,))
     .ensure(

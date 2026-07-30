@@ -38,7 +38,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     tmp_path: Path,
 ) -> None:
     module = (
-        sc.module_body(id="test.postprocessor.lowering")
+        sc.procedure(id="test.postprocessor.lowering")
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("raw", "derived", "dead")
         .measurement_postprocessors(
@@ -91,7 +91,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     child = (
-        sc.module_body(id="test.postprocessor.hidden-id.child")
+        sc.procedure(id="test.postprocessor.hidden-id.child")
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("raw", "derived")
         .measurement_postprocessors(
@@ -106,9 +106,7 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     )
     left = child.instantiate("left")
     right = child.instantiate("right")
-    root = (
-        sc.module_body(id="test.postprocessor.hidden-id.root").use(left, right).build()
-    )
+    root = sc.procedure(id="test.postprocessor.hidden-id.root").use(left, right).build()
     template = template_fixture(
         root,
         id="test.postprocessor.hidden-id",
@@ -140,7 +138,7 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
 
 
 def test_recorded_product_requires_a_producer() -> None:
-    module = sc.module_body(id="test.product.owner").product("orphan").build()
+    module = sc.procedure(id="test.product.owner").product("orphan").build()
     template = template_fixture(
         module,
         id="test.product.owner",

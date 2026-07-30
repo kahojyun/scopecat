@@ -181,7 +181,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         output_type=pulse_program_type,
     )
     child = (
-        sc.module_body(id="tests.compute_schedule.child")
+        sc.procedure(id="tests.compute_schedule.child")
         .inputs(program)
         .resource("source", requires=(_PLAY_PROGRAM,))
         .computes(consume_program)
@@ -204,7 +204,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
         output_type=source_program_type,
     )
     parent = (
-        sc.module_body(id="tests.compute_schedule.parent")
+        sc.procedure(id="tests.compute_schedule.parent")
         .computes(produce_program)
         .use(
             child.instantiate(

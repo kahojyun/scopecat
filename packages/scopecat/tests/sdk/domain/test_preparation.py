@@ -76,7 +76,7 @@ def _preparation_context(
             "raw": ("raw", "v1"),
         },
     )
-    module = sc.module_body(id=f"test.sdk.preparation.{namespace}").product(
+    module = sc.procedure(id=f"test.sdk.preparation.{namespace}").product(
         "raw",
         unit=unit,
         dtype=dtype,

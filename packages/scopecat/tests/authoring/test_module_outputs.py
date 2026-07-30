@@ -59,7 +59,7 @@ def _producer_module() -> sc.ExperimentModule[...]:
         output_type=payload_type,
     )
     return (
-        sc.module_body(id="test.outputs.producer")
+        sc.procedure(id="test.outputs.producer")
         .computes(produce)
         .export(payload=produce.output)
         .build()
@@ -76,7 +76,7 @@ def _consumer_module() -> sc.ExperimentModule[...]:
         output_type=payload_type,
     )
     return (
-        sc.module_body(id="test.outputs.consumer")
+        sc.procedure(id="test.outputs.consumer")
         .inputs(payload)
         .computes(consume)
         .build()
@@ -99,7 +99,7 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         payload=second.outputs["payload"],
     )
     root = (
-        sc.module_body(id="test.outputs.siblings")
+        sc.procedure(id="test.outputs.siblings")
         .use(first, second, first_consumer, second_consumer)
         .build()
     )
@@ -165,14 +165,14 @@ def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
     producer = _producer_module()
     child_instance = producer.instantiate("child")
     wrapper = (
-        sc.module_body(id="test.outputs.wrapper")
+        sc.procedure(id="test.outputs.wrapper")
         .use(child_instance)
         .export(payload=child_instance.outputs.payload)
         .build()
     )
     outer = wrapper.instantiate("outer")
     sink = _consumer_module().instantiate("sink", payload=outer.outputs.payload)
-    root = sc.module_body(id="test.outputs.nested").use(outer, sink).build()
+    root = sc.procedure(id="test.outputs.nested").use(outer, sink).build()
 
     assembly = elaborate_module(root.ir)
     sink_node = next(
@@ -196,7 +196,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
     producer = _producer_module()
     child = producer.instantiate("child")
     wrapper = (
-        sc.module_body(id="test.outputs.typed-result-wrapper")
+        sc.procedure(id="test.outputs.typed-result-wrapper")
         .use(child)
         .export(payload=child.outputs.payload)
         .build()
@@ -212,7 +212,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         payload=second.outputs.payload,
     )
     root = (
-        sc.module_body(id="test.outputs.typed-result-root")
+        sc.procedure(id="test.outputs.typed-result-root")
         .use(first, second, first_sink, second_sink)
         .build()
     )
@@ -269,7 +269,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     value = sc.input("value", value_type)
     module = (
-        sc.module_body(id="test.outputs.expressions")
+        sc.procedure(id="test.outputs.expressions")
         .inputs(value)
         .export(passthrough=value, shifted=value + 0.5)
         .build()
@@ -284,7 +284,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         output_type=sc.ScalarType(sc.PayloadType("test.export-capture")),
     )
     consumer = (
-        sc.module_body(id="test.outputs.expression-consumer")
+        sc.procedure(id="test.outputs.expression-consumer")
         .inputs(passthrough_input, shifted_input)
         .computes(capture)
         .build()
@@ -295,7 +295,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         )
     )
     root = (
-        sc.module_body(id="test.outputs.expression-root")
+        sc.procedure(id="test.outputs.expression-root")
         .use(invocation, consumer)
         .build()
     )
@@ -337,7 +337,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
 def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
     payload = sc.input("payload", _payload_type())
     count = sc.input("count", sc.ScalarType(sc.IntType(minimum=1)))
-    module = sc.module_body(id="test.outputs.validation").inputs(payload, count).build()
+    module = sc.procedure(id="test.outputs.validation").inputs(payload, count).build()
     incompatible = sc.input(
         "waveform",
         sc.ScalarType(sc.PayloadType("test.waveform")),
@@ -356,7 +356,7 @@ def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
 
 
 def test_module_products_remain_reusable_across_instances() -> None:
-    module = sc.module_body(id="test.outputs.product").product("signal").build()
+    module = sc.procedure(id="test.outputs.product").product("signal").build()
 
     child = module.instantiate("child")
 
@@ -367,7 +367,7 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     value = sc.input("value", value_type)
     source = (
-        sc.module_body(id="test.outputs.expression-boundary")
+        sc.procedure(id="test.outputs.expression-boundary")
         .inputs(value)
         .export(value=value)
         .build()
@@ -384,14 +384,14 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
         output_type=value_type,
     )
     consumer = (
-        sc.module_body(id="test.outputs.expression-boundary-consumer")
+        sc.procedure(id="test.outputs.expression-boundary-consumer")
         .inputs(consumed)
         .computes(capture)
         .build()
         .instantiate("consumer", consumed=shifted)
     )
     root = (
-        sc.module_body(id="test.outputs.expression-boundary-root")
+        sc.procedure(id="test.outputs.expression-boundary-root")
         .use(source_instance, consumer)
         .build()
     )
@@ -423,7 +423,7 @@ def test_module_build_rejects_undeclared_export_inputs() -> None:
     value = sc.input("value", sc.ScalarType(sc.FloatType()))
 
     with pytest.raises(CheckFailed) as error:
-        sc.module_body(id="test.outputs.undeclared-input").export(value=value).build()
+        sc.procedure(id="test.outputs.undeclared-input").export(value=value).build()
 
     assert [problem.code for problem in error.value.problems] == [
         "module_input_undeclared"
@@ -435,7 +435,7 @@ def test_duplicate_explicit_instance_ids_are_rejected() -> None:
 
     with pytest.raises(ValueError, match="duplicate module instance ids: 'duplicate'"):
         (
-            sc.module_body(id="test.outputs.duplicate-instance")
+            sc.procedure(id="test.outputs.duplicate-instance")
             .use(
                 producer.instantiate("duplicate"),
                 producer.instantiate("duplicate"),
@@ -452,7 +452,7 @@ def test_output_refs_are_nominally_owned_by_the_used_instance() -> None:
         payload=foreign.outputs.payload,
     )
     with pytest.raises(CheckFailed) as error:
-        sc.module_body(id="test.outputs.nominal").use(selected, sink).build()
+        sc.procedure(id="test.outputs.nominal").use(selected, sink).build()
 
     assert [problem.code for problem in error.value.problems] == [
         "module_export_foreign_instance"
@@ -465,14 +465,14 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
     parameter = sc.parameter("output_parameter", value_type)
     point = sc.coordinate("output_point", value_type)
     source = (
-        sc.module_body(id="test.outputs.roots")
+        sc.procedure(id="test.outputs.roots")
         .inputs(value)
         .export(value=value, parameter=parameter, point=point)
         .build()
     )
     source_instance = source.instantiate("source", value=value)
     wrapper = (
-        sc.module_body(id="test.outputs.roots.wrapper")
+        sc.procedure(id="test.outputs.roots.wrapper")
         .inputs(value)
         .use(source_instance)
         .export(value=source_instance.outputs.value)

@@ -64,7 +64,7 @@ dc_bias = sc.coordinate(
 @sc.module(id="capture")
 def capture():
     return (
-        sc.module_body()
+        sc.procedure()
     .resource("flux", requires=(DC_SOURCE,))
     .ensure(
         "flux",

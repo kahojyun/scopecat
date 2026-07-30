@@ -78,7 +78,7 @@ def _composable_module() -> sc.ExperimentModule[...]:
         output_type=payload_type,
     )
     return (
-        sc.module_body(id="test.composition-invariant.source")
+        sc.procedure(id="test.composition-invariant.source")
         .resource("source", requires=(_MEASURE,))
         .bind_property(
             "source",
@@ -106,7 +106,7 @@ def _consumer_module() -> sc.ExperimentModule[...]:
         output_type=_payload_type(),
     )
     return (
-        sc.module_body(id="test.composition-invariant.consumer")
+        sc.procedure(id="test.composition-invariant.consumer")
         .inputs(payload)
         .computes(consume)
         .build()
@@ -117,7 +117,7 @@ def _verified_assembly(
     instance_id: str,
 ) -> tuple[SemanticExperimentIR, VerifiedAssemblyGraph]:
     instance = _composable_module().instantiate(instance_id)
-    root = sc.module_body(id="test.composition-invariant.root").use(instance).build()
+    root = sc.procedure(id="test.composition-invariant.root").use(instance).build()
     assembly = elaborate_module(root.ir)
     return assembly, verify_assembly_graph(assembly)
 
@@ -125,7 +125,7 @@ def _verified_assembly(
 def _nested_exporting_module(scope: tuple[str, ...]) -> sc.ExperimentModule[...]:
     invocation = _composable_module().instantiate(scope[-1])
     current = (
-        sc.module_body(id="test.composition-invariant.generated-wrapper.0")
+        sc.procedure(id="test.composition-invariant.generated-wrapper.0")
         .use(invocation)
         .export(payload=invocation.outputs.payload)
         .build()
@@ -133,7 +133,7 @@ def _nested_exporting_module(scope: tuple[str, ...]) -> sc.ExperimentModule[...]
     for depth, instance_id in enumerate(reversed(scope[:-1]), start=1):
         invocation = current.instantiate(instance_id)
         current = (
-            sc.module_body(id=f"test.composition-invariant.generated-wrapper.{depth}")
+            sc.procedure(id=f"test.composition-invariant.generated-wrapper.{depth}")
             .use(invocation)
             .export(payload=invocation.outputs.payload)
             .build()
@@ -209,16 +209,14 @@ def test_alpha_renaming_changes_only_structural_instance_scope() -> None:
 
 
 def test_module_metadata_remains_declaration_introspection_only() -> None:
-    left = sc.module_body(id="test.metadata.left", metadata={"shared": "left"}).build()
-    right = sc.module_body(
-        id="test.metadata.right", metadata={"shared": "right"}
-    ).build()
+    left = sc.procedure(id="test.metadata.left", metadata={"shared": "left"}).build()
+    right = sc.procedure(id="test.metadata.right", metadata={"shared": "right"}).build()
     assert left.metadata == {"shared": "left"}
     assert right.metadata == {"shared": "right"}
 
     for first, second in ((left, right), (right, left)):
         root = (
-            sc.module_body(id="test.metadata.root", metadata={"owner": "root"})
+            sc.procedure(id="test.metadata.root", metadata={"owner": "root"})
             .use(first.instantiate("first"), second.instantiate("second"))
             .build()
         )
@@ -236,7 +234,7 @@ def test_generated_alpha_renaming_preserves_normalized_semantics(
     for instance_id in instance_ids:
         instance = _composable_module().instantiate(instance_id)
         root = (
-            sc.module_body(id="test.composition-invariant.generated-alpha-root")
+            sc.procedure(id="test.composition-invariant.generated-alpha-root")
             .use(instance)
             .build()
         )
@@ -254,13 +252,11 @@ def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
     direct = child.instantiate("a/b")
     nested_child = child.instantiate("b")
     wrapper = (
-        sc.module_body(id="test.composition-invariant.wrapper")
-        .use(nested_child)
-        .build()
+        sc.procedure(id="test.composition-invariant.wrapper").use(nested_child).build()
     )
     nested = wrapper.instantiate("a")
     root = (
-        sc.module_body(id="test.composition-invariant.injective")
+        sc.procedure(id="test.composition-invariant.injective")
         .use(direct, nested)
         .build()
     )
@@ -292,13 +288,13 @@ def test_generated_structural_scopes_are_injective(
     direct = child.instantiate(direct_scope)
     nested_child = child.instantiate(right)
     wrapper = (
-        sc.module_body(id="test.composition-invariant.generated-injective-wrapper")
+        sc.procedure(id="test.composition-invariant.generated-injective-wrapper")
         .use(nested_child)
         .build()
     )
     nested = wrapper.instantiate(left)
     root = (
-        sc.module_body(id="test.composition-invariant.generated-injective-root")
+        sc.procedure(id="test.composition-invariant.generated-injective-root")
         .use(direct, nested)
         .build()
     )
@@ -317,7 +313,7 @@ def test_generated_structural_scopes_are_injective(
 
 def test_repeated_config_free_verification_is_deterministic() -> None:
     instance = _composable_module().instantiate("stable")
-    root = sc.module_body(id="test.composition-invariant.stable").use(instance).build()
+    root = sc.procedure(id="test.composition-invariant.stable").use(instance).build()
 
     signatures: list[tuple[object, ...]] = []
     for _ in range(5):
@@ -342,7 +338,7 @@ def test_scoped_export_can_feed_another_instance_without_capture() -> None:
         payload=source.outputs.payload,
     )
     root = (
-        sc.module_body(id="test.composition-invariant.export-consumer")
+        sc.procedure(id="test.composition-invariant.export-consumer")
         .use(source, sink)
         .build()
     )
@@ -371,7 +367,7 @@ def test_generated_nested_exports_preserve_producer_provenance(
         payload=source.outputs.payload,
     )
     root = (
-        sc.module_body(id="test.composition-invariant.generated-export-root")
+        sc.procedure(id="test.composition-invariant.generated-export-root")
         .use(source, sink)
         .build()
     )
@@ -398,7 +394,7 @@ def test_generated_nominal_ownership_rejects_same_named_foreign_outputs(
     )
     with pytest.raises(CheckFailed) as error:
         (
-            sc.module_body(id="test.composition-invariant.generated-foreign-root")
+            sc.procedure(id="test.composition-invariant.generated-foreign-root")
             .use(selected, sink)
             .build()
         )
@@ -420,7 +416,7 @@ def test_same_named_foreign_output_fails_config_free_verification(
     )
     with pytest.raises(CheckFailed) as error:
         (
-            sc.module_body(id="test.composition-invariant.foreign-output")
+            sc.procedure(id="test.composition-invariant.foreign-output")
             .use(selected, sink)
             .build()
         )
@@ -437,7 +433,7 @@ def test_same_named_foreign_product_fails_at_compile(
     foreign = _composable_module().instantiate(instance_id)
     selected = _composable_module().instantiate(instance_id)
     root = (
-        sc.module_body(id="test.composition-invariant.foreign-product")
+        sc.procedure(id="test.composition-invariant.foreign-product")
         .use(selected)
         .build()
     )

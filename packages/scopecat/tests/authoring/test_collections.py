@@ -58,14 +58,14 @@ def test_nested_module_requires_explicit_input_forwarding() -> None:
         "value",
         authoring.ScalarType(authoring.FloatType()),
     )
-    child = authoring.module_body(id="test.nested_port.child").inputs(value).build()
+    child = authoring.procedure(id="test.nested_port.child").inputs(value).build()
 
     with pytest.raises(ValueError, match="must connect all inputs"):
         child.instantiate("child")
 
     outer_value = authoring.input("outer_value", value.value_type)
     root = (
-        authoring.module_body(id="test.nested_port.root")
+        authoring.procedure(id="test.nested_port.root")
         .inputs(outer_value)
         .use(child.instantiate("child", value=outer_value))
         .build()
@@ -87,7 +87,7 @@ def test_scan_points_are_coerced_by_their_target_type() -> None:
         "value",
         authoring.ScalarType(authoring.FloatType()),
     )
-    module = authoring.module_body(id="test.scan_coercion").build()
+    module = authoring.procedure(id="test.scan_coercion").build()
     template = template_fixture(
         module,
         id="test.scan_coercion",
@@ -126,7 +126,7 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
         authoring.ScalarType(authoring.QuantityType(unit="GHz")),
     )
     quantity_child = (
-        authoring.module_body(id="test.quantity_type.child").inputs(frequency).build()
+        authoring.procedure(id="test.quantity_type.child").inputs(frequency).build()
     )
     duration = authoring.input(
         "duration",
@@ -148,9 +148,7 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
         )
     )
     gates = authoring.input("gates", _gate_table_type())
-    table_child = (
-        authoring.module_body(id="test.table_type.child").inputs(gates).build()
-    )
+    table_child = authoring.procedure(id="test.table_type.child").inputs(gates).build()
     rows = authoring.input("rows", float_gate_table)
     with pytest.raises(
         authoring.ValueValidationError,
@@ -169,14 +167,14 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         output_type=authoring.ScalarType(authoring.PayloadType("consumed")),
     )
     child = (
-        authoring.module_body(id="test.compute_edge.child")
+        authoring.procedure(id="test.compute_edge.child")
         .inputs(program)
         .computes(consume)
         .build()
     )
     middle_program = authoring.input("program", pulse)
     middle = (
-        authoring.module_body(id="test.compute_edge.middle")
+        authoring.procedure(id="test.compute_edge.middle")
         .inputs(middle_program)
         .use(child.instantiate("compute-child", program=middle_program))
         .build()
@@ -187,7 +185,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         output_type=pulse,
     )
     parent = (
-        authoring.module_body(id="test.compute_edge.parent")
+        authoring.procedure(id="test.compute_edge.parent")
         .computes(produce)
         .use(middle.instantiate("compute-middle", program=produce.output))
         .build()
@@ -234,7 +232,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         authoring.ScalarType(authoring.PayloadType("waveform")),
     )
     incompatible_child = (
-        authoring.module_body(id="test.compute_edge.incompatible")
+        authoring.procedure(id="test.compute_edge.incompatible")
         .inputs(incompatible_program)
         .build()
     )
@@ -256,7 +254,7 @@ def test_explicit_null_is_rejected_as_a_bound_value() -> None:
         authoring.ScalarType(authoring.StringType()),
     )
     required = template_fixture(
-        authoring.module_body(id="test.null.required").inputs(required_label).build(),
+        authoring.procedure(id="test.null.required").inputs(required_label).build(),
         id="test.null.required",
         kind="null",
     )

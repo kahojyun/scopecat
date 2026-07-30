@@ -108,7 +108,7 @@ DRIVE_FREQUENCY_POINT = authoring.coordinate(
     authoring.ScalarType(authoring.QuantityType(unit="GHz")),
 )
 SIMPLE_MODULE = (
-    authoring.module_body(id="test.simple_scan", metadata={"assembled_by": "module"})
+    authoring.procedure(id="test.simple_scan", metadata={"assembled_by": "module"})
     .inputs(_SIMPLE_SUBJECT)
     .resource(
         "source",

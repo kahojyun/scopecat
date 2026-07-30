@@ -23,7 +23,7 @@ def test_module_builder_splits_operation_from_python_implementation() -> None:
         output_type=sc.ScalarType(sc.FloatType()),
     )
 
-    module = sc.module_body(id="test.operation-ir").computes(definition).build()
+    module = sc.procedure(id="test.operation-ir").computes(definition).build()
 
     assert len(module.ir.body.operations) == 1
     assert len(module.ir.python_implementations) == 1
@@ -45,7 +45,7 @@ def test_module_ir_rejects_operation_without_python_implementation() -> None:
         output_type=sc.ScalarType(sc.FloatType()),
     )
     complete = (
-        sc.module_body(id="test.operation-ir.complete").computes(definition).build()
+        sc.procedure(id="test.operation-ir.complete").computes(definition).build()
     )
 
     with pytest.raises(ValueError, match="missing Python implementations"):
@@ -62,10 +62,10 @@ def test_python_implementation_identity_changes_with_its_declaration() -> None:
     second = sc.compute("produce", fn=lambda: 2.0, output_type=value_type)
 
     first_ir = elaborate_module(
-        sc.module_body(id="test.impl.first").computes(first).build().ir
+        sc.procedure(id="test.impl.first").computes(first).build().ir
     )
     second_ir = elaborate_module(
-        sc.module_body(id="test.impl.second").computes(second).build().ir
+        sc.procedure(id="test.impl.second").computes(second).build().ir
     )
 
     first_id = next(iter(first_ir.implementations.values())).id

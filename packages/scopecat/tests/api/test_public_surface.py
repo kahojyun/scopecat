@@ -95,9 +95,7 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
         output_type=qubit_type,
     )
 
-    module = (
-        sc.module_body(id="test.typed_values").inputs(qubit).computes(build).build()
-    )
+    module = sc.procedure(id="test.typed_values").inputs(qubit).computes(build).build()
 
     assert isinstance(module, sc.ExperimentModule)
     assert build.output.value_type == qubit_type
@@ -170,7 +168,7 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
         "payload",
         sc.ScalarType(sc.PayloadType("test.payload")),
     )
-    module = sc.module_body(id="test.immutable-module-input").inputs(payload).build()
+    module = sc.procedure(id="test.immutable-module-input").inputs(payload).build()
     items = [1]
     nested_payload: dict[str, object] = {"items": items}
     payload_source: dict[str, object] = {"nested": nested_payload}
@@ -239,7 +237,7 @@ def test_public_input_boundaries_reject_invalid_recursive_values() -> None:
         "payload",
         sc.ScalarType(sc.PayloadType("test.payload")),
     )
-    module = sc.module_body(id="test.recursive-module-input").inputs(payload).build()
+    module = sc.procedure(id="test.recursive-module-input").inputs(payload).build()
     with pytest.raises(TypeError, match="typed values or closed literal data"):
         module.instantiate(
             "cyclic",

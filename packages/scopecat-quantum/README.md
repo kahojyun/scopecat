@@ -57,7 +57,7 @@ call = x90_count(
 Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`. A `Program` call owns its domain effect,
 execution options, and named result products; compose it with
-`sc.module_body().use(call)` or pass it to `sc.experiment(call)`.
+`sc.procedure().use(call)` or pass it to `sc.experiment(call)`.
 
 Compiler-owned defaults can use the pure row maps in
 `scopecat_quantum.pulse_recipes`. The complete supported example is the

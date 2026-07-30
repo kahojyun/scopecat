@@ -26,7 +26,7 @@ def _point_module(
         inputs={"value": point},
         output_type=_FREQUENCY_TYPE,
     )
-    return sc.module_body(id=module_id).computes(consume).build()
+    return sc.procedure(id=module_id).computes(consume).build()
 
 
 def _resolve(module: sc.ExperimentModule[...], *, scan: sc.Scan | None = None) -> None:
@@ -89,14 +89,14 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
         output_type=_FREQUENCY_TYPE,
     )
     child = (
-        sc.module_body(id="test.point-child")
+        sc.procedure(id="test.point-child")
         .inputs(child_frequency)
         .computes(consume)
         .build()
     )
     parent_frequency = sc.coordinate("frequency", _FREQUENCY_TYPE)
     parent = (
-        sc.module_body(id="test.point-parent")
+        sc.procedure(id="test.point-parent")
         .use(child.instantiate("point-child", frequency=parent_frequency))
         .build()
     )

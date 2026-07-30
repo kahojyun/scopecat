@@ -96,7 +96,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module_body(id="test.resource-binding-scenarios.entity-routing")
+        authoring.procedure(id="test.resource-binding-scenarios.entity-routing")
         .resource(
             "drive",
             requires=(_DRIVE_FREQUENCY,),
@@ -184,7 +184,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module_body(id="test.resource-binding-scenarios.channel-selection")
+        authoring.procedure(id="test.resource-binding-scenarios.channel-selection")
         .resource(
             "digitizer",
             requires=(_READOUT_ACQUIRE,),
@@ -267,7 +267,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module_body(id="test.resource-binding-scenarios.split-readout")
+        authoring.procedure(id="test.resource-binding-scenarios.split-readout")
         .inputs(qubit)
         .resource(
             "readout_source",

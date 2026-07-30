@@ -35,7 +35,7 @@ def _domain_module() -> tuple[sc.ExperimentModule[...], sc.DomainProgramDef, obj
         results={"counts": {"kind": "counts"}},
     )
     module = (
-        sc.module_body(id="test.domain.child")
+        sc.procedure(id="test.domain.child")
         .inputs(sc.input("x_count", value_type))
         .product("counts", unit="count", dtype="int64")
         .build()
@@ -45,7 +45,7 @@ def _domain_module() -> tuple[sc.ExperimentModule[...], sc.DomainProgramDef, obj
 
 def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
     value_type = sc.ScalarType(sc.IntType())
-    product_module = sc.module_body(id="test.domain.products").product("result").build()
+    product_module = sc.procedure(id="test.domain.products").product("result").build()
     program = sc.domain_program(
         "program",
         dialect_id="test",
@@ -86,7 +86,7 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
     )
 
     semantic = elaborate_module(
-        sc.module_body(id="test.domain.compiler-inputs").domain(execution).build().ir
+        sc.procedure(id="test.domain.compiler-inputs").domain(execution).build().ir
     ).domain_executions[0]
 
     assert tuple(port.id for port in semantic.program.input_ports) == ("value",)
@@ -116,7 +116,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     )
     leaf_rows = sc.input("rows", table_type)
     leaf = (
-        sc.module_body(id="test.domain.table-leaf")
+        sc.procedure(id="test.domain.table-leaf")
         .inputs(leaf_rows)
         .domain(
             sc.domain_execution(
@@ -129,14 +129,14 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     )
     middle_rows = sc.input("rows", table_type)
     middle = (
-        sc.module_body(id="test.domain.table-middle")
+        sc.procedure(id="test.domain.table-middle")
         .inputs(middle_rows)
         .use(leaf.instantiate("leaf", rows=middle_rows))
         .build()
     )
     root_rows = sc.input("rows", table_type)
     root = (
-        sc.module_body(id="test.domain.table-root")
+        sc.procedure(id="test.domain.table-root")
         .inputs(root_rows)
         .use(middle.instantiate("middle", rows=root_rows))
         .build()
@@ -232,8 +232,8 @@ def test_domain_execution_must_bind_a_product_from_the_template_module() -> None
         body=object(),
         results={"result": None},
     )
-    local = sc.module_body(id="test.domain.local").product("result")
-    foreign = sc.module_body(id="test.domain.foreign").product("result").build()
+    local = sc.procedure(id="test.domain.local").product("result")
+    foreign = sc.procedure(id="test.domain.foreign").product("result").build()
     execution = sc.domain_execution(
         program,
         results={"result": foreign.products["result"]},
@@ -255,9 +255,7 @@ def test_module_preserves_ordered_domain_executions() -> None:
     )
     first = sc.domain_execution(program, id="first")
     second = sc.domain_execution(program, id="second")
-    module = (
-        sc.module_body(id="test.domain.single").domain(first).domain(second).build()
-    )
+    module = sc.procedure(id="test.domain.single").domain(first).domain(second).build()
     template = template_fixture(module, id="test.domain", kind="test")
 
     assert tuple(
@@ -276,7 +274,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
         body=object(),
         results={"result": None},
     )
-    base = sc.module_body(id="test.domain.reusable").product("result")
+    base = sc.procedure(id="test.domain.reusable").product("result")
     child = base.domain(
         sc.domain_execution(
             program,
@@ -286,7 +284,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
     ).build()
     right = child.instantiate("right")
     left = child.instantiate("left")
-    root = sc.module_body(id="test.domain.composed").use(right, left).build()
+    root = sc.procedure(id="test.domain.composed").use(right, left).build()
 
     assembly = elaborate_module(root.ir)
 
@@ -316,9 +314,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         results={"result": None},
     )
     base = (
-        sc.module_body(id="test.domain.execute-input")
-        .computes(compute)
-        .product("result")
+        sc.procedure(id="test.domain.execute-input").computes(compute).product("result")
     )
     execution = sc.domain_execution(
         program,
@@ -341,7 +337,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     wrapper_x_count = sc.input("x_count", sc.ScalarType(sc.IntType(minimum=0)))
     inner = child.instantiate("inner", x_count=wrapper_x_count)
     wrapper = (
-        sc.module_body(id="test.domain.wrapper")
+        sc.procedure(id="test.domain.wrapper")
         .inputs(wrapper_x_count)
         .use(inner)
         .build()
@@ -351,7 +347,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         sc.ScalarType(sc.IntType(minimum=0)),
     )
     outer = wrapper.instantiate("outer", x_count=point_x_count)
-    root = sc.module_body(id="test.domain.root").use(outer)
+    root = sc.procedure(id="test.domain.root").use(outer)
     selected_product = root.products["outer/inner/counts"]
     execution = sc.domain_execution(
         program,
@@ -413,7 +409,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
         results={"result": None},
     )
     base = (
-        sc.module_body(id="test.domain.literal-namespace")
+        sc.procedure(id="test.domain.literal-namespace")
         .computes(compute)
         .product("result")
     )

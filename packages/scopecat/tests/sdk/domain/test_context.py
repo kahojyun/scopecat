@@ -58,7 +58,7 @@ def _domain_scenario(
         kernel=summarize,
     )
     module = (
-        sc.module_body(id=f"test.sdk.context.{namespace}")
+        sc.procedure(id=f"test.sdk.context.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
         .measurement_postprocessors(postprocessor)
     )

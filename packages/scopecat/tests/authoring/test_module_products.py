@@ -32,7 +32,7 @@ _SAMPLE = _SCALAR_SIGNAL.acquisition("sample")
 
 def _product_module() -> sc.ExperimentModule[...]:
     return (
-        sc.module_body(id="test.products.source")
+        sc.procedure(id="test.products.source")
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product(
             "signal",
@@ -52,7 +52,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     tmp_path: Path,
 ) -> None:
     module = (
-        sc.module_body(id="test.products.metadata")
+        sc.procedure(id="test.products.metadata")
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product(
             "signal",
@@ -86,7 +86,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
 
 def test_product_axes_use_product_local_dimensions_by_default() -> None:
     module = (
-        sc.module_body(id="test.products.local-axis")
+        sc.procedure(id="test.products.local-axis")
         .product(
             "i",
             axes=(sc.product_axis("sample", size=2),),
@@ -123,7 +123,7 @@ def test_product_axes_use_product_local_dimensions_by_default() -> None:
 
 def test_product_axes_share_dimensions_only_when_explicit() -> None:
     module = (
-        sc.module_body(id="test.products.shared-axis")
+        sc.procedure(id="test.products.shared-axis")
         .product(
             "i",
             axes=(
@@ -183,7 +183,7 @@ def test_local_and_shared_axis_namespaces_cannot_collide() -> None:
 
 def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
     module = (
-        sc.module_body(id="test.products.shared-axis-conflict")
+        sc.procedure(id="test.products.shared-axis-conflict")
         .product(
             "i",
             axes=(
@@ -222,7 +222,7 @@ def test_conflicting_explicitly_shared_product_axes_are_rejected() -> None:
 
 def test_acquire_is_an_ordered_effect() -> None:
     builder = (
-        sc.module_body(id="test.products.acquire")
+        sc.procedure(id="test.products.acquire")
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("signal")
     )
@@ -242,7 +242,7 @@ def test_component_scoped_members_lower_complete_targets() -> None:
     interface = InterfaceRef("test.component_signal/v1")
     channel = interface.component("rack").component("channel")
     module = (
-        sc.module_body(id="test.products.component-targets")
+        sc.procedure(id="test.products.component-targets")
         .resource("source", requires=(interface,))
         .bind_property("source", channel.property("gain"), value=1.0)
         .invoke(
@@ -280,7 +280,7 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
     tmp_path: Path,
 ) -> None:
     builder = (
-        sc.module_body(id="test.products.result-mapping")
+        sc.procedure(id="test.products.result-mapping")
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("first", "second", "default")
     )
@@ -321,7 +321,7 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
 
 def test_acquire_rejects_invalid_result_mappings() -> None:
     builder = (
-        sc.module_body(id="test.products.invalid-result-mapping")
+        sc.procedure(id="test.products.invalid-result-mapping")
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("first", "second")
     )
@@ -357,7 +357,7 @@ def test_acquire_rejects_invalid_result_mappings() -> None:
             },
         )
 
-    foreign = sc.module_body(id="test.products.foreign").product("first")
+    foreign = sc.procedure(id="test.products.foreign").product("first")
     with pytest.raises(ValueError, match="outside this builder"):
         builder.acquire(
             "read-foreign",
@@ -372,7 +372,7 @@ def test_explicit_instances_select_same_named_products_independently(
     source = _product_module()
     left = source.instantiate("left")
     right = source.instantiate("right")
-    root = sc.module_body(id="test.products.root").use(left, right).build()
+    root = sc.procedure(id="test.products.root").use(left, right).build()
 
     assert isinstance(left.products, sc.ProductOutputs)
     assert isinstance(left.products.signal, sc.ProductRef)
@@ -451,13 +451,13 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     tmp_path: Path,
 ) -> None:
     inner = _product_module().instantiate("inner")
-    wrapper = sc.module_body(id="test.products.wrapper").use(inner).build()
+    wrapper = sc.procedure(id="test.products.wrapper").use(inner).build()
     projected = wrapper.ir.products[0]
     expected_projection = ProductId(SymbolId(scope=("inner",), local_id="signal"))
     assert projected.symbol_id == expected_projection
     assert projected.target_id == expected_projection
     outer = wrapper.instantiate("outer")
-    root = sc.module_body(id="test.products.nested-root").use(outer).build()
+    root = sc.procedure(id="test.products.nested-root").use(outer).build()
 
     assert set(outer.products) == {"inner/signal"}
     nested_product = outer.products["inner/signal"]
@@ -506,7 +506,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
 def test_product_selection_rejects_unexposed_product() -> None:
     source = _product_module()
     selected = source.instantiate("selected")
-    root = sc.module_body(id="test.products.selection-validation").use(selected).build()
+    root = sc.procedure(id="test.products.selection-validation").use(selected).build()
     call = root()
 
     def template_definition() -> sc.ExperimentBody:
@@ -535,7 +535,7 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
 ) -> None:
     source = _product_module()
     selected = source.instantiate("selected")
-    root = sc.module_body(id="test.products.repeated-use").use(selected).build()
+    root = sc.procedure(id="test.products.repeated-use").use(selected).build()
     call = root()
 
     @sc.template(id="test.products.repeated-use", kind="module_products")
@@ -561,7 +561,7 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
 def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) -> None:
     source = _product_module()
     selected = source.instantiate("selected")
-    root = sc.module_body(id="test.products.alias").use(selected).build()
+    root = sc.procedure(id="test.products.alias").use(selected).build()
     call = root()
     primary = sc.record_coordinate(
         call.products["selected/signal"],
@@ -599,7 +599,7 @@ def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) 
 
 def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:
     module = (
-        sc.module_body(id="test.products.conflicting-use")
+        sc.procedure(id="test.products.conflicting-use")
         .product(
             "signal",
             "phase",

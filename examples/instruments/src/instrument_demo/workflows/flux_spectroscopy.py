@@ -47,7 +47,7 @@ _FREQUENCY_AXIS = sc.product_axis(
 @sc.module(id="instrument_demo.flux_spectroscopy.capture")
 def _flux_spectroscopy_module():
     return (
-        sc.module_body()
+        sc.procedure()
         .resource(FLUX_SOURCE_RESOURCE, requires=(DC_SOURCE,))
         .resource(
             TEMPERATURE_RESOURCE,

@@ -149,7 +149,7 @@ _DRIVE_FREQUENCY_VALUE = _DRIVE_FREQUENCY.property("value")
 
 def test_module_invoke_rejects_argument_from_another_operation() -> None:
     unrelated = _PLAY_PULSE_PROGRAM.operation("preview").argument("program")
-    builder = authoring.module_body(id="test.invoke.argument-target").resource(
+    builder = authoring.procedure(id="test.invoke.argument-target").resource(
         "drive",
         requires=(_PLAY_PULSE_PROGRAM,),
     )
@@ -269,7 +269,7 @@ def _template_invocation(
         for module in modules
     )
     root_module = (
-        authoring.module_body(id=f"{id}.root")
+        authoring.procedure(id=f"{id}.root")
         .inputs(*root_inputs.values())
         .use(*instances)
         .build()
@@ -330,7 +330,7 @@ def test_template_selects_module_products_as_records() -> None:
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
-        authoring.module_body(id="test.product_module")
+        authoring.procedure(id="test.product_module")
         .inputs(subject)
         .resource("source", requires=(_SET_FREQUENCY, _SCALAR_SIGNAL))
         .product("signal", unit="ratio")
@@ -411,7 +411,7 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         },
     )
     module = (
-        authoring.module_body(id="test.compute_provenance")
+        authoring.procedure(id="test.compute_provenance")
         .inputs(qubit, pulse_length)
         .resource("drive", requires=(_PLAY_PULSE_PROGRAM,))
         .computes(build)
@@ -568,7 +568,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module_body(id="test.runtime_entity_scan")
+        authoring.procedure(id="test.runtime_entity_scan")
         .resource(
             "drive",
             requires=(_SET_FREQUENCY,),
@@ -691,7 +691,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module_body(id="test.runtime_entity_dependent_points")
+        authoring.procedure(id="test.runtime_entity_dependent_points")
         .inputs(qubit)
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product("signal", unit="ratio")
@@ -738,7 +738,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
 
 def test_literal_string_values_define_categorical_product_axis() -> None:
     module = (
-        authoring.module_body(id="test.categorical_axis")
+        authoring.procedure(id="test.categorical_axis")
         .resource("source", requires=(_SCALAR_SIGNAL,))
         .product(
             "iq",
@@ -884,7 +884,7 @@ def test_link_validates_scan_axis_parameter_contracts() -> None:
 def test_module_construction_rejects_duplicate_resource_ids() -> None:
     with pytest.raises(ValueError, match="duplicate module resource ids"):
         (
-            authoring.module_body(id="test.shared_resource.duplicate")
+            authoring.procedure(id="test.shared_resource.duplicate")
             .resource("source", requires=(_SET_FREQUENCY,))
             .resource("source", requires=(_ACQUIRE_SIGNAL,))
             .build()
@@ -897,7 +897,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     child = (
-        authoring.module_body(id="test.invocation_defaults.child")
+        authoring.procedure(id="test.invocation_defaults.child")
         .inputs(drive_frequency)
         .resource("source", requires=(_SET_FREQUENCY,))
         .bind_property(
@@ -908,7 +908,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
         .build()
     )
     parent = (
-        authoring.module_body(id="test.invocation_defaults.parent")
+        authoring.procedure(id="test.invocation_defaults.parent")
         .use(
             child.instantiate(
                 "defaults-child",
@@ -936,7 +936,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     child = (
-        authoring.module_body(id="test.invocation_override.child")
+        authoring.procedure(id="test.invocation_override.child")
         .inputs(drive_frequency)
         .resource("source", requires=(_SET_FREQUENCY,))
         .bind_property(
@@ -947,7 +947,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         .build()
     )
     parent = (
-        authoring.module_body(id="test.invocation_expression.parent")
+        authoring.procedure(id="test.invocation_expression.parent")
         .use(
             child.instantiate(
                 "expression-child",
@@ -980,7 +980,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
     unused_parameter = authoring.input("unused_parameter", value_type)
     unused_point = authoring.input("unused_point", value_type)
     child = (
-        authoring.module_body(id="test.invocation_deferred.child")
+        authoring.procedure(id="test.invocation_deferred.child")
         .inputs(child_value, unused_parameter, unused_point)
         .resource("source", requires=(_SET_OFFSET,))
         .bind_property(
@@ -995,7 +995,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         value_type,
     )
     parent = (
-        authoring.module_body(id="test.invocation_deferred.parent")
+        authoring.procedure(id="test.invocation_deferred.parent")
         .inputs(parent_value)
         .use(
             child.instantiate(
@@ -1011,7 +1011,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         .build()
     )
     root = (
-        authoring.module_body(id="test.invocation_deferred.root")
+        authoring.procedure(id="test.invocation_deferred.root")
         .use(parent.instantiate("deferred-parent", parent_value=1.5))
         .build()
     )
@@ -1034,7 +1034,7 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     used_point_input = authoring.input("used_point", value_type)
     unused_point_input = authoring.input("unused_point", value_type)
     module = (
-        authoring.module_body(id="test.reachable-input-provenance")
+        authoring.procedure(id="test.reachable-input-provenance")
         .inputs(
             used_parameter_input,
             unused_parameter_input,
@@ -1123,7 +1123,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     child = (
-        authoring.module_body(id="test.invocation_parent_input.child")
+        authoring.procedure(id="test.invocation_parent_input.child")
         .inputs(drive_frequency)
         .resource("source", requires=(_SET_FREQUENCY,))
         .bind_property(
@@ -1134,7 +1134,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         .build()
     )
     parent = (
-        authoring.module_body(id="test.invocation_parent_input.parent")
+        authoring.procedure(id="test.invocation_parent_input.parent")
         .inputs(outer_frequency)
         .use(
             child.instantiate(
@@ -1162,7 +1162,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     first = (
-        authoring.module_body(id="test.invocation_sibling.first")
+        authoring.procedure(id="test.invocation_sibling.first")
         .inputs(first_frequency)
         .resource("source", requires=(_SET_FREQUENCY,))
         .bind_property(
@@ -1177,7 +1177,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     second = (
-        authoring.module_body(id="test.invocation_sibling.second")
+        authoring.procedure(id="test.invocation_sibling.second")
         .inputs(second_frequency)
         .resource("detector", requires=(_SET_FREQUENCY,))
         .bind_property(
@@ -1189,7 +1189,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     )
 
     module = (
-        authoring.module_body(id="test.invocation_sibling.parent")
+        authoring.procedure(id="test.invocation_sibling.parent")
         .use(
             first.instantiate(
                 "first",
@@ -1228,7 +1228,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     child = (
-        authoring.module_body(id="test.invocation_entity.child")
+        authoring.procedure(id="test.invocation_entity.child")
         .inputs(qubit, drive_frequency)
         .resource(
             "drive",
@@ -1243,7 +1243,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         .build()
     )
     parent = (
-        authoring.module_body(id="test.invocation_entity.parent")
+        authoring.procedure(id="test.invocation_entity.parent")
         .use(
             child.instantiate(
                 "entity-child",
@@ -1423,7 +1423,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
-        authoring.module_body(id="test.entity_selected_resource")
+        authoring.procedure(id="test.entity_selected_resource")
         .inputs(qubit)
         .resource(
             "drive",
@@ -1464,7 +1464,7 @@ def test_explicit_config_links_experiment() -> None:
         {selected_instrument: ("test.drive_frequency/v1",)}
     )
     module = (
-        authoring.module_body(id="test.explicit-config-source")
+        authoring.procedure(id="test.explicit-config-source")
         .resource("drive", requires=(_DRIVE_FREQUENCY,))
         .bind_property(
             "drive",
