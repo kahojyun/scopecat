@@ -18,6 +18,17 @@ class InvocationKey:
 
 
 @dataclass(frozen=True, slots=True)
+class DomainCallKey:
+    """Identity shared by one domain call and its result products."""
+
+    value: UUID
+
+    @classmethod
+    def fresh(cls) -> DomainCallKey:
+        return cls(uuid4())
+
+
+@dataclass(frozen=True, slots=True)
 class ComputeDeclarationKey:
     """Identity shared by a compute declaration and its result use."""
 

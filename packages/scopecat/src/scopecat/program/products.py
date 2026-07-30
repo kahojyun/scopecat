@@ -25,7 +25,7 @@ from scopecat.program.value_refs import (
 )
 from scopecat.program.values import MetadataValue
 
-type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
+type AxisSizeInput = ValueRef | Quantity | int | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
 
@@ -102,7 +102,7 @@ class ProductRef:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ProductOutputs(Mapping[str, ProductRef]):
-    """Read-only attribute and mapping view of exposed module products."""
+    """Read-only attribute and mapping view of exposed occurrence products."""
 
     entries: Mapping[str, ProductRef]
 
@@ -125,7 +125,7 @@ class ProductOutputs(Mapping[str, ProductRef]):
         try:
             return self.entries[product_id]
         except KeyError:
-            msg = f"module instance has no product {product_id!r}"
+            msg = f"occurrence has no product {product_id!r}"
             raise AttributeError(msg) from None
 
     @override

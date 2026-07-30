@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, assert_type
 
 import pytest
@@ -16,11 +15,6 @@ _COUNT_TYPE = sc.IntType(minimum=0)
 _COUNTER = InterfaceRef("test.counter/v1")
 _COUNTER_COUNT = _COUNTER.property("count")
 _GLOBAL_COUNT = sc.coordinate("global_count", sc.ScalarType(_COUNT_TYPE))
-
-
-@dataclass(frozen=True)
-class _DomainCall:
-    module_invocation: sc.ModuleInvocation
 
 
 def _identity_count(*, value: object) -> object:
@@ -250,22 +244,3 @@ def test_repeated_default_module_calls_require_explicit_instances() -> None:
     assert tuple(
         call.instance_id for call in explicit.definition.module.body.child_instances
     ) == ("left", "right")
-
-
-def test_module_calls_compose_through_the_explicit_context() -> None:
-    @sc.module
-    def source(module: sc.ModuleContext) -> None:
-        del module
-
-    left = _DomainCall(source.instantiate("left"))
-    right = _DomainCall(source.instantiate("right"))
-
-    @sc.module
-    def combined(module: sc.ModuleContext) -> None:
-        module.call(left)
-        module.call(right)
-
-    assert tuple(call.instance_id for call in combined.ir.body.child_instances) == (
-        "left",
-        "right",
-    )

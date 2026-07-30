@@ -269,20 +269,18 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
     )
     repeated_call = x_count.call("second", "q0", 3)
 
-    assert default_call.module_invocation.module is call.module_invocation.module
-    assert repeated_call.module_invocation.module is call.module_invocation.module
+    assert default_call.domain_call.key == call.domain_call.key
+    assert repeated_call.domain_call.key != call.domain_call.key
     assert call.shots == 32
     assert call.arguments == (("qubit", "q0"), ("count", 2))
-    module = call.module_invocation.module
-    assert call.module_invocation.instance_id == "call"
-    assert [port.id for port in module.input_ports] == [
+    assert call.domain_call.id == "call"
+    execution = call.domain_call.execution
+    assert execution.id == "call/test.quantum.call"
+    assert tuple(name for name, _value in execution.input_bindings) == (
         "qubit",
         "count",
-        "__shots__",
-    ]
-    assert len(module.domain_executions) == 1
-    assert module.ir.body.acquisitions == ()
-    [product] = module.product_declarations
+    )
+    [product] = call.domain_call.product_declarations
     assert product.id == "iq_shots"
     assert product.dtype == "complex128"
     assert product.unit == "ratio"
@@ -293,13 +291,26 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
 
     @sc.template(id="test.quantum.call-template", kind="x_count")
     def experiment(context: sc.ExperimentContext) -> None:
-        context.run(call)
-        context.record(call.results.iq_shots)
+        placed = assert_type(context.run(call), authoring.QuantumProgramCall)
+        context.record(placed.results.iq_shots)
 
     invocation = experiment()
+    assert invocation.definition.module.body.child_instances == ()
+    assert len(invocation.definition.module.body.domain_executions) == 1
     assert invocation.definition.record_selections[0].product_id.qualified_name == (
         "call/iq_shots"
     )
+
+
+def test_program_call_validates_bound_values_and_shot_count() -> None:
+    @authoring.program(id="test.quantum.validated-call")
+    def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.measure(qubit, result="iq")
+
+    with pytest.raises(ValueError, match=r"inputs\.qubit"):
+        declaration(1)
+    with pytest.raises(ValueError, match="shots"):
+        declaration("q0").with_shots(0)
 
 
 def test_program_results_share_one_explicit_shot_dimension() -> None:
@@ -365,13 +376,8 @@ def test_program_call_binds_compiler_collection_outside_program_arguments() -> N
     assert call.arguments == (("qubit", "q0"),)
     assert call.compiler_arguments == (("qubits", qubits),)
     assert with_shots.compiler_arguments == call.compiler_arguments
-    assert with_shots.module_invocation.module is call.module_invocation.module
-    assert [port.id for port in call.module_invocation.module.input_ports] == [
-        "qubit",
-        "qubits",
-        "__shots__",
-    ]
-    [execution] = call.module_invocation.module.domain_executions
+    assert with_shots.domain_call.key == call.domain_call.key
+    execution = call.domain_call.execution
     assert tuple(port.id for port in execution.program.input_ports) == ("qubit",)
     assert tuple(port.id for port in execution.program.compiler_input_ports) == (
         "qubits",
@@ -383,7 +389,7 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
     def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq")
 
-    with pytest.raises(ValueError, match="duplicate module instance ids"):
+    with pytest.raises(ValueError, match="duplicate module domain execution ids"):
 
         @sc.template(id="test.quantum.repeated-defaults")
         def repeated_defaults(  # pyright: ignore[reportUnusedFunction]
@@ -400,13 +406,14 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
         context.run(left)
         context.run(right)
 
-    assert [
-        item.lookup.instance_id
-        for item in repeated_explicit.definition.module.body.child_instances
-    ] == [
-        "left",
-        "right",
-    ]
+    assert repeated_explicit.definition.module.body.child_instances == ()
+    assert tuple(
+        execution.id
+        for execution in repeated_explicit.definition.module.body.domain_executions
+    ) == (
+        "left/test.quantum.repeated",
+        "right/test.quantum.repeated",
+    )
     assert left.results.iq.id == "left/iq"
     assert right.results.iq.id == "right/iq"
 
@@ -419,13 +426,13 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
     @sc.module
     def discriminate(module: sc.ModuleContext) -> None:
         call = declaration("q0").with_shots(16)
-        module.call(call)
+        placed = assert_type(module.call(call), authoring.QuantumProgramCall)
         probability_0 = module.product("probability_0")
         probability_1 = module.product("probability_1")
         module.measurement_postprocessor(
             binary_iq_probability_postprocessor(
                 "discriminate",
-                iq_shots=call.results.iq_shots,
+                iq_shots=placed.results.iq_shots,
                 probability_0=probability_0,
                 probability_1=probability_1,
                 discriminator=BinaryIqDiscriminator(
@@ -435,7 +442,8 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
             )
         )
 
-    assert len(discriminate.ir.body.child_instances) == 1
+    assert discriminate.ir.body.child_instances == ()
+    assert len(discriminate.ir.body.domain_executions) == 1
     [lowered] = discriminate.ir.body.measurement_postprocessors
     assert lowered.input_binding.qualified_name == "discriminate/iq_shots"
     assert {product.qualified_id for product in discriminate.ir.products} == {

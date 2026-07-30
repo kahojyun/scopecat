@@ -18,6 +18,7 @@ from typing import (
 )
 
 from scopecat.authoring._module_handles import (
+    DomainCallProvider,
     ExperimentModule,
     ModuleContext,
     ModuleDefinitionState,
@@ -26,6 +27,7 @@ from scopecat.authoring._module_handles import (
     build_ensure_state_intent,
     build_module_ir,
     create_experiment_module_internal,
+    domain_use_call,
     module_use_invocation,
 )
 from scopecat.authoring.scans import Scan
@@ -39,6 +41,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.program.bindings import ExperimentBindingIntent
+from scopecat.program.domain import DomainCall
 from scopecat.program.products import (
     ProductRef,
     RecordSelection,
@@ -217,9 +220,34 @@ class ExperimentContext:
 
         return self._body
 
-    def run(self, part: object) -> ModuleInvocation:
-        """Append one module or domain-program call to the root experiment."""
+    @overload
+    def run(self, part: ExperimentModule[...]) -> ModuleInvocation: ...
 
+    @overload
+    def run(self, part: ModuleInvocation) -> ModuleInvocation: ...
+
+    @overload
+    def run(self, part: DomainCall) -> DomainCall: ...
+
+    @overload
+    def run[T: DomainCallProvider](self, part: T) -> T: ...
+
+    def run(
+        self,
+        part: object,
+    ) -> object:
+        """Append one module or domain occurrence to the root experiment."""
+
+        if isinstance(part, DomainCall) or isinstance(
+            getattr(part, "domain_call", None),
+            DomainCall,
+        ):
+            call = domain_use_call(part)
+            self._body = replace(
+                self._body,
+                module=self._body.module.append_domain_call(call),
+            )
+            return part
         invocation = _module_invocation(part)
         self._body = replace(
             self._body,
@@ -775,7 +803,7 @@ def _module_invocation(value: object) -> ModuleInvocation:
         return module_use_invocation(value)
     except TypeError as error:
         raise TypeError(
-            "ExperimentContext.run() requires a module or domain-program call"
+            "ExperimentContext.run() requires a module or domain call"
         ) from error
 
 

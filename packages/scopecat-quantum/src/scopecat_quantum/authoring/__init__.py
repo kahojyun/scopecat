@@ -88,7 +88,7 @@ from ._programs import (
     QuantumProgramCall,
 )
 from ._programs import (
-    _domain_execution as _domain_execution,
+    _domain_call as _domain_call,
 )
 from ._programs import (
     _domain_program as _domain_program,

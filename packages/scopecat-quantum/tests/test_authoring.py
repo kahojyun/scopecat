@@ -231,27 +231,20 @@ def test_program_rejects_conflicting_gate_definitions() -> None:
         )
 
 
-def test_domain_execution_requires_exact_handle_bindings() -> None:
-    declaration, x_count, raw_iq = _x_count_declaration()
+def test_domain_call_requires_exact_handle_bindings() -> None:
+    declaration, x_count, _raw_iq = _x_count_declaration()
     program = authoring._domain_program(declaration)
 
-    @sc.module(id="test.quantum.bindings")
-    def products(context: sc.ModuleContext) -> None:
-        context.product("integrated_iq_shots")
-
     with pytest.raises(ValueError, match="bind every declared port"):
-        authoring._domain_execution(
+        authoring._domain_call(
             program,
-            results={raw_iq: products.products["integrated_iq_shots"]},
+            id="call",
         )
-    with pytest.raises(ValueError, match="bind every declared result"):
-        authoring._domain_execution(
-            program,
-            inputs={x_count: 1},
-        )
+    call = authoring._domain_call(program, id="call", inputs={x_count: 1})
+    assert call.results.raw_iq.id == "call/raw_iq"
 
 
-def test_domain_execution_rejects_forged_ports_and_normalizes_number_literal() -> None:
+def test_domain_call_rejects_forged_ports_and_normalizes_number_literal() -> None:
     q0 = authoring.qubit("q0")
     amplitude = authoring.scalar_input("amplitude", GateParameterKind.NUMBER)
     drive = authoring.single_qubit_gate(
@@ -265,16 +258,12 @@ def test_domain_execution_rejects_forged_ports_and_normalizes_number_literal() -
     )
     program = authoring._domain_program(declaration)
 
-    @sc.module(id="test.quantum.number-input")
-    def products(context: sc.ModuleContext) -> None:
-        context.product("iq")
-
-    execution = authoring._domain_execution(
+    call = authoring._domain_call(
         program,
+        id="call",
         inputs={amplitude: 1},
-        results={readout.result: products.products["iq"]},
     )
-    assert execution.input_bindings == (("amplitude", 1.0),)
+    assert call.execution.input_bindings == (("amplitude", 1.0),)
 
     forged = sc.domain_program(
         declaration.id,
@@ -285,8 +274,8 @@ def test_domain_execution_rejects_forged_ports_and_normalizes_number_literal() -
         results={"iq": readout.result},
     )
     with pytest.raises(ValueError, match="ports do not match"):
-        authoring._domain_execution(
+        authoring._domain_call(
             forged,
+            id="call",
             inputs={amplitude: 1},
-            results={readout.result: products.products["iq"]},
         )

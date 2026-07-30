@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import keyword
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Protocol, cast, overload, override
@@ -39,7 +38,7 @@ from scopecat.program.bindings import (
 from scopecat.program.bindings import (
     bind_property as binding_property,
 )
-from scopecat.program.domain import DomainExecution
+from scopecat.program.domain import DomainCall, DomainExecution
 from scopecat.program.identities import InvocationKey
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
@@ -102,11 +101,11 @@ type BindingInput = StateBinding
 type InvocationInput = BindingInput
 
 
-class ModuleCall(Protocol):
-    """A domain frontend that exposes one core module invocation."""
+class DomainCallProvider(Protocol):
+    """A domain frontend that exposes one native core call."""
 
     @property
-    def module_invocation(self) -> ModuleInvocation: ...
+    def domain_call(self) -> DomainCall: ...
 
 
 def _empty_resource_bindings() -> FrozenMapping[
@@ -176,12 +175,23 @@ class ModuleDefinitionState:
 
     def append_call(
         self,
-        *modules: ModuleInvocation | ModuleCall,
+        *invocations: ModuleInvocation,
     ) -> ModuleDefinitionState:
-        invocations = tuple(module_use_invocation(module) for module in modules)
         return replace(
             self,
             effects=(*self.effects, *invocations),
+        )
+
+    def append_domain_call(self, call: DomainCall) -> ModuleDefinitionState:
+        """Append one native domain occurrence and its result declarations."""
+
+        return replace(
+            self,
+            effects=(*self.effects, ModuleDomainEffect(call.execution)),
+            product_declarations=(
+                *self.product_declarations,
+                *call.product_declarations,
+            ),
         )
 
     def export(self, **values: ValueRef) -> ModuleDefinitionState:
@@ -499,12 +509,27 @@ class ModuleContext:
 
         return self._state
 
-    def call(self, module: ModuleInvocation | ModuleCall) -> ModuleInvocation:
-        """Append one explicitly constructed child-module invocation."""
+    @overload
+    def call(self, part: ModuleInvocation) -> ModuleInvocation: ...
 
-        invocation = module_use_invocation(module)
-        self._state = self._state.append_call(invocation)
-        return invocation
+    @overload
+    def call(self, part: DomainCall) -> DomainCall: ...
+
+    @overload
+    def call[T: DomainCallProvider](self, part: T) -> T: ...
+
+    def call(
+        self,
+        part: ModuleInvocation | DomainCall | DomainCallProvider,
+    ) -> ModuleInvocation | DomainCall | DomainCallProvider:
+        """Append one explicitly constructed module or domain occurrence."""
+
+        if isinstance(part, ModuleInvocation):
+            self._state = self._state.append_call(part)
+            return part
+        call = domain_use_call(part)
+        self._state = self._state.append_domain_call(call)
+        return part
 
     def export(self, **values: ValueRef) -> None:
         """Expose typed values from each future invocation of this module."""
@@ -1175,65 +1200,21 @@ def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
     )
 
 
-def create_programmatic_module_internal(
-    *,
-    id: str,
-    inputs: Mapping[str, ValueRef],
-    define: Callable[[ModuleContext], None],
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule[...]:
-    """Close an adapter-generated module without exposing a second user DSL."""
-
-    context = ModuleContext()
-    define(context)
-    state = replace(
-        context.definition_state,
-        id=id,
-        input_ports=tuple(
-            ModuleInputPort(id=input_id, value_type=value.value_type)
-            for input_id, value in inputs.items()
-        ),
-        metadata=freeze_json_mapping(metadata or {}),
-    )
-    module_ir = build_module_ir(state)
-    return create_experiment_module_internal(
-        module_ir,
-        signature=_module_signature(module_ir.interface.imports),
-    )
-
-
-def _module_signature(
-    input_ports: Sequence[ModuleInputPort],
-) -> inspect.Signature:
-    input_ids = {port.id for port in input_ports}
-    extra_name = "_inputs"
-    while extra_name in input_ids:
-        extra_name = f"_{extra_name}"
-    parameters = [
-        inspect.Parameter(
-            port.id,
-            inspect.Parameter.KEYWORD_ONLY,
-            annotation=port.value_type,
-        )
-        for port in input_ports
-        if port.id.isidentifier() and not keyword.iskeyword(port.id)
-    ]
-    parameters.append(
-        inspect.Parameter(
-            extra_name,
-            inspect.Parameter.VAR_KEYWORD,
-        )
-    )
-    return inspect.Signature(parameters)
-
-
 def module_use_invocation(
-    selected: ModuleInvocation | ModuleCall | object,
+    selected: ModuleInvocation | object,
 ) -> ModuleInvocation:
     if isinstance(selected, ModuleInvocation):
         return selected
-    invocation = getattr(selected, "module_invocation", None)
-    if isinstance(invocation, ModuleInvocation):
-        return invocation
-    msg = "module composition requires a ModuleInvocation or a domain module call"
+    msg = "module composition requires a ModuleInvocation"
     raise TypeError(msg)
+
+
+def domain_use_call(
+    selected: DomainCall | DomainCallProvider | object,
+) -> DomainCall:
+    if isinstance(selected, DomainCall):
+        return selected
+    call = getattr(selected, "domain_call", None)
+    if isinstance(call, DomainCall):
+        return call
+    raise TypeError("domain composition requires a DomainCall")
