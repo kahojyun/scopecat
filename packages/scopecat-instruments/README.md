@@ -16,6 +16,8 @@ Use the project connection's `lab.instruments` API. An experiment run is not
 required for direct instrument work:
 
 ```python
+from typing import Annotated
+
 import scopecat as sc
 from scopecat_instruments import (
     NetworkSweepState,
@@ -56,24 +58,27 @@ import scopecat as sc
 from scopecat_instruments import DCSourceVoltage
 from scopecat_instruments.members import DC_SOURCE
 
-dc_bias = sc.coordinate(
+DC_BIAS = sc.coordinate(
     "dc_bias",
     sc.ScalarType(sc.QuantityType(unit="V")),
 )
 
 @sc.module(id="capture")
-def capture():
-    return (
-        sc.procedure()
-    .resource("flux", requires=(DC_SOURCE,))
-    .ensure(
-        "flux",
+def capture(
+    module: sc.ModuleContext,
+    dc_bias: Annotated[
+        sc.Input[sc.Quantity],
+        sc.QuantityType(unit="V"),
+    ],
+) -> None:
+    flux = module.resource("flux", requires=(DC_SOURCE,))
+    module.ensure(
+        flux,
         DCSourceVoltage(
             range=sc.Quantity(1, "V"),
             level=dc_bias,
             output_enabled=True,
         ),
-    )
     )
 ```
 

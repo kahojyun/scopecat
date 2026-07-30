@@ -7,11 +7,17 @@ the types and functions that enforce it.
 ## Program Boundaries
 
 ```text
-authoring model
-    | elaborate, type-check, and verify
+@module / @template contexts
+    | close definitions
     v
-CoreProgram             typed, symbolic experiment meaning
-    | link, specialize, and lower for one experiment system
+program model           shared symbolic ModuleIR, values, products, scans
+    | elaborate and verify
+    v
+VerifiedAssembly        config-free experiment proof
+    | lower, specialize, verify, and bind one accepted environment
+    v
+LinkedPlan              sealed CoreProgram plus configuration environment
+    | materialize for one experiment system
     v
 RunProgram              closed residual effect program
     | interpret with effect evidence
@@ -19,17 +25,20 @@ RunProgram              closed residual effect program
 logical measurements and durable run records
 ```
 
-`CoreProgram` is transient compiler data, not a versioned interchange format.
+The authoring package owns Python UX; `scopecat.program` owns the symbolic
+model consumed by both authoring and compilation. The compiler does not import
+authoring-private implementation modules. `CoreProgram` is transient compiler
+data, not a versioned interchange format.
 `RunProgram` is the executable representation for one accepted run; physical
 batching does not change its logical points, product identities, or results.
 
 ## Authoring and Ownership
 
-A reusable module combines a pure typed graph with an ordered procedure of
-consequential effects. The procedure may contain desired state, acquisitions,
+A reusable module combines a pure typed graph with an ordered sequence of
+consequential effects. The sequence may contain desired state, acquisitions,
 domain executions, and child-module occurrences.
 Composing a child scopes its resource, value, product, and effect identities to
-that instance and places its procedure exactly once.
+that instance and places its effects exactly once.
 
 Logical resource ports and interface requirements form the reusable boundary
 between a module and the physical configuration selected for a run. Authoring
@@ -40,7 +49,7 @@ alone owns their finite physical endpoint mapping.
 Product declaration, acquisition, and recording are distinct:
 
 1. A module declares the identity and shape of products it can make.
-2. An acquisition places instrument realization at an exact procedure position
+2. An acquisition places instrument realization at an exact effect position
    and names one logical port, one versioned interface, one acquisition, and
    its result ids.
 3. A template or scratch experiment selects product uses that become records.

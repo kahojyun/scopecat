@@ -155,6 +155,8 @@ Notebook control and experiment authoring deliberately expose different verbs:
   parameter, compute output, or scan coordinate.
 
 ```python
+from typing import Annotated
+
 import scopecat as sc
 from scopecat_instruments import (
     DCSourceVoltage,
@@ -162,27 +164,31 @@ from scopecat_instruments import (
 )
 from scopecat_instruments.members import DC_SOURCE, NETWORK_SWEEP
 
-dc_bias = sc.coordinate(
+DC_BIAS = sc.coordinate(
     "dc_bias",
     sc.ScalarType(sc.QuantityType(unit="V")),
 )
 
 @sc.module(id="resonator.capture")
-def capture():
-    return (
-        sc.procedure()
-    .resource("flux", requires=(DC_SOURCE,))
-    .resource("vna", requires=(NETWORK_SWEEP,))
-    .ensure(
-        "flux",
+def capture(
+    module: sc.ModuleContext,
+    dc_bias: Annotated[
+        sc.Input[sc.Quantity],
+        sc.QuantityType(unit="V"),
+    ],
+) -> None:
+    flux = module.resource("flux", requires=(DC_SOURCE,))
+    vna = module.resource("vna", requires=(NETWORK_SWEEP,))
+    module.ensure(
+        flux,
         DCSourceVoltage(
             range=sc.Quantity(1, "V"),     # fixed for every point
             level=dc_bias,                 # resolved from the scan point
             output_enabled=True,
         ),
     )
-    .ensure(
-        "vna",
+    module.ensure(
+        vna,
         NetworkSweepState(
             start_frequency=sc.Quantity(4.9, "GHz"),
             stop_frequency=sc.Quantity(5.1, "GHz"),
@@ -190,8 +196,13 @@ def capture():
             s_parameter="S21",
         ),
     )
-    )
 ```
+
+A module may reference global constants, interfaces, functions, and other
+module definitions. Symbolic `ValueRef` objects are different: pass them
+through typed module parameters so every external dependency appears in the
+Python signature and `ModuleIR`; `@module` rejects captured global symbolic
+values.
 
 A target is a coherent state intention, not an instruction to write every
 field unconditionally. Omitted fields remain unspecified. After point values
@@ -206,9 +217,9 @@ experiments may intentionally leave the same module's hardware differently:
 
 ```python
 @sc.template(id="resonator.capture", kind="resonator")
-def capture_experiment() -> sc.ExperimentBody:
-    run = capture()
-    return sc.experiment(run).postcondition(
+def capture_experiment(experiment: sc.ExperimentContext) -> None:
+    run = experiment.run(capture(DC_BIAS))
+    experiment.finalize(
         run.resources.flux,
         DCSourceVoltage(
             level=sc.Quantity(0, "V"),
@@ -217,7 +228,7 @@ def capture_experiment() -> sc.ExperimentBody:
     )
 ```
 
-All chained `postcondition(...)` declarations form one desired state applied
+All `finalize(...)` declarations form one desired state applied
 only after every point and measurement block completes successfully. A
 postcondition may use fixed values, experiment inputs, or configuration
 parameters, but not scan coordinates or point-local compute results: there is
@@ -266,7 +277,7 @@ preconditions before the trigger because the front panel can change after the
 snapshot; implementation-specific constraints remain driver guards.
 
 A driver implementation may expose several interfaces. Multi-device
-calibration, feedback, and analysis remain experiment procedures rather than
+calibration, feedback, and analysis remain experiment workflows rather than
 device operations.
 
 Persistent hardware settings may not remain undeclared if they can change an
