@@ -8,76 +8,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Protocol, cast, overload, override
 
-from scopecat.authoring._binding_intents import (
-    EnsureStateIntent,
-    ExperimentBindingIntent,
-    InvocationIntent,
-    ResourcePort,
-    ResourceSelector,
-    invoke_operation,
-    resource_port,
-)
-from scopecat.authoring._binding_intents import (
-    bind_property as binding_property,
-)
-from scopecat.authoring._identities import InvocationKey
-from scopecat.authoring._intents import (
-    ModuleInputPort,
-    ModuleOperationDecl,
-)
-from scopecat.authoring._module_ir import (
-    ModuleAcquireEffect,
-    ModuleAcquireResult,
-    ModuleBindingEffect,
-    ModuleBodyIR,
-    ModuleDomainEffect,
-    ModuleEffectIR,
-    ModuleEnsureEffect,
-    ModuleImportBinding,
-    ModuleInstanceIR,
-    ModuleInstanceLookup,
-    ModuleInterfaceIR,
-    ModuleInvokeEffect,
-    ModuleIR,
-    ModulePythonImplementation,
-    ModuleResourceBinding,
-    ModuleValueExport,
-)
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-    ProductAxis,
-    ProductOutputs,
-    ProductRef,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    capture_module_inputs,
-    capture_runtime_input,
-    empty_frozen_mapping,
-    internal_literal_value_ref,
-    internal_module_export_value_ref,
-    internal_value_ref_operation_id,
-)
-from scopecat.authoring.domain import DomainExecution
-from scopecat.authoring.measurements import MeasurementPostprocessor
-from scopecat.authoring.state import DesiredState, StateBinding
-from scopecat.authoring.value_types import (
-    Entity as EntityType,
-)
-from scopecat.authoring.value_types import (
-    Scalar as ScalarType,
-)
-from scopecat.authoring.value_types import ValueType
-from scopecat.authoring.values import (
-    Compute,
-    ComputeFunction,
-    ComputeInput,
-    MetadataValue,
-    ModuleInput,
-)
-from scopecat.authoring.values import (
-    compute as define_compute,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.instrument_members import (
@@ -97,6 +27,76 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.kernel.value_types import Payload
 from scopecat.measurements.results import MeasurementDType
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+    ResourcePort,
+    ResourceSelector,
+    invoke_operation,
+    resource_port,
+)
+from scopecat.program.bindings import (
+    bind_property as binding_property,
+)
+from scopecat.program.domain import DomainExecution
+from scopecat.program.identities import InvocationKey
+from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.module import (
+    ModuleAcquireEffect,
+    ModuleAcquireResult,
+    ModuleBindingEffect,
+    ModuleBodyIR,
+    ModuleDomainEffect,
+    ModuleEffectIR,
+    ModuleEnsureEffect,
+    ModuleImportBinding,
+    ModuleInstanceIR,
+    ModuleInstanceLookup,
+    ModuleInterfaceIR,
+    ModuleInvokeEffect,
+    ModuleIR,
+    ModulePythonImplementation,
+    ModuleResourceBinding,
+    ModuleValueExport,
+)
+from scopecat.program.operations import (
+    ModuleInputPort,
+    ModuleOperationDecl,
+)
+from scopecat.program.products import (
+    ModuleProductDecl,
+    ProductAxis,
+    ProductOutputs,
+    ProductRef,
+)
+from scopecat.program.state import DesiredState, StateBinding
+from scopecat.program.value_refs import (
+    ValueRef,
+    capture_module_inputs,
+    capture_runtime_input,
+    empty_frozen_mapping,
+    internal_literal_value_ref,
+    internal_module_export_value_ref,
+    internal_value_ref_operation_id,
+)
+from scopecat.program.value_types import (
+    Entity as EntityType,
+)
+from scopecat.program.value_types import (
+    Scalar as ScalarType,
+)
+from scopecat.program.value_types import ValueType
+from scopecat.program.values import (
+    Compute,
+    ComputeFunction,
+    ComputeInput,
+    MetadataValue,
+    ModuleInput,
+)
+from scopecat.program.values import (
+    compute as define_compute,
+)
 
 type BindingInput = StateBinding
 type InvocationInput = BindingInput

@@ -7,12 +7,6 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-    RecordSelection,
-    product_axis,
-    product_axis_dimension_id,
-)
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import core_acquisitions
@@ -26,6 +20,12 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.products import (
+    ModuleProductDecl,
+    RecordSelection,
+    product_axis,
+    product_axis_dimension_id,
+)
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config
 

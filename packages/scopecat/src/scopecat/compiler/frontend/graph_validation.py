@@ -12,18 +12,6 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.authoring._binding_intents import ResourcePort
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-    ProductAxis,
-    product_axis_dimension_id,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_value_ref,
-    internal_value_ref_point_dependencies,
-    internal_value_ref_requires_execution,
-)
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
 from scopecat.compiler.semantic.model import (
@@ -55,6 +43,18 @@ from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
 from scopecat.kernel.value_types import Entity, Payload, Scalar
+from scopecat.program.bindings import ResourcePort
+from scopecat.program.products import (
+    ModuleProductDecl,
+    ProductAxis,
+    product_axis_dimension_id,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_lower_value_ref,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_requires_execution,
+)
 
 
 @dataclass(frozen=True, slots=True)

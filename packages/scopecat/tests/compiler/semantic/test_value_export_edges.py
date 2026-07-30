@@ -5,8 +5,11 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._identities import InvocationKey
-from scopecat.authoring._value_refs import (
+from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.relations.context import EvalContext
+from scopecat.kernel.value_types import Float, Scalar, String
+from scopecat.program.identities import InvocationKey
+from scopecat.program.value_refs import (
     internal_bind_value_ref_inputs,
     internal_input_value_ref,
     internal_literal_value_ref,
@@ -18,9 +21,6 @@ from scopecat.authoring._value_refs import (
     internal_transform_value_ref,
     internal_value_ref_module_export,
 )
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.relations.context import EvalContext
-from scopecat.kernel.value_types import Float, Scalar, String
 from tests.testkit.relation_plans import evaluate_scalar
 
 

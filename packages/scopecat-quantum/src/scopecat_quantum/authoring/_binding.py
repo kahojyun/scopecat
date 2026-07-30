@@ -10,8 +10,8 @@ from typing import (
 )
 
 from scopecat import Quantity
-from scopecat.authoring.value_types import ValueValidationError, coerce_literal
 from scopecat.kernel.entity import EntityRef
+from scopecat.program.value_types import ValueValidationError, coerce_literal
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,

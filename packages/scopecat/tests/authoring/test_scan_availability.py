@@ -6,6 +6,7 @@ import scopecat as sc
 from scopecat.compiler.frontend import resolution
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
+from scopecat.program.values import compute as program_compute
 
 
 def _quantity_scan_target() -> sc.ValueRef:
@@ -94,7 +95,7 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
 
 def test_parameter_lookup_key_rejects_external_operation() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
-    key = sc.compute(
+    key = program_compute(
         "compute-key",
         fn=lambda: "q0",
         output_type=entity_type,

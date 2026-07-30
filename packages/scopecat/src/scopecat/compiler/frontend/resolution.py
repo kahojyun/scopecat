@@ -7,22 +7,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
 
-from scopecat.authoring._parameter_contracts import merge_parameter_contracts
-from scopecat.authoring._scan_intents import (
-    AxisSpec,
-    scan_parameter_contracts,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_value_ref_parameter_contracts,
-)
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.authoring.values import ModuleInput
 from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.frontend.assembly_linking import (
-    bind_verified_assembly,
-)
 from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
     SemanticExperimentIR,
@@ -30,6 +17,7 @@ from scopecat.compiler.frontend.elaboration import (
 )
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.problems import frontend_problem as _problem
+from scopecat.compiler.frontend.program_lowering import link_verified_assembly
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
@@ -41,7 +29,7 @@ from scopecat.compiler.frontend.scan_validation import (
     ScanValidationError,
     verify_scans,
 )
-from scopecat.compiler.linking.linked import LinkedPlan, link_program
+from scopecat.compiler.linking.linked import LinkedPlan
 from scopecat.graph.relations.point_domain import analyze_point_domain
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
@@ -49,6 +37,16 @@ from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
 )
+from scopecat.program.parameters import merge_parameter_contracts
+from scopecat.program.scans import (
+    AxisSpec,
+    scan_parameter_contracts,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_value_ref_parameter_contracts,
+)
+from scopecat.program.values import ModuleInput
 from scopecat.records.run_request import RunRequest
 
 
@@ -65,10 +63,7 @@ def resolve_compiled_invocation(
     *,
     environment: ConfigEnvironment,
 ) -> LinkedPlan:
-    return link_program(
-        bind_verified_assembly(compiled.assembly, environment),
-        environment=environment,
-    )
+    return link_verified_assembly(compiled.assembly, environment)
 
 
 def compile_invocation(

@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     )
     from scopecat.authoring import (
         BoolType,
-        Compute,
         ComputeInput,
         DefinitionResource,
         DesiredState,
@@ -58,7 +57,6 @@ if TYPE_CHECKING:
         TableType,
         ValueRef,
         ValueType,
-        compute,
         coordinate,
         domain_execution,
         domain_program,
@@ -74,9 +72,6 @@ if TYPE_CHECKING:
         record_product,
         scratch,
         template,
-    )
-    from scopecat.authoring import (
-        input as input,
     )
     from scopecat.authoring.scans import (
         Scan,
@@ -106,7 +101,6 @@ if TYPE_CHECKING:
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "BoolType": ("scopecat.authoring", "BoolType"),
-    "Compute": ("scopecat.authoring", "Compute"),
     "ComputeInput": ("scopecat.authoring", "ComputeInput"),
     "DefinitionResource": ("scopecat.authoring", "DefinitionResource"),
     "DomainProgramDef": ("scopecat.authoring", "DomainProgramDef"),
@@ -139,12 +133,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "TableType": ("scopecat.authoring", "TableType"),
     "ValueRef": ("scopecat.authoring", "ValueRef"),
     "ValueType": ("scopecat.authoring", "ValueType"),
-    "compute": ("scopecat.authoring", "compute"),
     "coordinate": ("scopecat.authoring", "coordinate"),
     "domain_execution": ("scopecat.authoring", "domain_execution"),
     "domain_program": ("scopecat.authoring", "domain_program"),
     "entity_axis": ("scopecat.authoring", "entity_axis"),
-    "input": ("scopecat.authoring", "input"),
     "input_ref": ("scopecat.authoring", "input_ref"),
     "measurement_postprocessor": ("scopecat.authoring", "measurement_postprocessor"),
     "module": ("scopecat.authoring", "module"),

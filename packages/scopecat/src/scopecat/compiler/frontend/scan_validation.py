@@ -7,12 +7,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.authoring._scan_intents import (
+from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
     Scan,
 )
-from scopecat.authoring._value_refs import (
+from scopecat.program.value_refs import (
     ValueRef,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,

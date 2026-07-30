@@ -6,16 +6,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import cast
 
-from scopecat.authoring._binding_intents import (
-    BindingIntent,
-    EnsureStateIntent,
-    InvocationIntent,
-    ResourcePort,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_value_ref,
-)
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
@@ -51,6 +41,16 @@ from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Entity, Scalar
+from scopecat.program.bindings import (
+    BindingIntent,
+    EnsureStateIntent,
+    InvocationIntent,
+    ResourcePort,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_lower_value_ref,
+)
 from scopecat.records.config import Topology
 
 

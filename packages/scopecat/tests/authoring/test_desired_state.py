@@ -9,13 +9,13 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._module_ir import ModuleEnsureEffect
 from scopecat.compiler.typed.state import EnsureStateSpec
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.planning.local_materialization import (
     materialize_local_postcondition,
     prepare_local_target,
 )
+from scopecat.program.module import ModuleEnsureEffect
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
 from tests.testkit.authoring import link_invocation
 from tests.testkit.local_materialization import materialize_local_execution

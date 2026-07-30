@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._parameter_contracts import ParameterValueContract
-from scopecat.authoring._value_refs import (
+from scopecat.graph.relations.model import BinaryScalarExpr
+from scopecat.program.parameters import ParameterValueContract
+from scopecat.program.value_refs import (
     internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
     internal_value_ref_parameter_contracts,
@@ -12,14 +13,15 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_requires_execution,
     internal_value_ref_scalar_input_ids,
 )
-from scopecat.graph.relations.model import BinaryScalarExpr
+from scopecat.program.values import compute as program_compute
+from scopecat.program.values import input as program_input
 
 
 def test_value_structure_identifies_external_execution_and_point_dependencies() -> None:
     scalar = sc.ScalarType(sc.FloatType())
-    run_input = sc.input("run-input", scalar)
+    run_input = program_input("run-input", scalar)
     point = sc.coordinate("point-value", scalar)
-    compute = sc.compute("execute-value", fn=lambda: 1.0, output_type=scalar)
+    compute = program_compute("execute-value", fn=lambda: 1.0, output_type=scalar)
 
     assert not internal_value_ref_requires_execution(run_input)
     assert not internal_value_ref_requires_execution(point)
@@ -32,20 +34,20 @@ def test_value_structure_identifies_external_execution_and_point_dependencies() 
 
 def test_compute_output_cannot_be_bound_inside_relation_arithmetic() -> None:
     scalar = sc.ScalarType(sc.FloatType())
-    value = sc.input("value", scalar)
+    value = program_input("value", scalar)
     expression = value + 1.0
-    compute = sc.compute("produce", fn=lambda: 1.0, output_type=scalar)
+    compute = program_compute("produce", fn=lambda: 1.0, output_type=scalar)
 
-    with pytest.raises(TypeError, match=r"express this calculation with sc\.compute"):
+    with pytest.raises(TypeError, match=r"ModuleContext\.compute"):
         internal_bind_value_ref_inputs(expression, {"value": compute.output})
 
 
 def test_nested_binding_tracks_point_and_remaining_scalar_inputs() -> None:
     scalar = sc.ScalarType(sc.FloatType())
-    inner_input = sc.input("inner", scalar)
-    outer_input = sc.input("outer", scalar)
+    inner_input = program_input("inner", scalar)
+    outer_input = program_input("outer", scalar)
     point = sc.coordinate("inner", scalar)
-    nested_input = sc.input("nested", scalar)
+    nested_input = program_input("nested", scalar)
 
     inner = internal_bind_value_ref_inputs(
         inner_input + outer_input,
@@ -64,14 +66,14 @@ def test_nested_binding_tracks_point_and_remaining_scalar_inputs() -> None:
 
 def test_compute_output_arithmetic_requires_explicit_compute() -> None:
     scalar = sc.ScalarType(sc.FloatType())
-    compute = sc.compute("produce", fn=lambda: 1.0, output_type=scalar)
-    with pytest.raises(TypeError, match=r"express this calculation with sc\.compute"):
+    compute = program_compute("produce", fn=lambda: 1.0, output_type=scalar)
+    with pytest.raises(TypeError, match=r"ModuleContext\.compute"):
         _ = compute.output + 1.0
 
 
 def test_relation_arithmetic_lowers_to_a_binary_expression() -> None:
     scalar = sc.ScalarType(sc.FloatType())
-    expression = sc.input("value", scalar) + 1.0
+    expression = program_input("value", scalar) + 1.0
 
     lowered = internal_lower_scalar_value_ref(expression)
     assert isinstance(lowered, BinaryScalarExpr)

@@ -1,4 +1,4 @@
-"""Domain-program authoring and module-bound execution.
+"""Domain-program definitions and module-bound execution.
 
 Domain bodies and result contracts are opaque transient values.  Core owns
 only their stable identities, typed value ports, and logical product bindings;
@@ -11,10 +11,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.authoring._intents import ComputeNodeInputValue
-from scopecat.authoring._products import ProductRef
-from scopecat.authoring._value_refs import ValueRef, capture_runtime_input
-from scopecat.authoring.value_types import Scalar, ValueType
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,
@@ -22,6 +18,10 @@ from scopecat.domain.program import (
 )
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
+from scopecat.program.operations import ComputeNodeInputValue
+from scopecat.program.products import ProductRef
+from scopecat.program.value_refs import ValueRef, capture_runtime_input
+from scopecat.program.value_types import Scalar, ValueType
 
 
 @dataclass(frozen=True, slots=True)

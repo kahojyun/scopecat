@@ -7,27 +7,27 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.authoring._binding_intents import (
-    EnsureStateIntent,
-    ExperimentBindingIntent,
-)
-from scopecat.authoring._module_ir import ModuleIR
-from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._validation import (
     validate_experiment_definition,
     validate_experiment_inputs,
 )
-from scopecat.authoring._value_refs import (
+from scopecat.authoring.scans import Scan
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.value_types import ValueType
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+)
+from scopecat.program.module import ModuleIR
+from scopecat.program.products import RecordSelection
+from scopecat.program.value_refs import (
     capture_runtime_inputs,
     empty_frozen_mapping,
 )
-from scopecat.authoring.scans import Scan
-from scopecat.authoring.values import (
+from scopecat.program.values import (
     MetadataValue,
     RuntimeInput,
 )
-from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
-from scopecat.kernel.value_types import ValueType
 
 
 class _InputDefaultMissing:

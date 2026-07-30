@@ -1,17 +1,9 @@
-"""Link one composed authoring assembly into a transient compiler program."""
+"""Lower a verified symbolic assembly into a typed compiler program."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 
-from scopecat.authoring._binding_intents import (
-    EnsureStateIntent,
-    ExperimentBindingIntent,
-    InvocationIntent,
-)
-from scopecat.authoring._parameter_contracts import (
-    ParameterValueContract,
-)
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_lowering import (
     input_row,
@@ -38,6 +30,7 @@ from scopecat.compiler.frontend.parameter_contract_validation import (
 from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.compiler.frontend.product_lowering import lower_products
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
+from scopecat.compiler.linking.linked import LinkedPlan, link_program
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -46,17 +39,25 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.kernel.value_types import Scalar
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+)
+from scopecat.program.parameters import (
+    ParameterValueContract,
+)
 from scopecat.records.parameter import ParameterCatalog
 
 
-def bind_verified_assembly(
+def lower_verified_assembly(
     verified: VerifiedAssembly,
     environment: ConfigEnvironment,
 ) -> CoreProgram:
     """Bind a config-free assembly proof into one config-dependent program."""
 
     try:
-        return _bind_verified_assembly(
+        return _lower_verified_assembly(
             verified,
             environment,
         )
@@ -73,7 +74,19 @@ def bind_verified_assembly(
         )
 
 
-def _bind_verified_assembly(
+def link_verified_assembly(
+    verified: VerifiedAssembly,
+    environment: ConfigEnvironment,
+) -> LinkedPlan:
+    """Lower, specialize, verify, and bind one assembly to its environment."""
+
+    return link_program(
+        lower_verified_assembly(verified, environment),
+        environment,
+    )
+
+
+def _lower_verified_assembly(
     verified: VerifiedAssembly,
     environment: ConfigEnvironment,
 ) -> CoreProgram:

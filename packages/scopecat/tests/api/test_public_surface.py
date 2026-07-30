@@ -11,8 +11,8 @@ import scopecat.daemon as daemon
 import scopecat.kernel.payloads as value_models
 import scopecat.measurements.results as results
 import scopecat.sdk.problems as problems
-from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.compiler.relations.context import EvalContext
+from scopecat.program.value_refs import internal_lower_scalar_value_ref
 from tests.testkit.relation_plans import evaluate_scalar
 
 
@@ -52,8 +52,6 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert sc.ModuleOutputs
     assert sc.ProductOutputs
     assert sc.ProductRef
-    assert callable(sc.input)
-    assert callable(sc.compute)
     assert sc.ComputeInput
     assert callable(sc.coordinate)
     assert callable(sc.parameter)
@@ -102,14 +100,6 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
 
     assert isinstance(typed_values, sc.ExperimentModule)
     assert typed_values.operations[0].output_type == qubit_type
-
-    rows = sc.input(
-        "rows",
-        sc.TableType(
-            columns=(sc.TableColumn("qubit", sc.ScalarType(sc.EntityType())),)
-        ),
-    )
-    assert isinstance(rows.value_type, sc.TableType)
 
 
 def test_experiment_inputs_reject_non_finite_numbers() -> None:

@@ -1,4 +1,4 @@
-"""Explicit hierarchical IR for reusable authoring modules.
+"""Explicit hierarchical IR for reusable modules.
 
 The public contexts and invocation objects are authoring handles. ``ModuleIR``
 is the immutable definition they elaborate into: its interface declares the
@@ -19,41 +19,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, cast
 
-from scopecat.authoring._binding_intents import (
-    EnsureStateIntent,
-    ExperimentBindingIntent,
-    InvocationIntent,
-    ResourcePort,
-)
-from scopecat.authoring._identities import (
-    ComputeDeclarationKey,
-    InvocationKey,
-)
-from scopecat.authoring._intents import (
-    ModuleInputPort,
-    ModuleOperationDecl,
-)
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-    ProductRef,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    empty_frozen_mapping,
-    internal_transform_value_ref,
-    internal_value_ref_input_id,
-    internal_value_ref_module_export,
-    internal_value_ref_operation_id,
-    internal_value_ref_operation_origin,
-    internal_value_ref_unbound_input_ids,
-)
-from scopecat.authoring.domain import DomainExecution
-from scopecat.authoring.measurements import MeasurementPostprocessor
-from scopecat.authoring.value_types import ValueType
-from scopecat.authoring.values import (
-    ComputeFunction,
-    MetadataValue,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.interface_identity import InterfaceId
@@ -65,6 +30,41 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+    ResourcePort,
+)
+from scopecat.program.domain import DomainExecution
+from scopecat.program.identities import (
+    ComputeDeclarationKey,
+    InvocationKey,
+)
+from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.operations import (
+    ModuleInputPort,
+    ModuleOperationDecl,
+)
+from scopecat.program.products import (
+    ModuleProductDecl,
+    ProductRef,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    empty_frozen_mapping,
+    internal_transform_value_ref,
+    internal_value_ref_input_id,
+    internal_value_ref_module_export,
+    internal_value_ref_operation_id,
+    internal_value_ref_operation_origin,
+    internal_value_ref_unbound_input_ids,
+)
+from scopecat.program.value_types import ValueType
+from scopecat.program.values import (
+    ComputeFunction,
+    MetadataValue,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,14 +210,14 @@ class ModuleBindingEffect:
 
 @dataclass(frozen=True, slots=True)
 class ModuleEnsureEffect:
-    """Ensure one coherent desired state at this effects position."""
+    """Ensure one coherent desired state at this effect position."""
 
     intent: EnsureStateIntent
 
 
 @dataclass(frozen=True, slots=True)
 class ModuleInvokeEffect:
-    """Invoke one atomic hardware operation at this effects position."""
+    """Invoke one atomic hardware operation at this effect position."""
 
     intent: InvocationIntent
 
@@ -245,7 +245,7 @@ class ModuleAcquireResult:
 
 @dataclass(frozen=True, slots=True)
 class ModuleAcquireEffect:
-    """Realize selected products at this exact effects position.
+    """Realize selected products at this exact effect position.
 
     Acquisition is an ordered effect because triggering or reading hardware is
     observable execution. Product shape remains a declaration and durable
@@ -286,7 +286,7 @@ type ModuleEffectIR = (
 
 @dataclass(frozen=True, slots=True)
 class ModuleBodyIR:
-    """A closed ordered effects with derived child and product views."""
+    """A closed effect sequence with derived child and product views."""
 
     effects: tuple[ModuleEffectIR, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
@@ -365,7 +365,7 @@ class ModuleBodyIR:
 
     @property
     def child_instances(self) -> tuple[ModuleInstanceIR, ...]:
-        """Derive children so effects remains the sole ordering authority."""
+        """Derive children so effects remain the sole ordering authority."""
 
         return tuple(
             effect for effect in self.effects if isinstance(effect, ModuleInstanceIR)

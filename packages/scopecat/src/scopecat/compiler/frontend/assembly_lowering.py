@@ -5,24 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from scopecat.authoring._intents import ModuleInputPort
-from scopecat.authoring._scan_intents import (
-    AxisSpec,
-    parameter_cell_lookup,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_scalar_value_ref,
-    internal_lower_value_ref,
-)
-from scopecat.authoring.value_types import (
-    Scalar,
-    Table,
-    ValueType,
-    ValueValidationError,
-    coerce_literal,
-)
-from scopecat.authoring.value_types import Table as TableType
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
@@ -93,6 +75,24 @@ from scopecat.kernel.product_identity import (
     ProductUseId,
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.program.operations import ModuleInputPort
+from scopecat.program.scans import (
+    AxisSpec,
+    parameter_cell_lookup,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_lower_scalar_value_ref,
+    internal_lower_value_ref,
+)
+from scopecat.program.value_types import (
+    Scalar,
+    Table,
+    ValueType,
+    ValueValidationError,
+    coerce_literal,
+)
+from scopecat.program.value_types import Table as TableType
 from scopecat.records.config import Topology
 from scopecat.records.parameter import ParameterCatalog
 

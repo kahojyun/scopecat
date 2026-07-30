@@ -6,10 +6,8 @@ from typing import Annotated, cast
 
 import scopecat.authoring as authoring
 from scopecat.authoring import ExperimentInvocation, ExperimentTemplate
-from scopecat.authoring._products import RecordSelection
 from scopecat.authoring.scans import Scan, axis
 from scopecat.authoring.templates import create_experiment_definition_internal
-from scopecat.authoring.values import MetadataValue
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
@@ -20,6 +18,8 @@ from scopecat.config.environment import build_config_environment
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.products import RecordSelection
+from scopecat.program.values import MetadataValue
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR

@@ -7,18 +7,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.authoring._products import (
-    AxisSizeInput,
-    ModuleProductDecl,
-    ProductAxis,
-    RecordSelection,
-    product_axis_dimension_id,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_lower_value_ref,
-)
-from scopecat.authoring.values import MetadataValue
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entities,
@@ -43,6 +31,18 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.records import RecordUse
+from scopecat.program.products import (
+    AxisSizeInput,
+    ModuleProductDecl,
+    ProductAxis,
+    RecordSelection,
+    product_axis_dimension_id,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_lower_value_ref,
+)
+from scopecat.program.values import MetadataValue
 from scopecat.records._run_request_values import normalize_json_value
 from scopecat.records.config import Topology
 

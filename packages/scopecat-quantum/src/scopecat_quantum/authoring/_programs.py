@@ -30,10 +30,10 @@ from scopecat.authoring import (
 from scopecat.authoring import (
     domain_program as _core_domain_program,
 )
-from scopecat.authoring import input as core_input
 from scopecat.authoring._module_handles import (
     create_programmatic_module_internal,
 )
+from scopecat.program.values import input as core_input
 
 from scopecat_quantum._ids import (
     QuantumProgramId,

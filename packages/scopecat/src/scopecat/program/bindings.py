@@ -1,11 +1,10 @@
-"""Source-only resource and desired-state binding intents."""
+"""Resource declarations and desired-state binding intents."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from scopecat.authoring._value_refs import ValueRef
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
 from scopecat.kernel.payloads import PayloadValue
@@ -15,6 +14,7 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.value_types import Payload, Scalar
+from scopecat.program.value_refs import ValueRef
 
 type EntitySource = ValueRef
 type BindingValue = ValueRef | Quantity | EntityRef | str | int | float | bool | None

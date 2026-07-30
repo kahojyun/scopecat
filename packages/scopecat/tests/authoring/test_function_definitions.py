@@ -15,11 +15,16 @@ from scopecat.sdk.instruments import InterfaceRef
 _COUNT_TYPE = sc.IntType(minimum=0)
 _COUNTER = InterfaceRef("test.counter/v1")
 _COUNTER_COUNT = _COUNTER.property("count")
+_GLOBAL_COUNT = sc.coordinate("global_count", sc.ScalarType(_COUNT_TYPE))
 
 
 @dataclass(frozen=True)
 class _DomainCall:
     module_invocation: sc.ModuleInvocation
+
+
+def _identity_count(*, value: object) -> object:
+    return value
 
 
 def test_module_decorator_injects_one_explicit_context() -> None:
@@ -63,6 +68,19 @@ def test_module_definition_requires_an_annotated_context() -> None:
         sc.module(  # pyright: ignore[reportCallIssue]
             missing_context  # pyright: ignore[reportArgumentType]
         )
+
+
+def test_module_definition_rejects_global_symbolic_values() -> None:
+    def captured(module: sc.ModuleContext) -> None:
+        module.compute(
+            "captured",
+            fn=_identity_count,
+            inputs={"value": _GLOBAL_COUNT},
+            output_type=sc.ScalarType(_COUNT_TYPE),
+        )
+
+    with pytest.raises(TypeError, match="declare typed module parameters"):
+        sc.module(captured)
 
 
 def test_template_infers_identity_description_and_defaults() -> None:

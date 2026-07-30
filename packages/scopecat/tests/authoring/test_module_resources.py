@@ -3,11 +3,6 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._binding_intents import (
-    BindingIntent,
-    EnsureStateIntent,
-    InvocationIntent,
-)
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.semantic.model import AcquireEffect
@@ -21,6 +16,11 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.bindings import (
+    BindingIntent,
+    EnsureStateIntent,
+    InvocationIntent,
+)
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.materialized_effects import config_with_physical_resources

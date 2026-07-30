@@ -9,10 +9,9 @@ import pytest
 
 import scopecat as sc
 from scopecat.authoring import ValueValidationError
-from scopecat.authoring._parameter_contracts import ParameterValueContract
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.semantic.model import PlanExpressionSource
@@ -24,6 +23,8 @@ from scopecat.graph.values import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.parameters import ParameterValueContract
+from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import evaluate_scalar
@@ -35,7 +36,7 @@ def _bind_program(
 ) -> CoreProgram:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return bind_verified_assembly(compiled.assembly, environment)
+    return lower_verified_assembly(compiled.assembly, environment)
 
 
 def _payload_type() -> sc.ScalarType:
@@ -358,7 +359,7 @@ def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
     ) -> None:
         del context, payload, count
 
-    incompatible = sc.input(
+    incompatible = program_input(
         "waveform",
         sc.ScalarType(sc.PayloadType("test.waveform")),
     )

@@ -7,62 +7,6 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.authoring._binding_intents import (
-    EnsureStateIntent,
-    ExperimentBindingIntent,
-    InvocationIntent,
-    ResourcePort,
-    ResourceSelector,
-    prefix_resource_port,
-)
-from scopecat.authoring._identities import InvocationKey
-from scopecat.authoring._intents import (
-    ComputeNodeInputValue,
-    ModuleInputPort,
-    ModuleOperationDecl,
-)
-from scopecat.authoring._module_ir import (
-    ModuleAcquireEffect,
-    ModuleBindingEffect,
-    ModuleDomainEffect,
-    ModuleEnsureEffect,
-    ModuleInstanceIR,
-    ModuleInvokeEffect,
-    ModuleIR,
-)
-from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
-    merge_parameter_contracts,
-)
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-    RecordSelection,
-    localize_product_input_refs,
-    prefix_product_decl,
-)
-from scopecat.authoring._scan_intents import AxisSpec
-from scopecat.authoring._value_refs import (
-    PointValueDependency,
-    ValueRef,
-    internal_bind_value_ref_inputs,
-    internal_require_resolved_value_ref,
-    internal_scope_value_ref,
-    internal_transform_value_ref,
-    internal_value_ref_module_export,
-    internal_value_ref_parameter_contracts,
-    internal_value_ref_point_dependencies,
-)
-from scopecat.authoring.domain import LoweredDomainExecution, lower_domain_execution
-from scopecat.authoring.measurements import MeasurementPostprocessor
-from scopecat.authoring.value_types import (
-    Entity as EntityType,
-)
-from scopecat.authoring.value_types import (
-    Scalar as ScalarType,
-)
-from scopecat.authoring.value_types import (
-    Table as TableType,
-)
 from scopecat.compiler.frontend.semantic_elaboration import (
     ScopedPythonImplementation,
     elaborate_semantic_graph,
@@ -88,6 +32,62 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+    ResourcePort,
+    ResourceSelector,
+    prefix_resource_port,
+)
+from scopecat.program.domain import LoweredDomainExecution, lower_domain_execution
+from scopecat.program.identities import InvocationKey
+from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.module import (
+    ModuleAcquireEffect,
+    ModuleBindingEffect,
+    ModuleDomainEffect,
+    ModuleEnsureEffect,
+    ModuleInstanceIR,
+    ModuleInvokeEffect,
+    ModuleIR,
+)
+from scopecat.program.operations import (
+    ComputeNodeInputValue,
+    ModuleInputPort,
+    ModuleOperationDecl,
+)
+from scopecat.program.parameters import (
+    ParameterContract,
+    merge_parameter_contracts,
+)
+from scopecat.program.products import (
+    ModuleProductDecl,
+    RecordSelection,
+    localize_product_input_refs,
+    prefix_product_decl,
+)
+from scopecat.program.scans import AxisSpec
+from scopecat.program.value_refs import (
+    PointValueDependency,
+    ValueRef,
+    internal_bind_value_ref_inputs,
+    internal_require_resolved_value_ref,
+    internal_scope_value_ref,
+    internal_transform_value_ref,
+    internal_value_ref_module_export,
+    internal_value_ref_parameter_contracts,
+    internal_value_ref_point_dependencies,
+)
+from scopecat.program.value_types import (
+    Entity as EntityType,
+)
+from scopecat.program.value_types import (
+    Scalar as ScalarType,
+)
+from scopecat.program.value_types import (
+    Table as TableType,
+)
 
 type _FragmentEffect = (
     ExperimentBindingIntent

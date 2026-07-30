@@ -17,7 +17,6 @@ from typing import (
     overload,
 )
 
-from scopecat.authoring._binding_intents import ExperimentBindingIntent
 from scopecat.authoring._module_handles import (
     ExperimentModule,
     ModuleContext,
@@ -29,27 +28,31 @@ from scopecat.authoring._module_handles import (
     create_experiment_module_internal,
     module_use_invocation,
 )
-from scopecat.authoring._products import (
-    ProductRef,
-    RecordSelection,
-    record_coordinate,
-    record_product,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    empty_frozen_mapping,
-    internal_value_ref_point_dependencies,
-    internal_value_ref_requires_execution,
-)
 from scopecat.authoring.scans import Scan
-from scopecat.authoring.state import DesiredState
 from scopecat.authoring.templates import (
     ExperimentDefinition,
     ExperimentInvocation,
     ExperimentTemplate,
     create_experiment_definition_internal,
 )
-from scopecat.authoring.value_types import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.frozen import freeze_json_mapping
+from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.program.bindings import ExperimentBindingIntent
+from scopecat.program.products import (
+    ProductRef,
+    RecordSelection,
+    record_coordinate,
+    record_product,
+)
+from scopecat.program.state import DesiredState
+from scopecat.program.value_refs import (
+    ValueRef,
+    empty_frozen_mapping,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_requires_execution,
+)
+from scopecat.program.value_types import (
     Bool,
     Entity,
     Float,
@@ -61,11 +64,8 @@ from scopecat.authoring.value_types import (
     Table,
     ValueType,
 )
-from scopecat.authoring.values import MetadataValue, RuntimeInput
-from scopecat.authoring.values import input as authoring_input
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.frozen import freeze_json_mapping
-from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.program.values import MetadataValue, RuntimeInput
+from scopecat.program.values import input as authoring_input
 
 type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef
@@ -479,6 +479,7 @@ def _module_from_function[**P](
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentModule[P]:
     source = cast("DefinitionFunction", fn)
+    _reject_global_value_refs(source)
     contract = _definition_contract(
         source,
         defaults=False,
@@ -507,6 +508,22 @@ def _module_from_function[**P](
         definition=cast("Callable[P, object]", fn),
         signature=contract.signature,
     )
+
+
+def _reject_global_value_refs(fn: DefinitionFunction) -> None:
+    globals_used = cast(
+        "Mapping[str, object]",
+        inspect.getclosurevars(fn).globals,
+    )
+    captured = tuple(
+        name for name, value in globals_used.items() if isinstance(value, ValueRef)
+    )
+    if captured:
+        names = ", ".join(repr(name) for name in sorted(captured))
+        raise TypeError(
+            "@module definitions cannot capture global symbolic values: "
+            f"{names}; declare typed module parameters instead"
+        )
 
 
 def _template_from_function[**P](
@@ -746,7 +763,7 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
 
 
 def _input_port(name: str, value: ValueRef):
-    from scopecat.authoring._intents import ModuleInputPort
+    from scopecat.program.operations import ModuleInputPort
 
     return ModuleInputPort(id=name, value_type=value.value_type)
 

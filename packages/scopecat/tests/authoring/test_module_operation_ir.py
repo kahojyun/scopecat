@@ -3,14 +3,14 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._identities import ComputeDeclarationKey
-from scopecat.authoring._module_ir import (
+from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.program.identities import ComputeDeclarationKey
+from scopecat.program.module import (
     ModuleBodyIR,
     ModuleInterfaceIR,
     ModuleIR,
 )
-from scopecat.authoring._value_refs import internal_value_ref_operation_origin
-from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.program.value_refs import internal_value_ref_operation_origin
 
 
 def test_module_definition_splits_operation_from_python_implementation() -> None:

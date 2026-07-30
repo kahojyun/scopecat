@@ -9,6 +9,7 @@ from scopecat.compiler.frontend.scan_validation import (
     verify_scans,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.values import input as program_input
 
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
 
@@ -35,7 +36,7 @@ def test_axes_are_verified_in_declaration_order() -> None:
 def test_bound_input_can_center_a_scan() -> None:
     scan = sc.axis(
         _point("frequency"),
-        center=sc.input("center", _FREQUENCY),
+        center=program_input("center", _FREQUENCY),
         span="2 GHz",
         points=3,
     )
@@ -51,7 +52,7 @@ def test_bound_input_can_center_a_scan() -> None:
 def test_unbound_input_cannot_center_a_scan() -> None:
     scan = sc.axis(
         _point("frequency"),
-        center=sc.input("center", _FREQUENCY),
+        center=program_input("center", _FREQUENCY),
         span="2 GHz",
         points=3,
     )
@@ -81,7 +82,7 @@ def test_scan_source_cannot_depend_on_another_point() -> None:
 
 
 def test_parameter_axis_key_can_use_a_bound_input() -> None:
-    device = sc.input("device", sc.ScalarType(sc.StringType()))
+    device = program_input("device", sc.ScalarType(sc.StringType()))
     lookup = sc.parameter_lookup(
         "device_parameters",
         key={"device": device},

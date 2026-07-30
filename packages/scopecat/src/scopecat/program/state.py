@@ -1,14 +1,14 @@
-"""Declarative desired-state contracts for experiment authoring."""
+"""Declarative desired-state contracts."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Protocol
 
-from scopecat.authoring._value_refs import ValueRef
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.instrument_members import PropertyRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.value_refs import ValueRef
 
 type StateBinding = Quantity | EntityRef | str | int | float | bool | None | ValueRef
 

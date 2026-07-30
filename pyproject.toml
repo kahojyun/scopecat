@@ -158,6 +158,16 @@ forbidden_modules = [
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
+name = "Shared program model is independent from authoring and compilation"
+type = "forbidden"
+source_modules = ["scopecat.program"]
+forbidden_modules = [
+  "scopecat.authoring",
+  "scopecat.compiler",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
 name = "Application layers do not select concrete adapters"
 type = "forbidden"
 source_modules = [

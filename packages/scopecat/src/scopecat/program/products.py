@@ -1,4 +1,4 @@
-"""Source product declarations, hygienic references, and record selections."""
+"""Product declarations, hygienic references, and record selections."""
 
 from __future__ import annotations
 
@@ -6,12 +6,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import cast, override
 
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    capture_runtime_input,
-    empty_frozen_mapping,
-)
-from scopecat.authoring.values import MetadataValue
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.product_identity import (
@@ -24,6 +18,12 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.results import MeasurementDType, MeasurementVariableRole
+from scopecat.program.value_refs import (
+    ValueRef,
+    capture_runtime_input,
+    empty_frozen_mapping,
+)
+from scopecat.program.values import MetadataValue
 
 type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]

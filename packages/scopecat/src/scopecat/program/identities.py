@@ -1,4 +1,4 @@
-"""Nominal identities shared by the authoring data model."""
+"""Nominal identities shared by the symbolic program model."""
 
 from __future__ import annotations
 

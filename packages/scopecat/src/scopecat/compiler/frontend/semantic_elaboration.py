@@ -7,29 +7,6 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.authoring._binding_intents import (
-    EnsureStateIntent,
-    ExperimentBindingIntent,
-    InvocationIntent,
-)
-from scopecat.authoring._identities import ComputeDeclarationKey
-from scopecat.authoring._intents import (
-    ComputeNodeInputValue,
-    ModuleOperationDecl,
-)
-from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
-    ParameterValueContract,
-)
-from scopecat.authoring._value_refs import (
-    PointValueDependency,
-    ValueRef,
-    internal_lower_value_ref,
-    internal_value_ref_operation_id,
-)
-from scopecat.authoring.domain import LoweredDomainExecution
-from scopecat.authoring.measurements import MeasurementPostprocessor
-from scopecat.authoring.values import ComputeFunction
 from scopecat.compiler.frontend.value_binding import input_cell
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
@@ -70,6 +47,29 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import Scalar, TableColumn, ValueType
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+)
+from scopecat.program.domain import LoweredDomainExecution
+from scopecat.program.identities import ComputeDeclarationKey
+from scopecat.program.measurements import MeasurementPostprocessor
+from scopecat.program.operations import (
+    ComputeNodeInputValue,
+    ModuleOperationDecl,
+)
+from scopecat.program.parameters import (
+    ParameterContract,
+    ParameterValueContract,
+)
+from scopecat.program.value_refs import (
+    PointValueDependency,
+    ValueRef,
+    internal_lower_value_ref,
+    internal_value_ref_operation_id,
+)
+from scopecat.program.values import ComputeFunction
 
 
 @dataclass(frozen=True, slots=True)

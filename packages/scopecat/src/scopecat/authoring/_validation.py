@@ -10,18 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Protocol, cast
 
-from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._problems import authoring_problem as problem
-from scopecat.authoring._scan_intents import (
-    AroundScanSource,
-    AxisSpec,
-    Scan,
-    parameter_cell_lookup,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_value_ref_input_id,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -32,6 +21,17 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import ValueType
 from scopecat.kernel.value_validation import ValueValidationError, validate_literal
+from scopecat.program.module import ModuleIR
+from scopecat.program.scans import (
+    AroundScanSource,
+    AxisSpec,
+    Scan,
+    parameter_cell_lookup,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_value_ref_input_id,
+)
 
 
 class ExperimentInputDefinition(Protocol):

@@ -7,8 +7,8 @@ import pytest
 import scopecat.authoring as authoring
 from scopecat.authoring.scans import axis
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import (
     ComputeEdge,
@@ -21,6 +21,8 @@ from scopecat.graph.values import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.values import compute as program_compute
+from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import link_invocation, load_config
 from tests.testkit.local_materialization import materialize_local_execution
@@ -32,7 +34,7 @@ def _bind_program(
 ) -> CoreProgram:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return bind_verified_assembly(compiled.assembly, environment)
+    return lower_verified_assembly(compiled.assembly, environment)
 
 
 def _echo_program(*, program: object) -> dict[str, object]:
@@ -127,7 +129,7 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
     ) -> None:
         del context, frequency
 
-    duration = authoring.input(
+    duration = program_input(
         "duration",
         authoring.ScalarType(authoring.QuantityType(unit="ns")),
     )
@@ -154,7 +156,7 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
     ) -> None:
         del context, gates
 
-    rows = authoring.input("rows", float_gate_table)
+    rows = program_input("rows", float_gate_table)
     with pytest.raises(
         authoring.ValueValidationError,
         match=r"control: Scalar\[Entity\]",
@@ -249,7 +251,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     ) -> None:
         del context, program
 
-    incompatible_produce = authoring.compute(
+    incompatible_produce = program_compute(
         "produce",
         fn=_empty_payload,
         output_type=pulse,

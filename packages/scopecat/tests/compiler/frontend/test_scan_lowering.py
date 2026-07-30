@@ -6,11 +6,6 @@ from typing import cast
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._parameter_contracts import ParameterValueContract
-from scopecat.authoring._scan_intents import (
-    AxisSpec,
-    scan_parameter_contracts,
-)
 from scopecat.compiler.frontend.scan_lowering import (
     lower_scans_point_domain,
 )
@@ -22,6 +17,12 @@ from scopecat.graph.relations.point_domain import (
     analyze_point_domain,
 )
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.parameters import ParameterValueContract
+from scopecat.program.scans import (
+    AxisSpec,
+    scan_parameter_contracts,
+)
+from scopecat.program.values import input as program_input
 
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
 
@@ -94,7 +95,7 @@ def test_around_scan_rejects_value_unit_argument() -> None:
 
 
 def test_around_scan_keeps_only_its_typed_center_as_authoring_data() -> None:
-    center = sc.input("center", _FREQUENCY)
+    center = program_input("center", _FREQUENCY)
 
     axis = _lower_axis(
         sc.axis(

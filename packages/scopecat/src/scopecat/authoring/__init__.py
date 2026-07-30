@@ -9,7 +9,34 @@ from scopecat.authoring._module_handles import (
     ModuleResource,
     ModuleResources,
 )
-from scopecat.authoring._products import (
+from scopecat.authoring.definitions import (
+    ExperimentContext,
+    Input,
+    ScratchDefinition,
+    input_ref,
+    module,
+    scratch,
+    template,
+)
+from scopecat.authoring.templates import (
+    ExperimentInvocation,
+    ExperimentTemplate,
+)
+from scopecat.domain.program import (
+    DomainInputPort,
+    DomainProgramDef,
+    DomainResultPort,
+)
+from scopecat.program.domain import (
+    DomainExecution,
+    domain_execution,
+    domain_program,
+)
+from scopecat.program.measurements import (
+    MeasurementPostprocessor,
+    measurement_postprocessor,
+)
+from scopecat.program.products import (
     ProductAxis,
     ProductOutputs,
     ProductRef,
@@ -21,66 +48,43 @@ from scopecat.authoring._products import (
     record_product,
     shot_axis,
 )
-from scopecat.authoring.definitions import (
-    ExperimentContext,
-    Input,
-    ScratchDefinition,
-    input_ref,
-    module,
-    scratch,
-    template,
-)
-from scopecat.authoring.domain import (
-    DomainExecution,
-    domain_execution,
-    domain_program,
-)
-from scopecat.authoring.measurements import (
-    MeasurementPostprocessor,
-    measurement_postprocessor,
-)
-from scopecat.authoring.state import (
+from scopecat.program.state import (
     DesiredState,
     StateBinding,
 )
-from scopecat.authoring.templates import (
-    ExperimentInvocation,
-    ExperimentTemplate,
-)
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Bool as BoolType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Entity as EntityType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Float as FloatType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Int as IntType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Payload as PayloadType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Quantity as QuantityType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Scalar as ScalarType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     String as StringType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     Table as TableType,
 )
-from scopecat.authoring.value_types import (
+from scopecat.program.value_types import (
     TableColumn,
     ValueType,
     ValueValidationError,
 )
-from scopecat.authoring.values import (
-    Compute,
+from scopecat.program.values import (
     ComputeInput,
     MetadataValue,
     ModuleInput,
@@ -88,21 +92,13 @@ from scopecat.authoring.values import (
     RuntimeInput,
     ScalarInput,
     ValueRef,
-    compute,
     coordinate,
     parameter,
     parameter_lookup,
 )
-from scopecat.authoring.values import input as input
-from scopecat.domain.program import (
-    DomainInputPort,
-    DomainProgramDef,
-    DomainResultPort,
-)
 
 __all__ = [
     "BoolType",
-    "Compute",
     "ComputeInput",
     "DefinitionResource",
     "DesiredState",
@@ -144,12 +140,10 @@ __all__ = [
     "ValueRef",
     "ValueType",
     "ValueValidationError",
-    "compute",
     "coordinate",
     "domain_execution",
     "domain_program",
     "entity_axis",
-    "input",
     "input_ref",
     "measurement_postprocessor",
     "module",

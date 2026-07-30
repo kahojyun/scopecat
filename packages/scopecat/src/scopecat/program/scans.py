@@ -1,23 +1,23 @@
-"""One private axis model behind the opaque public scan handles."""
+"""Point-domain scan intents shared by authoring and compilation."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.authoring._parameter_contracts import (
+from scopecat.graph.relations.model import ParameterLookupUse
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_types import Scalar
+from scopecat.program.parameters import (
     ParameterContract,
     merge_parameter_contracts,
 )
-from scopecat.authoring._value_refs import (
+from scopecat.program.value_refs import (
     ScalarOperand,
     ValueRef,
     internal_value_ref_parameter_contracts,
     internal_value_ref_parameter_lookup,
 )
-from scopecat.graph.relations.model import ParameterLookupUse
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.value_types import Scalar
 
 type ScanValue = Quantity | EntityRef | str | int | float | bool | None
 type ScanCenter = ValueRef | Quantity

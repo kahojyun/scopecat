@@ -9,25 +9,12 @@ import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
-from scopecat.authoring._scan_intents import (
-    AxisSpec,
-    scan_parameter_contracts,
-)
-from scopecat.authoring._value_refs import (
-    ValueRef,
-    internal_bind_value_ref_inputs,
-    internal_lower_scalar_value_ref,
-    internal_lower_value_ref,
-    internal_value_ref_from_expression,
-    internal_value_ref_parameter_contracts,
-    internal_value_ref_point_dependencies,
-)
-from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
     SemanticExperimentIR,
     elaborate_module,
 )
+from scopecat.compiler.frontend.program_lowering import link_verified_assembly
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
@@ -35,7 +22,6 @@ from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
-from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
@@ -60,6 +46,21 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.scans import (
+    AxisSpec,
+    scan_parameter_contracts,
+)
+from scopecat.program.value_refs import (
+    ValueRef,
+    internal_bind_value_ref_inputs,
+    internal_lower_scalar_value_ref,
+    internal_lower_value_ref,
+    internal_value_ref_from_expression,
+    internal_value_ref_parameter_contracts,
+    internal_value_ref_point_dependencies,
+)
+from scopecat.program.values import compute as program_compute
+from scopecat.program.values import input as program_input
 from scopecat.records.config import (
     RoutingEndpointBinding,
     RoutingGraph,
@@ -337,14 +338,14 @@ def test_compute_function_signature_must_match_explicit_inputs() -> None:
     output_type = authoring.ScalarType(authoring.StringType())
 
     with pytest.raises(TypeError, match="does not match declared inputs"):
-        sc.compute(
+        program_compute(
             "missing-input",
             fn=_identity_value,
             output_type=output_type,
         )
 
     with pytest.raises(TypeError, match="must use explicit named parameters"):
-        sc.compute(
+        program_compute(
             "variadic-inputs",
             fn=_collect_values,
             inputs={"value": "declared"},
@@ -698,7 +699,7 @@ def test_request_projection_explicitly_handles_authoring_semantic_values() -> No
 
 
 def test_request_projection_rejects_transient_typed_and_compiler_values() -> None:
-    typed_value = sc.input(
+    typed_value = program_input(
         "subject",
         sc.ScalarType(sc.EntityType()),
     )
@@ -734,10 +735,7 @@ def test_link_resolves_config_dependent_assembly_fragments() -> None:
         parameter_contracts=scan_parameter_contracts(axis),
     )
     environment = build_config_environment(load_config())
-    resolved = link_program(
-        bind_verified_assembly(verify_assembly(assembly), environment),
-        environment,
-    )
+    resolved = link_verified_assembly(verify_assembly(assembly), environment)
 
     assert resolved.program.id == "authored-simple-scan"
     assert resolved.environment.config.id == load_config().id
@@ -758,10 +756,7 @@ def test_link_validates_scan_axis_parameter_contracts() -> None:
     )
     environment = build_config_environment(load_config())
     with pytest.raises(CheckFailed) as caught:
-        link_program(
-            bind_verified_assembly(verify_assembly(assembly), environment),
-            environment,
-        )
+        link_verified_assembly(verify_assembly(assembly), environment)
 
     assert caught.value.problems[0].code == "unknown_authoring_parameter"
     assert caught.value.problems[0].location == model_location(
@@ -950,8 +945,8 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
 
 def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
     value_type = authoring.ScalarType(authoring.FloatType())
-    child_value = authoring.input("value", value_type)
-    parent_value = authoring.input("value", value_type)
+    child_value = program_input("value", value_type)
+    parent_value = program_input("value", value_type)
 
     bound = internal_bind_value_ref_inputs(
         child_value + 1.0,
@@ -968,7 +963,7 @@ def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
 def test_expression_input_binding_does_not_capture_sibling_child_inputs() -> None:
     value_type = authoring.ScalarType(authoring.FloatType())
     child_value = internal_value_ref_from_expression(input_ref("a"), value_type)
-    parent_b = authoring.input("b", value_type)
+    parent_b = program_input("b", value_type)
     child_b = internal_value_ref_from_expression(as_scalar_expr(10.0), value_type)
 
     bound = internal_bind_value_ref_inputs(
@@ -1123,7 +1118,10 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         del context
 
     @sc.module(id="test.scripted_module_scan")
-    def scan(context: sc.ModuleContext) -> None:
+    def scan(
+        context: sc.ModuleContext,
+        drive_frequency: _QuantityInput,
+    ) -> None:
         source = context.resource(
             "source",
             requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
@@ -1131,7 +1129,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         context.bind_property(
             source,
             _SET_FREQUENCY_VALUE,
-            value=DRIVE_FREQUENCY_POINT,
+            value=drive_frequency,
         )
         signal = context.product("signal", unit="ratio")
         context.acquire(
@@ -1143,7 +1141,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     @sc.template(id="test.scripted_scan", kind="simple_scan")
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(prelude())
-        call = experiment.run(scan())
+        call = experiment.run(scan(DRIVE_FREQUENCY_POINT))
         experiment.record(call.products.signal)
 
     resolved = link_invocation(
@@ -1173,7 +1171,10 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
 
 def test_product_declaration_uses_axes() -> None:
     @sc.module(id="test.record_axes")
-    def module(context: sc.ModuleContext) -> None:
+    def module(
+        context: sc.ModuleContext,
+        drive_frequency: _QuantityInput,
+    ) -> None:
         source = context.resource(
             "source",
             requires=(_SET_FREQUENCY, _SCALAR_SIGNAL),
@@ -1181,7 +1182,7 @@ def test_product_declaration_uses_axes() -> None:
         context.bind_property(
             source,
             _SET_FREQUENCY_VALUE,
-            value=DRIVE_FREQUENCY_POINT,
+            value=drive_frequency,
         )
         signal = context.product(
             "signal",
@@ -1199,7 +1200,7 @@ def test_product_declaration_uses_axes() -> None:
 
     @sc.template(id="test.record_axes", kind="simple_scan")
     def template(experiment: sc.ExperimentContext) -> None:
-        call = experiment.run(module())
+        call = experiment.run(module(DRIVE_FREQUENCY_POINT))
         experiment.record(call.products.signal)
 
     resolved = link_invocation(

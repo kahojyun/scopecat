@@ -7,8 +7,6 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._binding_intents import requires, resource_port
-from scopecat.authoring._products import ModuleProductDecl, record_product
 from scopecat.compiler.frontend.assembly_lowering import validate_assembly_entrypoint
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
@@ -37,6 +35,10 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar
+from scopecat.program.bindings import requires, resource_port
+from scopecat.program.products import ModuleProductDecl, record_product
+from scopecat.program.values import compute as program_compute
+from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config
 
@@ -67,7 +69,7 @@ def _identity_value(*, value: object) -> object:
 
 
 def test_compute_graph_is_verified_before_parameter_contracts() -> None:
-    missing = sc.compute(
+    missing = program_compute(
         "missing-producer",
         fn=lambda: 1.0,
         output_type=sc.ScalarType(sc.FloatType()),
@@ -94,7 +96,7 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
 
 
 def test_invocation_rejects_an_unregistered_compute_output() -> None:
-    missing = sc.compute(
+    missing = program_compute(
         "missing-program",
         fn=lambda: {"program": True},
         output_type=sc.ScalarType(sc.PayloadType("pulse-program")),
@@ -159,7 +161,7 @@ def test_module_rejects_a_table_shaped_plan_state_binding() -> None:
 
 
 def test_product_axes_reject_table_values_at_authoring_boundary() -> None:
-    rows = sc.input(
+    rows = program_input(
         "rows",
         sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
     )
@@ -456,7 +458,7 @@ def test_entrypoint_closure_is_an_authoring_problem(
 
 
 def test_resource_selector_requires_a_scalar_entity_value() -> None:
-    invalid_entity = sc.input("subject", sc.ScalarType(sc.StringType()))
+    invalid_entity = program_input("subject", sc.ScalarType(sc.StringType()))
     port = resource_port(
         "drive",
         requires(for_entities=(invalid_entity,)),
@@ -475,14 +477,14 @@ def test_resource_selector_requires_a_scalar_entity_value() -> None:
 
 def test_compute_output_arithmetic_requires_an_explicit_compute() -> None:
     value_type = sc.ScalarType(sc.FloatType())
-    child_value = sc.input("value", value_type)
-    producer = sc.compute(
+    child_value = program_input("value", value_type)
+    producer = program_compute(
         "producer",
         fn=lambda: 1.0,
         output_type=value_type,
     )
 
-    with pytest.raises(TypeError, match=r"express this calculation with sc\.compute"):
+    with pytest.raises(TypeError, match=r"ModuleContext\.compute"):
         _ = producer.output + child_value
 
 
