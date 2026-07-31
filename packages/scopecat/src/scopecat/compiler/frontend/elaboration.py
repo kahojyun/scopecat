@@ -41,12 +41,12 @@ from scopecat.program.module import (
     ModuleAcquireEffect,
     ModuleBindingEffect,
     ModuleBodyIR,
+    ModuleDef,
     ModuleDomainEffect,
     ModuleEnsureEffect,
     ModuleInstanceIR,
     ModuleInterfaceIR,
     ModuleInvokeEffect,
-    ModuleIR,
     ModulePythonImplementation,
 )
 from scopecat.program.operations import (
@@ -219,7 +219,7 @@ def _merge_module_fragments(
 
 
 def compose_module(
-    module: ModuleIR,
+    module: ModuleDef,
     /,
     **inputs: object,
 ) -> LogicalProgram:

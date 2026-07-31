@@ -47,6 +47,7 @@ from scopecat.program.module import (
     ModuleAcquireResult,
     ModuleBindingEffect,
     ModuleBodyIR,
+    ModuleDef,
     ModuleDomainEffect,
     ModuleEffectIR,
     ModuleEnsureEffect,
@@ -55,7 +56,6 @@ from scopecat.program.module import (
     ModuleInstanceLookup,
     ModuleInterfaceIR,
     ModuleInvokeEffect,
-    ModuleIR,
     ModulePythonImplementation,
     ModuleResourceBinding,
     ModuleValueExport,
@@ -196,10 +196,10 @@ class ModuleContext:
         id: str,
         input_ports: Sequence[ModuleInputPort] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ModuleIR:
+    ) -> ModuleDef:
         """Freeze this context directly as one reusable module definition."""
 
-        return ModuleIR(
+        return ModuleDef(
             id=id,
             interface=ModuleInterfaceIR(
                 imports=tuple(input_ports),
@@ -668,7 +668,7 @@ class ModuleOutputs(Mapping[str, ValueRef]):
 class ExperimentModule[**P]:
     """One closed module definition with a single Python call contract."""
 
-    _ir: ModuleIR = field(repr=False)
+    _ir: ModuleDef = field(repr=False)
     _definition: Callable[P, object] | None = field(
         repr=False,
         compare=False,
@@ -680,7 +680,7 @@ class ExperimentModule[**P]:
         raise TypeError(msg)
 
     @property
-    def ir(self) -> ModuleIR:
+    def ir(self) -> ModuleDef:
         """Return the explicit immutable definition behind this handle."""
 
         return self._ir
@@ -879,7 +879,7 @@ class ExperimentModule[**P]:
 
 @overload
 def create_experiment_module_internal[**P](
-    ir: ModuleIR,
+    ir: ModuleDef,
     *,
     definition: Callable[P, object],
     signature: inspect.Signature,
@@ -888,7 +888,7 @@ def create_experiment_module_internal[**P](
 
 @overload
 def create_experiment_module_internal(
-    ir: ModuleIR,
+    ir: ModuleDef,
     *,
     definition: None = None,
     signature: inspect.Signature,
@@ -896,7 +896,7 @@ def create_experiment_module_internal(
 
 
 def create_experiment_module_internal(
-    ir: ModuleIR,
+    ir: ModuleDef,
     *,
     definition: Callable[..., object] | None = None,
     signature: inspect.Signature,

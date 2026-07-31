@@ -13,7 +13,7 @@ and functions that enforce it.
 @module / @template contexts
     | close definitions
     v
-program model           shared symbolic ModuleIR, values, products, scans
+program model           shared symbolic ModuleDef, values, products, scans
     | elaborate and verify
     v
 VerifiedLogicalProgram  config-free experiment proof

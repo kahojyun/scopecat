@@ -20,7 +20,7 @@ from scopecat.program.values import MetadataValue
 class ExperimentProgram:
     """One experiment's root occurrences and effects.
 
-    Unlike :class:`ModuleIR`, this root is not reusable, invocable, or named as
+    Unlike :class:`ModuleDef`, this root is not reusable, invocable, or named as
     a module. Its inputs are bound by the enclosing experiment definition and
     it may consume experiment coordinates and parameter expressions directly.
     """
