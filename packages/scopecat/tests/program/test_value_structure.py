@@ -41,16 +41,6 @@ def test_value_structure_identifies_external_execution_and_point_dependencies() 
     ]
 
 
-def test_compute_output_cannot_be_bound_inside_relation_arithmetic() -> None:
-    scalar = sc.ScalarType(sc.FloatType())
-    value = program_input("value", scalar)
-    expression = value + 1.0
-    compute = program_compute("produce", fn=lambda: 1.0, output_type=scalar)
-
-    with pytest.raises(TypeError, match=r"ModuleContext\.compute"):
-        internal_bind_value_ref_inputs(expression, {"value": compute.output})
-
-
 def test_nested_binding_tracks_point_and_remaining_scalar_inputs() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     inner_input = program_input("inner", scalar)

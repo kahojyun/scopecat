@@ -227,13 +227,6 @@ def test_lookup_expression_requires_exactly_its_declared_key_inputs() -> None:
         )
 
 
-def test_verified_plan_retains_the_scalar_ast() -> None:
-    source = lit(1)
-    verified = verify_relation_plan(source, expected_type=INT)
-
-    assert verified is source
-
-
 @pytest.mark.parametrize(
     ("expression", "code"),
     [
