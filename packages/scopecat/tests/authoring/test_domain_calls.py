@@ -7,8 +7,8 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.frontend.elaboration import compose_module
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.linking.linked import materialize_linked_points
 from scopecat.compiler.semantic.value_expressions import TableValue
 from scopecat.compiler.typed.domain_results import domain_result_closure
@@ -126,7 +126,7 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
             )
         )
 
-    semantic = elaborate_module(module.ir).domain_executions[0]
+    semantic = compose_module(module.ir).domain_executions[0]
 
     assert tuple(port.id for port in semantic.program.input_ports) == ("value",)
     assert tuple(port.id for port in semantic.program.compiler_input_ports) == (
@@ -312,7 +312,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
         context.call(right)
         context.call(left)
 
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
 
     assert tuple(execution.id for execution in assembly.domain_executions) == (
         "right/call/program",
@@ -350,7 +350,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module.ir))
+        verify_logical_program(compose_module(module.ir))
     assert "semantic_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }
@@ -381,7 +381,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         outer = wrapper.instantiate("outer", x_count=x_count)
         context.call(outer)
 
-    assembly = elaborate_module(root_module.ir, x_count=point_x_count)
+    assembly = compose_module(root_module.ir, x_count=point_x_count)
     assert len(assembly.domain_executions) == 1
     assert (
         assembly.domain_executions[0].program.symbol_id.qualified_name
@@ -441,7 +441,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
             )
         )
 
-    graph = elaborate_module(module.ir).semantic_graph
+    graph = compose_module(module.ir).semantic_graph
     value_ids = {definition.id.qualified_name for definition in graph.value_defs}
     assert "domain/inputs/value" in value_ids
     assert "domain_execution/call%2Fprogram/inputs/value" in value_ids

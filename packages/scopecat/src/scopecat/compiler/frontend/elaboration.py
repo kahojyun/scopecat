@@ -176,7 +176,7 @@ class _HierarchyRoot(Protocol):
 
 
 @dataclass(frozen=True, kw_only=True)
-class ExperimentAssembly(_AssemblyEnvelope):
+class LogicalProgram(_AssemblyEnvelope):
     """Closed config-free semantic graph plus plan and resource intents."""
 
     experiment_id: str
@@ -306,11 +306,11 @@ def _merge_module_fragments(
     )
 
 
-def elaborate_module(
+def compose_module(
     module: ModuleIR,
     /,
     **inputs: object,
-) -> ExperimentAssembly:
+) -> LogicalProgram:
     """Elaborate one root module through the only hierarchy-flattening pass."""
 
     return _elaborate_hierarchy(
@@ -321,13 +321,13 @@ def elaborate_module(
     )
 
 
-def elaborate_experiment_program(
+def compose_experiment(
     program: ExperimentProgram,
     *,
     experiment_id: str,
     kind: str,
     inputs: Mapping[str, object],
-) -> ExperimentAssembly:
+) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
     return _elaborate_hierarchy(
@@ -344,7 +344,7 @@ def _elaborate_hierarchy(
     experiment_id: str,
     kind: str,
     inputs: Mapping[str, object],
-) -> ExperimentAssembly:
+) -> LogicalProgram:
     fragment = _elaborate_program_ir(
         root,
         inputs=inputs,
@@ -361,7 +361,7 @@ def _elaborate_hierarchy(
         point_dependencies=fragment.point_dependencies,
         parameter_contracts=fragment.parameter_contracts,
     )
-    return ExperimentAssembly(
+    return LogicalProgram(
         experiment_id=experiment_id,
         kind=kind,
         inputs=fragment.inputs,

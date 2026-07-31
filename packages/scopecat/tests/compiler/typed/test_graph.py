@@ -68,7 +68,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
 
     invocation = template.bind()
     compiled = compile_invocation(invocation)
-    graph = compiled.assembly.graph.semantic_graph.graph
+    graph = compiled.program.program.semantic_graph
     operations = graph.operations
     assert [operation.id.local_id for operation in operations] == [
         "produce",

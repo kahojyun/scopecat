@@ -8,12 +8,14 @@ from dataclasses import dataclass, replace
 from typing import cast
 
 from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
-    ExperimentAssembly,
-    elaborate_experiment_program,
+    LogicalProgram,
+    compose_experiment,
 )
-from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
+from scopecat.compiler.frontend.logical_verification import (
+    VerifiedLogicalProgram,
+    verify_logical_program,
+)
 from scopecat.compiler.frontend.problems import frontend_problem as _problem
 from scopecat.compiler.frontend.program_lowering import link_verified_assembly
 from scopecat.compiler.frontend.request_values import (
@@ -54,7 +56,7 @@ from scopecat.records.run_request import RunRequest
 class CompiledInvocation:
     """Config-free result of compiling one DSL invocation."""
 
-    assembly: VerifiedAssembly
+    program: VerifiedLogicalProgram
     request: RunRequest
 
 
@@ -63,7 +65,7 @@ def resolve_compiled_invocation(
     *,
     environment: ConfigEnvironment,
 ) -> LinkedPlan:
-    return link_verified_assembly(compiled.assembly, environment)
+    return link_verified_assembly(compiled.program, environment)
 
 
 def compile_invocation(
@@ -91,18 +93,18 @@ def compile_invocation(
         operator=operator,
     )
     merged_inputs = {**compiled.inputs, **inputs}
-    assembly = replace(
+    logical = replace(
         compiled,
         inputs=merged_inputs,
     )
-    _validate_point_dependencies(assembly, scan_axes)
-    assembly = _apply_scans(
-        assembly,
+    _validate_point_dependencies(logical, scan_axes)
+    logical = _apply_scans(
+        logical,
         scan_axes,
         inputs=inputs,
     )
     return CompiledInvocation(
-        assembly=verify_assembly(assembly),
+        program=verify_logical_program(logical),
         request=request,
     )
 
@@ -110,7 +112,7 @@ def compile_invocation(
 def _compile_invocation_definition(
     invocation: ExperimentInvocation,
     inputs: Mapping[str, object],
-) -> ExperimentAssembly:
+) -> LogicalProgram:
     definition = invocation.definition
     program_input_ids = {port.id for port in definition.program.interface.imports}
     program_inputs: dict[str, ModuleInput] = {}
@@ -118,7 +120,7 @@ def _compile_invocation_definition(
         if input_id not in program_input_ids:
             continue
         program_inputs[input_id] = cast("ModuleInput", value)
-    assembly = elaborate_experiment_program(
+    assembly = compose_experiment(
         definition.program,
         experiment_id=definition.id,
         kind=definition.kind,
@@ -252,11 +254,11 @@ def _verified_scans(
 
 
 def _apply_scans(
-    assembly: ExperimentAssembly,
+    assembly: LogicalProgram,
     scan_axes: Sequence[AxisSpec],
     *,
     inputs: Mapping[str, object],
-) -> ExperimentAssembly:
+) -> LogicalProgram:
     point_domain = lower_scans_point_domain(
         scan_axes,
         inputs=inputs,
@@ -276,7 +278,7 @@ def _apply_scans(
 
 
 def _validate_point_dependencies(
-    assembly: ExperimentAssembly,
+    assembly: LogicalProgram,
     scan_axes: Sequence[AxisSpec],
 ) -> None:
     domain_type = analyze_point_domain(assembly.point_domain).value_type

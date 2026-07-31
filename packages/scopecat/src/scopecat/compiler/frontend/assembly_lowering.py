@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import cast
+from typing import Protocol, cast
 
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.elaboration import ExperimentAssembly
+from scopecat.compiler.frontend.elaboration import LogicalProgram
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
     raise_frontend_problem,
@@ -39,7 +39,6 @@ from scopecat.compiler.semantic.value_expressions import (
     TableValue,
     verify_scalar_value_expr,
 )
-from scopecat.compiler.semantic.verification import VerifiedSemanticGraph
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -64,7 +63,6 @@ from scopecat.graph.table_values import (
 from scopecat.graph.values import (
     ComputeOutput,
     ComputeResultRef,
-    OperationId,
     ValueId,
 )
 from scopecat.kernel.entity import EntityRef
@@ -95,6 +93,22 @@ from scopecat.program.value_types import (
 from scopecat.program.value_types import Table as TableType
 from scopecat.records.config import Topology
 from scopecat.records.parameter import ParameterCatalog
+
+
+class _LogicalProgramProof(Protocol):
+    """Facts exposed by the config-free logical verifier."""
+
+    @property
+    def program(self) -> LogicalProgram: ...
+
+    @property
+    def value_defs(self) -> Mapping[ValueId, ValueDef]: ...
+
+    @property
+    def operation_results(self) -> Mapping[ValueId, SemanticOperation]: ...
+
+    @property
+    def value_types(self) -> Mapping[ValueId, ValueType]: ...
 
 
 def lower_parameter_overlay_intent(
@@ -192,8 +206,7 @@ def validate_entity_inputs(
 
 
 def lower_semantic_compute_graph(
-    graph: VerifiedSemanticGraph,
-    implementations: Mapping[OperationId, LocalPythonImplementation],
+    program: _LogicalProgramProof,
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
@@ -203,20 +216,20 @@ def lower_semantic_compute_graph(
     nodes = tuple(
         _lower_semantic_operation(
             operation,
-            implementation=implementations[operation.id],
-            definitions=graph.value_defs,
-            operation_results=graph.operation_results,
-            value_types=graph.value_types,
+            implementation=program.program.implementations[operation.id],
+            definitions=program.value_defs,
+            operation_results=program.operation_results,
+            value_types=program.value_types,
             inputs=inputs,
             type_bindings=type_bindings,
         )
-        for operation in graph.graph.operations
+        for operation in program.program.semantic_graph.operations
     )
     return nodes
 
 
 def lower_semantic_domain_graph(
-    graph: VerifiedSemanticGraph,
+    program: _LogicalProgramProof,
     executions: Sequence[SemanticDomainExecution],
     inputs: Mapping[str, object],
     *,
@@ -236,9 +249,9 @@ def lower_semantic_domain_graph(
                 "ValueInput",
                 _lower_semantic_input(
                     use.value_id,
-                    definitions=graph.value_defs,
-                    operation_results=graph.operation_results,
-                    value_types=graph.value_types,
+                    definitions=program.value_defs,
+                    operation_results=program.operation_results,
+                    value_types=program.value_types,
                     inputs=inputs,
                     type_bindings=type_bindings,
                 ),
@@ -250,9 +263,9 @@ def lower_semantic_domain_graph(
                 "ValueInput",
                 _lower_semantic_input(
                     use.value_id,
-                    definitions=graph.value_defs,
-                    operation_results=graph.operation_results,
-                    value_types=graph.value_types,
+                    definitions=program.value_defs,
+                    operation_results=program.operation_results,
+                    value_types=program.value_types,
                     inputs=inputs,
                     type_bindings=type_bindings,
                 ),
@@ -410,7 +423,7 @@ def coerce_assembly_inputs(
 
 
 def validate_consumed_inputs(
-    assembly: ExperimentAssembly,
+    assembly: LogicalProgram,
     inputs: Mapping[str, object],
 ) -> None:
     """Reject only free module inputs that the assembled program actually uses."""

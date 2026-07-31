@@ -120,7 +120,7 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
         experiment.run(parent(parent_frequency))
         experiment.scan(sc.axis(parent_frequency, (5.0,), unit="GHz"))
 
-    assembly = compile_invocation(template()).assembly.source
+    assembly = compile_invocation(template()).program.program
     assert tuple(
         (dependency.id, dependency.value_type)
         for dependency in assembly.point_dependencies

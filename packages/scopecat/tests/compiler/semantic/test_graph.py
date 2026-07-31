@@ -66,11 +66,11 @@ def test_topological_order_is_declaration_independent() -> None:
         inputs=(("value", ValueUse(producer_result_id)),),
     )
 
-    verified = verify_semantic_graph(
+    normalized = verify_semantic_graph(
         SemanticGraphIR(operations=(consumer, independent, producer))
     )
 
-    assert [operation.id.local_id for operation in verified.graph.operations] == [
+    assert [operation.id.local_id for operation in normalized.operations] == [
         "independent",
         "producer",
         "consumer",

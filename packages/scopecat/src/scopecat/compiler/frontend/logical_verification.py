@@ -1,4 +1,4 @@
-"""Config-free verification for one fully composed authoring assembly.
+"""Config-free verification for one fully composed logical program.
 
 This pass owns invariants that depend only on the source graph.  Keeping it
 separate from linking prevents malformed dataflow from being hidden behind an
@@ -8,26 +8,26 @@ unrelated config or parameter-catalog error.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 
-from scopecat.compiler.frontend.elaboration import ExperimentAssembly
+from scopecat.compiler.frontend.assembly_lowering import (
+    coerce_assembly_inputs,
+    validate_consumed_inputs,
+)
+from scopecat.compiler.frontend.elaboration import LogicalProgram
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
 from scopecat.compiler.semantic.model import (
-    LocalPythonImplementation,
+    SemanticOperation,
+    ValueDef,
 )
-from scopecat.compiler.semantic.verification import (
-    VerifiedSemanticGraph,
-    verify_semantic_graph,
-)
+from scopecat.compiler.semantic.verification import verify_semantic_graph
 from scopecat.graph.relations.model import ScalarExpr
 from scopecat.graph.relations.point_domain import (
     analyze_point_domain,
     is_point_coordinate_type,
 )
-from scopecat.graph.values import (
-    OperationId,
-)
+from scopecat.graph.values import ValueId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -41,7 +41,7 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Entity, Payload, Scalar
+from scopecat.kernel.value_types import Entity, Payload, Scalar, ValueType
 from scopecat.program.bindings import ResourcePort
 from scopecat.program.products import (
     ModuleProductDecl,
@@ -57,38 +57,65 @@ from scopecat.program.value_refs import (
 
 
 @dataclass(frozen=True, slots=True)
-class VerifiedAssemblyGraph:
-    """Source graph facts safe for config-dependent lowering to consume."""
+class VerifiedLogicalProgram:
+    """The only config-free compiler artifact accepted by binding."""
 
-    semantic_graph: VerifiedSemanticGraph
-    implementations: Mapping[OperationId, LocalPythonImplementation]
+    program: LogicalProgram
     product_declarations: Mapping[ProductId, ModuleProductDecl]
+    value_defs: Mapping[ValueId, ValueDef] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
+    operation_results: Mapping[ValueId, SemanticOperation] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
+    value_types: Mapping[ValueId, ValueType] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
 
-
-@dataclass(frozen=True, slots=True)
-class VerifiedAssembly:
-    """One source assembly paired with its config-free verification proof."""
-
-    source: ExperimentAssembly
-    graph: VerifiedAssemblyGraph
+    def __post_init__(self) -> None:
+        graph = self.program.semantic_graph
+        value_defs = {definition.id: definition for definition in graph.value_defs}
+        operation_results = {
+            operation.result_id: operation for operation in graph.operations
+        }
+        value_types = {
+            definition.id: definition.value_type for definition in graph.value_defs
+        }
+        value_types.update(
+            {
+                operation.result_id: operation.result_type
+                for operation in graph.operations
+            }
+        )
+        object.__setattr__(self, "value_defs", MappingProxyType(value_defs))
+        object.__setattr__(
+            self,
+            "operation_results",
+            MappingProxyType(operation_results),
+        )
+        object.__setattr__(self, "value_types", MappingProxyType(value_types))
 
     @property
     def experiment_id(self) -> str:
-        """Return the entrypoint identity established by assembly verification."""
+        """Return the verified entrypoint identity."""
 
-        return self.source.experiment_id
+        return self.program.experiment_id
 
     @property
     def kind(self) -> str:
-        """Return the experiment kind established by assembly verification."""
+        """Return the verified experiment kind."""
 
-        return self.source.kind
+        return self.program.kind
 
 
-def verify_assembly_graph(
-    assembly: ExperimentAssembly,
-) -> VerifiedAssemblyGraph:
-    """Verify and order the config-independent portion of an assembly.
+def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
+    """Normalize and close every config-independent invariant once.
 
     The verifier deliberately has no authoring context or config argument.  A
     successful result therefore proves that config-dependent linking will not
@@ -96,30 +123,36 @@ def verify_assembly_graph(
     logical-resource reference.
     """
 
+    inputs = coerce_assembly_inputs(program.input_ports, program.inputs)
+    normalized = replace(program, inputs=inputs)
     problems: list[Problem] = []
-    resource_ports = _resource_ports(assembly.resource_ports, problems)
-    product_declarations = _verify_product_schema(assembly, problems)
+    resource_ports = _resource_ports(normalized.resource_ports, problems)
+    product_declarations = _verify_product_schema(normalized, problems)
     try:
         semantic_graph = verify_semantic_graph(
-            assembly.semantic_graph,
-            effects=assembly.semantic_effects,
+            normalized.semantic_graph,
+            effects=normalized.semantic_effects,
         )
     except CheckFailed as error:
         problems.extend(error.problems)
         semantic_graph = None
     if semantic_graph is not None:
-        _verify_binding_compute_values(assembly, semantic_graph, problems)
-    _verify_property_resource_ports(assembly, resource_ports, problems)
-    _verify_final_state_dependencies(assembly, resource_ports, problems)
+        operation_results = {
+            operation.result_id: operation for operation in semantic_graph.operations
+        }
+        _verify_binding_compute_values(normalized, operation_results, problems)
+    _verify_property_resource_ports(normalized, resource_ports, problems)
+    _verify_final_state_dependencies(normalized, resource_ports, problems)
     if semantic_graph is not None:
-        _verify_static_value_dependencies(assembly, problems)
+        _verify_static_value_dependencies(normalized, problems)
     if problems:
         raise CheckFailed(problems)
     if semantic_graph is None:
-        raise AssertionError("successful assembly verification requires graph proofs")
-    return VerifiedAssemblyGraph(
-        semantic_graph=semantic_graph,
-        implementations=assembly.implementations,
+        raise AssertionError("successful logical verification requires graph proofs")
+    canonical = replace(normalized, semantic_graph=semantic_graph)
+    validate_consumed_inputs(canonical, inputs)
+    return VerifiedLogicalProgram(
+        program=canonical,
         product_declarations=MappingProxyType(product_declarations),
     )
 
@@ -148,7 +181,7 @@ def _resource_ports(
 
 
 def _verify_property_resource_ports(
-    assembly: ExperimentAssembly,
+    assembly: LogicalProgram,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
@@ -230,8 +263,8 @@ def _verify_resource_port_interface(
 
 
 def _verify_binding_compute_values(
-    assembly: ExperimentAssembly,
-    graph: VerifiedSemanticGraph,
+    assembly: LogicalProgram,
+    operation_results: Mapping[ValueId, SemanticOperation],
     problems: list[Problem],
 ) -> None:
     values = [
@@ -252,7 +285,7 @@ def _verify_binding_compute_values(
         ):
             continue
         value_id = semantic_value_id(value)
-        operation = graph.operation_results.get(value_id)
+        operation = operation_results.get(value_id)
         if operation is None:
             problems.append(
                 _problem(
@@ -290,7 +323,7 @@ def _is_payload_type(value_type: object) -> bool:
 
 
 def _verify_static_value_dependencies(
-    assembly: ExperimentAssembly,
+    assembly: LogicalProgram,
     problems: list[Problem],
 ) -> None:
     for port in assembly.resource_ports:
@@ -346,7 +379,7 @@ def _verify_static_value_dependencies(
 
 
 def _verify_final_state_dependencies(
-    assembly: ExperimentAssembly,
+    assembly: LogicalProgram,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
@@ -441,7 +474,7 @@ def _require_plan_value(
 
 
 def _verify_product_schema(
-    assembly: ExperimentAssembly,
+    assembly: LogicalProgram,
     problems: list[Problem],
 ) -> dict[ProductId, ModuleProductDecl]:
     product_by_id: dict[ProductId, ModuleProductDecl] = {}

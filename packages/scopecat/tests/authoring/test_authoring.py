@@ -9,11 +9,11 @@ import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
-from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
-    ExperimentAssembly,
-    elaborate_module,
+    LogicalProgram,
+    compose_module,
 )
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.frontend.program_lowering import link_verified_assembly
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
@@ -333,7 +333,7 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
             pulse_length=Quantity(value=20.0, unit="ns"),
         )
     )
-    graph = compiled.assembly.source.semantic_graph
+    graph = compiled.program.program.semantic_graph
     operation = next(
         operation
         for operation in graph.operations
@@ -748,7 +748,7 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
 
 
 def test_link_resolves_config_dependent_assembly_fragments() -> None:
-    source = elaborate_module(
+    source = compose_module(
         SIMPLE_MODULE.ir,
         subject="q0",
         drive_frequency=DRIVE_FREQUENCY_POINT,
@@ -762,7 +762,7 @@ def test_link_resolves_config_dependent_assembly_fragments() -> None:
         parameter_contracts=scan_parameter_contracts(axis),
     )
     environment = build_config_environment(load_config())
-    resolved = link_verified_assembly(verify_assembly(assembly), environment)
+    resolved = link_verified_assembly(verify_logical_program(assembly), environment)
 
     assert resolved.program.id == "authored-simple-scan"
     assert resolved.environment.config.id == load_config().id
@@ -775,7 +775,7 @@ def test_link_resolves_config_dependent_assembly_fragments() -> None:
 
 def test_link_validates_scan_axis_parameter_contracts() -> None:
     axis = _around_parameter_axis("missing_frequency")
-    assembly = ExperimentAssembly(
+    assembly = LogicalProgram(
         experiment_id="missing-parameter-scan",
         kind="simple_scan",
         point_domain=lower_scans_point_domain((axis,)),
@@ -783,7 +783,7 @@ def test_link_validates_scan_axis_parameter_contracts() -> None:
     )
     environment = build_config_environment(load_config())
     with pytest.raises(CheckFailed) as caught:
-        link_verified_assembly(verify_assembly(assembly), environment)
+        link_verified_assembly(verify_logical_program(assembly), environment)
 
     assert caught.value.problems[0].code == "unknown_authoring_parameter"
     assert caught.value.problems[0].location == model_location(
@@ -823,7 +823,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
             )
         )
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         parent.ir,
     )
 
@@ -871,7 +871,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
             )
         )
 
-    assembly = compile_invocation(template()).assembly.source
+    assembly = compile_invocation(template()).program.program
 
     assert "drive_frequency" not in assembly.inputs
     assert isinstance(assembly.bindings[0].value, ValueRef)
@@ -929,7 +929,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
             )
         )
 
-    assembly = compile_invocation(template()).assembly.source
+    assembly = compile_invocation(template()).program.program
 
     assert isinstance(assembly.bindings[0].value, ValueRef)
     expression = internal_lower_scalar_value_ref(assembly.bindings[0].value)
@@ -972,7 +972,7 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     used_point = authoring.coordinate("reachable_point", value_type)
     unused_point = authoring.coordinate("phantom_point", value_type)
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         module.ir,
         used_parameter=used_parameter,
         unused_parameter=unused_parameter,
@@ -1048,7 +1048,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
             )
         )
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         parent.ir, outer_frequency=Quantity(value=5.2, unit="GHz")
     )
 
@@ -1099,7 +1099,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
             )
         )
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         module.ir,
     )
 
@@ -1142,7 +1142,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
             )
         )
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         parent.ir,
     )
 

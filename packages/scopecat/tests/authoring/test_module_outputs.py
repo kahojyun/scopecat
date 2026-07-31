@@ -10,7 +10,7 @@ import pytest
 import scopecat as sc
 from scopecat.authoring import ValueValidationError
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
@@ -36,7 +36,7 @@ def _bind_program(
 ) -> CoreProgram:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return lower_verified_assembly(compiled.assembly, environment)
+    return lower_verified_assembly(compiled.program, environment)
 
 
 def _payload_type() -> sc.ScalarType:
@@ -116,7 +116,7 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         context.call(first_consumer)
         context.call(second_consumer)
 
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
     nodes = {
         operation.id: operation for operation in assembly.semantic_graph.operations
     }
@@ -190,7 +190,7 @@ def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
         context.call(outer)
         context.call(sink)
 
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
     sink_node = next(
         operation
         for operation in assembly.semantic_graph.operations
@@ -315,7 +315,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         context.call(invocation)
         context.call(consumer)
 
-    flattened = elaborate_module(root.ir)
+    flattened = compose_module(root.ir)
     capture_node = next(
         operation
         for operation in flattened.semantic_graph.operations
@@ -413,7 +413,7 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
         context.call(source_instance)
         context.call(consumer)
 
-    flattened = elaborate_module(root.ir)
+    flattened = compose_module(root.ir)
     capture_node = next(
         semantic_operation
         for semantic_operation in flattened.semantic_graph.operations
@@ -510,7 +510,7 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
         )
         experiment.scan(sc.axis(point, (1.0,)))
 
-    assembly = compile_invocation(template(value=1.0)).assembly.source
+    assembly = compile_invocation(template(value=1.0)).program.program
 
     assert [(port.id, port.value_type) for port in wrapper.ir.interface.imports] == [
         ("value", value_type)

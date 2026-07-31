@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import heapq
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from types import MappingProxyType
 
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
@@ -19,7 +17,6 @@ from scopecat.compiler.semantic.model import (
     SemanticGraphIR,
     SemanticMeasurementPostprocessor,
     SemanticOperation,
-    ValueDef,
 )
 from scopecat.graph.values import (
     OperationId,
@@ -36,55 +33,11 @@ from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import ValueType
 
 
-@dataclass(frozen=True, slots=True)
-class VerifiedSemanticGraph:
-    graph: SemanticGraphIR
-    value_defs: Mapping[ValueId, ValueDef] = field(
-        init=False,
-        compare=False,
-        hash=False,
-    )
-    operation_results: Mapping[ValueId, SemanticOperation] = field(
-        init=False,
-        compare=False,
-        hash=False,
-    )
-    value_types: Mapping[ValueId, ValueType] = field(
-        init=False,
-        compare=False,
-        hash=False,
-    )
-
-    def __post_init__(self) -> None:
-        definitions = {
-            definition.id: definition for definition in self.graph.value_defs
-        }
-        operation_results = {
-            operation.result_id: operation for operation in self.graph.operations
-        }
-        value_types = {
-            definition.id: definition.value_type for definition in self.graph.value_defs
-        }
-        value_types.update(
-            {
-                operation.result_id: operation.result_type
-                for operation in self.graph.operations
-            }
-        )
-        object.__setattr__(self, "value_defs", MappingProxyType(definitions))
-        object.__setattr__(
-            self,
-            "operation_results",
-            MappingProxyType(operation_results),
-        )
-        object.__setattr__(self, "value_types", MappingProxyType(value_types))
-
-
 def verify_semantic_graph(
     graph: SemanticGraphIR,
     *,
     effects: Sequence[SemanticDomainExecution | AcquireEffect] = (),
-) -> VerifiedSemanticGraph:
+) -> SemanticGraphIR:
     """Validate closure and normalize semantic dataflow."""
 
     domain_executions = tuple(
@@ -149,7 +102,7 @@ def verify_semantic_graph(
         operations=ordered_operations,
         measurement_postprocessors=ordered_measurement_postprocessors,
     )
-    return VerifiedSemanticGraph(normalized)
+    return normalized
 
 
 def _measurement_postprocessors_by_id(

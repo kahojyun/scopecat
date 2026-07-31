@@ -7,8 +7,8 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import ExperimentAssembly
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.frontend.elaboration import LogicalProgram
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
@@ -18,10 +18,7 @@ from scopecat.compiler.semantic.model import (
     SemanticDomainExecution,
     SemanticGraphIR,
 )
-from scopecat.compiler.semantic.verification import (
-    VerifiedSemanticGraph,
-    verify_semantic_graph,
-)
+from scopecat.compiler.semantic.verification import verify_semantic_graph
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import (
     VerifiedCoreProgram,
@@ -350,7 +347,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
     assert [
         operation.id.local_id
-        for operation in compiled.assembly.graph.semantic_graph.graph.operations
+        for operation in compiled.program.program.semantic_graph.operations
     ] == [
         "producer",
         "consumer",
@@ -368,10 +365,10 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
     compiled = compile_invocation(template(subject="q0"))
 
     assert compiled.request.inputs == {"subject": "q0"}
-    assert compiled.assembly.source.inputs == {"subject": EntityRef(id="q0")}
+    assert compiled.program.program.inputs == {"subject": EntityRef(id="q0")}
     assert (
-        compiled.assembly.graph.semantic_graph.graph
-        == compiled.assembly.source.semantic_graph
+        compiled.program.program.semantic_graph
+        == compiled.program.program.semantic_graph
     )
 
 
@@ -406,7 +403,7 @@ def test_compile_verifies_and_seals_the_final_program_once(
         graph: SemanticGraphIR,
         *,
         effects: tuple[SemanticDomainExecution | AcquireEffect, ...] = (),
-    ) -> VerifiedSemanticGraph:
+    ) -> SemanticGraphIR:
         calls["graph"] += 1
         return verify_semantic_graph(graph, effects=effects)
 
@@ -419,7 +416,7 @@ def test_compile_verifies_and_seals_the_final_program_once(
         return seal_typed_program(program, phase=phase)
 
     monkeypatch.setattr(
-        "scopecat.compiler.frontend.graph_validation.verify_semantic_graph",
+        "scopecat.compiler.frontend.logical_verification.verify_semantic_graph",
         counted_graph,
     )
     monkeypatch.setattr(
@@ -449,8 +446,8 @@ def test_resource_selector_requires_a_scalar_entity_value() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(
-            ExperimentAssembly(
+        verify_logical_program(
+            LogicalProgram(
                 experiment_id="test.graph.resource-selector",
                 kind="graph",
                 resource_ports=(port,),
@@ -485,8 +482,8 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
         (PayloadValue(schema_id="point-payload", payload={}),),
     )
 
-    verify_assembly_graph(
-        ExperimentAssembly(
+    verify_logical_program(
+        LogicalProgram(
             experiment_id="test.graph.payload-collision",
             kind="graph",
             point_domain=(point_source,),
@@ -504,8 +501,8 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(
-            ExperimentAssembly(
+        verify_logical_program(
+            LogicalProgram(
                 experiment_id="test.graph.coordinate-collision",
                 kind="graph",
                 point_domain=(point_source,),

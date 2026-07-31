@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.frontend.elaboration import compose_module
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.program import (
@@ -82,9 +82,9 @@ def _resource_module() -> sc.ExperimentModule[...]:
 
 
 def test_graph_proof_indexes_verified_product_declarations() -> None:
-    assembly = elaborate_module(_resource_module().ir)
+    assembly = compose_module(_resource_module().ir)
 
-    verified = verify_assembly_graph(assembly)
+    verified = verify_logical_program(assembly)
 
     assert tuple(verified.product_declarations) == tuple(
         product.product_id for product in assembly.product_declarations
@@ -101,8 +101,8 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
         context.call(left)
         context.call(right)
 
-    assembly = elaborate_module(root.ir)
-    verify_assembly_graph(assembly)
+    assembly = compose_module(root.ir)
+    verify_logical_program(assembly)
 
     assert tuple(port.symbol_id for port in assembly.resource_ports) == (
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
@@ -159,7 +159,7 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
         context.resource("shared", requires=(_SET_FREQUENCY,))
         context.call(child)
 
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
 
     assert tuple(port.qualified_id for port in assembly.resource_ports) == ("shared",)
     assert tuple(binding.port_id.qualified_name for binding in assembly.bindings) == (
@@ -183,8 +183,8 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     def root(context: sc.ModuleContext) -> None:
         context.call(outer)
 
-    assembly = elaborate_module(root.ir)
-    verify_assembly_graph(assembly)
+    assembly = compose_module(root.ir)
+    verify_logical_program(assembly)
 
     expected_port_id = logical_resource_port_id(
         SymbolId(
@@ -250,7 +250,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             results={_SET_FREQUENCY_SAMPLE_SIGNAL: root_signal},
         )
 
-    assembly = elaborate_module(module.ir)
+    assembly = compose_module(module.ir)
 
     assert [
         ("binding", effect.port_id.qualified_name)
@@ -326,8 +326,8 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
         context.call(direct)
         context.call(nested)
 
-    assembly = elaborate_module(root.ir)
-    verify_assembly_graph(assembly)
+    assembly = compose_module(root.ir)
+    verify_logical_program(assembly)
 
     direct_id = logical_resource_port_id(
         SymbolId(scope=("outer/inner",), local_id="drive.v1")
@@ -364,7 +364,7 @@ def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module.ir))
+        verify_logical_program(compose_module(module.ir))
 
     assert [problem.code for problem in error.value.problems] == [
         "module_resource_port_interface_missing",
@@ -387,7 +387,7 @@ def test_state_resource_interfaces_are_checked_before_linking() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module.ir))
+        verify_logical_program(compose_module(module.ir))
 
     assert [problem.code for problem in error.value.problems] == [
         "module_resource_port_interface_missing",

@@ -10,12 +10,12 @@ from hypothesis import strategies as st
 import scopecat as sc
 from scopecat.authoring import MetadataValue
 from scopecat.compiler.frontend.elaboration import (
-    ExperimentAssembly,
-    elaborate_module,
+    LogicalProgram,
+    compose_module,
 )
-from scopecat.compiler.frontend.graph_validation import (
-    VerifiedAssemblyGraph,
-    verify_assembly_graph,
+from scopecat.compiler.frontend.logical_verification import (
+    VerifiedLogicalProgram,
+    verify_logical_program,
 )
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.semantic.model import (
@@ -158,11 +158,11 @@ def _exporting_wrapper(
 
 def _verified_assembly(
     instance_id: str,
-) -> tuple[ExperimentAssembly, VerifiedAssemblyGraph]:
+) -> tuple[LogicalProgram, VerifiedLogicalProgram]:
     instance = _composable_module().instantiate(instance_id)
     root = _compose_module("test.composition-invariant.root", instance)
-    assembly = elaborate_module(root.ir)
-    return assembly, verify_assembly_graph(assembly)
+    assembly = compose_module(root.ir)
+    return assembly, verify_logical_program(assembly)
 
 
 def _nested_exporting_module(scope: tuple[str, ...]) -> sc.ExperimentModule[...]:
@@ -181,13 +181,13 @@ def _nested_exporting_module(scope: tuple[str, ...]) -> sc.ExperimentModule[...]
 
 
 def _normalized_signature(
-    assembly: ExperimentAssembly,
-    verified: VerifiedAssemblyGraph,
+    assembly: LogicalProgram,
+    verified: VerifiedLogicalProgram,
 ) -> tuple[object, ...]:
     resources = {port.symbol_id: port.id for port in assembly.resource_ports}
-    semantic_graph = verified.semantic_graph.graph
-    definitions = verified.semantic_graph.value_defs
-    results = verified.semantic_graph.operation_results
+    semantic_graph = verified.program.semantic_graph
+    definitions = verified.value_defs
+    results = verified.operation_results
 
     def input_signature(value: ValueUse) -> object:
         operation = results.get(value.value_id)
@@ -237,7 +237,8 @@ def test_alpha_renaming_changes_only_structural_instance_scope() -> None:
 
         assert {port.scope for port in assembly.resource_ports} == {(instance_id,)}
         assert {
-            operation.id.scope for operation in verified.semantic_graph.graph.operations
+            operation.id.scope
+            for operation in verified.program.semantic_graph.operations
         } == {(instance_id,)}
         assert {product.scope for product in assembly.product_declarations} == {
             (instance_id,)
@@ -258,7 +259,7 @@ def test_module_metadata_remains_declaration_introspection_only() -> None:
     )
     assert left.metadata == {"shared": "left"}
     assert right.metadata == {"shared": "right"}
-    assert elaborate_module(left.ir) == elaborate_module(right.ir)
+    assert compose_module(left.ir) == compose_module(right.ir)
 
 
 @settings(max_examples=50)
@@ -291,10 +292,12 @@ def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
         nested,
     )
 
-    assembly = elaborate_module(root.ir)
-    verified = verify_assembly_graph(assembly)
+    assembly = compose_module(root.ir)
+    verified = verify_logical_program(assembly)
 
-    node_ids = {operation.id for operation in verified.semantic_graph.graph.operations}
+    node_ids = {
+        operation.id for operation in verified.program.semantic_graph.operations
+    }
     resource_ids = {port.qualified_id for port in assembly.resource_ports}
     product_ids = {product.product_id for product in assembly.product_declarations}
 
@@ -344,12 +347,12 @@ def test_repeated_config_free_verification_is_deterministic() -> None:
 
     signatures: list[tuple[object, ...]] = []
     for _ in range(5):
-        assembly = elaborate_module(root.ir)
-        verified = verify_assembly_graph(assembly)
+        assembly = compose_module(root.ir)
+        verified = verify_logical_program(assembly)
         signatures.append(_normalized_signature(assembly, verified))
         assert [
             operation.id.local_id
-            for operation in verified.semantic_graph.graph.operations
+            for operation in verified.program.semantic_graph.operations
         ] == [
             "produce",
             "consume",
@@ -370,14 +373,14 @@ def test_scoped_export_can_feed_another_instance_without_capture() -> None:
         sink,
     )
 
-    verified = verify_assembly_graph(elaborate_module(root.ir))
+    verified = verify_logical_program(compose_module(root.ir))
     sink_node = next(
         operation
-        for operation in verified.semantic_graph.graph.operations
+        for operation in verified.program.semantic_graph.operations
         if operation.id.scope == ("sink",) and operation.id.local_id == "consume-export"
     )
     payload_input = dict(sink_node.inputs)["payload"]
-    producer = verified.semantic_graph.operation_results[payload_input.value_id].id
+    producer = verified.operation_results[payload_input.value_id].id
 
     assert producer.scope == ("source",)
     assert producer.local_id == "consume"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.program.identities import ComputeDeclarationKey
 from scopecat.program.value_refs import internal_value_ref_operation_origin
 
@@ -48,8 +48,8 @@ def test_python_implementation_identity_changes_with_its_declaration() -> None:
             output_type=sc.ScalarType(sc.FloatType()),
         )
 
-    first_ir = elaborate_module(first.ir)
-    second_ir = elaborate_module(second.ir)
+    first_ir = compose_module(first.ir)
+    second_ir = compose_module(second.ir)
 
     first_id = next(iter(first_ir.implementations.values())).id
     second_id = next(iter(second_ir.implementations.values())).id

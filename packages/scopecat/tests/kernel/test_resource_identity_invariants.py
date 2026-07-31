@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.frontend.elaboration import compose_module
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.sdk.instruments import InterfaceRef
@@ -32,7 +32,7 @@ def test_interface_less_authored_port_rejects_state_and_acquire_at_assembly() ->
         )
 
     with pytest.raises(CheckFailed) as caught:
-        verify_assembly_graph(elaborate_module(module.ir))
+        verify_logical_program(compose_module(module.ir))
 
     assert [problem.code for problem in caught.value.problems] == [
         "module_resource_port_interface_missing",

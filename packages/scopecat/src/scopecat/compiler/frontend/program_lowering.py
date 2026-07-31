@@ -19,8 +19,8 @@ from scopecat.compiler.frontend.binding_lowering import (
     lower_invocation,
     lower_state_binding,
 )
-from scopecat.compiler.frontend.elaboration import ExperimentAssembly
-from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
+from scopecat.compiler.frontend.elaboration import LogicalProgram
+from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
     lower_semantic_measurement_postprocessor_graph,
 )
@@ -51,7 +51,7 @@ from scopecat.records.parameter import ParameterCatalog
 
 
 def lower_verified_assembly(
-    verified: VerifiedAssembly,
+    verified: VerifiedLogicalProgram,
     environment: ConfigEnvironment,
 ) -> CoreProgram:
     """Bind a config-free assembly proof into one config-dependent program."""
@@ -75,7 +75,7 @@ def lower_verified_assembly(
 
 
 def link_verified_assembly(
-    verified: VerifiedAssembly,
+    verified: VerifiedLogicalProgram,
     environment: ConfigEnvironment,
 ) -> LinkedPlan:
     """Lower, specialize, verify, and bind one assembly to its environment."""
@@ -87,11 +87,10 @@ def link_verified_assembly(
 
 
 def _lower_verified_assembly(
-    verified: VerifiedAssembly,
+    verified: VerifiedLogicalProgram,
     environment: ConfigEnvironment,
 ) -> CoreProgram:
-    assembly = verified.source
-    verified_graph = verified.graph
+    assembly = verified.program
     config = environment.config
     parameter_catalog = config.parameter_catalog
     topology = config.topology
@@ -124,20 +123,19 @@ def _lower_verified_assembly(
         static_evaluator,
         topology,
         assembly.record_selections,
-        verified_graph.product_declarations,
+        verified.product_declarations,
         inputs,
         type_bindings=type_bindings,
         input_row=input_row,
     )
     compute_nodes = lower_semantic_compute_graph(
-        verified_graph.semantic_graph,
-        verified_graph.implementations,
+        verified,
         inputs,
         type_bindings=type_bindings,
     )
     record_product_uses = products.product_uses
     measurement_postprocessors = lower_semantic_measurement_postprocessor_graph(
-        verified_graph.semantic_graph,
+        verified,
         record_product_uses,
     )
     product_uses = (
@@ -145,7 +143,7 @@ def _lower_verified_assembly(
         *measurement_postprocessors.input_product_uses,
     )
     domain_executions = lower_semantic_domain_graph(
-        verified_graph.semantic_graph,
+        verified,
         assembly.domain_executions,
         inputs,
         type_bindings=type_bindings,
@@ -211,7 +209,7 @@ def _lower_verified_assembly(
 
 
 def _relation_type_bindings(
-    assembly: ExperimentAssembly,
+    assembly: LogicalProgram,
     parameter_catalog: ParameterCatalog,
 ) -> RelationTypeBindings:
     """Project assembly contracts into the final plan-verification environment."""

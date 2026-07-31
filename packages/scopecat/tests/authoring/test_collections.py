@@ -7,7 +7,7 @@ import pytest
 import scopecat.authoring as authoring
 from scopecat.authoring.scans import axis
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import (
@@ -34,7 +34,7 @@ def _bind_program(
 ) -> CoreProgram:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return lower_verified_assembly(compiled.assembly, environment)
+    return lower_verified_assembly(compiled.program, environment)
 
 
 def _echo_program(*, program: object) -> dict[str, object]:
@@ -206,7 +206,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         )
         context.call(middle.instantiate("compute-middle", program=produce))
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         parent.ir,
     )
     consumer = next(

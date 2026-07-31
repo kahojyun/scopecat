@@ -16,7 +16,7 @@ and functions that enforce it.
 program model           shared symbolic ModuleIR, values, products, scans
     | elaborate and verify
     v
-VerifiedAssembly        config-free experiment proof
+VerifiedLogicalProgram  config-free experiment proof
     | lower, specialize, verify, and bind one accepted environment
     v
 LinkedPlan              sealed CoreProgram plus configuration environment
