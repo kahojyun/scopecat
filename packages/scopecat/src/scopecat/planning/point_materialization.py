@@ -18,10 +18,7 @@ from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
     evaluate_table_value,
 )
-from scopecat.compiler.semantic.value_expressions import (
-    CompilerValue,
-    ScalarValueExpr,
-)
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
@@ -33,6 +30,7 @@ from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     bound_domain_executions,
 )
+from scopecat.compiler.typed.values import CompilerValue
 from scopecat.graph.relations.model import Row
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
@@ -270,8 +268,8 @@ def _evaluate_domain_input(
     *,
     context: EvalContext,
 ) -> object:
-    if isinstance(input_spec, ScalarValueExpr):
-        return evaluate_scalar(input_spec.plan, context)
+    if isinstance(input_spec, VerifiedRelationPlan):
+        return evaluate_scalar(input_spec, context)
     return evaluate_table_value(input_spec.source, input_spec.value_type, context)
 
 

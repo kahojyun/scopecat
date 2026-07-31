@@ -13,8 +13,8 @@ from scopecat.compiler.relations.evaluation import (
 )
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
+    VerifiedRelationPlan,
 )
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.graph.relations.model import CellValue, Row
 from scopecat.graph.relations.point_domain import (
     PointAxes,
@@ -34,7 +34,7 @@ from scopecat.kernel.value_types import Entity, Table, TableColumn
 from scopecat.kernel.value_validation import coerce_literal
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
-type CompilerPointAxes = PointAxes[ScalarValueExpr]
+type CompilerPointAxes = PointAxes[VerifiedRelationPlan]
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +210,7 @@ def _materialize_axes(
 
 
 def _axis_values(
-    axis: PointAxis[ScalarValueExpr],
+    axis: PointAxis[VerifiedRelationPlan],
     *,
     params: ParameterRelationData,
     path: PointDomainPath,
@@ -220,7 +220,7 @@ def _axis_values(
         return source.values
     try:
         center = evaluate_scalar(
-            source.center.plan,
+            source.center,
             EvalContext(params=params),
         )
         if not isinstance(center, QuantityValue):
@@ -238,12 +238,12 @@ def _axis_values(
 
 
 def _verify_center_role(
-    value: ScalarValueExpr,
+    value: VerifiedRelationPlan,
     *,
     path: PointDomainPath,
     issues: list[PointDomainVerificationIssue],
 ) -> None:
-    plan = value.plan
+    plan = value
     open_interface = plan.external_point_requirement is not None
     if open_interface:
         issues.append(

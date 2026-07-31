@@ -13,8 +13,8 @@ from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
+    VerifiedRelationPlan,
 )
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -268,7 +268,7 @@ def _bound_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: Literal[0, 2] = 2,
-    domain_input: ScalarValueExpr | None = None,
+    domain_input: VerifiedRelationPlan | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
     config: ConfigProfileSnapshot | None = None,
@@ -460,7 +460,7 @@ def _bound_program(
     return bind_program_facts(program, environment)
 
 
-def _point_frequency_domain_input() -> ScalarValueExpr:
+def _point_frequency_domain_input() -> VerifiedRelationPlan:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),

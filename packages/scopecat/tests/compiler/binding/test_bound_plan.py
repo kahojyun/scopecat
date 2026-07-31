@@ -10,8 +10,10 @@ from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.relations.context import (
     ParameterRelationData,
 )
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    VerifiedRelationPlan,
+)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     BoundProgramFacts,
@@ -108,9 +110,9 @@ def _values_axis(
     axis_id: str,
     value_type: Scalar,
     values: tuple[CellValue, ...],
-) -> PointAxis[ScalarValueExpr]:
+) -> PointAxis[VerifiedRelationPlan]:
     return cast(
-        "PointAxis[ScalarValueExpr]",
+        "PointAxis[VerifiedRelationPlan]",
         point_axis_values(axis_id, value_type, values),
     )
 
@@ -121,7 +123,7 @@ def _linear_axis(
     *,
     bindings: RelationTypeBindings | None = None,
     count: int = 2,
-) -> PointAxis[ScalarValueExpr]:
+) -> PointAxis[VerifiedRelationPlan]:
     return point_axis_linear(
         axis_id,
         _FREQUENCY,
@@ -137,7 +139,7 @@ def _linear_axis(
 
 def _entity_rows(
     values: tuple[CellValue, ...],
-) -> PointAxis[ScalarValueExpr]:
+) -> PointAxis[VerifiedRelationPlan]:
     return _values_axis(
         "subject",
         Scalar(Entity()),

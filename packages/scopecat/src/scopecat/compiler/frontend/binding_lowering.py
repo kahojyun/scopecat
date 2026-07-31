@@ -18,10 +18,10 @@ from scopecat.compiler.frontend.problems import (
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
 )
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-    verify_scalar_value_expr,
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    VerifiedRelationPlan,
+    verify_relation_plan,
 )
 from scopecat.compiler.typed.invocation import (
     InvokeArgument,
@@ -136,7 +136,7 @@ def _lower_effect_value(
     program: VerifiedLogicalProgram,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> ScalarValueExpr | ComputeResultRef:
+) -> VerifiedRelationPlan | ComputeResultRef:
     lowered = lower_logical_value(
         program,
         value_id,
@@ -145,7 +145,7 @@ def _lower_effect_value(
     )
     if isinstance(lowered, ComputeEdge):
         return ComputeResultRef(lowered.value_id)
-    if not isinstance(lowered, ScalarValueExpr):
+    if not isinstance(lowered, VerifiedRelationPlan):
         raise AssertionError("verified logical effect values must be scalar")
     return lowered
 
@@ -183,7 +183,7 @@ def _resource_entity_expr(
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
-) -> ScalarValueExpr:
+) -> VerifiedRelationPlan:
     value_type = source.value_type
     lowered = internal_lower_value_ref(source)
     if not (
@@ -201,7 +201,7 @@ def _resource_entity_expr(
                 cast("EntityRef | str", bound.value),
             ),
         )
-    return verify_scalar_value_expr(
+    return verify_relation_plan(
         bound,
         bindings=type_bindings,
         expected_type=value_type,

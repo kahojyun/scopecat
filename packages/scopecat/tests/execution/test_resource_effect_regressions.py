@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.point_domain import (
     PointDomain,
 )
@@ -54,11 +54,11 @@ def _port(value: str) -> LogicalResourcePortId:
     return logical_resource_port_id(value)
 
 
-def _number(value: float) -> ScalarValueExpr:
+def _number(value: float) -> VerifiedRelationPlan:
     return scalar_value_expr(lit(value), expected_type=Scalar(Float()))
 
 
-def _entity(value: str) -> ScalarValueExpr:
+def _entity(value: str) -> VerifiedRelationPlan:
     return scalar_value_expr(lit(value), expected_type=Scalar(Entity()))
 
 

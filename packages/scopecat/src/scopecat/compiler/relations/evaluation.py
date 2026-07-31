@@ -46,7 +46,7 @@ def evaluate_scalar(
     result = evaluate_scalar_expression(verified_plan.root, normalized)
     return cast(
         "CellValue",
-        _normalize_materialized_result(verified_plan.certified_type, result),
+        _normalize_materialized_result(verified_plan.value_type, result),
     )
 
 

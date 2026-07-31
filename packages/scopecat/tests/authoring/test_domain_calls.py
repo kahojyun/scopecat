@@ -9,9 +9,10 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr, TableValue
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import bound_acquisitions, bound_domain_executions
+from scopecat.compiler.typed.values import TableValue
 from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.table_values import LiteralTableSource
 from scopecat.kernel.errors import CheckFailed
@@ -404,7 +405,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     assert bound_acquisitions(typed) == ()
     typed_execution = bound_domain_executions(typed)[0]
     assert typed_execution.program.body is body
-    assert isinstance(typed_execution.inputs["x_count"], ScalarValueExpr)
+    assert isinstance(typed_execution.inputs["x_count"], VerifiedRelationPlan)
     result = typed_execution.results[0]
     assert result.product_id.qualified_name == "root/outer/inner/call/counts"
     assert result.product_use_ids == tuple(use.id for use in typed.product_uses)

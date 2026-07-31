@@ -14,10 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from scopecat.compiler.semantic.value_expressions import (
-    CompilerValue,
-    ScalarValueExpr,
-)
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -25,6 +22,9 @@ from scopecat.compiler.typed.state import (
     EnsureStateSpec,
     LogicalStateResourceTarget,
     SetStateSpec,
+)
+from scopecat.compiler.typed.values import (
+    CompilerValue,
 )
 from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.values import (
@@ -73,10 +73,10 @@ class ComputeEdge:
         return self.expected_type
 
 
-type ComputeInput = ScalarValueExpr | ComputeEdge
+type ComputeInput = VerifiedRelationPlan | ComputeEdge
 
 
-def _empty_scalar_value_inputs() -> dict[str, ScalarValueExpr]:
+def _empty_scalar_value_inputs() -> dict[str, VerifiedRelationPlan]:
     return {}
 
 
@@ -103,7 +103,7 @@ class TypedDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: Mapping[str, ScalarValueExpr] = field(
+    inputs: Mapping[str, VerifiedRelationPlan] = field(
         default_factory=_empty_scalar_value_inputs
     )
     compiler_inputs: Mapping[str, CompilerValue] = field(
@@ -112,7 +112,7 @@ class TypedDomainExecution:
     results: tuple[TypedDomainResultBinding, ...] = ()
 
     def __post_init__(self) -> None:
-        selected_inputs: dict[str, ScalarValueExpr] = dict(self.inputs)
+        selected_inputs: dict[str, VerifiedRelationPlan] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
 
@@ -167,7 +167,7 @@ class LogicalResourceRequirement:
 
     port_id: LogicalResourcePortId
     interfaces: tuple[InterfaceId, ...] = ()
-    entity_uses: tuple[ScalarValueExpr, ...] = ()
+    entity_uses: tuple[VerifiedRelationPlan, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +234,7 @@ def set_state_property(
     resource_port_id: LogicalResourcePortId,
     interface_id: InterfaceId,
     property_id: str,
-    value: ScalarValueExpr | ComputeResultRef,
+    value: VerifiedRelationPlan | ComputeResultRef,
     component_path: tuple[str, ...] = (),
 ) -> SetStateSpec:
     """Build desired state from explicit interface and property identities."""

@@ -8,10 +8,11 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-    verify_scalar_value_expr,
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    RowType,
+    VerifiedRelationPlan,
+    verify_relation_plan,
 )
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
@@ -54,7 +55,7 @@ _INT = Scalar(Int())
 _TIME = Scalar(QuantityType(dimension="time", unit="ns"))
 _ENTITY = Scalar(Entity("qubit"))
 
-type _CenterUse = ScalarValueExpr
+type _CenterUse = VerifiedRelationPlan
 
 
 def scalar_value_expr(
@@ -62,8 +63,8 @@ def scalar_value_expr(
     *,
     bindings: RelationTypeBindings | None = None,
     expected_type: Scalar,
-) -> ScalarValueExpr:
-    return verify_scalar_value_expr(
+) -> VerifiedRelationPlan:
+    return verify_relation_plan(
         as_scalar_expr(expression),
         bindings=bindings or RelationTypeBindings(),
         expected_type=expected_type,
@@ -191,7 +192,7 @@ def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
     )
 
     [(path, source)] = iter_point_axis_linear(verified.axes)
-    assert source.center.plan is center.plan
+    assert source.center is center
     assert path == ("axes", 0)
     assert [point.row for point in materialized.points] == [
         {"delay": _quantity(8.0)},

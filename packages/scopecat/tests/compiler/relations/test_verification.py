@@ -107,7 +107,7 @@ def test_exact_dotted_point_column_is_selected() -> None:
         bindings=RelationTypeBindings(point_row=point),
     )
 
-    assert verified.certified_type == INT
+    assert verified.value_type == INT
 
 
 def test_binary_validates_operand_types_before_execution() -> None:
@@ -130,7 +130,7 @@ def test_lookup_use_is_typed_without_importing_the_whole_table() -> None:
         parameter_lookup(use, key={"mode": 1, "device": "q0"})
     )
 
-    assert verified.certified_type == FLOAT
+    assert verified.value_type == FLOAT
     assert verified.imports[0].lookup == use
     assert verified.imports[0].value_type == FLOAT
 

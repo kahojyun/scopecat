@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
@@ -141,12 +140,12 @@ def verify_bound_facts(
 
 def _consumer(
     kind: ProgramRelationConsumerKind,
-    value: ScalarValueExpr,
+    value: VerifiedRelationPlan,
     location: ModelLocation,
 ) -> ProgramRelationConsumer:
     return ProgramRelationConsumer(
         kind=kind,
-        plan=value.plan,
+        plan=value,
         location=location,
     )
 
@@ -220,7 +219,7 @@ def _program_relation_consumers(
                 ),
             )
         for input_name, input_value in execution.compiler_inputs.items():
-            if not isinstance(input_value, ScalarValueExpr):
+            if not isinstance(input_value, VerifiedRelationPlan):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_COMPILER_INPUT,

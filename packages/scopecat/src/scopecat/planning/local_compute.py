@@ -7,7 +7,7 @@ from collections.abc import Set as AbstractSet
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.program import TypedComputeNode
 from scopecat.execution.local.program import (
     BoundInput,
@@ -42,7 +42,7 @@ def bind_compute_operations(
         failed = False
         for name, input_spec in node.inputs.items():
             try:
-                if isinstance(input_spec, ScalarValueExpr):
+                if isinstance(input_spec, VerifiedRelationPlan):
                     value = unwrap_payload_values(
                         coerce_literal(
                             input_spec.value_type,

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-    TableValue,
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    RowType,
+    VerifiedRelationPlan,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -19,6 +19,7 @@ from scopecat.compiler.typed.specialization import (
     specialize_bound_facts,
 )
 from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.compiler.typed.values import TableValue
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
 from scopecat.graph.relations.model import (
     LiteralScalarExpr,
@@ -98,12 +99,12 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     specialized_state = specialized.effects[0]
     assert isinstance(specialized_state, SetStateSpec)
     state_value = specialized_state.value_use
-    assert isinstance(state_value, ScalarValueExpr)
-    assert isinstance(state_value.plan.root, LiteralScalarExpr)
+    assert isinstance(state_value, VerifiedRelationPlan)
+    assert isinstance(state_value.root, LiteralScalarExpr)
     specialized_domain = specialized.effects[1]
     assert isinstance(specialized_domain, TypedDomainExecution)
     domain_input = specialized_domain.inputs["gain"]
-    assert isinstance(domain_input.plan.root, LiteralScalarExpr)
+    assert isinstance(domain_input.root, LiteralScalarExpr)
 
 
 def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
@@ -276,12 +277,12 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     [axis] = specialized.point_domain.axes
     assert isinstance(axis, PointAxis)
     assert isinstance(axis.source, PointAxisLinear)
-    center_root = axis.source.center.plan.root
+    center_root = axis.source.center.root
     assert isinstance(center_root, LiteralScalarExpr)
     assert center_root.value == QuantityValue(value=5.95, unit="GHz")
 
     [specialized_domain] = specialized.effects
     assert isinstance(specialized_domain, TypedDomainExecution)
-    input_root = specialized_domain.inputs["frequency"].plan.root
+    input_root = specialized_domain.inputs["frequency"].root
     assert isinstance(input_root, PointColumnScalarExpr)
     assert input_root.name == "frequency"

@@ -23,12 +23,8 @@ from scopecat.compiler.frontend.value_binding import (
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
-)
-from scopecat.compiler.semantic.value_expressions import (
-    CompilerValue,
-    ScalarValueExpr,
-    TableValue,
-    verify_scalar_value_expr,
+    VerifiedRelationPlan,
+    verify_relation_plan,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -38,6 +34,10 @@ from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedDomainExecution,
     TypedDomainResultBinding,
+)
+from scopecat.compiler.typed.values import (
+    CompilerValue,
+    TableValue,
 )
 from scopecat.graph.relations.model import CellValue, ScalarExpr, as_scalar_expr
 from scopecat.graph.relations.point_domain import (
@@ -239,10 +239,10 @@ def lower_semantic_domain_graph(
         uses_by_product.setdefault(use.product_id, []).append(use.id)
     typed_executions: list[TypedDomainExecution] = []
     for execution in executions:
-        lowered_inputs: dict[str, ScalarValueExpr] = {}
+        lowered_inputs: dict[str, VerifiedRelationPlan] = {}
         for name, value_id in execution.inputs:
             lowered = cast(
-                "ScalarValueExpr",
+                "VerifiedRelationPlan",
                 lower_logical_value(
                     program,
                     value_id,
@@ -300,7 +300,7 @@ def _lower_semantic_operation(
             inputs=inputs,
             type_bindings=type_bindings,
         )
-        if isinstance(lowered, ScalarValueExpr):
+        if isinstance(lowered, VerifiedRelationPlan):
             lowered_inputs[name] = lowered
         else:
             lowered_inputs[name] = cast("ComputeEdge", lowered)
@@ -331,13 +331,13 @@ def lower_logical_value(
     source = definition.source
     value_type = program.value_types[value_id]
     if isinstance(source, PlanExpressionSource):
-        return verify_scalar_value_expr(
+        return verify_relation_plan(
             bind_scalar_input_refs(source.expression, inputs),
             bindings=type_bindings,
             expected_type=cast("Scalar", value_type),
         )
     if isinstance(source, LiteralValueSource):
-        return verify_scalar_value_expr(
+        return verify_relation_plan(
             literal_scalar_expr(source.value),
             bindings=type_bindings,
             expected_type=cast("Scalar", value_type),
@@ -533,7 +533,7 @@ def _lower_point_axis(
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> PointAxis[ScalarValueExpr]:
+) -> PointAxis[VerifiedRelationPlan]:
     source = axis.source
     if isinstance(source, PointAxisValues):
         return PointAxis(
@@ -541,7 +541,7 @@ def _lower_point_axis(
             value_type=axis.value_type,
             source=PointAxisValues(values=tuple(source.values)),
         )
-    center = verify_scalar_value_expr(
+    center = verify_relation_plan(
         bind_scalar_input_refs(
             internal_lower_scalar_value_ref(source.center),
             inputs,

@@ -10,7 +10,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.value_expressions import TableValue
 from scopecat.compiler.typed.parameter_overlays import (
     parameter_cell_bindings,
 )
@@ -19,6 +18,7 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedDomainExecution,
 )
+from scopecat.compiler.typed.values import TableValue
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
 from scopecat.graph.relations.model import (
