@@ -268,6 +268,7 @@ function configProfile(id: string): ConfigProfileSnapshot {
             connection: { kind: "virtual" },
             default_state: [],
             run_start: "preserve",
+            failure_action: "abort_and_release",
           },
         ],
       },

@@ -1277,6 +1277,16 @@ describe("instrument workspace", () => {
       timeout_seconds: 5,
       options: { channel: 1, vendor_extension: { calibration: "external" } },
     };
+    active.config.system.instrument_registry.instruments[0]!.failure_action =
+      "abort_then_safe_state";
+    active.config.system.instrument_registry.instruments[0]!.safe_state = [
+      {
+        interface_id: "scopecat.rf_output/v1",
+        component_path: [],
+        property_id: "frequency",
+        value: { value: 5_000_000_000, unit: "Hz" },
+      },
+    ];
     const tcpInstrument = instrument();
     tcpInstrument.driver_id = "keysight.pna";
     tcpInstrument.connection = {
@@ -1322,6 +1332,15 @@ describe("instrument workspace", () => {
               timeout_seconds: 8,
               options: { channel: 1, vendor_extension: { calibration: "external" } },
             },
+            failure_action: "abort_then_safe_state",
+            safe_state: [
+              {
+                interface_id: "scopecat.rf_output/v1",
+                component_path: [],
+                property_id: "frequency",
+                value: { value: 5_000_000_000, unit: "Hz" },
+              },
+            ],
           }),
         }),
       ),
@@ -1516,6 +1535,7 @@ describe("instrument workspace", () => {
             },
             default_state: [],
             run_start: "preserve",
+            failure_action: "abort_and_release",
           },
         }),
       ),
@@ -1913,6 +1933,7 @@ function configuredInstrument() {
     connection: { kind: "virtual" as const },
     default_state: [],
     run_start: "preserve" as const,
+    failure_action: "abort_and_release" as const,
   };
 }
 

@@ -1239,15 +1239,76 @@ export interface components {
         };
         /**
          * DomainTargetBinding
-         * @description The one target instance and adapter family selected by a system.
+         * @description One composite target instance and its complete physical membership.
          */
-        DomainTargetBinding: {
+        "DomainTargetBinding-Input": {
+            /** Exclusivity Key */
+            exclusivity_key: string;
             /** Id */
             id: string;
-            /** Instrument Ids */
-            instrument_ids?: string[];
             /** Kind */
             kind: string;
+            /** Members */
+            members?: components["schemas"]["DomainTargetMember-Input"][];
+        };
+        /**
+         * DomainTargetBinding
+         * @description One composite target instance and its complete physical membership.
+         */
+        "DomainTargetBinding-Output": {
+            /** Exclusivity Key */
+            exclusivity_key: string;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Members */
+            members?: components["schemas"]["DomainTargetMember-Output"][];
+        };
+        /**
+         * DomainTargetInstrumentMember
+         * @description One independently addressable instrument coordinated by a domain target.
+         */
+        DomainTargetInstrumentMember: {
+            /** Instrument Id */
+            instrument_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "instrument";
+            /** Role */
+            role: string;
+        };
+        "DomainTargetMember-Input": components["schemas"]["DomainTargetInstrumentMember"] | components["schemas"]["DomainTargetPrivateEndpoint-Input"];
+        "DomainTargetMember-Output": components["schemas"]["DomainTargetInstrumentMember"] | components["schemas"]["DomainTargetPrivateEndpoint-Output"];
+        /**
+         * DomainTargetPrivateEndpoint
+         * @description One target-owned connection with no standalone instrument contract.
+         */
+        "DomainTargetPrivateEndpoint-Input": {
+            connection: components["schemas"]["InstrumentConnection-Input"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "private_endpoint";
+            /** Role */
+            role: string;
+        };
+        /**
+         * DomainTargetPrivateEndpoint
+         * @description One target-owned connection with no standalone instrument contract.
+         */
+        "DomainTargetPrivateEndpoint-Output": {
+            connection: components["schemas"]["InstrumentConnection-Output"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "private_endpoint";
+            /** Role */
+            role: string;
         };
         /** DriverCatalog */
         DriverCatalog: {
@@ -1479,6 +1540,8 @@ export interface components {
              */
             status: "connected" | "rejected";
         };
+        /** @enum {string} */
+        InstrumentFailureAction: "abort_and_release" | "abort_then_safe_state";
         /** InstrumentListView */
         InstrumentListView: {
             /** Config Entry Id */
@@ -1608,7 +1671,7 @@ export interface components {
          * InstrumentSpec
          * @description Configured instrument with a stable physical access domain.
          *
-         *     Defaults are sparse patches over freshly observed state.
+         *     Default and safe states are sparse patches over freshly observed state.
          */
         "InstrumentSpec-Input": {
             connection: components["schemas"]["InstrumentConnection-Input"];
@@ -1618,15 +1681,18 @@ export interface components {
             driver_id: string;
             /** Exclusivity Key */
             exclusivity_key: string;
+            failure_action: components["schemas"]["InstrumentFailureAction"];
             /** Id */
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
+            /** Safe State */
+            safe_state?: components["schemas"]["InstrumentPropertyState"][];
         };
         /**
          * InstrumentSpec
          * @description Configured instrument with a stable physical access domain.
          *
-         *     Defaults are sparse patches over freshly observed state.
+         *     Default and safe states are sparse patches over freshly observed state.
          */
         "InstrumentSpec-Output": {
             connection: components["schemas"]["InstrumentConnection-Output"];
@@ -1636,9 +1702,12 @@ export interface components {
             driver_id: string;
             /** Exclusivity Key */
             exclusivity_key: string;
+            failure_action: components["schemas"]["InstrumentFailureAction"];
             /** Id */
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
+            /** Safe State */
+            safe_state?: components["schemas"]["InstrumentPropertyState"][];
         };
         /** InstrumentStateAssignment */
         InstrumentStateAssignment: {
@@ -2591,7 +2660,7 @@ export interface components {
          * @description Stable system topology and logical parameter definitions.
          */
         "SystemSpec-Input": {
-            domain_target: components["schemas"]["DomainTargetBinding"] | null;
+            domain_target: components["schemas"]["DomainTargetBinding-Input"] | null;
             /** Id */
             id: string;
             instrument_registry: components["schemas"]["InstrumentRegistry-Input"];
@@ -2606,7 +2675,7 @@ export interface components {
          * @description Stable system topology and logical parameter definitions.
          */
         "SystemSpec-Output": {
-            domain_target: components["schemas"]["DomainTargetBinding"] | null;
+            domain_target: components["schemas"]["DomainTargetBinding-Output"] | null;
             /** Id */
             id: string;
             instrument_registry: components["schemas"]["InstrumentRegistry-Output"];
