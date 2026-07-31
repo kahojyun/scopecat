@@ -22,7 +22,6 @@ from scopecat.compiler.relations.verification import (
     RowType,
     verify_relation_plan,
 )
-from scopecat.compiler.semantic.verification import verify_logical_graph
 from scopecat.graph.relations.analysis import plan_point_refs
 from scopecat.graph.relations.model import ScalarExpr
 from scopecat.graph.relations.point_domain import (
@@ -51,6 +50,7 @@ from scopecat.program.logical import (
     PlanExpressionSource,
     ValueDef,
 )
+from scopecat.program.logical_graph import verify_logical_graph
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.products import (
     ModuleProductDecl,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.compiler.semantic.verification import verify_logical_graph
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import product_id
 from scopecat.kernel.symbols import SymbolId
@@ -11,6 +10,7 @@ from scopecat.program.logical import (
     LogicalMeasurementPostprocessor,
     MeasurementPostprocessorId,
 )
+from scopecat.program.logical_graph import verify_logical_graph
 
 
 def _kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:

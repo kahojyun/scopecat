@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.compiler.semantic.verification import verify_logical_graph
 from scopecat.graph.relations.model import as_scalar_expr, input_ref
 from scopecat.graph.values import OperationId, ValueId, operation_result_id
 from scopecat.kernel.errors import CheckFailed
@@ -13,6 +12,7 @@ from scopecat.program.logical import (
     LogicalComputeNode,
     PlanExpressionSource,
 )
+from scopecat.program.logical_graph import verify_logical_graph
 
 FLOAT = Scalar(Float())
 

@@ -10,7 +10,6 @@ import scopecat as sc
 from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.semantic.verification import verify_logical_graph
 from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.compiler.typed.verification import verify_bound_facts
@@ -35,6 +34,7 @@ from scopecat.program.logical import (
     PlanExpressionSource,
     ValueDef,
 )
+from scopecat.program.logical_graph import verify_logical_graph
 from scopecat.program.products import ModuleProductDecl, record_product
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
