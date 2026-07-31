@@ -8,7 +8,10 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.bind import bind_program
-from scopecat.compiler.frontend.logical_verification import verify_logical_program
+from scopecat.compiler.frontend.logical_verification import (
+    VerifiedLogicalProgram,
+    verify_logical_program,
+)
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.compiler.typed.program import BoundProgramFacts
@@ -417,6 +420,7 @@ def test_compile_verifies_the_final_program_once(
         )
 
     def counted_core(
+        logical: VerifiedLogicalProgram,
         program: BoundProgramFacts,
         *,
         program_id: str,
@@ -424,6 +428,7 @@ def test_compile_verifies_the_final_program_once(
     ) -> VerifiedPointDomain:
         calls["core"] += 1
         return verify_bound_facts(
+            logical,
             program,
             program_id=program_id,
             phase=phase,

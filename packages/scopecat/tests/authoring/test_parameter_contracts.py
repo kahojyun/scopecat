@@ -5,7 +5,6 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.typed.program import TypedDomainExecution
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.domain import domain_program
@@ -375,7 +374,7 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
 
     resolved = bind_invocation(invocation, config_profile=config)
     materialized = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )
@@ -426,9 +425,8 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
         config_profile=_config_with_parameter_table(),
     )
 
-    [execution] = resolved.bindings.effects
-    assert isinstance(execution, TypedDomainExecution)
-    expression = execution.inputs["frequency"]
+    [execution] = resolved.program.program.domain_executions
+    expression = resolved.bindings.values[dict(execution.inputs)["frequency"]]
     assert isinstance(expression, PointColumnScalarExpr)
     assert expression.name == "scanned_frequency"
 

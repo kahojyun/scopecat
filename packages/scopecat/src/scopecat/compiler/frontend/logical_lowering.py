@@ -26,23 +26,12 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    ComputeInput,
-    TypedComputeNode,
-    TypedDomainExecution,
-    TypedDomainResultBinding,
-)
 from scopecat.compiler.typed.values import (
     CompilerValue,
     TableValue,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.product_identity import (
-    ProductId,
-    ProductUse,
-    ProductUseId,
-)
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.program.expressions import (
@@ -51,13 +40,7 @@ from scopecat.program.expressions import (
     ScalarExpression,
     as_scalar_expr,
 )
-from scopecat.program.logical import (
-    LocalPythonImplementation,
-    LogicalComputeNode,
-    LogicalDomainExecution,
-    LogicalProgram,
-    ValueDef,
-)
+from scopecat.program.logical import LogicalComputeNode, LogicalProgram, ValueDef
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.point_domain import (
     PointAxes,
@@ -73,10 +56,7 @@ from scopecat.program.table_values import (
     InputTableSource,
     TableSource,
 )
-from scopecat.program.value_graph import (
-    ComputeOutput,
-    ValueId,
-)
+from scopecat.program.value_graph import ValueId
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
@@ -204,100 +184,6 @@ def validate_entity_inputs(
             "inputs",
             path=(input_id,),
         )
-
-
-def lower_compute_graph(
-    program: _LogicalProgramProof,
-) -> tuple[TypedComputeNode, ...]:
-    """Lower implementation-defined operations to the local residual artifact."""
-
-    nodes = tuple(
-        _lower_compute_node(
-            program,
-            operation,
-            implementation=program.program.implementations[operation.id],
-        )
-        for operation in program.program.compute_nodes
-    )
-    return nodes
-
-
-def lower_domain_graph(
-    program: _LogicalProgramProof,
-    executions: Sequence[LogicalDomainExecution],
-    *,
-    product_uses: Sequence[ProductUse],
-) -> tuple[TypedDomainExecution, ...]:
-    """Lower ordered prepare-stage domain effects and their product uses."""
-
-    uses_by_product: dict[ProductId, list[ProductUseId]] = {}
-    for use in product_uses:
-        uses_by_product.setdefault(use.product_id, []).append(use.id)
-    typed_executions: list[TypedDomainExecution] = []
-    for execution in executions:
-        lowered_inputs: dict[str, ScalarExpression] = {}
-        for name, value_id in execution.inputs:
-            lowered = cast(
-                "ScalarExpression",
-                lower_logical_value(
-                    program,
-                    value_id,
-                ),
-            )
-            lowered_inputs[name] = lowered
-        lowered_compiler_inputs: dict[str, CompilerValue] = {}
-        for name, value_id in execution.compiler_inputs:
-            lowered = lower_logical_value(
-                program,
-                value_id,
-            )
-            lowered_compiler_inputs[name] = lowered
-        result_bindings: list[TypedDomainResultBinding] = []
-        for result_id, product_id in execution.results:
-            result_bindings.append(
-                TypedDomainResultBinding(
-                    id=result_id,
-                    product_id=product_id,
-                    product_use_ids=tuple(uses_by_product.get(product_id, [])),
-                )
-            )
-        typed_executions.append(
-            TypedDomainExecution(
-                id=execution.id,
-                program=execution.program,
-                inputs=lowered_inputs,
-                compiler_inputs=lowered_compiler_inputs,
-                results=tuple(result_bindings),
-            )
-        )
-    return tuple(typed_executions)
-
-
-def _lower_compute_node(
-    program: _LogicalProgramProof,
-    operation: LogicalComputeNode,
-    *,
-    implementation: LocalPythonImplementation,
-) -> TypedComputeNode:
-    lowered_inputs: dict[str, ComputeInput] = {}
-    for name, value_id in operation.inputs:
-        lowered = lower_logical_value(
-            program,
-            value_id,
-        )
-        if not isinstance(lowered, ScalarExpr):
-            raise AssertionError("verified compute inputs must be scalar")
-        lowered_inputs[name] = lowered
-    return TypedComputeNode(
-        id=operation.id,
-        implementation=implementation,
-        input_types=dict(operation.input_types),
-        inputs=lowered_inputs,
-        result=ComputeOutput(
-            id=operation.result_id,
-            value_type=operation.result_type,
-        ),
-    )
 
 
 def lower_logical_value(

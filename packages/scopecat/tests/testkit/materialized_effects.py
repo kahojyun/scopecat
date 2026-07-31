@@ -6,7 +6,6 @@ from dataclasses import replace
 from scopecat.compiler.bind import BoundPlan, _bind_program_facts
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -27,16 +26,16 @@ from tests.testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
 )
-from tests.testkit.typed_program import verified_logical_program_for
+from tests.testkit.typed_program import ProgramFixture
 
 
 def bind_program_facts(
-    bindings: BoundProgramFacts,
+    program: ProgramFixture,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
     return _bind_program_facts(
-        verified_logical_program_for(bindings),
-        bindings,
+        program.logical,
+        program.bindings,
         environment,
     )
 
@@ -88,7 +87,7 @@ def config_with_physical_resources(
 
 
 def materialized_effects_contract(
-    experiment: BoundProgramFacts,
+    experiment: ProgramFixture | BoundPlan,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
@@ -97,11 +96,16 @@ def materialized_effects_contract(
         build_config_environment(config or load_config()),
         parameters=parameters,
     )
-    return materialize_local_execution(bind_program_facts(experiment, environment))
+    bound = (
+        experiment
+        if isinstance(experiment, BoundPlan)
+        else bind_program_facts(experiment, environment)
+    )
+    return materialize_local_execution(bound)
 
 
 def measurement_projection_contract(
-    experiment: BoundProgramFacts,
+    experiment: ProgramFixture | BoundPlan,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
@@ -110,7 +114,12 @@ def measurement_projection_contract(
         build_config_environment(config or load_config()),
         parameters=parameters,
     )
-    bound_points = materialize_bound_points(bind_program_facts(experiment, environment))
+    bound = (
+        experiment
+        if isinstance(experiment, BoundPlan)
+        else bind_program_facts(experiment, environment)
+    )
+    bound_points = materialize_bound_points(bound)
     return select_measurement_projection(
         project_measurement_catalog(bound_points),
         bound_points.bound_plan.bindings.record_uses,

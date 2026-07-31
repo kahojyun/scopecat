@@ -8,12 +8,9 @@ from scopecat.compiler.typed.point_domain import (
     PointDomain,
 )
 from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
     LogicalResourceRequirement,
     record_product,
-    set_state_property,
 )
-from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -40,8 +37,10 @@ from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.relation_plans import scalar_value_expr
+from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.typed_program import (
+    ProgramFixture,
+    StateAssignmentFixture,
     bind_program_facts,
     instrument_acquisition,
     observable_product,
@@ -66,10 +65,10 @@ def _unit_program(
     *,
     experiment_id: str,
     resource_requirements: tuple[LogicalResourceRequirement, ...] = (),
-    state: tuple[SetStateSpec, ...] = (),
+    state: tuple[StateAssignmentFixture, ...] = (),
     products: tuple[ProductDef, ...] = (),
     acquisitions: tuple[AcquireEffect, ...] = (),
-) -> BoundProgramFacts:
+) -> ProgramFixture:
     uses_and_records = tuple(record_product(product) for product in products)
     return typed_program(
         point_domain=PointDomain(axes=()),
@@ -83,7 +82,7 @@ def _unit_program(
 
 
 def _bind(
-    program: BoundProgramFacts,
+    program: ProgramFixture,
     *,
     config: ConfigProfileSnapshot,
 ) -> LocalEffectInspection:
@@ -194,8 +193,8 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
             ),
         ),
         state=(
-            set_state_property(
-                resource_port_id=port,
+            state_property(
+                port,
                 interface_id="test.a/v1",
                 property_id="level",
                 value=_number(1.0),
@@ -250,8 +249,8 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
 def test_logical_state_bindings_reach_required_instrument() -> None:
     config = _split_instrument_config()
     source = _port("source")
-    first_state = set_state_property(
-        resource_port_id=source,
+    first_state = state_property(
+        source,
         interface_id="test.set_level/v1",
         property_id="level",
         value=_number(1.0),
@@ -300,8 +299,8 @@ def test_logical_state_does_not_broadcast_across_instruments() -> None:
             ),
         ),
         state=(
-            set_state_property(
-                resource_port_id=source,
+            state_property(
+                source,
                 interface_id="test.set_level/v1",
                 property_id="level",
                 value=_number(1.0),
@@ -331,8 +330,8 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
             ),
         ),
         state=(
-            set_state_property(
-                resource_port_id=signal,
+            state_property(
+                signal,
                 interface_id="test.set_level/v1",
                 property_id="level",
                 value=_number(1.0),
@@ -352,13 +351,13 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     plan = _bind(program, config=config)
     execution = plan
 
-    state_property = operations_of_type(plan, ApplyStateOperation, point_index=0)[
+    state_target = operations_of_type(plan, ApplyStateOperation, point_index=0)[
         0
     ].targets[0]
     request = operations_of_type(plan, CollectOperation, point_index=0)[
         0
     ].command.requests[0]
-    assert (state_property.entity_ids, state_property.channel_bindings) == (("q0",), ())
+    assert (state_target.entity_ids, state_target.channel_bindings) == (("q0",), ())
     assert (request.entity_ids, request.channel_bindings) == (["q0"], [])
 
     target = operations_of_type(execution, ApplyStateOperation, point_index=0)[
@@ -390,14 +389,14 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
             ),
         ),
         state=(
-            set_state_property(
-                resource_port_id=left,
+            state_property(
+                left,
                 interface_id="test.set_level/v1",
                 property_id="level",
                 value=_number(1.0),
             ),
-            set_state_property(
-                resource_port_id=right,
+            state_property(
+                right,
                 interface_id="test.set_level/v1",
                 property_id="level",
                 value=_number(1.0),

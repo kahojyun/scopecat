@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.service import plan_scratch_experiment
@@ -33,7 +32,7 @@ from tests.testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
 )
-from tests.testkit.typed_program import bind_program_facts
+from tests.testkit.typed_program import ProgramFixture, bind_program_facts
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +67,7 @@ class _ExplicitDriverProvider:
 def execute_bound_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: BoundProgramFacts,
+    experiment: ProgramFixture,
     instruments: Sequence[InstrumentDriver],
     project_root: str | Path,
     payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
@@ -133,7 +132,7 @@ def execute_invocation_run(
 def execute_program_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: BoundProgramFacts,
+    experiment: ProgramFixture,
     instrument_provider: InstrumentProvider,
     project_root: str | Path,
     request: RunRequest | None = None,

@@ -15,11 +15,8 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
     LogicalResourceRequirement,
-    TypedDomainExecution,
     record_product,
-    set_state_property,
 )
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumerKind,
@@ -70,12 +67,13 @@ from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
-)
+from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.typed_program import (
+    DomainExecutionFixture,
+    ProgramFixture,
     instrument_acquisition,
     observable_product,
+    typed_program,
     verified_logical_program_for,
 )
 
@@ -86,12 +84,12 @@ _SPAN = Quantity(value=2.0, unit="GHz")
 
 
 def bind_program_facts(
-    bindings: BoundProgramFacts,
+    program: ProgramFixture,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
     return _bind_program_facts(
-        verified_logical_program_for(bindings),
-        bindings,
+        verified_logical_program_for(program),
+        program.bindings,
         environment,
     )
 
@@ -147,7 +145,7 @@ def _entity_rows(
     )
 
 
-def _symbolic_program() -> BoundProgramFacts:
+def _symbolic_program() -> ProgramFixture:
     axes = (
         _values_axis("a", _FLOAT, (1.0,)),
         _values_axis(
@@ -189,7 +187,7 @@ def _symbolic_program() -> BoundProgramFacts:
         interface="test.scalar_signal/v1",
         metadata={"owner": "selected-producer"},
     )
-    return BoundProgramFacts(
+    return typed_program(
         point_domain=PointDomain(axes=axes),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -213,8 +211,8 @@ def test_bind_specializes_config_values_and_retains_backend_neutral_domain() -> 
 
     bound = bind_program_facts(program, _environment())
 
-    assert bound.bindings != program
-    assert bound.point_domain.axes != program.point_domain.axes
+    assert bound.bindings != program.bindings
+    assert bound.point_domain.axes != program.bindings.point_domain.axes
     assert bound.point_domain.cardinality == 4
     assert tuple(column.id for column in bound.point_domain.coordinate_columns) == (
         "a",
@@ -225,6 +223,7 @@ def test_bind_specializes_config_values_and_retains_backend_neutral_domain() -> 
     assert tuple(
         consumer.location.path
         for consumer in bound_relation_consumers(
+            bound.program,
             bound.bindings,
             bound.point_domain,
         )
@@ -233,7 +232,7 @@ def test_bind_specializes_config_values_and_retains_backend_neutral_domain() -> 
 
 
 def test_bind_retains_unit_domain() -> None:
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(axes=()),
     )
 
@@ -244,6 +243,7 @@ def test_bind_retains_unit_domain() -> None:
     assert all(
         consumer.kind is not ProgramRelationConsumerKind.POINT_AXIS_CENTER
         for consumer in bound_relation_consumers(
+            bound.program,
             bound.bindings,
             bound.point_domain,
         )
@@ -278,10 +278,10 @@ def test_bind_selects_and_snapshots_the_complete_domain_target() -> None:
             )
         }
     )
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(axes=()),
         effects=(
-            TypedDomainExecution(
+            DomainExecutionFixture(
                 id="domain",
                 program=DomainProgramDef(
                     id="program",
@@ -321,10 +321,10 @@ def test_bind_rejects_a_domain_program_without_a_configured_target() -> None:
             "system": config.system.model_copy(update={"domain_target": None}),
         }
     )
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(axes=()),
         effects=(
-            TypedDomainExecution(
+            DomainExecutionFixture(
                 id="domain",
                 program=DomainProgramDef(
                     id="program",
@@ -350,15 +350,17 @@ def test_bind_retains_product_metadata_and_accepted_environment() -> None:
     environment = _environment()
     bound = bind_program_facts(program, environment)
     acquisition = next(
-        effect for effect in program.effects if isinstance(effect, AcquireEffect)
+        effect
+        for effect in program.logical.program.effects
+        if isinstance(effect, AcquireEffect)
     )
 
     assert bound.environment is environment
 
     for metadata in (
-        program.product_defs[0].metadata,
+        program.bindings.product_defs[0].metadata,
         acquisition.results[0].metadata,
-        program.record_uses[0].metadata,
+        program.bindings.record_uses[0].metadata,
     ):
         with pytest.raises(TypeError, match="frozen mapping is immutable"):
             cast("dict[str, object]", metadata)["mutated-source"] = True
@@ -375,7 +377,7 @@ def test_unselected_product_definition_survives_binding_without_collection() -> 
     plan = materialize_local_execution(bound)
 
     selected_id, unselected_id = (product.id for product in bound.bindings.product_defs)
-    assert bound.bindings.product_defs == program.product_defs
+    assert bound.bindings.product_defs == program.bindings.product_defs
     assert tuple(use.product_id for use in bound.bindings.product_uses) == (
         selected_id,
     )
@@ -430,7 +432,7 @@ def test_bind_closes_every_used_axis_center_parameter_import(
     expression: ScalarExpr,
     bindings: RelationTypeBindings,
 ) -> None:
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(
             axes=(_linear_axis("value", expression, bindings=bindings),)
         ),
@@ -449,7 +451,7 @@ def test_bind_closes_every_used_axis_center_parameter_import(
 
 def test_bind_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
     parameter_id = "lookup-bound-as-scalar"
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(
             axes=(
                 _linear_axis(
@@ -482,7 +484,7 @@ def test_bind_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
 
 def test_bind_rejects_remaining_relation_input_imports() -> None:
     input_id = "unresolved"
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(axes=()),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -491,8 +493,8 @@ def test_bind_rejects_remaining_relation_input_imports() -> None:
             ),
         ),
         effects=(
-            set_state_property(
-                resource_port_id=logical_resource_port_id("source"),
+            state_property(
+                logical_resource_port_id("source"),
                 interface_id="test.set_frequency/v1",
                 property_id="value",
                 value=scalar_value_expr(
@@ -518,7 +520,7 @@ def test_bind_rejects_remaining_relation_input_imports() -> None:
 
 def test_bind_reports_every_missing_import_in_one_axis_center() -> None:
     missing_ids = ("missing-left", "missing-right")
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(
             axes=(
                 _linear_axis(
@@ -563,7 +565,7 @@ def test_bound_points_retain_exact_proofs_when_materialized() -> None:
 
 
 def test_bound_points_normalize_entities_before_point_identity_is_sealed() -> None:
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(axes=(_entity_rows(("q0",)),)),
     )
 
@@ -578,7 +580,7 @@ def test_bound_points_normalize_entities_before_point_identity_is_sealed() -> No
 
 
 def test_bound_points_reject_unknown_entities_at_the_planning_boundary() -> None:
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(axes=(_entity_rows(("missing",)),)),
     )
 
@@ -594,7 +596,7 @@ def test_bound_points_reject_unknown_entities_at_the_planning_boundary() -> None
 
 
 def test_bound_points_preserve_entity_kind_mismatch_problem() -> None:
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(
             axes=(_entity_rows((EntityRef(id="q0", kind="logical_coupler"),)),),
         ),
@@ -613,7 +615,7 @@ def test_bound_points_preserve_entity_kind_mismatch_problem() -> None:
 
 
 def test_bound_points_report_unknown_normalized_entities() -> None:
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(
             axes=(
                 _entity_rows(

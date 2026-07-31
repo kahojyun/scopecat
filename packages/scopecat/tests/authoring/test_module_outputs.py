@@ -14,7 +14,6 @@ from scopecat.compiler.bind import _lower_logical_program
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
@@ -25,15 +24,19 @@ from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import evaluate_scalar
+from tests.testkit.typed_program import ProgramFixture
 
 
 def _bind_program(
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot,
-) -> BoundProgramFacts:
+) -> ProgramFixture:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return _lower_logical_program(compiled.program, environment)
+    return ProgramFixture(
+        logical=compiled.program,
+        bindings=_lower_logical_program(compiled.program, environment),
+    )
 
 
 def _payload_type() -> sc.ScalarType:
@@ -170,13 +173,25 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         template_definition(),
         load_config(),
     )
-    bound_nodes = {node.id: node for node in program.compute_nodes}
-    first_edge = bound_nodes[
-        OperationId(SymbolId(scope=("siblings", "first-consumer"), local_id="consume"))
-    ].inputs["payload"]
-    second_edge = bound_nodes[
-        OperationId(SymbolId(scope=("siblings", "second-consumer"), local_id="consume"))
-    ].inputs["payload"]
+    bound_nodes = {node.id: node for node in program.logical.program.compute_nodes}
+    first_edge = program.bindings.values[
+        dict(
+            bound_nodes[
+                OperationId(
+                    SymbolId(scope=("siblings", "first-consumer"), local_id="consume")
+                )
+            ].inputs
+        )["payload"]
+    ]
+    second_edge = program.bindings.values[
+        dict(
+            bound_nodes[
+                OperationId(
+                    SymbolId(scope=("siblings", "second-consumer"), local_id="consume")
+                )
+            ].inputs
+        )["payload"]
+    ]
     assert isinstance(first_edge, ComputeResultScalarExpr)
     assert isinstance(second_edge, ComputeResultScalarExpr)
     first_producer = bound_nodes[
@@ -185,8 +200,8 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
     second_producer = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "second-producer"), local_id="produce"))
     ]
-    assert first_edge.value_id == first_producer.result.id
-    assert second_edge.value_id == second_producer.result.id
+    assert first_edge.value_id == first_producer.result_id
+    assert second_edge.value_id == second_producer.result_id
     assert first_edge.value_type == _payload_type()
     assert second_edge.value_type == _payload_type()
 
@@ -260,7 +275,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         template_definition(),
         load_config(),
     )
-    nodes = {node.id: node for node in program.compute_nodes}
+    nodes = {node.id: node for node in program.logical.program.compute_nodes}
     expected_type = _payload_type()
 
     for wrapper_scope, sink_scope in (
@@ -283,18 +298,18 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
                 )
             )
         ]
-        edge = sink_node.inputs["payload"]
+        edge = program.bindings.values[dict(sink_node.inputs)["payload"]]
         assert isinstance(edge, ComputeResultScalarExpr)
-        assert producer_node.result.value_type == expected_type
-        assert producer_node.result.id.scope == (
+        assert producer_node.result_type == expected_type
+        assert producer_node.result_id.scope == (
             "typed-result-root",
             wrapper_scope,
             "child",
             "produce",
             "outputs",
         )
-        assert producer_node.result.id.local_id == "result"
-        assert edge.value_id == producer_node.result.id
+        assert producer_node.result_id.local_id == "result"
+        assert edge.value_id == producer_node.result_id
         assert edge.value_type == expected_type
 
 

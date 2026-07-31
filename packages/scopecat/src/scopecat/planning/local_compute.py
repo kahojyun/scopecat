@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.typed.program import TypedComputeNode
+from scopecat.compiler.typed.values import CompilerValue
 from scopecat.execution.local.program import (
     BoundInput,
     ComputeOperation,
@@ -19,12 +19,15 @@ from scopecat.kernel.problems import Problem, model_location
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.kernel.value_validation import coerce_literal
 from scopecat.planning.local_values import evaluate_scalar_value
-from scopecat.program.expressions import ComputeResultScalarExpr
-from scopecat.program.value_graph import ValueId
+from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
+from scopecat.program.logical import LocalPythonImplementation, LogicalComputeNode
+from scopecat.program.value_graph import ComputeOutput, OperationId, ValueId
 
 
 def bind_compute_operations(
-    nodes: Sequence[TypedComputeNode],
+    nodes: Sequence[LogicalComputeNode],
+    implementations: Mapping[OperationId, LocalPythonImplementation],
+    values: Mapping[ValueId, CompilerValue],
     *,
     operation_prefix: str,
     ctx: EvalContext,
@@ -40,8 +43,12 @@ def bind_compute_operations(
     for node in nodes:
         inputs: dict[str, BoundInput | OutputInput] = {}
         failed = False
-        for name, input_spec in node.inputs.items():
-            expected_type = node.input_types[name]
+        input_types = dict(node.input_types)
+        for name, value_id in node.inputs:
+            input_spec = values[value_id]
+            if not isinstance(input_spec, ScalarExpr):
+                raise AssertionError("compute inputs must be scalar")
+            expected_type = input_types[name]
             try:
                 if isinstance(input_spec, ComputeResultScalarExpr):
                     if input_spec.value_id not in available_results:
@@ -83,16 +90,16 @@ def bind_compute_operations(
                 )
         if failed:
             continue
-        implementation = node.implementation
+        implementation = implementations[node.id]
         operation_id = f"{operation_prefix}.compute.{node.id.qualified_name}"
         schema_id = (
-            _payload_schema(node.result.value_type)
-            if node.result.id in demanded_payload_results
+            _payload_schema(node.result_type)
+            if node.result_id in demanded_payload_results
             else None
         )
         payload_id = f"{operation_id}.payload" if schema_id is not None else None
         if payload_id is not None:
-            payload_ids[node.result.id] = payload_id
+            payload_ids[node.result_id] = payload_id
         operations.append(
             ComputeOperation(
                 operation_id=operation_id,
@@ -100,7 +107,10 @@ def bind_compute_operations(
                 implementation_id=implementation.id.value,
                 kernel=implementation.kernel,
                 inputs=inputs,
-                result=node.result,
+                result=ComputeOutput(
+                    id=node.result_id,
+                    value_type=node.result_type,
+                ),
                 payload_slot=(
                     PayloadSlot(id=payload_id, schema_id=schema_id)
                     if payload_id is not None and schema_id is not None
@@ -108,7 +118,7 @@ def bind_compute_operations(
                 ),
             )
         )
-        available_results.add(node.result.id)
+        available_results.add(node.result_id)
     return tuple(operations), payload_ids
 
 

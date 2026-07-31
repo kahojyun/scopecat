@@ -6,7 +6,6 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.program import bound_domain_executions
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.measurements.results import MeasurementDType, MeasurementScalar
 from scopecat.planning.domain_bridge import (
@@ -115,8 +114,9 @@ def _preparation_context(
     )
     bound = resolved
     bound_points = materialize_bound_points(bound)
-    execution_id = bound_domain_executions(bound.bindings)[0].id
-    closure = domain_result_closure(bound.bindings, execution_id)
+    execution = bound.program.program.domain_executions[0]
+    execution_id = execution.id
+    closure = domain_result_closure(bound.bindings, execution)
     call_view = make_domain_call_view(
         bound,
         execution_id,

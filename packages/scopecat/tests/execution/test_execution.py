@@ -16,10 +16,7 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
-    TypedComputeNode,
-    bound_acquisitions,
     record_product,
-    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.evidence import (
@@ -102,7 +99,7 @@ from tests.testkit.payload_codecs import json_payload_codecs
 from tests.testkit.records import (
     assert_model_round_trip,
 )
-from tests.testkit.relation_plans import scalar_value_expr
+from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
@@ -111,6 +108,8 @@ from tests.testkit.signal_instruments import (
     TestSignalInstrument,
 )
 from tests.testkit.typed_program import (
+    ComputeNodeFixture,
+    ProgramFixture,
     bind_program_facts,
     compute_result,
     instrument_acquisition,
@@ -797,7 +796,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         product_uses=[product_use],
         record_uses=[record_use],
         compute_nodes=[
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=operation_id,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-program.v1"),
@@ -923,7 +922,7 @@ def test_downstream_compute_receives_result_in_its_declared_type(
     bound = bind_invocation(template(), config_profile=config)
     manifest = execute_bound_run(
         config=config,
-        experiment=bound.bindings,
+        experiment=ProgramFixture(logical=bound.program, bindings=bound.bindings),
         instruments=[SignalInstrumentDriver()],
         project_root=tmp_path,
         payload_codecs=json_payload_codecs("pulse_program"),
@@ -936,11 +935,14 @@ def test_downstream_compute_receives_result_in_its_declared_type(
 def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
     instrument = TestSignalInstrument()
     base_experiment = load_experiment()
-    experiment = replace(
-        base_experiment,
-        effects=(
-            set_state_property(
-                resource_port_id=base_experiment.resource_requirements[0].port_id,
+    base_bindings = base_experiment.bindings
+    experiment = typed_program(
+        point_domain=base_bindings.point_domain,
+        resource_requirements=base_bindings.resource_requirements,
+        parameter_overlays=base_bindings.parameter_overlays,
+        state=(
+            state_property(
+                base_bindings.resource_requirements[0].port_id,
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
                 value=scalar_value_expr(
@@ -948,8 +950,12 @@ def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
                     expected_type=Scalar(QuantityType(unit="GHz")),
                 ),
             ),
-            *bound_acquisitions(base_experiment),
         ),
+        measurement_postprocessors=base_bindings.measurement_postprocessors,
+        product_defs=base_bindings.product_defs,
+        instrument_acquisitions=base_experiment.logical.program.acquisitions,
+        product_uses=base_bindings.product_uses,
+        record_uses=base_bindings.record_uses,
     )
     manifest = execute_bound_run(
         config=load_config(),

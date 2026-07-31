@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
     LogicalResourceRequirement,
 )
 from scopecat.config.environment import build_config_environment
@@ -35,6 +34,7 @@ from tests.testkit.typed_program import (
     bind_program_facts,
     instrument_acquisitions,
     observable_product,
+    typed_program,
 )
 
 
@@ -102,7 +102,7 @@ def measurement_assembly_scenario(
                 metadata={"projection": "secondary"},
             )
         )
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(
             axes=(
                 point_axis_values("x", Scalar(Float()), point_values),
@@ -128,7 +128,7 @@ def measurement_assembly_scenario(
             if products
             else ()
         ),
-        effects=instrument_acquisitions(
+        instrument_acquisitions=instrument_acquisitions(
             *products,
             interface="test.scalar_signal/v1",
         ),

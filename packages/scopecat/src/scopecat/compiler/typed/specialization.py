@@ -4,31 +4,26 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import (
     ParameterCellBinding,
     specialize_scalar_expression,
 )
-from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import (
     parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    BoundEffect,
     BoundProgramFacts,
-    ComputeInput,
     LogicalResourceRequirement,
-    TypedComputeNode,
-    TypedDomainExecution,
 )
-from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
     ScalarExpression,
 )
-from scopecat.program.logical import AcquireEffect
+from scopecat.program.logical import LogicalInvocation
 from scopecat.program.point_domain import (
     map_point_axis_centers,
 )
@@ -36,6 +31,7 @@ from scopecat.program.value_graph import OperationId
 
 
 def specialize_bound_facts(
+    logical: VerifiedLogicalProgram,
     program: BoundProgramFacts,
     *,
     parameters: ParameterRelationData,
@@ -59,29 +55,19 @@ def specialize_bound_facts(
             )
             for requirement in program.resource_requirements
         ),
-        compute_nodes=tuple(
-            _specialize_compute(node, known=known, parameter_cells=parameter_cells)
-            for node in _live_compute_nodes(program)
-        ),
-        effects=tuple(
-            _specialize_effect(effect, known=known, parameter_cells=parameter_cells)
-            for effect in program.effects
-        ),
-        final_state=(
-            None
-            if program.final_state is None
-            else replace(
-                program.final_state,
-                assignments=tuple(
-                    _specialize_state(
-                        state,
-                        known=known,
-                        parameter_cells=parameter_cells,
-                    )
-                    for state in program.final_state.assignments
-                ),
+        live_compute_ids=_live_compute_ids(logical, program),
+        values={
+            value_id: (
+                _specialize_value_use(
+                    value,
+                    known=known,
+                    parameter_cells=parameter_cells,
+                )
+                if isinstance(value, ScalarExpr)
+                else value
             )
-        ),
+            for value_id, value in program.values.items()
+        },
     )
 
 
@@ -114,30 +100,26 @@ def _specialize_point_domain(
     )
 
 
-def _live_compute_nodes(program: BoundProgramFacts) -> tuple[TypedComputeNode, ...]:
+def _live_compute_ids(
+    logical: VerifiedLogicalProgram,
+    program: BoundProgramFacts,
+) -> frozenset[OperationId]:
     """Keep the dependency closure of compute results observed by effects."""
 
     demanded = {
-        state.value_use.value_id
-        for effect in program.effects
-        for state in (
-            effect.assignments
-            if isinstance(effect, EnsureStateSpec)
-            else (effect,)
-            if isinstance(effect, SetStateSpec)
-            else ()
-        )
-        if isinstance(state.value_use, ComputeResultScalarExpr)
+        state.value_id
+        for state in logical.program.bindings
+        if isinstance(program.values[state.value_id], ComputeResultScalarExpr)
     }
     demanded.update(
-        argument.value_use.value_id
-        for effect in program.effects
-        if isinstance(effect, InvokeEffect)
+        argument.value_id
+        for effect in logical.program.effects
+        if isinstance(effect, LogicalInvocation)
         for argument in effect.arguments
-        if isinstance(argument.value_use, ComputeResultScalarExpr)
+        if isinstance(program.values[argument.value_id], ComputeResultScalarExpr)
     )
 
-    owners = {node.result.id: node for node in program.compute_nodes}
+    owners = {node.result_id: node for node in logical.program.compute_nodes}
     live_ids: set[OperationId] = set()
     pending = list(demanded)
     while pending:
@@ -148,10 +130,13 @@ def _live_compute_nodes(program: BoundProgramFacts) -> tuple[TypedComputeNode, .
         live_ids.add(node.id)
         pending.extend(
             value.value_id
-            for value in node.inputs.values()
-            if isinstance(value, ComputeResultScalarExpr)
+            for _name, value_id in node.inputs
+            if isinstance(
+                value := program.values[value_id],
+                ComputeResultScalarExpr,
+            )
         )
-    return tuple(node for node in program.compute_nodes if node.id in live_ids)
+    return frozenset(live_ids)
 
 
 def _specialize_scalar_value(
@@ -164,107 +149,6 @@ def _specialize_scalar_value(
         value,
         known=known,
         parameter_cells=parameter_cells,
-    )
-
-
-def _specialize_compute(
-    node: TypedComputeNode,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> TypedComputeNode:
-    inputs: dict[str, ComputeInput] = {
-        name: (
-            _specialize_scalar_value(
-                value,
-                known=known,
-                parameter_cells=parameter_cells,
-            )
-        )
-        for name, value in node.inputs.items()
-    }
-    return replace(node, inputs=inputs)
-
-
-def _specialize_effect(
-    effect: BoundEffect,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> BoundEffect:
-    if isinstance(effect, AcquireEffect):
-        return effect
-    if isinstance(effect, TypedDomainExecution):
-        return replace(
-            effect,
-            inputs={
-                name: _specialize_scalar_value(
-                    value,
-                    known=known,
-                    parameter_cells=parameter_cells,
-                )
-                for name, value in effect.inputs.items()
-            },
-            compiler_inputs={
-                name: (
-                    _specialize_scalar_value(
-                        value,
-                        known=known,
-                        parameter_cells=parameter_cells,
-                    )
-                    if isinstance(value, ScalarExpr)
-                    else value
-                )
-                for name, value in effect.compiler_inputs.items()
-            },
-        )
-    if isinstance(effect, InvokeEffect):
-        return replace(
-            effect,
-            arguments=tuple(
-                replace(
-                    argument,
-                    value_use=_specialize_value_use(
-                        argument.value_use,
-                        known=known,
-                        parameter_cells=parameter_cells,
-                    ),
-                )
-                for argument in effect.arguments
-            ),
-        )
-    if isinstance(effect, EnsureStateSpec):
-        return replace(
-            effect,
-            assignments=tuple(
-                _specialize_state(
-                    state,
-                    known=known,
-                    parameter_cells=parameter_cells,
-                )
-                for state in effect.assignments
-            ),
-        )
-    return _specialize_state(
-        effect,
-        known=known,
-        parameter_cells=parameter_cells,
-    )
-
-
-def _specialize_state(
-    state: SetStateSpec,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> SetStateSpec:
-    return replace(
-        state,
-        value_use=_specialize_value_use(
-            state.value_use,
-            known=known,
-            parameter_cells=parameter_cells,
-        ),
     )
 
 

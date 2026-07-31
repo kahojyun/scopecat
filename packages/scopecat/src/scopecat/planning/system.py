@@ -15,13 +15,6 @@ from scopecat.compiler.bind import BoundDomainTarget, BoundPlan
 from scopecat.compiler.typed.domain_results import (
     domain_result_closure,
 )
-from scopecat.compiler.typed.program import (
-    BoundEffect,
-    TypedDomainExecution,
-    bound_domain_executions,
-    bound_invocations,
-    bound_state,
-)
 from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
@@ -68,6 +61,7 @@ from scopecat.planning.point_materialization import (
 from scopecat.planning.provider_binding import (
     validate_run_host_binding,
 )
+from scopecat.program.logical import LogicalDomainExecution, LogicalEffect
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
@@ -157,8 +151,8 @@ def _compile_system_program(
             )
         )
     domain_result_closures = {
-        execution.id: domain_result_closure(bound.bindings, execution.id)
-        for execution in bound_domain_executions(bound.bindings)
+        execution.id: domain_result_closure(bound.bindings, execution)
+        for execution in bound.program.program.domain_executions
     }
     domain_calls = {
         execution_id: make_domain_call_view(
@@ -193,13 +187,13 @@ def _compile_system_program(
     )
     local_required = bool(
         local_product_use_ids
-        or bound.bindings.compute_nodes
-        or bound_state(bound.bindings)
-        or bound_invocations(bound.bindings)
+        or bound.bindings.live_compute_ids
+        or bound.program.program.bindings
+        or bound.program.program.invocations
     )
     implementation_problems = list(
         _implementation_problems(
-            has_domain_call=bool(bound_domain_executions(bound.bindings)),
+            has_domain_call=bool(bound.program.program.domain_executions),
             has_domain_compiler=system.domain_compiler is not None,
             local_required=local_required,
             has_local_instrument_catalog=catalog.provider_id is not None,
@@ -478,8 +472,8 @@ def _compile_coverage(
         return ()
     compiler = cast("DomainCompiler", system.domain_compiler)
     jobs_by_execution: dict[str, list[RunDomainJob]] = {}
-    for execution in bound.bindings.effects:
-        if not isinstance(execution, TypedDomainExecution):
+    for execution in bound.program.program.effects:
+        if not isinstance(execution, LogicalDomainExecution):
             continue
         jobs_by_execution[execution.id] = list(
             _compile_domain_batches(
@@ -490,7 +484,7 @@ def _compile_coverage(
             )
         )
     return _coverage_operations(
-        effects=bound.bindings.effects,
+        effects=bound.program.program.effects,
         local_effects=local_effects,
         region=region,
         jobs_by_execution=jobs_by_execution,
@@ -499,7 +493,7 @@ def _compile_coverage(
 
 def _coverage_operations(
     *,
-    effects: tuple[BoundEffect, ...],
+    effects: tuple[LogicalEffect, ...],
     local_effects: MaterializedLocalEffects | None,
     region: tuple[int, ...],
     jobs_by_execution: dict[str, list[RunDomainJob]],
@@ -527,7 +521,7 @@ def _coverage_operations(
                     for item in selected_effects[effect_index]
                     if item.point_index in local_region
                 )
-            if isinstance(effect, TypedDomainExecution):
+            if isinstance(effect, LogicalDomainExecution):
                 operations.extend(
                     job
                     for job in jobs_by_execution.get(effect.id, ())

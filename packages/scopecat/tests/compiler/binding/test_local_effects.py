@@ -15,8 +15,6 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
-    TypedComputeNode,
-    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
@@ -70,8 +68,9 @@ from tests.testkit.local_materialization import (
     operations_of_type,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.relation_plans import scalar_value_expr
+from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.typed_program import (
+    ComputeNodeFixture,
     bind_program_facts,
     compute_result,
     instrument_invocation,
@@ -191,8 +190,8 @@ def test_bound_state_preserves_primitive_field_types(
             ),
         ),
         state=(
-            set_state_property(
-                resource_port_id=_resource("source-0"),
+            state_property(
+                _resource("source-0"),
                 interface_id="test.configure/v1",
                 property_id="value",
                 value=scalar_value_expr(lit(value), expected_type=value_type),
@@ -231,7 +230,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
             point_type,
         ),
         compute_nodes=(
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=unused_id,
                 implementation=_implementation(
                     unused_id,
@@ -240,7 +239,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 result=_output(unused_id, Scalar(Payload("unused_program"))),
                 input_types={},
             ),
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=producer_id,
                 implementation=_implementation(producer_id, _identity_value),
                 inputs={
@@ -253,7 +252,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 result=_output(producer_id, Scalar(Float())),
                 input_types={"value": Scalar(Float())},
             ),
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=consumer_id,
                 implementation=_implementation(consumer_id, _wrap_value),
                 inputs={
@@ -392,7 +391,7 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
             point_type,
         ),
         compute_nodes=(
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=node_id,
                 implementation=_implementation(node_id, _quantity_value),
                 inputs={
@@ -548,7 +547,7 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
             point_type,
         ),
         compute_nodes=(
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=node_id,
                 implementation=_implementation(node_id, _mapping_size),
                 inputs={

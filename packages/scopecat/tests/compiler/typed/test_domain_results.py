@@ -2,17 +2,14 @@ from __future__ import annotations
 
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-    TypedDomainExecution,
-    TypedDomainResultBinding,
-)
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.product_identity import (
     ProductUse,
     ProductUseId,
     product_id,
 )
+from scopecat.program.logical import LogicalDomainExecution
 
 
 def test_domain_result_closure_contains_only_exact_direct_product_uses() -> None:
@@ -21,7 +18,7 @@ def test_domain_result_closure_contains_only_exact_direct_product_uses() -> None
     direct_use = ProductUse(shared_product, ProductUseId("shared/direct"))
     foreign_use = ProductUse(shared_product, ProductUseId("shared/foreign"))
     output_use = ProductUse(output_product, ProductUseId("output/use"))
-    execution = TypedDomainExecution(
+    execution = LogicalDomainExecution(
         id="domain",
         program=DomainProgramDef(
             id="program",
@@ -29,20 +26,14 @@ def test_domain_result_closure_contains_only_exact_direct_product_uses() -> None
             dialect_version="1",
             body=object(),
         ),
-        results=(
-            TypedDomainResultBinding(
-                id="shared",
-                product_id=shared_product,
-                product_use_ids=(direct_use.id,),
-            ),
-        ),
+        results=(("shared", shared_product),),
     )
     program = BoundProgramFacts(
         point_domain=PointDomain(axes=()),
-        effects=(execution,),
+        domain_result_use_ids={(execution.id, "shared"): (direct_use.id,)},
         product_uses=(direct_use, foreign_use, output_use),
     )
 
-    result_closure = domain_result_closure(program, "domain")
+    result_closure = domain_result_closure(program, execution)
 
     assert result_closure.product_use_ids == (direct_use.id,)

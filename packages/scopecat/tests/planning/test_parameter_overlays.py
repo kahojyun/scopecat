@@ -15,7 +15,6 @@ from scopecat.compiler.typed.parameter_overlays import (
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
-    TypedDomainExecution,
 )
 from scopecat.compiler.typed.values import TableValue
 from scopecat.config.environment import build_config_environment
@@ -48,6 +47,7 @@ from tests.testkit.parameter_fixtures import (
 )
 from tests.testkit.relation_plans import state_property
 from tests.testkit.typed_program import (
+    DomainExecutionFixture,
     bind_program_facts,
     overlay_parameter_cell,
     typed_program,
@@ -140,7 +140,13 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     ]
     plan = materialize_local_execution(bind_program_facts(spec, environment))
     without_overlay = materialize_local_execution(
-        bind_program_facts(replace(spec, parameter_overlays=()), environment)
+        bind_program_facts(
+            replace(
+                spec,
+                bindings=replace(spec.bindings, parameter_overlays=()),
+            ),
+            environment,
+        )
     )
 
     assert [
@@ -167,7 +173,7 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
     )
     table_type = _PARAMETER_TYPES["readout_devices"]
     assert isinstance(table_type, Table)
-    execution = TypedDomainExecution(
+    execution = DomainExecutionFixture(
         id="compile",
         program=DomainProgramDef(
             id="consume-readout-table",
@@ -216,7 +222,7 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
 def test_domain_input_materializes_with_its_port_type() -> None:
     generic_frequency = Scalar(QuantityType(dimension="frequency"))
     ghz_frequency = Scalar(QuantityType(dimension="frequency", unit="GHz"))
-    execution = TypedDomainExecution(
+    execution = DomainExecutionFixture(
         id="consume-frequency",
         program=DomainProgramDef(
             id="frequency-consumer",

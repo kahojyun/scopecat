@@ -9,8 +9,6 @@ from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.logical_lowering import lower_logical_value
-from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
 )
@@ -21,125 +19,23 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     verify_relation_plan,
 )
-from scopecat.compiler.typed.invocation import (
-    InvokeArgument,
-    InvokeEffect,
-    InvokeId,
-)
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
-    set_state_property,
 )
-from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Entity, Scalar
 from scopecat.program.bindings import ResourcePort
 from scopecat.program.expressions import (
-    ComputeResultScalarExpr,
     LiteralScalarExpr,
     ScalarExpr,
     ScalarExpression,
     lit,
 )
-from scopecat.program.logical import (
-    LogicalEnsureState,
-    LogicalInvocation,
-    LogicalStateAssignment,
-)
-from scopecat.program.value_graph import ValueId
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_value_ref,
 )
 from scopecat.records.config import Topology
-
-
-def lower_state_binding(
-    assignment: LogicalStateAssignment,
-    *,
-    program: VerifiedLogicalProgram,
-) -> SetStateSpec:
-    """Bind one closed logical state edge to its typed value."""
-
-    value = _lower_effect_value(
-        assignment.value_id,
-        program=program,
-    )
-    return set_state_property(
-        resource_port_id=assignment.port_id,
-        interface_id=assignment.interface_id,
-        component_path=assignment.component_path,
-        property_id=assignment.property_id,
-        value=value,
-        value_type=cast("Scalar", program.value_types[assignment.value_id]),
-    )
-
-
-def lower_ensure_state(
-    effect: LogicalEnsureState,
-    *,
-    program: VerifiedLogicalProgram,
-) -> EnsureStateSpec:
-    """Bind one coherent logical target into typed desired state."""
-
-    return EnsureStateSpec(
-        tuple(
-            lower_state_binding(
-                assignment,
-                program=program,
-            )
-            for assignment in effect.assignments
-        )
-    )
-
-
-def lower_invocation(
-    invocation: LogicalInvocation,
-    *,
-    program: VerifiedLogicalProgram,
-) -> InvokeEffect:
-    """Bind one verified logical operation invocation."""
-
-    arguments: list[InvokeArgument] = []
-    for argument in invocation.arguments:
-        arguments.append(
-            InvokeArgument(
-                id=argument.id,
-                value_use=_lower_effect_value(
-                    argument.value_id,
-                    program=program,
-                ),
-                value_type=cast(
-                    "Scalar",
-                    program.value_types[argument.value_id],
-                ),
-            )
-        )
-    return InvokeEffect(
-        id=InvokeId(SymbolId(scope=invocation.scope, local_id=invocation.id)),
-        resource_port_id=invocation.port_id,
-        interface_id=invocation.interface_id,
-        component_path=invocation.component_path,
-        operation_id=invocation.operation_id,
-        arguments=tuple(arguments),
-    )
-
-
-def _lower_effect_value(
-    value_id: ValueId,
-    *,
-    program: VerifiedLogicalProgram,
-) -> ScalarExpression:
-    lowered = lower_logical_value(
-        program,
-        value_id,
-    )
-    if isinstance(lowered, ComputeResultScalarExpr):
-        return lowered
-    if not isinstance(lowered, ScalarExpr):
-        raise AssertionError("verified logical effect values must be scalar")
-    return lowered
 
 
 def build_resource_requirements(

@@ -10,7 +10,6 @@ import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.program import bound_acquisitions, bound_domain_executions
 from scopecat.compiler.typed.values import TableValue
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.errors import CheckFailed
@@ -184,8 +183,8 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         config_profile=load_config(),
     )
 
-    [execution] = bound_domain_executions(bound.bindings)
-    table_value = execution.compiler_inputs["rows"]
+    [execution] = bound.program.program.domain_executions
+    table_value = bound.bindings.values[dict(execution.compiler_inputs)["rows"]]
     assert isinstance(table_value, TableValue)
     assert isinstance(table_value.source, LiteralTableSource)
 
@@ -193,7 +192,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     call = make_domain_call_view(
         bound,
         execution.id,
-        domain_result_closure(bound.bindings, execution.id),
+        domain_result_closure(bound.bindings, execution),
     )
     request = make_domain_batch_request(
         call,
@@ -402,14 +401,16 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     )
     typed = resolved.bindings
 
-    assert bound_acquisitions(typed) == ()
-    typed_execution = bound_domain_executions(typed)[0]
-    assert typed_execution.program.body is body
-    assert isinstance(typed_execution.inputs["x_count"], PointColumnScalarExpr)
-    result = typed_execution.results[0]
-    assert result.product_id.qualified_name == "root/outer/inner/call/counts"
-    assert result.product_use_ids == tuple(use.id for use in typed.product_uses)
-    assert len(result.product_use_ids) == 2
+    assert resolved.program.program.acquisitions == ()
+    execution = resolved.program.program.domain_executions[0]
+    assert execution.program.body is body
+    expression = typed.values[dict(execution.inputs)["x_count"]]
+    assert isinstance(expression, PointColumnScalarExpr)
+    result_id, product_id = execution.results[0]
+    assert product_id.qualified_name == "root/outer/inner/call/counts"
+    product_use_ids = typed.domain_result_use_ids[(execution.id, result_id)]
+    assert product_use_ids == tuple(use.id for use in typed.product_uses)
+    assert len(product_use_ids) == 2
 
 
 def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:

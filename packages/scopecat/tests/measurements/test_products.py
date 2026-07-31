@@ -6,9 +6,7 @@ import pytest
 
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
     LogicalResourceRequirement,
-    bound_acquisitions,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
@@ -38,7 +36,12 @@ from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.typed_program import bind_program_facts, instrument_acquisition
+from tests.testkit.typed_program import (
+    ProgramFixture,
+    bind_program_facts,
+    instrument_acquisition,
+    typed_program,
+)
 
 
 def _product(name: str = "signal") -> ProductDef:
@@ -116,7 +119,7 @@ def _program(
     acquisitions: tuple[AcquireEffect, ...] = (),
     uses: tuple[ProductUse, ...] = (),
     records: tuple[RecordUse, ...] = (),
-) -> BoundProgramFacts:
+) -> ProgramFixture:
     interfaces_by_port: dict[LogicalResourcePortId, set[str]] = {}
     for acquisition in acquisitions:
         interfaces = interfaces_by_port.setdefault(
@@ -124,7 +127,7 @@ def _program(
             set(),
         )
         interfaces.add(acquisition.interface_id)
-    return BoundProgramFacts(
+    return typed_program(
         point_domain=PointDomain(axes=()),
         resource_requirements=tuple(
             LogicalResourceRequirement(
@@ -133,7 +136,7 @@ def _program(
             )
             for port_id, interfaces in interfaces_by_port.items()
         ),
-        effects=acquisitions,
+        instrument_acquisitions=acquisitions,
         product_defs=products,
         product_uses=uses,
         record_uses=records,
@@ -442,7 +445,7 @@ def test_unused_product_acquisition_is_bound_without_collection() -> None:
     )
 
     assert bound.bindings.product_defs == (product,)
-    assert bound_acquisitions(bound.bindings) == (acquisition,)
+    assert bound.program.program.acquisitions == (acquisition,)
     assert bound.bindings.product_uses == ()
     assert bound.bindings.record_uses == ()
 

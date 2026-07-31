@@ -3,10 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-    TypedComputeNode,
-)
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ComputeOperation
 from scopecat.kernel.symbols import SymbolId
@@ -27,7 +23,12 @@ from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.typed_program import bind_program_facts, typed_program
+from tests.testkit.typed_program import (
+    ComputeNodeFixture,
+    ProgramFixture,
+    bind_program_facts,
+    typed_program,
+)
 
 _FLOAT = Scalar(Float())
 
@@ -55,7 +56,7 @@ def _program(
     output_type: Scalar = _FLOAT,
     output_id: ValueId | None = None,
     point_count: int = 1,
-) -> BoundProgramFacts:
+) -> ProgramFixture:
     operation_id = _operation_id()
     return typed_program(
         point_domain=PointDomain(
@@ -68,7 +69,7 @@ def _program(
             )
         ),
         compute_nodes=(
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=operation_id,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId(implementation_id),

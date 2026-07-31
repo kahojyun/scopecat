@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar as evaluate_selected_scalar,
@@ -10,8 +12,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     verify_relation_plan,
 )
-from scopecat.compiler.typed.program import set_state_property
-from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
@@ -24,6 +24,7 @@ from scopecat.program.expressions import (
     ScalarExpression,
     as_scalar_expr,
 )
+from tests.testkit.typed_program import StateAssignmentFixture
 
 
 def scalar_value_expr(
@@ -52,10 +53,10 @@ def state_property(
     value: object | ComputeResultScalarExpr,
     bindings: RelationTypeBindings | None = None,
     value_type: Scalar | None = None,
-) -> SetStateSpec:
+) -> StateAssignmentFixture:
     selected_bindings = bindings or RelationTypeBindings()
-    return set_state_property(
-        resource_port_id=(
+    return StateAssignmentFixture(
+        port_id=(
             resource_port
             if isinstance(resource_port, LogicalResourcePortId)
             else logical_resource_port_id(resource_port)
@@ -64,8 +65,8 @@ def state_property(
         component_path=component_path,
         property_id=property_id,
         value=(
-            value
-            if isinstance(value, ComputeResultScalarExpr)
+            cast("ScalarExpression", value)
+            if isinstance(value, ScalarExpr)
             else scalar_value_expr(
                 value,
                 bindings=selected_bindings,

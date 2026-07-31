@@ -16,21 +16,10 @@ from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
-from scopecat.compiler.typed.invocation import (
-    InvokeEffect,
-    evaluate_invoke_argument,
-)
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
-from scopecat.compiler.typed.program import BoundProgramFacts, TypedDomainExecution
-from scopecat.compiler.typed.state import (
-    EnsureStateSpec,
-    SetStateSpec,
-    StateEffect,
-    StateRecord,
-    evaluate_state_spec,
-)
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectionResultBinding,
@@ -53,6 +42,7 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.products import ProductDef
 from scopecat.planning.local_compute import (
     bind_compute_operations as _bind_compute_operations,
@@ -60,6 +50,9 @@ from scopecat.planning.local_compute import (
 from scopecat.planning.local_effects import (
     LocalTargetPlan,
     MaterializedLocalEffects,
+    StateRecord,
+    evaluate_effect_value,
+    evaluate_state_assignment,
 )
 from scopecat.planning.local_values import evaluate_scalar_value
 from scopecat.planning.point_materialization import MaterializedBoundPoints
@@ -69,8 +62,18 @@ from scopecat.planning.routing import (
     ResourcePortManifest,
     RoutingView,
 )
-from scopecat.program.expressions import ComputeResultScalarExpr
-from scopecat.program.logical import AcquireEffect
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    ScalarExpr,
+    ScalarExpression,
+)
+from scopecat.program.logical import (
+    AcquireEffect,
+    LogicalDomainExecution,
+    LogicalEnsureState,
+    LogicalInvocation,
+    LogicalStateAssignment,
+)
 from scopecat.program.value_graph import ValueId
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
@@ -134,6 +137,13 @@ class _InstrumentOperation(Protocol):
     def instrument_id(self) -> str: ...
 
 
+def _bound_scalar_value(bound: BoundPlan, value_id: ValueId) -> ScalarExpression:
+    value = bound.bindings.values[value_id]
+    if not isinstance(value, ScalarExpr):
+        raise AssertionError("verified effect values must be scalar")
+    return value
+
+
 def materialize_local_execution(
     bound_points: MaterializedBoundPoints,
     *,
@@ -141,7 +151,9 @@ def materialize_local_execution(
 ) -> MaterializedLocalEffects:
     """Lower one bounded point coverage into final ordered local effects."""
 
-    program = target.bindings
+    bound = target.bound
+    program = bound.bindings
+    logical = bound.program.program
     problems: list[Problem] = []
     selected_instrument_order = target.instrument_order
     materialized_domain = bound_points.point_domain
@@ -164,25 +176,34 @@ def materialize_local_execution(
         params_by_ordinal,
         problems,
     )
-    known_compute_results = {node.result.id for node in program.compute_nodes}
+    compute_nodes = tuple(
+        node for node in logical.compute_nodes if node.id in program.live_compute_ids
+    )
+    known_compute_results = {node.result_id for node in compute_nodes}
     demanded_payload_results = {
-        argument.value_use.value_id
-        for effect in program.effects
-        if isinstance(effect, InvokeEffect)
+        value.value_id
+        for effect in logical.effects
+        if isinstance(effect, LogicalInvocation)
         for argument in effect.arguments
-        if isinstance(argument.value_use, ComputeResultScalarExpr)
+        if isinstance(
+            value := _bound_scalar_value(bound, argument.value_id),
+            ComputeResultScalarExpr,
+        )
     }
     demanded_payload_results.update(
-        state.value_use.value_id
-        for effect in program.effects
+        value.value_id
+        for effect in logical.effects
         for state in (
             effect.assignments
-            if isinstance(effect, EnsureStateSpec)
+            if isinstance(effect, LogicalEnsureState)
             else (effect,)
-            if isinstance(effect, SetStateSpec)
+            if isinstance(effect, LogicalStateAssignment)
             else ()
         )
-        if isinstance(state.value_use, ComputeResultScalarExpr)
+        if isinstance(
+            value := _bound_scalar_value(bound, state.value_id),
+            ComputeResultScalarExpr,
+        )
     )
     payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {}
     compute_effects: list[RunCoverageEffect] = []
@@ -190,7 +211,9 @@ def materialize_local_execution(
         point = point_by_ordinal[ordinal]
         point_params = params_by_ordinal[ordinal]
         compute_operations, payload_ids = _bind_compute_operations(
-            program.compute_nodes,
+            compute_nodes,
+            logical.implementations,
+            program.values,
             operation_prefix=point.logical_id.value,
             ctx=EvalContext(
                 params=point_params,
@@ -205,10 +228,10 @@ def materialize_local_execution(
         )
 
     effect_operations: list[list[RunCoverageEffect]] = [
-        [] for _effect in program.effects
+        [] for _effect in logical.effects
     ]
-    for effect_index, effect in enumerate(program.effects):
-        if isinstance(effect, TypedDomainExecution):
+    for effect_index, effect in enumerate(logical.effects):
+        if isinstance(effect, LogicalDomainExecution):
             continue
         if isinstance(effect, AcquireEffect):
             for ordinal in ordinals:
@@ -229,11 +252,12 @@ def materialize_local_execution(
                         RunCoverageEffect(ordinal, collect)
                     )
             continue
-        if isinstance(effect, InvokeEffect):
+        if isinstance(effect, LogicalInvocation):
             for ordinal in ordinals:
                 point = point_by_ordinal[ordinal]
                 invocation = _bind_invocation(
                     effect,
+                    bound,
                     resources_by_ordinal[ordinal],
                     point_uid=point.logical_id.value,
                     point_index=ordinal,
@@ -250,7 +274,7 @@ def materialize_local_execution(
                         RunCoverageEffect(ordinal, invocation)
                     )
             continue
-        if isinstance(effect, EnsureStateSpec):
+        if isinstance(effect, LogicalEnsureState):
             for ordinal in ordinals:
                 point = point_by_ordinal[ordinal]
                 point_params = params_by_ordinal[ordinal]
@@ -261,6 +285,7 @@ def materialize_local_execution(
                         for state in effect.assignments
                         for record in _evaluate_state_records(
                             state,
+                            bound,
                             effect_index,
                             point,
                             point_params,
@@ -284,20 +309,20 @@ def materialize_local_execution(
                 )
             continue
         if effect_index and isinstance(
-            program.effects[effect_index - 1],
-            SetStateSpec,
+            logical.effects[effect_index - 1],
+            LogicalStateAssignment,
         ):
             continue
         state_end = effect_index + 1
-        while state_end < len(program.effects) and isinstance(
-            program.effects[state_end],
-            SetStateSpec,
+        while state_end < len(logical.effects) and isinstance(
+            logical.effects[state_end],
+            LogicalStateAssignment,
         ):
             state_end += 1
-        state_group: list[tuple[int, SetStateSpec]] = []
+        state_group: list[tuple[int, LogicalStateAssignment]] = []
         for index in range(effect_index, state_end):
-            state = program.effects[index]
-            if not isinstance(state, SetStateSpec):
+            state = logical.effects[index]
+            if not isinstance(state, LogicalStateAssignment):
                 raise AssertionError("state group contains a non-state effect")
             state_group.append((index, state))
         for ordinal in ordinals:
@@ -310,6 +335,7 @@ def materialize_local_execution(
                     for index, state in state_group
                     for record in _evaluate_state_records(
                         state,
+                        bound,
                         index,
                         point,
                         point_params,
@@ -346,26 +372,30 @@ def materialize_local_final_state(
 ) -> tuple[ApplyStateOperation, ...]:
     """Materialize the fixed desired state applied after normal completion."""
 
-    final_state = target.bindings.final_state
+    final_state = target.bound.program.program.final_state
     if final_state is None:
         return ()
     problems: list[Problem] = []
     resources = _select_resources(
-        target.bindings,
+        target.bound.bindings,
         target.resource_ports,
         ctx=EvalContext(params=bound.environment.parameters),
         context="normal completion",
         problems=problems,
         selected_port_ids=frozenset(
-            assignment.resource_target.port_id for assignment in final_state.assignments
+            assignment.port_id for assignment in final_state.assignments
         ),
     )
     records: list[StateRecord] = []
     for assignment in final_state.assignments:
         try:
-            records.extend(
-                evaluate_state_spec(
+            records.append(
+                evaluate_state_assignment(
                     assignment,
+                    _bound_scalar_value(target.bound, assignment.value_id),
+                    cast(
+                        "Scalar", target.bound.program.value_types[assignment.value_id]
+                    ),
                     point_index=0,
                     ctx=EvalContext(params=bound.environment.parameters),
                 )
@@ -381,12 +411,14 @@ def materialize_local_final_state(
     desired = _bind_desired_state(
         records,
         point_uid=f"{bound.program.experiment_id}.final_state",
-        state_group_index=len(target.bindings.effects),
+        state_group_index=len(target.bound.program.program.effects),
         resources=resources,
         point_index=0,
         payload_ids={},
         known_compute_results={
-            node.result.id for node in target.bindings.compute_nodes
+            node.result_id
+            for node in target.bound.program.program.compute_nodes
+            if node.id in target.bound.bindings.live_compute_ids
         },
         problems=problems,
         state_context="normal completion",
@@ -423,7 +455,7 @@ def prepare_local_target(
         use for use in bound.bindings.product_uses if use.id in requested
     )
     active_resource_ports = _active_resource_port_ids(
-        bound.bindings,
+        bound,
         product_uses=product_uses,
     )
     resource_ports: dict[LogicalResourcePortId, ResourcePortManifest] = {}
@@ -438,7 +470,7 @@ def prepare_local_target(
             if requirement.port_id in active_resource_ports
         }
     return LocalTargetPlan(
-        bindings=bound.bindings,
+        bound=bound,
         product_uses=product_uses,
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,
@@ -446,7 +478,8 @@ def prepare_local_target(
 
 
 def _evaluate_state_records(
-    state: SetStateSpec,
+    state: LogicalStateAssignment,
+    bound: BoundPlan,
     effect_index: int,
     point: MaterializedPoint,
     params: ParameterRelationData,
@@ -455,12 +488,14 @@ def _evaluate_state_records(
 ) -> tuple[StateRecord, ...]:
     ctx = EvalContext(params=params, point_row=point.row)
     try:
-        return tuple(
-            evaluate_state_spec(
+        return (
+            evaluate_state_assignment(
                 state,
+                _bound_scalar_value(bound, state.value_id),
+                cast("Scalar", bound.program.value_types[state.value_id]),
                 point_index=point.logical_ordinal,
                 ctx=ctx,
-            )
+            ),
         )
     except (ArithmeticError, KeyError, TypeError, ValueError) as error:
         problems.append(
@@ -606,7 +641,7 @@ def _select_resources(
 
 
 def _active_resource_port_ids(
-    program: BoundProgramFacts,
+    bound: BoundPlan,
     *,
     product_uses: Sequence[ProductUse],
 ) -> frozenset[LogicalResourcePortId]:
@@ -618,27 +653,27 @@ def _active_resource_port_ids(
 
     demanded_products = {use.product_id for use in product_uses}
     selected: set[LogicalResourcePortId] = set()
-    for effect in program.effects:
+    for effect in bound.program.program.effects:
         if isinstance(effect, AcquireEffect):
             if any(
                 product_id in demanded_products for product_id in effect.product_ids
             ):
                 selected.add(effect.resource_port_id)
-        elif isinstance(effect, InvokeEffect):
-            selected.add(effect.resource_port_id)
-        elif not isinstance(effect, TypedDomainExecution):
+        elif isinstance(effect, LogicalInvocation):
+            selected.add(effect.port_id)
+        elif not isinstance(effect, LogicalDomainExecution):
             selected.update(_state_resource_port_ids(effect))
-    if program.final_state is not None:
-        selected.update(_state_resource_port_ids(program.final_state))
+    if bound.program.program.final_state is not None:
+        selected.update(_state_resource_port_ids(bound.program.program.final_state))
     return frozenset(selected)
 
 
 def _state_resource_port_ids(
-    state: StateEffect,
+    state: LogicalStateAssignment | LogicalEnsureState,
 ) -> tuple[LogicalResourcePortId, ...]:
-    if isinstance(state, SetStateSpec):
-        return (state.resource_target.port_id,)
-    return tuple(assignment.resource_target.port_id for assignment in state.assignments)
+    if isinstance(state, LogicalStateAssignment):
+        return (state.port_id,)
+    return tuple(assignment.port_id for assignment in state.assignments)
 
 
 def _bind_desired_state(
@@ -843,7 +878,8 @@ def _state_value(
 
 
 def _bind_invocation(
-    effect: InvokeEffect,
+    effect: LogicalInvocation,
+    bound: BoundPlan,
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     *,
     point_uid: str,
@@ -855,7 +891,7 @@ def _bind_invocation(
 ) -> InvokeOperation | None:
     try:
         binding = _bind_state_resource(
-            effect.resource_port_id,
+            effect.port_id,
             interface_id=effect.interface_id,
             resources=resources,
         )
@@ -864,7 +900,7 @@ def _bind_invocation(
             _problem(
                 error.code,
                 str(error),
-                model_location("invocations", effect.id.qualified_name, "resource"),
+                model_location("invocations", effect.qualified_name, "resource"),
             )
         )
         return None
@@ -872,16 +908,20 @@ def _bind_invocation(
     arguments: list[InstrumentOperationArgument] = []
     for argument in effect.arguments:
         try:
-            value = evaluate_invoke_argument(argument, ctx=ctx)
+            value = evaluate_effect_value(
+                _bound_scalar_value(bound, argument.value_id),
+                cast("Scalar", bound.program.value_types[argument.value_id]),
+                ctx=ctx,
+            )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             problems.append(
                 _problem(
                     "instrument_invocation_argument_evaluation_failed",
-                    f"invocation {effect.id.qualified_name!r} argument "
+                    f"invocation {effect.qualified_name!r} argument "
                     f"{argument.id!r} failed for point {point_index}: {error}",
                     model_location(
                         "invocations",
-                        effect.id.qualified_name,
+                        effect.qualified_name,
                         "arguments",
                         argument.id,
                     ),
@@ -897,7 +937,7 @@ def _bind_invocation(
                         f"{value.value_id.qualified_name!r}",
                         model_location(
                             "invocations",
-                            effect.id.qualified_name,
+                            effect.qualified_name,
                             "arguments",
                             argument.id,
                         ),
@@ -913,7 +953,7 @@ def _bind_invocation(
                         f"{value.value_id.qualified_name!r}",
                         model_location(
                             "invocations",
-                            effect.id.qualified_name,
+                            effect.qualified_name,
                             "arguments",
                             argument.id,
                         ),
@@ -927,11 +967,11 @@ def _bind_invocation(
                 problems.append(
                     _problem(
                         "instrument_invocation_argument_unsupported",
-                        f"invocation {effect.id.qualified_name!r} argument "
+                        f"invocation {effect.qualified_name!r} argument "
                         f"{argument.id!r} must be a finite scalar value",
                         model_location(
                             "invocations",
-                            effect.id.qualified_name,
+                            effect.qualified_name,
                             "arguments",
                             argument.id,
                         ),
@@ -947,7 +987,7 @@ def _bind_invocation(
     if len(arguments) != len(effect.arguments):
         return None
     return InvokeOperation(
-        effect_id=f"{point_uid}.invoke.{effect.id.qualified_name}",
+        effect_id=f"{point_uid}.invoke.{effect.qualified_name}",
         instrument_id=binding.instrument_id,
         resource_id=binding.instrument_id,
         interface_id=effect.interface_id,

@@ -186,6 +186,10 @@ class LogicalInvocation:
     arguments: tuple[LogicalInvocationArgument, ...]
     scope: tuple[str, ...] = ()
 
+    @property
+    def qualified_name(self) -> str:
+        return SymbolId(scope=self.scope, local_id=self.id).qualified_name
+
 
 @dataclass(frozen=True, slots=True)
 class ImplementationId:

@@ -10,9 +10,6 @@ from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.bind import _lower_logical_program
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-)
 from scopecat.config.environment import build_config_environment
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
@@ -24,15 +21,19 @@ from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.typed_program import ProgramFixture
 
 
 def _bind_program(
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot,
-) -> BoundProgramFacts:
+) -> ProgramFixture:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return _lower_logical_program(compiled.program, environment)
+    return ProgramFixture(
+        logical=compiled.program,
+        bindings=_lower_logical_program(compiled.program, environment),
+    )
 
 
 def _echo_program(*, program: object) -> dict[str, object]:
@@ -226,17 +227,21 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
 
     program = _bind_program(template(), load_config())
     bound_consumer = next(
-        node for node in program.compute_nodes if node.id.local_id == "consume"
+        node
+        for node in program.logical.program.compute_nodes
+        if node.id.local_id == "consume"
     )
     bound_producer = next(
-        node for node in program.compute_nodes if node.id.local_id == "produce"
+        node
+        for node in program.logical.program.compute_nodes
+        if node.id.local_id == "produce"
     )
-    program_edge = bound_consumer.inputs["program"]
+    program_edge = program.bindings.values[dict(bound_consumer.inputs)["program"]]
     assert isinstance(program_edge, ComputeResultScalarExpr)
-    assert bound_producer.result.id.local_id == producer.result_id.local_id
-    assert bound_producer.result.id.scope == ("parent", *producer.result_id.scope)
-    assert bound_producer.result.value_type == pulse
-    assert program_edge.value_id == bound_producer.result.id
+    assert bound_producer.result_id.local_id == producer.result_id.local_id
+    assert bound_producer.result_id.scope == ("parent", *producer.result_id.scope)
+    assert bound_producer.result_type == pulse
+    assert program_edge.value_id == bound_producer.result_id
     assert program_edge.value_type == pulse
 
     @authoring.module(id="test.compute_edge.incompatible")

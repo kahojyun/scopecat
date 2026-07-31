@@ -6,18 +6,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from scopecat.compiler.diagnostics import compiler_problem
+from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
     verify_point_domain,
 )
-from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
-    bound_acquisitions,
-    bound_domain_executions,
-    bound_invocations,
-    bound_state,
-)
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -36,13 +31,14 @@ from scopecat.program.point_domain import iter_point_axis_linear
 
 
 def _verify_bound_facts(
+    logical: VerifiedLogicalProgram,
     program: BoundProgramFacts,
     *,
     program_id: str,
 ) -> VerifiedPointDomain:
     """Build final proofs without rechecking facts owned by earlier stages."""
 
-    problems: list[Problem] = list(_product_demand_problems(program))
+    problems: list[Problem] = list(_product_demand_problems(logical, program))
     try:
         point_domain = verify_point_domain(
             program.point_domain,
@@ -78,18 +74,21 @@ def _verify_bound_facts(
     return point_domain
 
 
-def _product_demand_problems(program: BoundProgramFacts) -> tuple[Problem, ...]:
+def _product_demand_problems(
+    logical: VerifiedLogicalProgram,
+    program: BoundProgramFacts,
+) -> tuple[Problem, ...]:
     """Close ownership after record demand has introduced exact product uses."""
 
     owned_products = {
         result.product_id
-        for acquisition in bound_acquisitions(program)
+        for acquisition in logical.program.acquisitions
         for result in acquisition.results
     }
     owned_products.update(
-        result.product_id
-        for execution in bound_domain_executions(program)
-        for result in execution.results
+        product_id
+        for execution in logical.program.domain_executions
+        for _result_id, product_id in execution.results
     )
     owned_products.update(
         output.product_id
@@ -120,6 +119,7 @@ class ProgramRelationConsumer:
 
 
 def verify_bound_facts(
+    logical: VerifiedLogicalProgram,
     program: BoundProgramFacts,
     *,
     program_id: str,
@@ -128,7 +128,7 @@ def verify_bound_facts(
     """Verify one residual program and return its derived point-domain proof."""
 
     try:
-        return _verify_bound_facts(program, program_id=program_id)
+        return _verify_bound_facts(logical, program, program_id=program_id)
     except CheckFailed as error:
         if phase is ProblemPhase.AUTHORING:
             raise
@@ -165,16 +165,18 @@ def _point_axis_center_consumers(
 
 
 def bound_relation_consumers(
+    logical: VerifiedLogicalProgram,
     program: BoundProgramFacts,
     point_domain: VerifiedPointDomain,
 ) -> Iterator[ProgramRelationConsumer]:
     """Iterate relation plans with paths only when diagnostics need them."""
 
     yield from _point_axis_center_consumers(point_domain)
-    yield from _program_relation_consumers(program)
+    yield from _program_relation_consumers(logical, program)
 
 
 def _program_relation_consumers(
+    logical: VerifiedLogicalProgram,
     program: BoundProgramFacts,
 ) -> Iterator[ProgramRelationConsumer]:
     """Index canonical expressions with their exact lowering bindings."""
@@ -192,10 +194,15 @@ def _program_relation_consumers(
                 ),
             )
 
-    for node in program.compute_nodes:
-        for input_name, input_value in node.inputs.items():
+    for node in logical.program.compute_nodes:
+        if node.id not in program.live_compute_ids:
+            continue
+        for input_name, value_id in node.inputs:
+            input_value = program.values[value_id]
             if isinstance(input_value, ComputeResultScalarExpr):
                 continue
+            if not isinstance(input_value, ScalarExpr):
+                raise AssertionError("compute inputs must be scalar")
             yield _consumer(
                 ProgramRelationConsumerKind.COMPUTE_INPUT,
                 input_value,
@@ -208,10 +215,13 @@ def _program_relation_consumers(
                 ),
             )
 
-    for execution_index, execution in enumerate(bound_domain_executions(program)):
-        for input_name, input_value in execution.inputs.items():
+    for execution_index, execution in enumerate(logical.program.domain_executions):
+        for input_name, value_id in execution.inputs:
+            input_value = program.values[value_id]
             if isinstance(input_value, ComputeResultScalarExpr):
                 continue
+            if not isinstance(input_value, ScalarExpr):
+                raise AssertionError("domain execution inputs must be scalar")
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
                 input_value,
@@ -222,7 +232,8 @@ def _program_relation_consumers(
                     input_name,
                 ),
             )
-        for input_name, input_value in execution.compiler_inputs.items():
+        for input_name, value_id in execution.compiler_inputs:
+            input_value = program.values[value_id]
             if not isinstance(input_value, ScalarExpr) or isinstance(
                 input_value, ComputeResultScalarExpr
             ):
@@ -238,21 +249,27 @@ def _program_relation_consumers(
                 ),
             )
 
-    for state_index, state in enumerate(bound_state(program)):
-        if not isinstance(state.value_use, ComputeResultScalarExpr):
+    for state_index, state in enumerate(logical.program.bindings):
+        value = program.values[state.value_id]
+        if isinstance(value, ScalarExpr) and not isinstance(
+            value, ComputeResultScalarExpr
+        ):
             yield _consumer(
                 ProgramRelationConsumerKind.STATE_VALUE,
-                state.value_use,
+                value,
                 model_location("state", state_index, "value"),
             )
 
-    for invocation_index, invocation in enumerate(bound_invocations(program)):
+    for invocation_index, invocation in enumerate(logical.program.invocations):
         for argument in invocation.arguments:
-            if isinstance(argument.value_use, ComputeResultScalarExpr):
+            value = program.values[argument.value_id]
+            if not isinstance(value, ScalarExpr) or isinstance(
+                value, ComputeResultScalarExpr
+            ):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.INVOCATION_ARGUMENT,
-                argument.value_use,
+                value,
                 model_location(
                     "invocations",
                     invocation_index,

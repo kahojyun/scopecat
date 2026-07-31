@@ -1,12 +1,9 @@
-"""Configuration-bound typed facts derived from a verified logical program.
+"""Configuration-derived facts attached to a verified logical program.
 
-``BoundProgramFacts`` keeps point composition, value dataflow, effect order, and
-product ownership after configuration-dependent lowering. It is transient
-compiler data because accepted run semantics, not intermediate compiler shape,
-form the durable boundary.
-
-Construction follows verified semantic lowering, so these records normalize
-owned mappings but do not repeat authoring validation.
+The logical program remains the sole owner of operations and effect order.
+These records contain only values and selections introduced by configuration
+binding; planning combines them with ``VerifiedLogicalProgram`` instead of
+consuming a second copied program.
 """
 
 from __future__ import annotations
@@ -14,18 +11,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.state import (
-    EnsureStateSpec,
-    LogicalStateResourceTarget,
-    SetStateSpec,
-)
 from scopecat.compiler.typed.values import (
     CompilerValue,
 )
-from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -37,7 +27,6 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
@@ -49,62 +38,20 @@ from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementVariableRole
 from scopecat.program.expressions import ScalarExpression
 from scopecat.program.logical import (
-    AcquireEffect,
-    LocalPythonImplementation,
     MeasurementPostprocessorId,
 )
 from scopecat.program.value_graph import (
-    ComputeOutput,
     OperationId,
+    ValueId,
 )
 
-type ComputeInput = ScalarExpression
 
-
-def _empty_scalar_value_inputs() -> dict[str, ScalarExpression]:
+def _empty_bound_values() -> dict[ValueId, CompilerValue]:
     return {}
 
 
-def _empty_compiler_values() -> dict[str, CompilerValue]:
+def _empty_domain_result_use_ids() -> dict[tuple[str, str], tuple[ProductUseId, ...]]:
     return {}
-
-
-def _empty_compute_inputs() -> dict[str, ComputeInput]:
-    return {}
-
-
-@dataclass(frozen=True, slots=True)
-class TypedDomainResultBinding:
-    """Exact logical product occurrences produced by one named domain result."""
-
-    id: str
-    product_id: ProductId
-    product_use_ids: tuple[ProductUseId, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class TypedDomainExecution:
-    """One domain program with executable plan inputs and result bindings."""
-
-    id: str
-    program: DomainProgramDef
-    inputs: Mapping[str, ScalarExpression] = field(
-        default_factory=_empty_scalar_value_inputs
-    )
-    compiler_inputs: Mapping[str, CompilerValue] = field(
-        default_factory=_empty_compiler_values
-    )
-    results: tuple[TypedDomainResultBinding, ...] = ()
-
-    def __post_init__(self) -> None:
-        selected_inputs: dict[str, ScalarExpression] = dict(self.inputs)
-        object.__setattr__(self, "inputs", selected_inputs)
-        object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
-
-
-type BoundEffect = (
-    SetStateSpec | EnsureStateSpec | InvokeEffect | TypedDomainExecution | AcquireEffect
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,23 +75,6 @@ class TypedMeasurementPostprocessor:
 
 
 @dataclass(frozen=True, slots=True)
-class TypedComputeNode:
-    """One typed pure-code node in the expanded compute graph."""
-
-    id: OperationId
-    implementation: LocalPythonImplementation
-    result: ComputeOutput
-    input_types: Mapping[str, Scalar]
-    inputs: Mapping[str, ComputeInput] = field(default_factory=_empty_compute_inputs)
-
-    def __post_init__(self) -> None:
-        selected_inputs: dict[str, ComputeInput] = dict(self.inputs)
-        selected_input_types: dict[str, Scalar] = dict(self.input_types)
-        object.__setattr__(self, "inputs", selected_inputs)
-        object.__setattr__(self, "input_types", selected_input_types)
-
-
-@dataclass(frozen=True, slots=True)
 class LogicalResourceRequirement:
     """Stable logical interfaces plus point-local object selection.
 
@@ -160,82 +90,28 @@ class LogicalResourceRequirement:
 
 @dataclass(frozen=True, slots=True)
 class BoundProgramFacts:
-    """Typed facts introduced by binding one canonical logical program.
-
-    The ordered ``effects`` sequence is authoritative so specialization can
-    choose host or domain placement while retaining logical point identity,
-    lexical parameter semantics, product ownership, and effect order.
-    """
+    """Facts introduced by binding one canonical logical program."""
 
     point_domain: PointDomain
+    values: Mapping[ValueId, CompilerValue] = field(default_factory=_empty_bound_values)
     resource_requirements: tuple[LogicalResourceRequirement, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
-    compute_nodes: tuple[TypedComputeNode, ...] = ()
-    effects: tuple[BoundEffect, ...] = ()
-    final_state: EnsureStateSpec | None = None
+    live_compute_ids: frozenset[OperationId] = frozenset()
+    domain_result_use_ids: Mapping[tuple[str, str], tuple[ProductUseId, ...]] = field(
+        default_factory=_empty_domain_result_use_ids
+    )
     measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
 
-
-def bound_domain_executions(
-    program: BoundProgramFacts,
-) -> tuple[TypedDomainExecution, ...]:
-    return tuple(
-        effect for effect in program.effects if isinstance(effect, TypedDomainExecution)
-    )
-
-
-def bound_acquisitions(program: BoundProgramFacts) -> tuple[AcquireEffect, ...]:
-    return tuple(
-        effect for effect in program.effects if isinstance(effect, AcquireEffect)
-    )
-
-
-def bound_state(program: BoundProgramFacts) -> tuple[SetStateSpec, ...]:
-    effect_state = tuple(
-        state
-        for effect in program.effects
-        for state in (
-            (effect,)
-            if isinstance(effect, SetStateSpec)
-            else effect.assignments
-            if isinstance(effect, EnsureStateSpec)
-            else ()
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "values", dict(self.values))
+        object.__setattr__(
+            self,
+            "domain_result_use_ids",
+            dict(self.domain_result_use_ids),
         )
-    )
-    return (
-        *effect_state,
-        *(() if program.final_state is None else program.final_state.assignments),
-    )
-
-
-def bound_invocations(program: BoundProgramFacts) -> tuple[InvokeEffect, ...]:
-    return tuple(
-        effect for effect in program.effects if isinstance(effect, InvokeEffect)
-    )
-
-
-def set_state_property(
-    *,
-    resource_port_id: LogicalResourcePortId,
-    interface_id: InterfaceId,
-    property_id: str,
-    value: ScalarExpression,
-    value_type: Scalar | None = None,
-    component_path: tuple[str, ...] = (),
-) -> SetStateSpec:
-    """Build desired state from explicit interface and property identities."""
-
-    return SetStateSpec(
-        resource_target=LogicalStateResourceTarget(port_id=resource_port_id),
-        interface_id=interface_id,
-        component_path=component_path,
-        property_id=property_id,
-        value_use=value,
-        value_type=value_type or value.value_type,
-    )
 
 
 def product_axis(

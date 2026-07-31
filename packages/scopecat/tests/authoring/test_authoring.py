@@ -170,7 +170,7 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
         config_profile=load_config(),
     )
 
-    experiment = resolved.bindings
+    experiment = resolved
     assert resolved.program.experiment_id == "test.simple_scan"
     assert resolved.program.kind == "simple_scan"
     preview = materialized_effects_contract(
@@ -184,7 +184,7 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
-    assert [record.id for record in experiment.record_uses] == ["signal"]
+    assert [record.id for record in experiment.bindings.record_uses] == ["signal"]
     _, state, target = materialized_state_properties(preview)[0]
     assert state.instrument_id == "source-0"
     assert target.interface_id == "test.set_frequency/v1"
@@ -505,7 +505,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         config_profile=config,
     )
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )
@@ -625,7 +625,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )
@@ -1142,7 +1142,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         config_profile=load_config(),
     )
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
     )
 
@@ -1296,7 +1296,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     )
 
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )
@@ -1324,7 +1324,7 @@ def test_explicit_config_binds_experiment() -> None:
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.bindings,
+        resolved,
         resolved.environment.parameters,
         config=config,
     )

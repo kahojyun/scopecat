@@ -25,10 +25,6 @@ from scopecat.compiler.typed.point_domain import (
     PointDomainEvaluationError,
     materialize_point_domain,
 )
-from scopecat.compiler.typed.program import (
-    TypedDomainExecution,
-    bound_domain_executions,
-)
 from scopecat.compiler.typed.values import CompilerValue
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
@@ -42,6 +38,8 @@ from scopecat.kernel.value_data import Row
 from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
 from scopecat.program.expressions import ScalarExpr
+from scopecat.program.logical import LogicalDomainExecution
+from scopecat.program.value_graph import ValueId
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,10 +78,10 @@ class MaterializedBoundPoints:
             raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
-            for item in bound_domain_executions(self.bound_plan.bindings)
+            for item in self.bound_plan.program.program.domain_executions
             if item.id == execution_id
         )
-        available_inputs = (
+        available_inputs = dict(
             execution.inputs if input_kind == "program" else execution.compiler_inputs
         )
         known_input_ids = tuple(available_inputs)
@@ -104,6 +102,7 @@ class MaterializedBoundPoints:
             point, parameters = entries[ordinal]
             input_values = _domain_inputs(
                 execution,
+                self.bound_plan.bindings.values,
                 input_kind,
                 point,
                 selected_input_ids,
@@ -181,7 +180,8 @@ def _materialize_bound_point_domain(
 
 
 def _domain_inputs(
-    execution: TypedDomainExecution,
+    execution: LogicalDomainExecution,
+    values: Mapping[ValueId, CompilerValue],
     input_kind: Literal["program", "compiler"],
     point: MaterializedPoint,
     input_ids: tuple[str, ...],
@@ -194,6 +194,7 @@ def _domain_inputs(
     for input_name in input_ids:
         success, value = _materialize_domain_execution_input(
             execution,
+            values,
             input_kind=input_kind,
             input_name=input_name,
             point=point,
@@ -210,7 +211,8 @@ def _domain_inputs(
 
 
 def _materialize_domain_execution_input(
-    execution: TypedDomainExecution,
+    execution: LogicalDomainExecution,
+    values: Mapping[ValueId, CompilerValue],
     *,
     input_kind: Literal["program", "compiler"],
     input_name: str,
@@ -221,11 +223,10 @@ def _materialize_domain_execution_input(
     """Evaluate one selected domain input at one logical point."""
 
     context = EvalContext(params=parameters, point_row=point.row)
-    input_spec = (
-        execution.inputs[input_name]
-        if input_kind == "program"
-        else execution.compiler_inputs[input_name]
+    value_ids = dict(
+        execution.inputs if input_kind == "program" else execution.compiler_inputs
     )
+    input_spec = values[value_ids[input_name]]
     input_ports = (
         execution.program.input_ports
         if input_kind == "program"

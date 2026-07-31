@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -7,7 +5,6 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
-    TypedComputeNode,
     product_axis,
     record_product,
 )
@@ -54,6 +51,7 @@ from tests.testkit.relation_plans import (
     state_property as set_state_property,
 )
 from tests.testkit.typed_program import (
+    ComputeNodeFixture,
     compute_result,
     instrument_acquisition,
     instrument_invocation,
@@ -195,8 +193,8 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
         product_defs=[product],
         product_uses=[product_use],
         record_uses=[record_use],
+        effects=(enabled, acquisition, disabled),
     )
-    spec = replace(spec, effects=(enabled, acquisition, disabled))
 
     preview = materialized_effects_contract(
         spec,
@@ -239,7 +237,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
             ),
         ),
         compute_nodes=[
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=operation_id,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-waveform.v1"),
@@ -312,7 +310,7 @@ def test_materialized_state_can_reference_a_compute_payload() -> None:
             )
         ],
         compute_nodes=[
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=operation_id,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-waveform.v1"),
@@ -378,7 +376,7 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
             ),
         ],
         compute_nodes=[
-            TypedComputeNode(
+            ComputeNodeFixture(
                 id=operation_id,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-waveform.v1"),

@@ -17,14 +17,10 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    BoundProgramFacts,
     LogicalResourceRequirement,
-    TypedDomainExecution,
-    TypedDomainResultBinding,
     TypedMeasurementPostprocessor,
     TypedMeasurementPostprocessorOutput,
     record_product,
-    set_state_property,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import (
@@ -112,13 +108,16 @@ from tests.testkit.parameter_fixtures import (
 from tests.testkit.parameter_fixtures import (
     parameters as parameter_fixture_data,
 )
-from tests.testkit.relation_plans import scalar_value_expr
+from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.typed_program import (
+    DomainExecutionFixture,
+    DomainResultFixture,
     bind_program_facts,
     instrument_acquisition,
     observable_product,
     overlay_parameter_cell,
+    typed_program,
 )
 
 
@@ -308,7 +307,7 @@ def _bound_program(
     selected_domain_product_count = (
         product_count if domain_product_count is None else domain_product_count
     )
-    domain_executions: tuple[TypedDomainExecution, ...] = ()
+    domain_executions: tuple[DomainExecutionFixture, ...] = ()
     if selected_domain_product_count:
         program_id = "program"
         selected = tuple(
@@ -318,11 +317,11 @@ def _bound_program(
                 strict=True,
             )
         )
-        result_bindings: list[TypedDomainResultBinding] = []
+        result_bindings: list[DomainResultFixture] = []
         for index, (product, (use, _record)) in enumerate(selected):
             result_id = f"result-{index}"
             result_bindings.append(
-                TypedDomainResultBinding(
+                DomainResultFixture(
                     id=result_id,
                     product_id=product.id,
                     product_use_ids=(use.id,),
@@ -346,7 +345,7 @@ def _bound_program(
             for call_index in range(domain_call_count)
         )
         domain_executions = tuple(
-            TypedDomainExecution(
+            DomainExecutionFixture(
                 id=execution_id,
                 program=DomainProgramDef(
                     id=(
@@ -405,8 +404,8 @@ def _bound_program(
     }[state_mode]
     state = (
         (
-            set_state_property(
-                resource_port_id=logical_resource_port_id("source"),
+            state_property(
+                logical_resource_port_id("source"),
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
                 value=state_value,
@@ -430,7 +429,7 @@ def _bound_program(
         if record_instrument_products
         else selections[:selected_domain_product_count]
     )
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=points,
         resource_requirements=(
             *(
@@ -497,7 +496,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
         ),
         kernel=_postprocess_identity,
     )
-    program = BoundProgramFacts(
+    program = typed_program(
         point_domain=PointDomain(axes=()),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -505,7 +504,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
                 interfaces=("test.scalar_signal/v1",),
             ),
         ),
-        effects=(
+        instrument_acquisitions=(
             instrument_acquisition(
                 source,
                 interface="test.scalar_signal/v1",
