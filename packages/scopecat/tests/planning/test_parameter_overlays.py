@@ -18,7 +18,6 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedDomainExecution,
-    ValueInput,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
@@ -178,11 +177,9 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
             compiler_input_ports=(DomainInputPort("rows", table_type),),
         ),
         compiler_inputs={
-            "rows": ValueInput(
-                TableValue(
-                    source=ParameterTableSource("readout_devices"),
-                    value_type=table_type,
-                )
+            "rows": TableValue(
+                source=ParameterTableSource("readout_devices"),
+                value_type=table_type,
             )
         },
     )

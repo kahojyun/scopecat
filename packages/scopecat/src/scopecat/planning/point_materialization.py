@@ -19,6 +19,7 @@ from scopecat.compiler.relations.evaluation import (
     evaluate_table_value,
 )
 from scopecat.compiler.semantic.value_expressions import (
+    CompilerValue,
     ScalarValueExpr,
 )
 from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
@@ -30,7 +31,6 @@ from scopecat.compiler.typed.point_domain import (
 )
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
-    ValueInput,
     bound_domain_executions,
 )
 from scopecat.graph.relations.model import Row
@@ -266,14 +266,13 @@ def _materialize_domain_execution_input(
 
 
 def _evaluate_domain_input(
-    input_spec: ValueInput,
+    input_spec: CompilerValue,
     *,
     context: EvalContext,
 ) -> object:
-    value = input_spec.value
-    if isinstance(value, ScalarValueExpr):
-        return evaluate_scalar(value.plan, context)
-    return evaluate_table_value(value.source, value.value_type, context)
+    if isinstance(input_spec, ScalarValueExpr):
+        return evaluate_scalar(input_spec.plan, context)
+    return evaluate_table_value(input_spec.source, input_spec.value_type, context)
 
 
 def _unwrap_domain_input(value: object) -> object:

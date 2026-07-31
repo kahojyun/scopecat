@@ -13,7 +13,6 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     TypedComputeNode,
     TypedDomainExecution,
-    ValueInput,
     set_state_property,
 )
 from scopecat.compiler.typed.specialization import (
@@ -80,7 +79,7 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
             body=(),
             input_ports=(DomainInputPort("gain", value_type),),
         ),
-        inputs={"gain": ValueInput(config_value)},
+        inputs={"gain": config_value},
     )
     state = set_state_property(
         resource_port_id=logical_resource_port_id("drive"),
@@ -104,7 +103,7 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     specialized_domain = specialized.effects[1]
     assert isinstance(specialized_domain, TypedDomainExecution)
     domain_input = specialized_domain.inputs["gain"]
-    assert isinstance(domain_input.value.plan.root, LiteralScalarExpr)
+    assert isinstance(domain_input.plan.root, LiteralScalarExpr)
 
 
 def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
@@ -121,7 +120,7 @@ def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
             body=(),
             compiler_input_ports=(DomainInputPort("rows", table_type),),
         ),
-        compiler_inputs={"rows": ValueInput(value)},
+        compiler_inputs={"rows": value},
     )
     specialized = specialize_bound_facts(
         BoundProgramFacts(
@@ -133,7 +132,7 @@ def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
 
     [specialized_domain] = specialized.effects
     assert isinstance(specialized_domain, TypedDomainExecution)
-    specialized_value = specialized_domain.compiler_inputs["rows"].value
+    specialized_value = specialized_domain.compiler_inputs["rows"]
     assert isinstance(specialized_value, TableValue)
     assert specialized_value.source is source
     assert specialized_value.value_type == table_type
@@ -252,7 +251,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
             body=(),
             input_ports=(DomainInputPort("frequency", frequency),),
         ),
-        inputs={"frequency": ValueInput(overlaid_lookup)},
+        inputs={"frequency": overlaid_lookup},
     )
 
     specialized = specialize_bound_facts(
@@ -283,6 +282,6 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
 
     [specialized_domain] = specialized.effects
     assert isinstance(specialized_domain, TypedDomainExecution)
-    input_root = specialized_domain.inputs["frequency"].value.plan.root
+    input_root = specialized_domain.inputs["frequency"].plan.root
     assert isinstance(input_root, PointColumnScalarExpr)
     assert input_root.name == "frequency"

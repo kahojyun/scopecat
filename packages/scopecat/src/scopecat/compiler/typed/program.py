@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
 
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.semantic.value_expressions import (
@@ -46,7 +45,7 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.kernel.value_types import Scalar, ValueType
+from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
@@ -62,24 +61,6 @@ from scopecat.program.logical import (
     MeasurementPostprocessorId,
 )
 
-ValueT_co = TypeVar(
-    "ValueT_co",
-    bound=CompilerValue,
-    covariant=True,
-    default=CompilerValue,
-)
-
-
-@dataclass(frozen=True, slots=True)
-class ValueInput(Generic[ValueT_co]):
-    """One typed value materialized for a point-local consumer."""
-
-    value: ValueT_co
-
-    @property
-    def value_type(self) -> ValueType:
-        return self.value.value_type
-
 
 @dataclass(frozen=True, slots=True)
 class ComputeEdge:
@@ -93,15 +74,14 @@ class ComputeEdge:
         return self.expected_type
 
 
-type ScalarValueInput = ValueInput[ScalarValueExpr]
-type ComputeInput = ScalarValueInput | ComputeEdge
+type ComputeInput = ScalarValueExpr | ComputeEdge
 
 
-def _empty_scalar_value_inputs() -> dict[str, ScalarValueInput]:
+def _empty_scalar_value_inputs() -> dict[str, ScalarValueExpr]:
     return {}
 
 
-def _empty_value_inputs() -> dict[str, ValueInput]:
+def _empty_compiler_values() -> dict[str, CompilerValue]:
     return {}
 
 
@@ -124,16 +104,16 @@ class TypedDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: Mapping[str, ScalarValueInput] = field(
+    inputs: Mapping[str, ScalarValueExpr] = field(
         default_factory=_empty_scalar_value_inputs
     )
-    compiler_inputs: Mapping[str, ValueInput] = field(
-        default_factory=_empty_value_inputs
+    compiler_inputs: Mapping[str, CompilerValue] = field(
+        default_factory=_empty_compiler_values
     )
     results: tuple[TypedDomainResultBinding, ...] = ()
 
     def __post_init__(self) -> None:
-        selected_inputs: dict[str, ScalarValueInput] = dict(self.inputs)
+        selected_inputs: dict[str, ScalarValueExpr] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
 

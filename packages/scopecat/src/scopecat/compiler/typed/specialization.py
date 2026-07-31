@@ -27,10 +27,8 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     ComputeInput,
     LogicalResourceRequirement,
-    ScalarValueInput,
     TypedComputeNode,
     TypedDomainExecution,
-    ValueInput,
 )
 from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.graph.relations.model import lit
@@ -161,22 +159,6 @@ def _live_compute_nodes(program: BoundProgramFacts) -> tuple[TypedComputeNode, .
     return tuple(node for node in program.compute_nodes if node.id in live_ids)
 
 
-def _specialize_scalar_input(
-    value: ScalarValueInput,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ScalarValueInput:
-    return replace(
-        value,
-        value=_specialize_scalar_value(
-            value.value,
-            known=known,
-            parameter_cells=parameter_cells,
-        ),
-    )
-
-
 def _specialize_scalar_value(
     value: ScalarValueExpr,
     *,
@@ -208,12 +190,12 @@ def _specialize_compute(
     inputs: dict[str, ComputeInput] = {}
     for name, value in node.inputs.items():
         inputs[name] = (
-            _specialize_scalar_input(
+            _specialize_scalar_value(
                 value,
                 known=known,
                 parameter_cells=parameter_cells,
             )
-            if isinstance(value, ValueInput)
+            if isinstance(value, ScalarValueExpr)
             else value
         )
     return replace(node, inputs=inputs)
@@ -231,7 +213,7 @@ def _specialize_effect(
         return replace(
             effect,
             inputs={
-                name: _specialize_scalar_input(
+                name: _specialize_scalar_value(
                     value,
                     known=known,
                     parameter_cells=parameter_cells,
@@ -240,14 +222,12 @@ def _specialize_effect(
             },
             compiler_inputs={
                 name: (
-                    ValueInput(
-                        _specialize_scalar_value(
-                            value.value,
-                            known=known,
-                            parameter_cells=parameter_cells,
-                        )
+                    _specialize_scalar_value(
+                        value,
+                        known=known,
+                        parameter_cells=parameter_cells,
                     )
-                    if isinstance(value.value, ScalarValueExpr)
+                    if isinstance(value, ScalarValueExpr)
                     else value
                 )
                 for name, value in effect.compiler_inputs.items()

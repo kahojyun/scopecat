@@ -14,17 +14,16 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     BoundProgramFacts,
     LogicalResourceRequirement,
-    ScalarValueInput,
     TypedDomainExecution,
     TypedDomainResultBinding,
     TypedMeasurementPostprocessor,
     TypedMeasurementPostprocessorOutput,
-    ValueInput,
     record_product,
     set_state_property,
 )
@@ -269,7 +268,7 @@ def _bound_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: Literal[0, 2] = 2,
-    domain_input: ScalarValueInput | None = None,
+    domain_input: ScalarValueExpr | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
     config: ConfigProfileSnapshot | None = None,
@@ -461,17 +460,15 @@ def _bound_program(
     return bind_program_facts(program, environment)
 
 
-def _point_frequency_domain_input() -> ScalarValueInput:
+def _point_frequency_domain_input() -> ScalarValueExpr:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),
     )
-    return ValueInput(
-        value=scalar_value_expr(
-            point_col("frequency"),
-            bindings=RelationTypeBindings(point_row=RowType.from_table(point_type)),
-            expected_type=frequency_type,
-        )
+    return scalar_value_expr(
+        point_col("frequency"),
+        bindings=RelationTypeBindings(point_row=RowType.from_table(point_type)),
+        expected_type=frequency_type,
     )
 
 
@@ -931,15 +928,13 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     bindings = RelationTypeBindings(
         point_row=RowType.from_table(point_type),
     )
-    domain_input = ValueInput(
-        value=scalar_value_expr(
-            parameter_lookup(
-                READOUT_FREQUENCY_LOOKUP,
-                key={"device_id": "r0"},
-            ),
-            bindings=bindings,
-            expected_type=frequency_type,
-        )
+    domain_input = scalar_value_expr(
+        parameter_lookup(
+            READOUT_FREQUENCY_LOOKUP,
+            key={"device_id": "r0"},
+        ),
+        bindings=bindings,
+        expected_type=frequency_type,
     )
     overlay = overlay_parameter_cell(
         "readout_devices",

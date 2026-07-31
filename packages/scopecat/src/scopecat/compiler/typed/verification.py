@@ -15,7 +15,7 @@ from scopecat.compiler.typed.point_domain import (
 )
 from scopecat.compiler.typed.program import (
     BoundProgramFacts,
-    ValueInput,
+    ComputeEdge,
     bound_acquisitions,
     bound_domain_executions,
     bound_invocations,
@@ -193,12 +193,11 @@ def _program_relation_consumers(
 
     for node in program.compute_nodes:
         for input_name, input_value in node.inputs.items():
-            if not isinstance(input_value, ValueInput):
+            if isinstance(input_value, ComputeEdge):
                 continue
-            value = input_value.value
             yield _consumer(
                 ProgramRelationConsumerKind.COMPUTE_INPUT,
-                value,
+                input_value,
                 model_location(
                     "compute_nodes",
                     *node.id.scope,
@@ -210,10 +209,9 @@ def _program_relation_consumers(
 
     for execution_index, execution in enumerate(bound_domain_executions(program)):
         for input_name, input_value in execution.inputs.items():
-            value = input_value.value
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
-                value,
+                input_value,
                 model_location(
                     "domain_executions",
                     execution_index,
@@ -222,12 +220,11 @@ def _program_relation_consumers(
                 ),
             )
         for input_name, input_value in execution.compiler_inputs.items():
-            value = input_value.value
-            if not isinstance(value, ScalarValueExpr):
+            if not isinstance(input_value, ScalarValueExpr):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_COMPILER_INPUT,
-                value,
+                input_value,
                 model_location(
                     "domain_executions",
                     execution_index,

@@ -16,7 +16,6 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
-    ValueInput,
     bound_acquisitions,
     record_product,
     set_state_property,
@@ -802,13 +801,11 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                     value_type=Scalar(Payload("pulse_program")),
                 ),
                 inputs={
-                    "value": ValueInput(
-                        value=scalar_value_expr(
-                            point_col("frequency"),
-                            expected_type=Scalar(QuantityType()),
-                            bindings=RelationTypeBindings(
-                                point_row=RowType.from_table(point_type)
-                            ),
+                    "value": scalar_value_expr(
+                        point_col("frequency"),
+                        expected_type=Scalar(QuantityType()),
+                        bindings=RelationTypeBindings(
+                            point_row=RowType.from_table(point_type)
                         ),
                     )
                 },

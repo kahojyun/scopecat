@@ -15,7 +15,6 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     LogicalResourceRequirement,
     TypedComputeNode,
-    ValueInput,
     set_state_property,
 )
 from scopecat.config.environment import build_config_environment
@@ -241,12 +240,10 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 id=producer_id,
                 implementation=_implementation(producer_id, _identity_value),
                 inputs={
-                    "value": ValueInput(
-                        value=scalar_value_expr(
-                            point_col("value"),
-                            expected_type=Scalar(Float()),
-                            bindings=_point_bindings(point_type),
-                        ),
+                    "value": scalar_value_expr(
+                        point_col("value"),
+                        expected_type=Scalar(Float()),
+                        bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(producer_id, Scalar(Float())),
@@ -385,12 +382,10 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
                 id=node_id,
                 implementation=_implementation(node_id, _quantity_value),
                 inputs={
-                    "frequency": ValueInput(
-                        value=scalar_value_expr(
-                            point_col("frequency"),
-                            expected_type=Scalar(QuantityType(unit="GHz")),
-                            bindings=_point_bindings(point_type),
-                        ),
+                    "frequency": scalar_value_expr(
+                        point_col("frequency"),
+                        expected_type=Scalar(QuantityType(unit="GHz")),
+                        bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(node_id, Scalar(Float())),
@@ -455,12 +450,10 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
                 id=node_id,
                 implementation=_implementation(node_id, _mapping_size),
                 inputs={
-                    "payload": ValueInput(
-                        value=scalar_value_expr(
-                            point_col("payload"),
-                            expected_type=Scalar(Payload("mapping")),
-                            bindings=_point_bindings(point_type),
-                        ),
+                    "payload": scalar_value_expr(
+                        point_col("payload"),
+                        expected_type=Scalar(Payload("mapping")),
+                        bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(node_id, Scalar(Float())),

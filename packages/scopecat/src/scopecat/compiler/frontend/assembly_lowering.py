@@ -26,6 +26,7 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
 )
 from scopecat.compiler.semantic.value_expressions import (
+    CompilerValue,
     ScalarValueExpr,
     TableValue,
     verify_scalar_value_expr,
@@ -35,11 +36,9 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     ComputeInput,
-    ScalarValueInput,
     TypedComputeNode,
     TypedDomainExecution,
     TypedDomainResultBinding,
-    ValueInput,
 )
 from scopecat.graph.relations.model import CellValue, ScalarExpr, as_scalar_expr
 from scopecat.graph.relations.point_domain import (
@@ -243,10 +242,10 @@ def lower_semantic_domain_graph(
         uses_by_product.setdefault(use.product_id, []).append(use.id)
     typed_executions: list[TypedDomainExecution] = []
     for execution in executions:
-        lowered_inputs: dict[str, ScalarValueInput] = {}
+        lowered_inputs: dict[str, ScalarValueExpr] = {}
         for name, value_id in execution.inputs:
             lowered = cast(
-                "ValueInput",
+                "ScalarValueExpr",
                 _lower_semantic_input(
                     value_id,
                     definitions=program.value_defs,
@@ -256,11 +255,11 @@ def lower_semantic_domain_graph(
                     type_bindings=type_bindings,
                 ),
             )
-            lowered_inputs[name] = cast("ScalarValueInput", lowered)
-        lowered_compiler_inputs: dict[str, ValueInput] = {}
+            lowered_inputs[name] = lowered
+        lowered_compiler_inputs: dict[str, CompilerValue] = {}
         for name, value_id in execution.compiler_inputs:
             lowered = cast(
-                "ValueInput",
+                "CompilerValue",
                 _lower_semantic_input(
                     value_id,
                     definitions=program.value_defs,
@@ -312,10 +311,10 @@ def _lower_semantic_operation(
             inputs=inputs,
             type_bindings=type_bindings,
         )
-        if isinstance(lowered, ValueInput):
-            lowered_inputs[name] = cast("ScalarValueInput", lowered)
-        else:
+        if isinstance(lowered, ScalarValueExpr):
             lowered_inputs[name] = lowered
+        else:
+            lowered_inputs[name] = cast("ComputeEdge", lowered)
     return TypedComputeNode(
         id=operation.id,
         implementation=implementation,
@@ -335,7 +334,7 @@ def _lower_semantic_input(
     value_types: Mapping[ValueId, ValueType],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> ValueInput | ComputeEdge:
+) -> CompilerValue | ComputeEdge:
     if value_id in operation_results:
         return ComputeEdge(
             value_id=value_id,
@@ -345,26 +344,20 @@ def _lower_semantic_input(
     source = definition.source
     value_type = value_types[value_id]
     if isinstance(source, PlanExpressionSource):
-        return ValueInput(
-            value=verify_scalar_value_expr(
-                bind_scalar_input_refs(source.expression, inputs),
-                bindings=type_bindings,
-                expected_type=cast("Scalar", value_type),
-            )
+        return verify_scalar_value_expr(
+            bind_scalar_input_refs(source.expression, inputs),
+            bindings=type_bindings,
+            expected_type=cast("Scalar", value_type),
         )
     if isinstance(source, LiteralValueSource):
-        return ValueInput(
-            value=verify_scalar_value_expr(
-                literal_scalar_expr(source.value),
-                bindings=type_bindings,
-                expected_type=cast("Scalar", value_type),
-            )
+        return verify_scalar_value_expr(
+            literal_scalar_expr(source.value),
+            bindings=type_bindings,
+            expected_type=cast("Scalar", value_type),
         )
-    return ValueInput(
-        value=TableValue(
-            source=bind_table_source(source, inputs),
-            value_type=cast("Table", value_type),
-        )
+    return TableValue(
+        source=bind_table_source(source, inputs),
+        value_type=cast("Table", value_type),
     )
 
 
