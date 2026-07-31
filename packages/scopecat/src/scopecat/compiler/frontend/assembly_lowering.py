@@ -9,7 +9,7 @@ from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
     raise_frontend_problem,
@@ -410,7 +410,7 @@ def coerce_assembly_inputs(
 
 
 def validate_consumed_inputs(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     inputs: Mapping[str, object],
 ) -> None:
     """Reject only free module inputs that the assembled program actually uses."""

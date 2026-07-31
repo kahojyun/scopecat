@@ -110,7 +110,7 @@ type AssemblyEffect = (
 
 
 @dataclass(frozen=True, kw_only=True)
-class _ExperimentEnvelope:
+class _AssemblyEnvelope:
     """Non-dataflow intents carried alongside transient semantic graphs."""
 
     inputs: dict[str, object] = field(default_factory=dict)
@@ -125,7 +125,7 @@ class _ExperimentEnvelope:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _ModuleFragment(_ExperimentEnvelope):
+class _ModuleFragment(_AssemblyEnvelope):
     """Hierarchy-free module declarations before semantic graph closure."""
 
     operations: tuple[ModuleOperationDecl, ...] = ()
@@ -176,7 +176,7 @@ class _HierarchyRoot(Protocol):
 
 
 @dataclass(frozen=True, kw_only=True)
-class SemanticExperimentIR(_ExperimentEnvelope):
+class ExperimentAssembly(_AssemblyEnvelope):
     """Closed config-free semantic graph plus plan and resource intents."""
 
     experiment_id: str
@@ -310,7 +310,7 @@ def elaborate_module(
     module: ModuleIR,
     /,
     **inputs: object,
-) -> SemanticExperimentIR:
+) -> ExperimentAssembly:
     """Elaborate one root module through the only hierarchy-flattening pass."""
 
     return _elaborate_hierarchy(
@@ -327,7 +327,7 @@ def elaborate_experiment_program(
     experiment_id: str,
     kind: str,
     inputs: Mapping[str, object],
-) -> SemanticExperimentIR:
+) -> ExperimentAssembly:
     """Elaborate a native experiment root without a synthetic module."""
 
     return _elaborate_hierarchy(
@@ -344,7 +344,7 @@ def _elaborate_hierarchy(
     experiment_id: str,
     kind: str,
     inputs: Mapping[str, object],
-) -> SemanticExperimentIR:
+) -> ExperimentAssembly:
     fragment = _elaborate_program_ir(
         root,
         inputs=inputs,
@@ -361,7 +361,7 @@ def _elaborate_hierarchy(
         point_dependencies=fragment.point_dependencies,
         parameter_contracts=fragment.parameter_contracts,
     )
-    return SemanticExperimentIR(
+    return ExperimentAssembly(
         experiment_id=experiment_id,
         kind=kind,
         inputs=fragment.inputs,

@@ -19,7 +19,7 @@ from scopecat.compiler.frontend.binding_lowering import (
     lower_invocation,
     lower_state_binding,
 )
-from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
     lower_semantic_measurement_postprocessor_graph,
@@ -211,7 +211,7 @@ def _lower_verified_assembly(
 
 
 def _relation_type_bindings(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     parameter_catalog: ParameterCatalog,
 ) -> RelationTypeBindings:
     """Project assembly contracts into the final plan-verification environment."""

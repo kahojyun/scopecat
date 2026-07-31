@@ -30,6 +30,22 @@ from tests.testkit.materialized_effects import config_with_physical_resources
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
 _SET_FREQUENCY_VALUE_PATH = _SET_FREQUENCY.property("value.path")
 _SET_FREQUENCY_SAMPLE_SIGNAL = _SET_FREQUENCY.acquisition("sample").result("signal")
+
+
+def test_definition_resources_are_owned_by_their_context() -> None:
+    left = sc.ModuleContext()
+    right = sc.ModuleContext()
+    foreign = left.resource("drive", requires=(_SET_FREQUENCY,))
+    right.resource("drive", requires=(_SET_FREQUENCY,))
+
+    with pytest.raises(ValueError, match="must belong to this module context"):
+        right.bind_property(
+            foreign,
+            _SET_FREQUENCY_VALUE_PATH,
+            value=sc.Quantity(value=5.0, unit="GHz"),
+        )
+
+
 _MEASURE_IQ = InterfaceRef("test.measure_iq/v1")
 _MEASURE_IQ_SAMPLE_EXPORTED = _MEASURE_IQ.acquisition("sample").result("exported")
 _MEASURE_PHASE_SAMPLE_FIXED = (

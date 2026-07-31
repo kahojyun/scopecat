@@ -12,7 +12,7 @@ from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
-    SemanticExperimentIR,
+    ExperimentAssembly,
     elaborate_experiment_program,
 )
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
@@ -110,7 +110,7 @@ def compile_invocation(
 def _compile_invocation_definition(
     invocation: ExperimentInvocation,
     inputs: Mapping[str, object],
-) -> SemanticExperimentIR:
+) -> ExperimentAssembly:
     definition = invocation.definition
     program_input_ids = {port.id for port in definition.program.interface.imports}
     program_inputs: dict[str, ModuleInput] = {}
@@ -252,11 +252,11 @@ def _verified_scans(
 
 
 def _apply_scans(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     scan_axes: Sequence[AxisSpec],
     *,
     inputs: Mapping[str, object],
-) -> SemanticExperimentIR:
+) -> ExperimentAssembly:
     point_domain = lower_scans_point_domain(
         scan_axes,
         inputs=inputs,
@@ -276,7 +276,7 @@ def _apply_scans(
 
 
 def _validate_point_dependencies(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     scan_axes: Sequence[AxisSpec],
 ) -> None:
     domain_type = analyze_point_domain(assembly.point_domain).value_type

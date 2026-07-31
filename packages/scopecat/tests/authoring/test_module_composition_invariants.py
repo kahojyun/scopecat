@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 import scopecat as sc
 from scopecat.authoring import MetadataValue
 from scopecat.compiler.frontend.elaboration import (
-    SemanticExperimentIR,
+    ExperimentAssembly,
     elaborate_module,
 )
 from scopecat.compiler.frontend.graph_validation import (
@@ -147,7 +147,7 @@ def _exporting_wrapper(
 
 def _verified_assembly(
     instance_id: str,
-) -> tuple[SemanticExperimentIR, VerifiedAssemblyGraph]:
+) -> tuple[ExperimentAssembly, VerifiedAssemblyGraph]:
     instance = _composable_module().instantiate(instance_id)
     root = _compose_module("test.composition-invariant.root", instance)
     assembly = elaborate_module(root.ir)
@@ -170,7 +170,7 @@ def _nested_exporting_module(scope: tuple[str, ...]) -> sc.ExperimentModule[...]
 
 
 def _normalized_signature(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     verified: VerifiedAssemblyGraph,
 ) -> tuple[object, ...]:
     resources = {port.symbol_id: port.id for port in assembly.resource_ports}

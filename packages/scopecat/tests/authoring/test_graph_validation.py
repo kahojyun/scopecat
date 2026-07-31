@@ -7,7 +7,7 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
@@ -450,7 +450,7 @@ def test_resource_selector_requires_a_scalar_entity_value() -> None:
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(
-            SemanticExperimentIR(
+            ExperimentAssembly(
                 experiment_id="test.graph.resource-selector",
                 kind="graph",
                 resource_ports=(port,),
@@ -486,7 +486,7 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
     )
 
     verify_assembly_graph(
-        SemanticExperimentIR(
+        ExperimentAssembly(
             experiment_id="test.graph.payload-collision",
             kind="graph",
             point_domain=(point_source,),
@@ -505,7 +505,7 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(
-            SemanticExperimentIR(
+            ExperimentAssembly(
                 experiment_id="test.graph.coordinate-collision",
                 kind="graph",
                 point_domain=(point_source,),

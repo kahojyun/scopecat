@@ -66,11 +66,14 @@ def test_module_definition_requires_an_annotated_context() -> None:
 
 
 def test_module_definition_rejects_global_symbolic_values() -> None:
+    def global_inputs() -> dict[str, sc.ValueRef]:
+        return {"value": _GLOBAL_COUNT}
+
     def captured(module: sc.ModuleContext) -> None:
         module.compute(
             "captured",
             fn=_identity_count,
-            inputs={"value": _GLOBAL_COUNT},
+            inputs=global_inputs(),
             output_type=sc.ScalarType(_COUNT_TYPE),
         )
 

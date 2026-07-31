@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from types import UnionType
 from typing import (
     Annotated,
@@ -21,7 +21,7 @@ from scopecat.authoring._module_handles import (
     DomainCallProvider,
     ExperimentModule,
     ModuleContext,
-    ModuleDefinitionState,
+    ModuleDraft,
     ModuleInvocation,
     ModuleResource,
     build_ensure_state_intent,
@@ -99,45 +99,36 @@ class _DefinitionContract:
         return dict(self.arguments)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class _ExperimentDefinitionState:
-    """Immutable state accumulated by one explicit experiment context."""
+@dataclass(slots=True, repr=False)
+class _ExperimentDraft:
+    """Mutable definition-local recorder frozen once at close."""
 
-    module: ModuleDefinitionState = field(default_factory=ModuleDefinitionState)
-    scans: tuple[Scan, ...] = ()
-    record_selections: tuple[RecordSelection, ...] = ()
-    final_state_bindings: tuple[ExperimentBindingIntent, ...] = ()
+    module: ModuleDraft = field(default_factory=ModuleDraft)
+    scans: list[Scan] = field(default_factory=list)
+    record_selections: list[RecordSelection] = field(default_factory=list)
+    final_state_bindings: list[ExperimentBindingIntent] = field(default_factory=list)
 
     def scan(
         self,
         *scans: Scan,
-    ) -> _ExperimentDefinitionState:
-        return replace(
-            self,
-            scans=(*self.scans, *scans),
-        )
+    ) -> None:
+        self.scans.extend(scans)
 
     def record_product(
         self,
         *products: str | ProductRef,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> _ExperimentDefinitionState:
+    ) -> None:
         if record_id is not None and len(products) != 1:
             raise ValueError("record_id can only be used with one product")
-        return replace(
-            self,
-            record_selections=(
-                *self.record_selections,
-                *(
-                    record_product(
-                        product,
-                        record_id=record_id,
-                        metadata=metadata,
-                    )
-                    for product in products
-                ),
-            ),
+        self.record_selections.extend(
+            record_product(
+                product,
+                record_id=record_id,
+                metadata=metadata,
+            )
+            for product in products
         )
 
     def record_coordinate(
@@ -145,35 +136,26 @@ class _ExperimentDefinitionState:
         *products: str | ProductRef,
         record_id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> _ExperimentDefinitionState:
+    ) -> None:
         if record_id is not None and len(products) != 1:
             raise ValueError("record_id can only be used with one product")
-        return replace(
-            self,
-            record_selections=(
-                *self.record_selections,
-                *(
-                    record_coordinate(
-                        product,
-                        record_id=record_id,
-                        metadata=metadata,
-                    )
-                    for product in products
-                ),
-            ),
+        self.record_selections.extend(
+            record_coordinate(
+                product,
+                record_id=record_id,
+                metadata=metadata,
+            )
+            for product in products
         )
 
-    def records(self, *selections: RecordSelection) -> _ExperimentDefinitionState:
-        return replace(
-            self,
-            record_selections=(*self.record_selections, *selections),
-        )
+    def records(self, *selections: RecordSelection) -> None:
+        self.record_selections.extend(selections)
 
     def finalize(
         self,
         resource: ModuleResource,
         target: DesiredState,
-    ) -> _ExperimentDefinitionState:
+    ) -> None:
         """Declare the desired hardware state after normal run completion."""
 
         owners = {
@@ -198,28 +180,22 @@ class _ExperimentDefinitionState:
                 raise ValueError(
                     "experiment final_state cannot depend on scan coordinates"
                 )
-        return replace(
-            self,
-            final_state_bindings=(
-                *self.final_state_bindings,
-                *intent.assignments,
-            ),
-        )
+        self.final_state_bindings.extend(intent.assignments)
 
 
 class ExperimentContext:
     """Explicit recorder injected into one template or scratch definition."""
 
-    __slots__ = ("_body",)
+    __slots__ = ("_draft",)
 
     def __init__(self) -> None:
-        self._body = _ExperimentDefinitionState()
+        self._draft = _ExperimentDraft()
 
     @property
-    def definition_body(self) -> _ExperimentDefinitionState:
-        """Return the immutable body accumulated by this definition."""
+    def definition_draft_internal(self) -> _ExperimentDraft:
+        """Return the private draft accumulated by this definition."""
 
-        return self._body
+        return self._draft
 
     @overload
     def run(self, part: ExperimentModule[...]) -> ModuleInvocation: ...
@@ -244,22 +220,16 @@ class ExperimentContext:
             DomainCall,
         ):
             call = domain_use_call(part)
-            self._body = replace(
-                self._body,
-                module=self._body.module.append_domain_call(call),
-            )
+            self._draft.module.append_domain_call(call)
             return part
         invocation = _module_invocation(part)
-        self._body = replace(
-            self._body,
-            module=self._body.module.append_call(invocation),
-        )
+        self._draft.module.append_call(invocation)
         return invocation
 
     def scan(self, *scans: Scan) -> None:
         """Declare the experiment's default point-domain scans."""
 
-        self._body = self._body.scan(*scans)
+        self._draft.scan(*scans)
 
     def record(
         self,
@@ -269,7 +239,7 @@ class ExperimentContext:
     ) -> None:
         """Select logical products for durable recording."""
 
-        self._body = self._body.record_product(
+        self._draft.record_product(
             *products,
             record_id=record_id,
             metadata=metadata,
@@ -283,7 +253,7 @@ class ExperimentContext:
     ) -> None:
         """Select coordinate-like products for durable recording."""
 
-        self._body = self._body.record_coordinate(
+        self._draft.record_coordinate(
             *products,
             record_id=record_id,
             metadata=metadata,
@@ -292,7 +262,7 @@ class ExperimentContext:
     def records(self, *selections: RecordSelection) -> None:
         """Append preconstructed durable record selections."""
 
-        self._body = self._body.records(*selections)
+        self._draft.records(*selections)
 
     def finalize(
         self,
@@ -301,7 +271,7 @@ class ExperimentContext:
     ) -> None:
         """Declare the desired state after normal experiment completion."""
 
-        self._body = self._body.finalize(resource, target)
+        self._draft.finalize(resource, target)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -334,7 +304,7 @@ class ScratchDefinition[**P]:
         result = self.fn(context, *args, **kwargs)
         _require_definition_none(result, kind="scratch")
         definition = _close_experiment_body(
-            context.definition_body,
+            context.definition_draft_internal,
             id=self.id,
             kind=self.kind,
             metadata=self.metadata,
@@ -517,20 +487,17 @@ def _module_from_function[**P](
     context = ModuleContext()
     result = source(context, **values)
     _require_definition_none(result, kind="module")
-    body = context.definition_state
+    body = context.definition_draft_internal
     if body.input_ports:
         raise ValueError("@module function bodies must declare inputs in the signature")
     selected_metadata = dict(metadata or {})
     doc = inspect.getdoc(fn)
     if doc is not None:
         selected_metadata.setdefault("description", doc)
-    state = replace(
-        body,
-        id=id or _definition_id(fn),
-        input_ports=tuple(_input_port(name, value) for name, value in values.items()),
-        metadata=freeze_json_mapping({**body.metadata, **selected_metadata}),
-    )
-    module_ir = build_module_ir(state)
+    body.id = id or _definition_id(fn)
+    body.input_ports.extend(_input_port(name, value) for name, value in values.items())
+    body.metadata.update(selected_metadata)
+    module_ir = build_module_ir(body)
     return create_experiment_module_internal(
         module_ir,
         definition=cast("Callable[P, object]", fn),
@@ -556,19 +523,13 @@ def _template_from_function[**P](
     context = ExperimentContext()
     result = source(context, **values)
     _require_definition_none(result, kind="template")
-    body = context.definition_body
+    body = context.definition_draft_internal
     if body.module.input_ports:
         raise ValueError(
             "@template function bodies must declare inputs in the signature"
         )
-    selected_body = replace(
-        body,
-        module=replace(
-            body.module,
-            input_ports=tuple(
-                _input_port(name, value) for name, value in values.items()
-            ),
-        ),
+    body.module.input_ports.extend(
+        _input_port(name, value) for name, value in values.items()
     )
     defaults = tuple(
         (parameter.name, cast("object", parameter.default))
@@ -583,7 +544,7 @@ def _template_from_function[**P](
         name for name, default in defaults if default is inspect.Parameter.empty
     )
     definition = _close_experiment_body(
-        selected_body,
+        body,
         id=id or _definition_id(source),
         kind=kind or source.__name__,
         metadata=metadata,
@@ -600,7 +561,7 @@ def _template_from_function[**P](
 
 
 def _close_experiment_body(
-    body: _ExperimentDefinitionState,
+    body: _ExperimentDraft,
     *,
     id: str,
     kind: str,

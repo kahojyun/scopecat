@@ -11,7 +11,7 @@ import scopecat as sc
 import scopecat.authoring as authoring
 from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
-    SemanticExperimentIR,
+    ExperimentAssembly,
     elaborate_module,
 )
 from scopecat.compiler.frontend.program_lowering import link_verified_assembly
@@ -771,7 +771,7 @@ def test_link_resolves_config_dependent_assembly_fragments() -> None:
 
 def test_link_validates_scan_axis_parameter_contracts() -> None:
     axis = _around_parameter_axis("missing_frequency")
-    assembly = SemanticExperimentIR(
+    assembly = ExperimentAssembly(
         experiment_id="missing-parameter-scan",
         kind="simple_scan",
         point_domain=lower_scans_point_domain((axis,)),

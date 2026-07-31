@@ -295,7 +295,7 @@ def test_module_preserves_ordered_domain_executions() -> None:
         context.call(domain_call(program, id="first"))
         context.call(domain_call(program, id="second"))
 
-    assert tuple(call.id for call in module.domain_executions) == (
+    assert tuple(call.id for call in module.ir.body.domain_executions) == (
         "first/program",
         "second/program",
     )

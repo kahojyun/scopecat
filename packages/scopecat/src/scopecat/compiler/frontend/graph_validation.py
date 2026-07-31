@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
 from scopecat.compiler.semantic.model import (
     LocalPythonImplementation,
@@ -69,7 +69,7 @@ class VerifiedAssemblyGraph:
 class VerifiedAssembly:
     """One source assembly paired with its config-free verification proof."""
 
-    source: SemanticExperimentIR
+    source: ExperimentAssembly
     graph: VerifiedAssemblyGraph
 
     @property
@@ -86,7 +86,7 @@ class VerifiedAssembly:
 
 
 def verify_assembly_graph(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
 ) -> VerifiedAssemblyGraph:
     """Verify and order the config-independent portion of an assembly.
 
@@ -148,7 +148,7 @@ def _resource_ports(
 
 
 def _verify_property_resource_ports(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
@@ -230,7 +230,7 @@ def _verify_resource_port_interface(
 
 
 def _verify_binding_compute_values(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     graph: VerifiedSemanticGraph,
     problems: list[Problem],
 ) -> None:
@@ -290,7 +290,7 @@ def _is_payload_type(value_type: object) -> bool:
 
 
 def _verify_static_value_dependencies(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     problems: list[Problem],
 ) -> None:
     for port in assembly.resource_ports:
@@ -346,7 +346,7 @@ def _verify_static_value_dependencies(
 
 
 def _verify_final_state_dependencies(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
@@ -441,7 +441,7 @@ def _require_plan_value(
 
 
 def _verify_product_schema(
-    assembly: SemanticExperimentIR,
+    assembly: ExperimentAssembly,
     problems: list[Problem],
 ) -> dict[ProductId, ModuleProductDecl]:
     product_by_id: dict[ProductId, ModuleProductDecl] = {}

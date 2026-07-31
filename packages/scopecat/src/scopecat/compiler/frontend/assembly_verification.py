@@ -8,14 +8,14 @@ from scopecat.compiler.frontend.assembly_lowering import (
     coerce_assembly_inputs,
     validate_consumed_inputs,
 )
-from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
+from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.graph_validation import (
     VerifiedAssembly,
     verify_assembly_graph,
 )
 
 
-def verify_assembly(assembly: SemanticExperimentIR) -> VerifiedAssembly:
+def verify_assembly(assembly: ExperimentAssembly) -> VerifiedAssembly:
     """Normalize and close every config-independent assembly invariant once."""
 
     inputs = coerce_assembly_inputs(assembly.input_ports, assembly.inputs)
