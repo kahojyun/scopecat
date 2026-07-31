@@ -1,6 +1,5 @@
 import pytest
 
-from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -191,12 +190,10 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
     None
 ):
     center_type = Scalar(QuantityType(unit="GHz"))
-    center = relation_use(
-        scalar_value_expr(
-            param("missing_center"),
-            bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
-            expected_type=center_type,
-        )
+    center = scalar_value_expr(
+        param("missing_center"),
+        bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+        expected_type=center_type,
     )
     spec = typed_program(
         point_domain=PointDomain(

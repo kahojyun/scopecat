@@ -21,7 +21,6 @@ from scopecat.compiler.frontend.value_binding import (
     literal_scalar_expr,
     scalar_input_refs,
 )
-from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
 )
@@ -534,7 +533,7 @@ def _lower_point_axis(
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> PointAxis[RelationUse[ScalarValueExpr]]:
+) -> PointAxis[ScalarValueExpr]:
     source = axis.source
     if isinstance(source, PointAxisValues):
         return PointAxis(
@@ -542,15 +541,13 @@ def _lower_point_axis(
             value_type=axis.value_type,
             source=PointAxisValues(values=tuple(source.values)),
         )
-    center = relation_use(
-        verify_scalar_value_expr(
-            bind_scalar_input_refs(
-                internal_lower_scalar_value_ref(source.center),
-                inputs,
-            ),
-            bindings=type_bindings,
-            expected_type=axis.value_type,
-        )
+    center = verify_scalar_value_expr(
+        bind_scalar_input_refs(
+            internal_lower_scalar_value_ref(source.center),
+            inputs,
+        ),
+        bindings=type_bindings,
+        expected_type=axis.value_type,
     )
     return PointAxis(
         id=axis.id,

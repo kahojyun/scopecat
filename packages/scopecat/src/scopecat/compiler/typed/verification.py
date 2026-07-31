@@ -158,7 +158,7 @@ def _point_axis_center_consumers(
         center = source.center
         yield _consumer(
             ProgramRelationConsumerKind.POINT_AXIS_CENTER,
-            center.value,
+            center,
             model_location("point_domain", *path, "source", "center"),
         )
 
@@ -182,7 +182,7 @@ def _program_relation_consumers(
         for expression_index, use in enumerate(requirement.entity_uses):
             yield _consumer(
                 ProgramRelationConsumerKind.RESOURCE_ENTITY,
-                use.value,
+                use,
                 model_location(
                     "resource_requirements",
                     requirement_index,
@@ -237,7 +237,7 @@ def _program_relation_consumers(
         if not isinstance(state.value_use, ComputeResultRef):
             yield _consumer(
                 ProgramRelationConsumerKind.STATE_VALUE,
-                state.value_use.value,
+                state.value_use,
                 model_location("state", state_index, "value"),
             )
 
@@ -247,7 +247,7 @@ def _program_relation_consumers(
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.INVOCATION_ARGUMENT,
-                argument.value_use.value,
+                argument.value_use,
                 model_location(
                     "invocations",
                     invocation_index,

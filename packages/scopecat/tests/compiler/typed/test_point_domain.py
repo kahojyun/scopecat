@@ -8,7 +8,6 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
@@ -55,7 +54,7 @@ _INT = Scalar(Int())
 _TIME = Scalar(QuantityType(dimension="time", unit="ns"))
 _ENTITY = Scalar(Entity("qubit"))
 
-type _CenterUse = RelationUse[ScalarValueExpr]
+type _CenterUse = ScalarValueExpr
 
 
 def scalar_value_expr(
@@ -166,12 +165,10 @@ def test_product_materialization_is_left_major() -> None:
 
 
 def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
-    center = relation_use(
-        scalar_value_expr(
-            param("center"),
-            bindings=RelationTypeBindings(parameters={"center": _TIME}),
-            expected_type=_TIME,
-        )
+    center = scalar_value_expr(
+        param("center"),
+        bindings=RelationTypeBindings(parameters={"center": _TIME}),
+        expected_type=_TIME,
     )
     verified = _verify(
         PointDomain(
@@ -194,7 +191,7 @@ def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
     )
 
     [(path, source)] = iter_point_axis_linear(verified.axes)
-    assert source.center.value.plan is center.value.plan
+    assert source.center.plan is center.plan
     assert path == ("axes", 0)
     assert [point.row for point in materialized.points] == [
         {"delay": _quantity(8.0)},
@@ -204,12 +201,10 @@ def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
 
 
 def test_dynamic_center_evaluation_errors_report_the_center_path() -> None:
-    center = relation_use(
-        scalar_value_expr(
-            param("missing"),
-            bindings=RelationTypeBindings(parameters={"missing": _TIME}),
-            expected_type=_TIME,
-        )
+    center = scalar_value_expr(
+        param("missing"),
+        bindings=RelationTypeBindings(parameters={"missing": _TIME}),
+        expected_type=_TIME,
     )
     verified = _verify(
         PointDomain(
@@ -249,12 +244,10 @@ def test_duplicate_columns_fail_during_typed_verification() -> None:
 
 
 def test_linear_center_rejects_an_unresolved_input() -> None:
-    center = relation_use(
-        scalar_value_expr(
-            input_ref("center"),
-            bindings=RelationTypeBindings(inputs={"center": _TIME}),
-            expected_type=_TIME,
-        )
+    center = scalar_value_expr(
+        input_ref("center"),
+        bindings=RelationTypeBindings(inputs={"center": _TIME}),
+        expected_type=_TIME,
     )
 
     with pytest.raises(PointDomainVerificationError) as caught:
@@ -279,14 +272,12 @@ def test_linear_center_rejects_an_unresolved_input() -> None:
 
 
 def test_linear_center_rejects_a_point_dependency() -> None:
-    center = relation_use(
-        scalar_value_expr(
-            point_col("other"),
-            bindings=RelationTypeBindings(
-                point_row=RowType((TableColumn("other", _TIME),))
-            ),
-            expected_type=_TIME,
-        )
+    center = scalar_value_expr(
+        point_col("other"),
+        bindings=RelationTypeBindings(
+            point_row=RowType((TableColumn("other", _TIME),))
+        ),
+        expected_type=_TIME,
     )
 
     with pytest.raises(PointDomainVerificationError) as caught:

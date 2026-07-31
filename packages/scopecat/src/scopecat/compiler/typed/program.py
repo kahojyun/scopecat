@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.semantic.value_expressions import (
     CompilerValue,
     ScalarValueExpr,
@@ -168,7 +167,7 @@ class LogicalResourceRequirement:
 
     port_id: LogicalResourcePortId
     interfaces: tuple[InterfaceId, ...] = ()
-    entity_uses: tuple[RelationUse[ScalarValueExpr], ...] = ()
+    entity_uses: tuple[ScalarValueExpr, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,7 +244,7 @@ def set_state_property(
         interface_id=interface_id,
         component_path=component_path,
         property_id=property_id,
-        value_use=value if isinstance(value, ComputeResultRef) else relation_use(value),
+        value_use=value,
     )
 
 

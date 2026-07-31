@@ -10,7 +10,6 @@ from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.relations.context import (
     ParameterRelationData,
 )
-from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -109,9 +108,9 @@ def _values_axis(
     axis_id: str,
     value_type: Scalar,
     values: tuple[CellValue, ...],
-) -> PointAxis[RelationUse[ScalarValueExpr]]:
+) -> PointAxis[ScalarValueExpr]:
     return cast(
-        "PointAxis[RelationUse[ScalarValueExpr]]",
+        "PointAxis[ScalarValueExpr]",
         point_axis_values(axis_id, value_type, values),
     )
 
@@ -122,16 +121,14 @@ def _linear_axis(
     *,
     bindings: RelationTypeBindings | None = None,
     count: int = 2,
-) -> PointAxis[RelationUse[ScalarValueExpr]]:
+) -> PointAxis[ScalarValueExpr]:
     return point_axis_linear(
         axis_id,
         _FREQUENCY,
-        relation_use(
-            scalar_value_expr(
-                expression,
-                bindings=bindings,
-                expected_type=_FREQUENCY,
-            )
+        scalar_value_expr(
+            expression,
+            bindings=bindings,
+            expected_type=_FREQUENCY,
         ),
         _SPAN,
         count,
@@ -140,7 +137,7 @@ def _linear_axis(
 
 def _entity_rows(
     values: tuple[CellValue, ...],
-) -> PointAxis[RelationUse[ScalarValueExpr]]:
+) -> PointAxis[ScalarValueExpr]:
     return _values_axis(
         "subject",
         Scalar(Entity()),

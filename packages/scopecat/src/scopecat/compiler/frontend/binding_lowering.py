@@ -18,7 +18,6 @@ from scopecat.compiler.frontend.problems import (
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
 )
-from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
@@ -113,13 +112,11 @@ def lower_invocation(
         arguments.append(
             InvokeArgument(
                 id=argument.id,
-                value_use=_effect_value_use(
-                    _lower_effect_value(
-                        argument.value_id,
-                        program=program,
-                        inputs=inputs,
-                        type_bindings=type_bindings,
-                    )
+                value_use=_lower_effect_value(
+                    argument.value_id,
+                    program=program,
+                    inputs=inputs,
+                    type_bindings=type_bindings,
                 ),
             )
         )
@@ -153,12 +150,6 @@ def _lower_effect_value(
     return lowered
 
 
-def _effect_value_use(
-    value: ScalarValueExpr | ComputeResultRef,
-) -> RelationUse[ScalarValueExpr] | ComputeResultRef:
-    return value if isinstance(value, ComputeResultRef) else relation_use(value)
-
-
 def build_resource_requirements(
     topology: Topology,
     ports: Sequence[ResourcePort],
@@ -173,13 +164,11 @@ def build_resource_requirements(
                 port_id=port.symbol_id,
                 interfaces=tuple(port.selector.interfaces),
                 entity_uses=tuple(
-                    relation_use(
-                        _resource_entity_expr(
-                            topology,
-                            input_id,
-                            inputs,
-                            type_bindings=type_bindings,
-                        )
+                    _resource_entity_expr(
+                        topology,
+                        input_id,
+                        inputs,
+                        type_bindings=type_bindings,
                     )
                     for input_id in port.selector.entity_inputs
                 ),

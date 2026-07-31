@@ -11,7 +11,6 @@ from scopecat.compiler.relations.specialization import (
     residual_scalar_expression,
     specialize_scalar,
 )
-from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     verify_scalar_value_expr,
@@ -103,15 +102,14 @@ def _specialize_point_domain(
     """
 
     def specialize_center(
-        center: RelationUse[ScalarValueExpr],
+        center: ScalarValueExpr,
         _path: tuple[str | int, ...],
-    ) -> RelationUse[ScalarValueExpr]:
-        value = _specialize_scalar_value(
-            center.value,
+    ) -> ScalarValueExpr:
+        return _specialize_scalar_value(
+            center,
             known=known,
             parameter_cells=(),
         )
-        return RelationUse(value)
 
     return replace(
         domain,
@@ -292,7 +290,7 @@ def _specialize_resource_requirement(
     return replace(
         requirement,
         entity_uses=tuple(
-            _specialize_scalar_use(
+            _specialize_scalar_value(
                 use,
                 known=known,
                 parameter_cells=parameter_cells,
@@ -303,29 +301,15 @@ def _specialize_resource_requirement(
 
 
 def _specialize_value_use(
-    use: RelationUse[ScalarValueExpr] | ComputeResultRef,
+    use: ScalarValueExpr | ComputeResultRef,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> RelationUse[ScalarValueExpr] | ComputeResultRef:
+) -> ScalarValueExpr | ComputeResultRef:
     if isinstance(use, ComputeResultRef):
         return use
-    return _specialize_scalar_use(
+    return _specialize_scalar_value(
         use,
         known=known,
         parameter_cells=parameter_cells,
     )
-
-
-def _specialize_scalar_use(
-    use: RelationUse[ScalarValueExpr],
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> RelationUse[ScalarValueExpr]:
-    value = _specialize_scalar_value(
-        use.value,
-        known=known,
-        parameter_cells=parameter_cells,
-    )
-    return replace(use, value=value)

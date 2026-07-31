@@ -1,6 +1,5 @@
 import pytest
 
-from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -149,12 +148,10 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
 def test_materialized_effects_rejects_bind_problems_without_duplicates() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     center_type = Scalar(QuantityType(unit="GHz"))
-    center = relation_use(
-        scalar_value_expr(
-            param("missing_center"),
-            bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
-            expected_type=center_type,
-        )
+    center = scalar_value_expr(
+        param("missing_center"),
+        bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+        expected_type=center_type,
     )
     spec = typed_program(
         point_domain=PointDomain(

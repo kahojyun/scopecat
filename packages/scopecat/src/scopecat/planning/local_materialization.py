@@ -547,7 +547,7 @@ def _select_resources(
         failed = False
         for use in requirement.entity_uses:
             try:
-                entity_values.append(evaluate_scalar_value(use.value, ctx))
+                entity_values.append(evaluate_scalar_value(use, ctx))
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.compiler.semantic.value_expressions import (
+    ScalarValueExpr,
     TableValue,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
@@ -98,8 +98,8 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     specialized_state = specialized.effects[0]
     assert isinstance(specialized_state, SetStateSpec)
     state_value = specialized_state.value_use
-    assert isinstance(state_value, RelationUse)
-    assert isinstance(state_value.value.plan.root, LiteralScalarExpr)
+    assert isinstance(state_value, ScalarValueExpr)
+    assert isinstance(state_value.plan.root, LiteralScalarExpr)
     specialized_domain = specialized.effects[1]
     assert isinstance(specialized_domain, TypedDomainExecution)
     domain_input = specialized_domain.inputs["gain"]
@@ -261,7 +261,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
                     point_axis_linear(
                         "frequency",
                         frequency,
-                        relation_use(center),
+                        center,
                         QuantityValue(value=0.2, unit="GHz"),
                         3,
                     ),
@@ -276,7 +276,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     [axis] = specialized.point_domain.axes
     assert isinstance(axis, PointAxis)
     assert isinstance(axis.source, PointAxisLinear)
-    center_root = axis.source.center.value.plan.root
+    center_root = axis.source.center.plan.root
     assert isinstance(center_root, LiteralScalarExpr)
     assert center_root.value == QuantityValue(value=5.95, unit="GHz")
 

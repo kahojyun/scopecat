@@ -4,7 +4,6 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomain,
@@ -191,7 +190,7 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
             LogicalResourceRequirement(
                 port_id=port,
                 interfaces=("test.a/v1", "test.b/v1"),
-                entity_uses=(relation_use(_entity("q0")),),
+                entity_uses=(_entity("q0"),),
             ),
         ),
         state=(
@@ -265,7 +264,7 @@ def test_logical_state_bindings_reach_required_instrument() -> None:
                 LogicalResourceRequirement(
                     port_id=source,
                     interfaces=("test.set_level/v1",),
-                    entity_uses=(relation_use(_entity("q0")),),
+                    entity_uses=(_entity("q0"),),
                 ),
             ),
             state=(first_state,),
@@ -295,8 +294,8 @@ def test_logical_state_does_not_broadcast_across_instruments() -> None:
                 port_id=source,
                 interfaces=("test.set_level/v1",),
                 entity_uses=(
-                    relation_use(_entity("q0")),
-                    relation_use(_entity("q1")),
+                    _entity("q0"),
+                    _entity("q1"),
                 ),
             ),
         ),
@@ -328,7 +327,7 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
             LogicalResourceRequirement(
                 port_id=signal,
                 interfaces=("test.set_level/v1", "test.measure_signal/v1"),
-                entity_uses=(relation_use(_entity("q0")),),
+                entity_uses=(_entity("q0"),),
             ),
         ),
         state=(
@@ -382,12 +381,12 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
             LogicalResourceRequirement(
                 port_id=left,
                 interfaces=("test.set_level/v1",),
-                entity_uses=(relation_use(_entity("q0")),),
+                entity_uses=(_entity("q0"),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
                 interfaces=("test.set_level/v1",),
-                entity_uses=(relation_use(_entity("q0")),),
+                entity_uses=(_entity("q0"),),
             ),
         ),
         state=(

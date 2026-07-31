@@ -11,7 +11,6 @@ from scopecat.compiler.relations.context import EvalContext, ParameterRelationDa
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
 )
-from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
 )
@@ -35,7 +34,7 @@ from scopecat.kernel.value_types import Entity, Table, TableColumn
 from scopecat.kernel.value_validation import coerce_literal
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
-type CompilerPointAxes = PointAxes[RelationUse[ScalarValueExpr]]
+type CompilerPointAxes = PointAxes[ScalarValueExpr]
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +154,7 @@ def verify_point_domain(
     for axis_index, axis in enumerate(domain.axes):
         if isinstance(axis.source, PointAxisLinear):
             _verify_center_role(
-                axis.source.center.value,
+                axis.source.center,
                 path=("axes", axis_index, "source", "center"),
                 issues=issues,
             )
@@ -211,7 +210,7 @@ def _materialize_axes(
 
 
 def _axis_values(
-    axis: PointAxis[RelationUse[ScalarValueExpr]],
+    axis: PointAxis[ScalarValueExpr],
     *,
     params: ParameterRelationData,
     path: PointDomainPath,
@@ -221,7 +220,7 @@ def _axis_values(
         return source.values
     try:
         center = evaluate_scalar(
-            source.center.value.plan,
+            source.center.plan,
             EvalContext(params=params),
         )
         if not isinstance(center, QuantityValue):
