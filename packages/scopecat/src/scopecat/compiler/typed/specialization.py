@@ -12,7 +12,6 @@ from scopecat.compiler.relations.specialization import (
     specialize_scalar,
 )
 from scopecat.compiler.relations.uses import RelationUse
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     verify_scalar_value_expr,
@@ -39,6 +38,7 @@ from scopecat.graph.relations.point_domain import (
     map_point_axis_centers,
 )
 from scopecat.graph.values import ComputeResultRef, OperationId
+from scopecat.program.logical import AcquireEffect
 
 
 def specialize_core_program(

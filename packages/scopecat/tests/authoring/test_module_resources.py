@@ -5,7 +5,6 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
@@ -22,6 +21,7 @@ from scopecat.program.bindings import (
     InvocationIntent,
 )
 from scopecat.program.domain import domain_program
+from scopecat.program.logical import AcquireEffect
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call

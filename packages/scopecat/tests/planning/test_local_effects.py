@@ -4,10 +4,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
@@ -37,6 +33,10 @@ from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Int, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
+)
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
@@ -264,7 +264,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     assert step.payload_slot is not None
     assert (
         preview.points[0].ordinal,
-        step.semantic_operation_id,
+        step.logical_compute_node_id,
         step.payload_slot.schema_id,
     ) == (0, "build-waveform", "waveform_bundle")
     assert step.payload_slot.id == f"{step.operation_id}.payload"

@@ -14,9 +14,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import (
-    MeasurementPostprocessorId,
-)
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -73,6 +70,9 @@ from scopecat.planning.provider_binding import (
 )
 from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem, build_experiment_system
+from scopecat.program.logical import (
+    MeasurementPostprocessorId,
+)
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,

@@ -1,13 +1,10 @@
-"""Backend-neutral typed value and pure-operation graph.
-
-The verified frontend owns structural validation. These transient compiler
-records only snapshot mutable values that must not leak into later stages.
-"""
+"""Canonical config-free logical program and its immutable leaf records."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import cast, override
 
 import scopecat.graph.values as graph_values
@@ -16,6 +13,7 @@ from scopecat.graph.relations.analysis import plan_input_refs
 from scopecat.graph.relations.model import (
     ScalarExpr,
 )
+from scopecat.graph.relations.point_domain import PointAxes
 from scopecat.graph.table_values import TableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -30,6 +28,17 @@ from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
+from scopecat.program.bindings import (
+    EnsureStateIntent,
+    ExperimentBindingIntent,
+    InvocationIntent,
+    ResourcePort,
+)
+from scopecat.program.operations import ModuleInputPort
+from scopecat.program.parameters import ParameterContract
+from scopecat.program.products import ModuleProductDecl, RecordSelection
+from scopecat.program.scans import AxisSpec
+from scopecat.program.value_refs import PointValueDependency, ValueRef
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:
@@ -132,7 +141,7 @@ class ValueUse:
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticOperation:
+class LogicalComputeNode:
     id: graph_values.OperationId
     inputs: tuple[tuple[str, ValueUse], ...]
     result_id: graph_values.ValueId
@@ -140,7 +149,7 @@ class SemanticOperation:
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticDomainExecution:
+class LogicalDomainExecution:
     """One program and its plan-stage logical product bindings."""
 
     id: str
@@ -151,7 +160,7 @@ class SemanticDomainExecution:
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticMeasurementPostprocessor:
+class LogicalMeasurementPostprocessor:
     """One point-local Python calculation with explicit product edges."""
 
     id: MeasurementPostprocessorId
@@ -196,13 +205,6 @@ class AcquireEffect:
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticGraphIR:
-    value_defs: tuple[ValueDef, ...] = ()
-    operations: tuple[SemanticOperation, ...] = ()
-    measurement_postprocessors: tuple[SemanticMeasurementPostprocessor, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class ImplementationId:
     value: str
 
@@ -211,6 +213,105 @@ class ImplementationId:
 class LocalPythonImplementation:
     id: ImplementationId
     kernel: Callable[..., object] = field(repr=False, compare=False)
+
+
+type LogicalEffect = (
+    ExperimentBindingIntent
+    | EnsureStateIntent
+    | InvocationIntent
+    | LogicalDomainExecution
+    | AcquireEffect
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class LogicalProgram:
+    """Closed, flat, config-free program consumed by compiler binding."""
+
+    experiment_id: str
+    kind: str
+    inputs: dict[str, object] = field(default_factory=dict)
+    input_ports: tuple[ModuleInputPort, ...] = ()
+    entity_inputs: tuple[str, ...] = ()
+    resource_ports: tuple[ResourcePort, ...] = ()
+    point_dependencies: tuple[PointValueDependency, ...] = ()
+    parameter_overlays: tuple[AxisSpec, ...] = ()
+    product_declarations: tuple[ModuleProductDecl, ...] = ()
+    record_selections: tuple[RecordSelection, ...] = ()
+    parameter_contracts: tuple[ParameterContract, ...] = ()
+    point_domain: PointAxes[ValueRef] = ()
+    value_defs: tuple[ValueDef, ...] = ()
+    compute_nodes: tuple[LogicalComputeNode, ...] = ()
+    measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = ()
+    implementations: Mapping[graph_values.OperationId, LocalPythonImplementation] = (
+        field(
+            default_factory=dict[
+                graph_values.OperationId,
+                LocalPythonImplementation,
+            ],
+            repr=False,
+            compare=False,
+        )
+    )
+    effects: tuple[LogicalEffect, ...] = ()
+    final_state: EnsureStateIntent | None = None
+
+    def __post_init__(self) -> None:
+        if not self.experiment_id or not self.kind:
+            raise ValueError("logical program requires an id and kind")
+        object.__setattr__(
+            self,
+            "implementations",
+            MappingProxyType(dict(self.implementations)),
+        )
+
+    @property
+    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
+        effect_bindings = tuple(
+            binding
+            for effect in self.effects
+            for binding in (
+                (effect,)
+                if isinstance(effect, ExperimentBindingIntent)
+                else effect.assignments
+                if isinstance(effect, EnsureStateIntent)
+                else ()
+            )
+        )
+        return (
+            *effect_bindings,
+            *(() if self.final_state is None else self.final_state.assignments),
+        )
+
+    @property
+    def product_effects(
+        self,
+    ) -> tuple[LogicalDomainExecution | AcquireEffect, ...]:
+        return tuple(
+            effect
+            for effect in self.effects
+            if isinstance(effect, LogicalDomainExecution | AcquireEffect)
+        )
+
+    @property
+    def invocations(self) -> tuple[InvocationIntent, ...]:
+        return tuple(
+            effect for effect in self.effects if isinstance(effect, InvocationIntent)
+        )
+
+    @property
+    def domain_executions(self) -> tuple[LogicalDomainExecution, ...]:
+        return tuple(
+            effect
+            for effect in self.effects
+            if isinstance(effect, LogicalDomainExecution)
+        )
+
+    @property
+    def acquisitions(self) -> tuple[AcquireEffect, ...]:
+        return tuple(
+            effect for effect in self.effects if isinstance(effect, AcquireEffect)
+        )
 
 
 def _snapshot_literal(value: object) -> object:

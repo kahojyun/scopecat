@@ -8,7 +8,6 @@ from dataclasses import dataclass, replace
 from typing import cast
 
 from scopecat.compiler.frontend.elaboration import (
-    LogicalProgram,
     compose_experiment,
 )
 from scopecat.compiler.frontend.logical_verification import (
@@ -35,6 +34,7 @@ from scopecat.kernel.value_type_compatibility import (
     is_assignable,
 )
 from scopecat.program.definitions import ExperimentInvocation
+from scopecat.program.logical import LogicalProgram
 from scopecat.program.parameters import merge_parameter_contracts
 from scopecat.program.scans import (
     AxisSpec,

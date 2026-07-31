@@ -4,25 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from types import MappingProxyType
 from typing import Protocol, cast
 
 from scopecat.compiler.frontend.semantic_elaboration import (
     ScopedPythonImplementation,
-    elaborate_semantic_graph,
-    semantic_operation_id,
-)
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    AcquireId,
-    AcquireResult,
-    LocalPythonImplementation,
-    SemanticDomainExecution,
-    SemanticGraphIR,
-)
-from scopecat.graph.relations.point_domain import PointAxes
-from scopecat.graph.values import (
-    OperationId,
+    elaborate_logical_semantics,
+    logical_compute_node_id,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -43,6 +30,12 @@ from scopecat.program.bindings import (
 from scopecat.program.domain import LoweredDomainExecution, lower_domain_execution
 from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.identities import InvocationKey
+from scopecat.program.logical import (
+    AcquireEffect,
+    AcquireId,
+    AcquireResult,
+    LogicalProgram,
+)
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
     ModuleAcquireEffect,
@@ -98,13 +91,6 @@ type _FragmentEffect = (
     | EnsureStateIntent
     | InvocationIntent
     | LoweredDomainExecution
-    | AcquireEffect
-)
-type AssemblyEffect = (
-    ExperimentBindingIntent
-    | EnsureStateIntent
-    | InvocationIntent
-    | SemanticDomainExecution
     | AcquireEffect
 )
 
@@ -173,80 +159,6 @@ class _HierarchyRoot(Protocol):
     def python_implementations(
         self,
     ) -> tuple[ModulePythonImplementation, ...]: ...
-
-
-@dataclass(frozen=True, kw_only=True)
-class LogicalProgram(_AssemblyEnvelope):
-    """Closed config-free semantic graph plus plan and resource intents."""
-
-    experiment_id: str
-    kind: str
-    point_domain: PointAxes[ValueRef] = ()
-    semantic_graph: SemanticGraphIR = field(default_factory=SemanticGraphIR)
-    implementations: Mapping[OperationId, LocalPythonImplementation] = field(
-        default_factory=dict[OperationId, LocalPythonImplementation],
-        repr=False,
-        compare=False,
-    )
-    effects: tuple[AssemblyEffect, ...] = ()
-    final_state: EnsureStateIntent | None = None
-
-    def __post_init__(self) -> None:
-        if not self.experiment_id or not self.kind:
-            raise ValueError("semantic experiment requires an id and kind")
-        object.__setattr__(
-            self,
-            "implementations",
-            MappingProxyType(dict(self.implementations)),
-        )
-
-    @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
-        effect_bindings = tuple(
-            binding
-            for effect in self.effects
-            for binding in (
-                (effect,)
-                if isinstance(effect, ExperimentBindingIntent)
-                else effect.assignments
-                if isinstance(effect, EnsureStateIntent)
-                else ()
-            )
-        )
-        return (
-            *effect_bindings,
-            *(() if self.final_state is None else self.final_state.assignments),
-        )
-
-    @property
-    def semantic_effects(
-        self,
-    ) -> tuple[SemanticDomainExecution | AcquireEffect, ...]:
-        return tuple(
-            effect
-            for effect in self.effects
-            if isinstance(effect, SemanticDomainExecution | AcquireEffect)
-        )
-
-    @property
-    def invocations(self) -> tuple[InvocationIntent, ...]:
-        return tuple(
-            effect for effect in self.effects if isinstance(effect, InvocationIntent)
-        )
-
-    @property
-    def domain_executions(self) -> tuple[SemanticDomainExecution, ...]:
-        return tuple(
-            effect
-            for effect in self.effects
-            if isinstance(effect, SemanticDomainExecution)
-        )
-
-    @property
-    def acquisitions(self) -> tuple[AcquireEffect, ...]:
-        return tuple(
-            effect for effect in self.effects if isinstance(effect, AcquireEffect)
-        )
 
 
 def _merge_module_fragments(
@@ -351,7 +263,7 @@ def _elaborate_hierarchy(
     )
     value_roots = _module_fragment_value_roots(fragment)
     _require_closed_module_fragment(fragment, value_roots.consumed)
-    semantic = elaborate_semantic_graph(
+    semantics = elaborate_logical_semantics(
         fragment.operations,
         fragment.python_implementations,
         measurement_postprocessors=fragment.measurement_postprocessors,
@@ -367,12 +279,14 @@ def _elaborate_hierarchy(
         resource_ports=fragment.resource_ports,
         point_dependencies=fragment.point_dependencies,
         parameter_overlays=fragment.parameter_overlays,
-        semantic_graph=semantic.graph,
-        implementations=semantic.implementations,
+        value_defs=semantics.value_defs,
+        compute_nodes=semantics.compute_nodes,
+        measurement_postprocessors=semantics.measurement_postprocessors,
+        implementations=semantics.implementations,
         product_declarations=fragment.product_declarations,
         record_selections=fragment.record_selections,
         parameter_contracts=fragment.parameter_contracts,
-        effects=semantic.effects,
+        effects=semantics.effects,
     )
 
 
@@ -412,7 +326,7 @@ def _elaborate_program_ir(
         effects=tuple(own_effects),
         python_implementations=tuple(
             ScopedPythonImplementation(
-                operation_id=semantic_operation_id(operation.operation_id),
+                operation_id=logical_compute_node_id(operation.operation_id),
                 declaration_key=operation.declaration_key,
                 fn=implementations[operation.declaration_key].fn,
             )

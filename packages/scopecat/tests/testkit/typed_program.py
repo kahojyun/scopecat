@@ -6,11 +6,6 @@ from collections.abc import Mapping, Sequence
 
 from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    AcquireId,
-    AcquireResult,
-)
 from scopecat.compiler.typed.invocation import (
     InvocationValueUse,
     InvokeArgument,
@@ -53,6 +48,11 @@ from scopecat.measurements.products import (
 )
 from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementDType
+from scopecat.program.logical import (
+    AcquireEffect,
+    AcquireId,
+    AcquireResult,
+)
 
 
 def overlay_parameter_cell(

@@ -14,7 +14,6 @@ from scopecat.compiler.bind import _lower_logical_program
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.semantic.model import PlanExpressionSource
 from scopecat.compiler.typed.program import ComputeEdge, CoreProgram
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import ScalarExpr
@@ -23,6 +22,7 @@ from scopecat.graph.values import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.logical import PlanExpressionSource
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
@@ -117,13 +117,8 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         context.call(second_consumer)
 
     assembly = compose_module(root.ir)
-    nodes = {
-        operation.id: operation for operation in assembly.semantic_graph.operations
-    }
-    results = {
-        operation.result_id: operation
-        for operation in assembly.semantic_graph.operations
-    }
+    nodes = {operation.id: operation for operation in assembly.compute_nodes}
+    results = {operation.result_id: operation for operation in assembly.compute_nodes}
 
     first_input = dict(
         nodes[
@@ -193,14 +188,11 @@ def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
     assembly = compose_module(root.ir)
     sink_node = next(
         operation
-        for operation in assembly.semantic_graph.operations
+        for operation in assembly.compute_nodes
         if operation.id.local_id == "consume"
     )
     sink_input = dict(sink_node.inputs)["payload"]
-    results = {
-        operation.result_id: operation
-        for operation in assembly.semantic_graph.operations
-    }
+    results = {operation.result_id: operation for operation in assembly.compute_nodes}
     assert results[sink_input.value_id].id == OperationId(
         SymbolId(scope=("outer", "child"), local_id="produce")
     )
@@ -318,13 +310,11 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
     flattened = compose_module(root.ir)
     capture_node = next(
         operation
-        for operation in flattened.semantic_graph.operations
+        for operation in flattened.compute_nodes
         if operation.id.local_id == "capture"
     )
     capture_inputs = dict(capture_node.inputs)
-    definitions = {
-        definition.id: definition for definition in flattened.semantic_graph.value_defs
-    }
+    definitions = {definition.id: definition for definition in flattened.value_defs}
     passthrough = definitions[capture_inputs["passthrough"].value_id]
     assert isinstance(passthrough.source, PlanExpressionSource)
     assert isinstance(passthrough.source.expression, ScalarExpr)
@@ -414,13 +404,11 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
     flattened = compose_module(root.ir)
     capture_node = next(
         semantic_operation
-        for semantic_operation in flattened.semantic_graph.operations
+        for semantic_operation in flattened.compute_nodes
         if semantic_operation.id.local_id == "capture"
     )
     captured = dict(capture_node.inputs)["consumed"]
-    definitions = {
-        definition.id: definition for definition in flattened.semantic_graph.value_defs
-    }
+    definitions = {definition.id: definition for definition in flattened.value_defs}
     shifted_definition = definitions[captured.value_id]
     assert isinstance(shifted_definition.source, PlanExpressionSource)
     assert isinstance(shifted_definition.source.expression, ScalarExpr)

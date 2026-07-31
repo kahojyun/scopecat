@@ -3,10 +3,6 @@ from __future__ import annotations
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
 from scopecat.compiler.semantic.value_expressions import (
     TableValue,
 )
@@ -54,6 +50,10 @@ from scopecat.kernel.value_types import (
     Scalar,
     Table,
     TableColumn,
+)
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
 )
 from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,

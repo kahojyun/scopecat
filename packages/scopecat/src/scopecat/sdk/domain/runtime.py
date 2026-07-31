@@ -52,13 +52,13 @@ class DomainSubmissionId(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
-    semantic_operation_id: str
+    logical_compute_node_id: str
     invocation_id: str
     intent_fingerprint: str
 
     @field_validator(
         "run_id",
-        "semantic_operation_id",
+        "logical_compute_node_id",
         "invocation_id",
         "intent_fingerprint",
     )
@@ -72,7 +72,7 @@ class DomainSubmissionId(BaseModel):
     def submission_key(self) -> str:
         return _submission_key(
             run_id=self.run_id,
-            semantic_operation_id=self.semantic_operation_id,
+            logical_compute_node_id=self.logical_compute_node_id,
             invocation_id=self.invocation_id,
             intent_fingerprint=self.intent_fingerprint,
         )
@@ -201,12 +201,12 @@ def plan_domain_submission[
     invocation: ClosedDomainInvocation[ResultAddressT, PayloadT],
     *,
     run_id: str,
-    semantic_operation_id: str,
+    logical_compute_node_id: str,
 ) -> DomainSubmissionId:
     intent = invocation.intent
     return DomainSubmissionId(
         run_id=run_id,
-        semantic_operation_id=semantic_operation_id,
+        logical_compute_node_id=logical_compute_node_id,
         invocation_id=intent.invocation_id,
         intent_fingerprint=intent.intent_fingerprint,
     )
@@ -480,7 +480,7 @@ def fetch_domain_invocation[PayloadT, ResultT](
 def _submission_key(
     *,
     run_id: str,
-    semantic_operation_id: str,
+    logical_compute_node_id: str,
     invocation_id: str,
     intent_fingerprint: str,
 ) -> str:
@@ -488,7 +488,7 @@ def _submission_key(
         {
             "schema": "scopecat.domain_submission_key.v2",
             "run_id": run_id,
-            "semantic_operation_id": semantic_operation_id,
+            "logical_compute_node_id": logical_compute_node_id,
             "invocation_id": invocation_id,
             "intent_fingerprint": intent_fingerprint,
         }
@@ -537,7 +537,7 @@ def _intent_evidence(
 ) -> dict[str, JsonValue]:
     return {
         "invocation_intent": intent.model_dump(mode="json"),
-        "semantic_operation_id": submission_id.semantic_operation_id,
+        "logical_compute_node_id": submission_id.logical_compute_node_id,
         "submission_key": submission_id.submission_key,
     }
 

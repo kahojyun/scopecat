@@ -10,10 +10,7 @@ import pytest
 import scopecat as sc
 import scopecat.authoring as authoring
 from scopecat.compiler.bind import bind_program
-from scopecat.compiler.frontend.elaboration import (
-    LogicalProgram,
-    compose_module,
-)
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
@@ -24,10 +21,6 @@ from scopecat.compiler.frontend.resolution import (
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.model import (
-    PlanExpressionSource,
-    ValueUse,
-)
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import (
     InputScalarExpr,
@@ -46,6 +39,11 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.logical import (
+    LogicalProgram,
+    PlanExpressionSource,
+    ValueUse,
+)
 from scopecat.program.scans import (
     AxisSpec,
     scan_parameter_contracts,
@@ -333,13 +331,15 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
             pulse_length=Quantity(value=20.0, unit="ns"),
         )
     )
-    graph = compiled.program.program.semantic_graph
+    logical_program = compiled.program.program
     operation = next(
         operation
-        for operation in graph.operations
+        for operation in logical_program.compute_nodes
         if operation.id.local_id == "build-program"
     )
-    definitions = {definition.id: definition for definition in graph.value_defs}
+    definitions = {
+        definition.id: definition for definition in logical_program.value_defs
+    }
     uses = dict(operation.inputs)
 
     assert all(isinstance(use, ValueUse) for use in uses.values())

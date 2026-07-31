@@ -12,10 +12,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
@@ -58,6 +54,10 @@ from scopecat.kernel.value_types import Table as TableType
 from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
     validate_run_host_binding,
+)
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence

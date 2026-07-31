@@ -264,7 +264,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         (
             ComputeOperation(
                 operation_id=producer_id,
-                semantic_operation_id="producer",
+                logical_compute_node_id="producer",
                 implementation_id="python.producer.v1",
                 kernel=lambda: Quantity(
                     value=5000.0,
@@ -278,7 +278,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
             ),
             ComputeOperation(
                 operation_id=("normalized-output-point.compute.consumer"),
-                semantic_operation_id="consumer",
+                logical_compute_node_id="consumer",
                 implementation_id="python.consumer.v1",
                 kernel=consume,
                 inputs={"value": OutputInput(producer_result_id)},
@@ -321,7 +321,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         (
             ComputeOperation(
                 operation_id="implementation-cache-point.compute.first",
-                semantic_operation_id="first",
+                logical_compute_node_id="first",
                 implementation_id="python.first.v1",
                 kernel=first,
                 inputs={},
@@ -332,7 +332,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
             ),
             ComputeOperation(
                 operation_id="implementation-cache-point.compute.second",
-                semantic_operation_id="second",
+                logical_compute_node_id="second",
                 implementation_id="python.second.v1",
                 kernel=second,
                 inputs={},

@@ -4,7 +4,6 @@ from typing import cast
 
 import pytest
 
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
@@ -32,6 +31,7 @@ from scopecat.measurements.records import (
     validate_record_plan,
 )
 from scopecat.measurements.results import MeasurementDType
+from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import RoutingGraph
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (

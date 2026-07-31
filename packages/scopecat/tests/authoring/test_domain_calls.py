@@ -441,8 +441,10 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
             )
         )
 
-    graph = compose_module(module.ir).semantic_graph
-    value_ids = {definition.id.qualified_name for definition in graph.value_defs}
+    logical_program = compose_module(module.ir)
+    value_ids = {
+        definition.id.qualified_name for definition in logical_program.value_defs
+    }
     assert "domain/inputs/value" in value_ids
     assert "domain_execution/call%2Fprogram/inputs/value" in value_ids
 

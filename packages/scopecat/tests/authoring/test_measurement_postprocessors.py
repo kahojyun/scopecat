@@ -114,7 +114,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
             )
         )
 
-    [lowered] = compose_module(module.ir).semantic_graph.measurement_postprocessors
+    [lowered] = compose_module(module.ir).measurement_postprocessors
     assert lowered.input.qualified_name == "nested/raw"
     assert lowered.outputs[0][1].qualified_name == "derived"
 
@@ -130,7 +130,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
     def root(context: sc.ModuleContext) -> None:
         context.call(nested_module.instantiate("nested"))
 
-    [scoped] = compose_module(root.ir).semantic_graph.measurement_postprocessors
+    [scoped] = compose_module(root.ir).measurement_postprocessors
     assert scoped.id.qualified_name == "nested/derive"
     assert scoped.input.qualified_name == "nested/raw"
 

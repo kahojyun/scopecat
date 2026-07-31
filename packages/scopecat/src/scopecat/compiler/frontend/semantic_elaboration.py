@@ -1,4 +1,4 @@
-"""Close flattened module declarations into the backend-neutral semantic graph."""
+"""Close flattened module declarations into logical program fields."""
 
 from __future__ import annotations
 
@@ -7,21 +7,6 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    ImplementationId,
-    LiteralValueSource,
-    LocalPythonImplementation,
-    MeasurementPostprocessorId,
-    PlanExpressionSource,
-    SemanticDomainExecution,
-    SemanticGraphIR,
-    SemanticMeasurementPostprocessor,
-    SemanticOperation,
-    ValueDef,
-    ValueSource,
-    ValueUse,
-)
 from scopecat.graph.relations.model import (
     ScalarExpr,
 )
@@ -40,6 +25,20 @@ from scopecat.program.bindings import (
 )
 from scopecat.program.domain import LoweredDomainExecution
 from scopecat.program.identities import ComputeDeclarationKey
+from scopecat.program.logical import (
+    AcquireEffect,
+    ImplementationId,
+    LiteralValueSource,
+    LocalPythonImplementation,
+    LogicalComputeNode,
+    LogicalDomainExecution,
+    LogicalMeasurementPostprocessor,
+    MeasurementPostprocessorId,
+    PlanExpressionSource,
+    ValueDef,
+    ValueSource,
+    ValueUse,
+)
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.operations import (
     ComputeNodeInputValue,
@@ -63,20 +62,22 @@ class ScopedPythonImplementation:
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticElaboration:
-    graph: SemanticGraphIR
+class _ElaboratedSemantics:
+    value_defs: tuple[ValueDef, ...]
+    compute_nodes: tuple[LogicalComputeNode, ...]
+    measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...]
     implementations: Mapping[OperationId, LocalPythonImplementation]
     effects: tuple[
         ExperimentBindingIntent
         | EnsureStateIntent
         | InvocationIntent
-        | SemanticDomainExecution
+        | LogicalDomainExecution
         | AcquireEffect,
         ...,
     ]
 
 
-def elaborate_semantic_graph(
+def elaborate_logical_semantics(
     operations: Sequence[ModuleOperationDecl],
     implementations: Sequence[ScopedPythonImplementation],
     *,
@@ -89,10 +90,10 @@ def elaborate_semantic_graph(
         | AcquireEffect
     ] = (),
     value_roots: Sequence[object] = (),
-) -> SemanticElaboration:
-    """Assemble one semantic graph and its sidecars from flattened module data."""
+) -> _ElaboratedSemantics:
+    """Assemble canonical logical fields from flattened module data."""
 
-    builder = _SemanticGraphBuilder(implementations)
+    builder = _LogicalSemanticsBuilder(implementations)
     for postprocessor in measurement_postprocessors:
         builder.add_measurement_postprocessor(postprocessor)
     for operation in operations:
@@ -109,16 +110,16 @@ def elaborate_semantic_graph(
     return builder.finish(effects=semantic_effects)
 
 
-def semantic_operation_id(symbol: SymbolId) -> OperationId:
+def logical_compute_node_id(symbol: SymbolId) -> OperationId:
     return OperationId(symbol)
 
 
-def semantic_value_id(value: ValueRef) -> ValueId:
+def logical_value_id(value: ValueRef) -> ValueId:
     """Return the graph identity deterministically assigned to a typed value."""
 
     operation_id = internal_value_ref_operation_id(value)
     if operation_id is not None:
-        return operation_result_id(semantic_operation_id(operation_id))
+        return operation_result_id(logical_compute_node_id(operation_id))
     declaration_key = value.declaration_key
     scope = value.declaration_scope
     return ValueId(
@@ -129,7 +130,7 @@ def semantic_value_id(value: ValueRef) -> ValueId:
     )
 
 
-class _SemanticGraphBuilder:
+class _LogicalSemanticsBuilder:
     def __init__(
         self,
         implementations: Sequence[ScopedPythonImplementation],
@@ -139,12 +140,12 @@ class _SemanticGraphBuilder:
             for implementation in implementations
         }
         self._definitions: dict[ValueId, ValueDef] = {}
-        self._operations: dict[OperationId, SemanticOperation] = {}
-        self._measurement_postprocessors: list[SemanticMeasurementPostprocessor] = []
+        self._compute_nodes: dict[OperationId, LogicalComputeNode] = {}
+        self._measurement_postprocessors: list[LogicalMeasurementPostprocessor] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
 
     def add_authored_operation(self, declaration: ModuleOperationDecl) -> None:
-        operation_id = semantic_operation_id(declaration.operation_id)
+        operation_id = logical_compute_node_id(declaration.operation_id)
         output_id = operation_result_id(operation_id)
         inputs = tuple(
             (
@@ -159,13 +160,13 @@ class _SemanticGraphBuilder:
             )
             for name, value in declaration.inputs
         )
-        operation = SemanticOperation(
+        operation = LogicalComputeNode(
             id=operation_id,
             inputs=inputs,
             result_id=output_id,
             result_type=declaration.output_type,
         )
-        self._add_operation(operation)
+        self._add_compute_node(operation)
         implementation = self._module_implementations.get(operation_id)
         if implementation is not None:
             self._implementations[operation_id] = LocalPythonImplementation(
@@ -180,12 +181,12 @@ class _SemanticGraphBuilder:
     def add_domain_execution(
         self,
         execution: LoweredDomainExecution,
-    ) -> SemanticDomainExecution:
+    ) -> LogicalDomainExecution:
         program = execution.program
         operation_id = OperationId(
             SymbolId(scope=("domain_execution",), local_id=execution.id)
         )
-        return SemanticDomainExecution(
+        return LogicalDomainExecution(
             id=execution.id,
             program=program,
             inputs=tuple(
@@ -222,7 +223,7 @@ class _SemanticGraphBuilder:
         declaration: MeasurementPostprocessor,
     ) -> None:
         self._measurement_postprocessors.append(
-            SemanticMeasurementPostprocessor(
+            LogicalMeasurementPostprocessor(
                 id=MeasurementPostprocessorId(declaration.symbol_id),
                 input=declaration.input_binding,
                 outputs=declaration.output_bindings,
@@ -240,18 +241,15 @@ class _SemanticGraphBuilder:
             ExperimentBindingIntent
             | EnsureStateIntent
             | InvocationIntent
-            | SemanticDomainExecution
+            | LogicalDomainExecution
             | AcquireEffect,
             ...,
         ],
-    ) -> SemanticElaboration:
-        graph = SemanticGraphIR(
+    ) -> _ElaboratedSemantics:
+        return _ElaboratedSemantics(
             value_defs=tuple(self._definitions.values()),
-            operations=tuple(self._operations.values()),
+            compute_nodes=tuple(self._compute_nodes.values()),
             measurement_postprocessors=tuple(self._measurement_postprocessors),
-        )
-        return SemanticElaboration(
-            graph=graph,
             implementations=MappingProxyType(dict(self._implementations)),
             effects=effects,
         )
@@ -282,7 +280,7 @@ class _SemanticGraphBuilder:
         return input_id
 
     def _add_value(self, value: ValueRef) -> ValueId:
-        value_id = semantic_value_id(value)
+        value_id = logical_value_id(value)
         if value_id in self._definitions:
             return value_id
         operation_id = internal_value_ref_operation_id(value)
@@ -328,9 +326,9 @@ class _SemanticGraphBuilder:
             raise ValueError(msg)
         self._definitions[definition.id] = definition
 
-    def _add_operation(self, operation: SemanticOperation) -> None:
-        existing = self._operations.get(operation.id)
+    def _add_compute_node(self, operation: LogicalComputeNode) -> None:
+        existing = self._compute_nodes.get(operation.id)
         if existing is not None and existing != operation:
             msg = f"semantic operation {operation.id.qualified_name!r} is redefined"
             raise ValueError(msg)
-        self._operations[operation.id] = operation
+        self._compute_nodes[operation.id] = operation

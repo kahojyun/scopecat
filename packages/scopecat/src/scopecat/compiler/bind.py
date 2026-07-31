@@ -20,7 +20,6 @@ from scopecat.compiler.frontend.binding_lowering import (
     lower_invocation,
     lower_state_binding,
 )
-from scopecat.compiler.frontend.elaboration import LogicalProgram
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
     lower_semantic_measurement_postprocessor_graph,
@@ -41,7 +40,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.specialization import specialize_core_program
@@ -60,6 +58,7 @@ from scopecat.program.bindings import (
     ExperimentBindingIntent,
     InvocationIntent,
 )
+from scopecat.program.logical import AcquireEffect, LogicalProgram
 from scopecat.program.parameters import (
     ParameterValueContract,
 )

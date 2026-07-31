@@ -4,15 +4,15 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.semantic.model import (
-    ValueUse,
-)
 from scopecat.graph.values import (
     OperationId,
     ValueId,
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar
+from scopecat.program.logical import (
+    ValueUse,
+)
 
 
 def test_symbol_qualified_name_encodes_structural_segments_injectively() -> None:
@@ -68,8 +68,8 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
 
     invocation = template.bind()
     compiled = compile_invocation(invocation)
-    graph = compiled.program.program.semantic_graph
-    operations = graph.operations
+    logical_program = compiled.program.program
+    operations = logical_program.compute_nodes
     assert [operation.id.local_id for operation in operations] == [
         "produce",
         "consume",

@@ -9,21 +9,19 @@ from hypothesis import strategies as st
 
 import scopecat as sc
 from scopecat.authoring import MetadataValue
-from scopecat.compiler.frontend.elaboration import (
-    LogicalProgram,
-    compose_module,
-)
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import (
     VerifiedLogicalProgram,
     verify_logical_program,
 )
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.semantic.model import (
-    ValueUse,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.logical import (
+    LogicalProgram,
+    ValueUse,
+)
 from scopecat.sdk.instruments import InterfaceRef
 
 _MEASURE = InterfaceRef("test.measure/v1")
@@ -185,7 +183,7 @@ def _normalized_signature(
     verified: VerifiedLogicalProgram,
 ) -> tuple[object, ...]:
     resources = {port.symbol_id: port.id for port in assembly.resource_ports}
-    semantic_graph = verified.program.semantic_graph
+    logical_program = verified.program
     definitions = verified.value_defs
     results = verified.operation_results
 
@@ -207,7 +205,7 @@ def _normalized_signature(
                 ),
                 operation.result_type,
             )
-            for operation in semantic_graph.operations
+            for operation in logical_program.compute_nodes
         ),
         tuple(
             (
@@ -236,10 +234,9 @@ def test_alpha_renaming_changes_only_structural_instance_scope() -> None:
         assembly, verified = _verified_assembly(instance_id)
 
         assert {port.scope for port in assembly.resource_ports} == {(instance_id,)}
-        assert {
-            operation.id.scope
-            for operation in verified.program.semantic_graph.operations
-        } == {(instance_id,)}
+        assert {operation.id.scope for operation in verified.program.compute_nodes} == {
+            (instance_id,)
+        }
         assert {product.scope for product in assembly.product_declarations} == {
             (instance_id,)
         }
@@ -295,9 +292,7 @@ def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
     assembly = compose_module(root.ir)
     verified = verify_logical_program(assembly)
 
-    node_ids = {
-        operation.id for operation in verified.program.semantic_graph.operations
-    }
+    node_ids = {operation.id for operation in verified.program.compute_nodes}
     resource_ids = {port.qualified_id for port in assembly.resource_ports}
     product_ids = {product.product_id for product in assembly.product_declarations}
 
@@ -351,8 +346,7 @@ def test_repeated_config_free_verification_is_deterministic() -> None:
         verified = verify_logical_program(assembly)
         signatures.append(_normalized_signature(assembly, verified))
         assert [
-            operation.id.local_id
-            for operation in verified.program.semantic_graph.operations
+            operation.id.local_id for operation in verified.program.compute_nodes
         ] == [
             "produce",
             "consume",
@@ -376,7 +370,7 @@ def test_scoped_export_can_feed_another_instance_without_capture() -> None:
     verified = verify_logical_program(compose_module(root.ir))
     sink_node = next(
         operation
-        for operation in verified.program.semantic_graph.operations
+        for operation in verified.program.compute_nodes
         if operation.id.scope == ("sink",) and operation.id.local_id == "consume-export"
     )
     payload_input = dict(sink_node.inputs)["payload"]

@@ -211,13 +211,13 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     )
     consumer = next(
         operation
-        for operation in assembly.semantic_graph.operations
+        for operation in assembly.compute_nodes
         if operation.id.local_id == "consume"
     )
     program_use = dict(consumer.inputs)["program"]
     producer = next(
         operation
-        for operation in assembly.semantic_graph.operations
+        for operation in assembly.compute_nodes
         if operation.result_id == program_use.value_id
     )
     assert producer.id == OperationId(SymbolId(local_id="produce"))

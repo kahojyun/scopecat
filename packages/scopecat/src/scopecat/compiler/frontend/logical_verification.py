@@ -16,20 +16,14 @@ from scopecat.compiler.frontend.assembly_lowering import (
     coerce_assembly_inputs,
     validate_consumed_inputs,
 )
-from scopecat.compiler.frontend.elaboration import LogicalProgram
-from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
+from scopecat.compiler.frontend.semantic_elaboration import logical_value_id
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
     verify_relation_plan,
 )
-from scopecat.compiler.semantic.model import (
-    PlanExpressionSource,
-    SemanticOperation,
-    ValueDef,
-)
-from scopecat.compiler.semantic.verification import verify_semantic_graph
+from scopecat.compiler.semantic.verification import verify_logical_graph
 from scopecat.graph.relations.model import ScalarExpr
 from scopecat.graph.relations.point_domain import (
     analyze_point_domain,
@@ -51,6 +45,12 @@ from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
 from scopecat.kernel.value_types import Entity, Payload, Scalar, TableColumn, ValueType
 from scopecat.program.bindings import ResourcePort
+from scopecat.program.logical import (
+    LogicalComputeNode,
+    LogicalProgram,
+    PlanExpressionSource,
+    ValueDef,
+)
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.products import (
     ModuleProductDecl,
@@ -76,7 +76,7 @@ class VerifiedLogicalProgram:
         compare=False,
         hash=False,
     )
-    operation_results: Mapping[ValueId, SemanticOperation] = field(
+    operation_results: Mapping[ValueId, LogicalComputeNode] = field(
         init=False,
         compare=False,
         hash=False,
@@ -88,18 +88,20 @@ class VerifiedLogicalProgram:
     )
 
     def __post_init__(self) -> None:
-        graph = self.program.semantic_graph
-        value_defs = {definition.id: definition for definition in graph.value_defs}
+        value_defs = {
+            definition.id: definition for definition in self.program.value_defs
+        }
         operation_results = {
-            operation.result_id: operation for operation in graph.operations
+            operation.result_id: operation for operation in self.program.compute_nodes
         }
         value_types = {
-            definition.id: definition.value_type for definition in graph.value_defs
+            definition.id: definition.value_type
+            for definition in self.program.value_defs
         }
         value_types.update(
             {
                 operation.result_id: operation.result_type
-                for operation in graph.operations
+                for operation in self.program.compute_nodes
             }
         )
         object.__setattr__(self, "value_defs", MappingProxyType(value_defs))
@@ -139,27 +141,36 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
     resource_ports = _resource_ports(normalized.resource_ports, problems)
     product_declarations = _verify_product_schema(normalized, problems)
     try:
-        semantic_graph = verify_semantic_graph(
-            normalized.semantic_graph,
-            effects=normalized.semantic_effects,
+        verified_graph = verify_logical_graph(
+            normalized.value_defs,
+            normalized.compute_nodes,
+            normalized.measurement_postprocessors,
+            effects=normalized.product_effects,
         )
     except CheckFailed as error:
         problems.extend(error.problems)
-        semantic_graph = None
-    if semantic_graph is not None:
+        verified_graph = None
+    if verified_graph is not None:
+        _value_defs, compute_nodes, _measurement_postprocessors = verified_graph
         operation_results = {
-            operation.result_id: operation for operation in semantic_graph.operations
+            operation.result_id: operation for operation in compute_nodes
         }
         _verify_binding_compute_values(normalized, operation_results, problems)
     _verify_property_resource_ports(normalized, resource_ports, problems)
     _verify_final_state_dependencies(normalized, resource_ports, problems)
-    if semantic_graph is not None:
+    if verified_graph is not None:
         _verify_static_value_dependencies(normalized, problems)
     if problems:
         raise CheckFailed(problems)
-    if semantic_graph is None:
+    if verified_graph is None:
         raise AssertionError("successful logical verification requires graph proofs")
-    canonical = replace(normalized, semantic_graph=semantic_graph)
+    value_defs, compute_nodes, measurement_postprocessors = verified_graph
+    canonical = replace(
+        normalized,
+        value_defs=value_defs,
+        compute_nodes=compute_nodes,
+        measurement_postprocessors=measurement_postprocessors,
+    )
     validate_consumed_inputs(canonical, inputs)
     return VerifiedLogicalProgram(
         program=canonical,
@@ -190,7 +201,7 @@ def _verify_plan_expression_sources(
         point_row=RowType(point_columns) if point_columns else None,
     )
     for definition in sorted(
-        program.semantic_graph.value_defs,
+        program.value_defs,
         key=lambda item: item.id.qualified_name,
     ):
         source = definition.source
@@ -209,7 +220,7 @@ def _verify_plan_expression_sources(
                     phase=ProblemPhase.AUTHORING,
                     message=error.reason,
                     location=model_location(
-                        "semantic_graph",
+                        "logical_program",
                         "values",
                         definition.id.qualified_name,
                         *error.path,
@@ -329,7 +340,7 @@ def _verify_resource_port_interface(
 
 def _verify_binding_compute_values(
     assembly: LogicalProgram,
-    operation_results: Mapping[ValueId, SemanticOperation],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
     problems: list[Problem],
 ) -> None:
     values = [
@@ -349,7 +360,7 @@ def _verify_binding_compute_values(
             value
         ):
             continue
-        value_id = semantic_value_id(value)
+        value_id = logical_value_id(value)
         operation = operation_results.get(value_id)
         if operation is None:
             problems.append(

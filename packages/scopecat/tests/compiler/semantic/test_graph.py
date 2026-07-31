@@ -2,19 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.compiler.semantic.model import (
-    LiteralValueSource,
-    PlanExpressionSource,
-    SemanticGraphIR,
-    SemanticOperation,
-    ValueUse,
-)
-from scopecat.compiler.semantic.verification import verify_semantic_graph
+from scopecat.compiler.semantic.verification import verify_logical_graph
 from scopecat.graph.relations.model import as_scalar_expr, input_ref
 from scopecat.graph.values import OperationId, ValueId, operation_result_id
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
+from scopecat.program.logical import (
+    LiteralValueSource,
+    LogicalComputeNode,
+    PlanExpressionSource,
+    ValueUse,
+)
 
 FLOAT = Scalar(Float())
 
@@ -27,11 +26,11 @@ def _opaque_operation(
     local_id: str,
     *,
     inputs: tuple[tuple[str, ValueUse], ...] = (),
-) -> tuple[SemanticOperation, ValueId]:
+) -> tuple[LogicalComputeNode, ValueId]:
     operation_id = _operation_id(local_id)
     result_id = operation_result_id(operation_id)
     return (
-        SemanticOperation(
+        LogicalComputeNode(
             id=operation_id,
             inputs=inputs,
             result_id=result_id,
@@ -62,27 +61,30 @@ def test_topological_order_is_declaration_independent() -> None:
         inputs=(("value", ValueUse(producer_result_id)),),
     )
 
-    normalized = verify_semantic_graph(
-        SemanticGraphIR(operations=(consumer, independent, producer))
+    value_defs, compute_nodes, measurement_postprocessors = verify_logical_graph(
+        (),
+        (consumer, independent, producer),
     )
 
-    assert [operation.id.local_id for operation in normalized.operations] == [
+    assert value_defs == ()
+    assert [operation.id.local_id for operation in compute_nodes] == [
         "independent",
         "producer",
         "consumer",
     ]
+    assert measurement_postprocessors == ()
 
 
 def test_operation_cycles_are_reported_in_identity_order() -> None:
     left_id = _operation_id("left")
     right_id = _operation_id("right")
-    left = SemanticOperation(
+    left = LogicalComputeNode(
         id=left_id,
         inputs=(("right", ValueUse(operation_result_id(right_id))),),
         result_id=operation_result_id(left_id),
         result_type=FLOAT,
     )
-    right = SemanticOperation(
+    right = LogicalComputeNode(
         id=right_id,
         inputs=(("left", ValueUse(operation_result_id(left_id))),),
         result_id=operation_result_id(right_id),
@@ -90,7 +92,7 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(SemanticGraphIR(operations=(right, left)))
+        verify_logical_graph((), (right, left))
 
     assert [problem.code for problem in caught.value.problems] == [
         "semantic_operation_cycle"

@@ -1,23 +1,10 @@
-"""Backend-neutral typed value and pure-operation graph.
-
-The graph is semantic data only.  Python kernels and authoring provenance are
-carried by explicit sidecars so implementation choice and diagnostics cannot
-change graph equality.
-"""
+"""Normalize and verify the dataflow fields of one logical program."""
 
 from __future__ import annotations
 
 import heapq
 from collections.abc import Mapping, Sequence
 
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    MeasurementPostprocessorId,
-    SemanticDomainExecution,
-    SemanticGraphIR,
-    SemanticMeasurementPostprocessor,
-    SemanticOperation,
-)
 from scopecat.graph.values import (
     OperationId,
     ValueId,
@@ -31,29 +18,46 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import ValueType
+from scopecat.program.logical import (
+    AcquireEffect,
+    LogicalComputeNode,
+    LogicalDomainExecution,
+    LogicalMeasurementPostprocessor,
+    MeasurementPostprocessorId,
+    ValueDef,
+)
 
 
-def verify_semantic_graph(
-    graph: SemanticGraphIR,
+def verify_logical_graph(
+    value_defs: Sequence[ValueDef],
+    compute_nodes: Sequence[LogicalComputeNode],
+    measurement_postprocessors: Sequence[LogicalMeasurementPostprocessor] = (),
     *,
-    effects: Sequence[SemanticDomainExecution | AcquireEffect] = (),
-) -> SemanticGraphIR:
+    effects: Sequence[LogicalDomainExecution | AcquireEffect] = (),
+) -> tuple[
+    tuple[ValueDef, ...],
+    tuple[LogicalComputeNode, ...],
+    tuple[LogicalMeasurementPostprocessor, ...],
+]:
     """Validate closure and normalize semantic dataflow."""
 
+    definitions_in_order = tuple(value_defs)
+    declared_compute_nodes = tuple(compute_nodes)
+    declared_postprocessors = tuple(measurement_postprocessors)
     domain_executions = tuple(
-        effect for effect in effects if isinstance(effect, SemanticDomainExecution)
+        effect for effect in effects if isinstance(effect, LogicalDomainExecution)
     )
     acquisitions = tuple(
         effect for effect in effects if isinstance(effect, AcquireEffect)
     )
     problems: list[Problem] = []
-    definitions = {definition.id: definition for definition in graph.value_defs}
+    definitions = {definition.id: definition for definition in definitions_in_order}
     ambiguous_measurement_postprocessor_ids = _measurement_postprocessors_by_id(
-        graph.measurement_postprocessors,
+        declared_postprocessors,
         problems,
     )
     operation_results = {
-        operation.result_id: operation for operation in graph.operations
+        operation.result_id: operation for operation in declared_compute_nodes
     }
     value_types = {
         definition.id: definition.value_type for definition in definitions.values()
@@ -74,7 +78,7 @@ def verify_semantic_graph(
         )
     unambiguous_measurement_postprocessors = tuple(
         postprocessor
-        for postprocessor in graph.measurement_postprocessors
+        for postprocessor in declared_postprocessors
         if postprocessor.id not in ambiguous_measurement_postprocessor_ids
     )
     _verify_product_owners(
@@ -88,30 +92,29 @@ def verify_semantic_graph(
         problems,
     )
     ordered_operations = _topological_operations(
-        graph.operations,
+        declared_compute_nodes,
         operation_results,
         problems,
     )
     if problems:
         raise CheckFailed(problems)
     ordered_defs = tuple(
-        sorted(graph.value_defs, key=lambda item: item.id.qualified_name)
+        sorted(definitions_in_order, key=lambda item: item.id.qualified_name)
     )
-    normalized = SemanticGraphIR(
-        value_defs=ordered_defs,
-        operations=ordered_operations,
-        measurement_postprocessors=ordered_measurement_postprocessors,
+    return (
+        ordered_defs,
+        ordered_operations,
+        ordered_measurement_postprocessors,
     )
-    return normalized
 
 
 def _measurement_postprocessors_by_id(
-    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
+    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
     problems: list[Problem],
 ) -> frozenset[MeasurementPostprocessorId]:
     grouped: dict[
         MeasurementPostprocessorId,
-        list[SemanticMeasurementPostprocessor],
+        list[LogicalMeasurementPostprocessor],
     ] = {}
     for postprocessor in postprocessors:
         grouped.setdefault(postprocessor.id, []).append(postprocessor)
@@ -135,8 +138,8 @@ def _measurement_postprocessors_by_id(
 
 def _verify_product_owners(
     acquisitions: tuple[AcquireEffect, ...],
-    executions: tuple[SemanticDomainExecution, ...],
-    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
+    executions: tuple[LogicalDomainExecution, ...],
+    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
     problems: list[Problem],
 ) -> None:
     owners: dict[object, tuple[str, str]] = {}
@@ -207,9 +210,9 @@ def _verify_product_owners(
 
 
 def _verify_measurement_postprocessor_sources(
-    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
+    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
     problems: list[Problem],
-) -> tuple[SemanticMeasurementPostprocessor, ...]:
+) -> tuple[LogicalMeasurementPostprocessor, ...]:
     owner_by_output = {
         product_id: postprocessor.id
         for postprocessor in postprocessors
@@ -235,9 +238,9 @@ def _verify_measurement_postprocessor_sources(
 
 
 def _verify_domain_execution(
-    execution: SemanticDomainExecution,
+    execution: LogicalDomainExecution,
     value_types: Mapping[ValueId, ValueType],
-    operation_results: Mapping[ValueId, SemanticOperation],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
     problems: list[Problem],
     *,
     execution_index: int,
@@ -303,10 +306,10 @@ def _verify_domain_execution(
 
 
 def _topological_operations(
-    declared: tuple[SemanticOperation, ...],
-    operation_results: Mapping[ValueId, SemanticOperation],
+    declared: tuple[LogicalComputeNode, ...],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
     problems: list[Problem],
-) -> tuple[SemanticOperation, ...]:
+) -> tuple[LogicalComputeNode, ...]:
     operations = {operation.id: operation for operation in declared}
     dependencies: dict[OperationId, set[OperationId]] = {
         operation.id: set() for operation in declared
@@ -331,7 +334,7 @@ def _topological_operations(
         if count == 0
     ]
     heapq.heapify(ready)
-    ordered: list[SemanticOperation] = []
+    ordered: list[LogicalComputeNode] = []
     while ready:
         _name, operation_id = heapq.heappop(ready)
         ordered.append(operations[operation_id])

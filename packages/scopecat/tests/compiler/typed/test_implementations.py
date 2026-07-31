@@ -2,10 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
@@ -22,6 +18,10 @@ from scopecat.graph.values import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Int, Payload, Scalar
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
+)
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
@@ -101,7 +101,7 @@ def test_binding_preserves_stable_implementation_identity() -> None:
 
     first_call = operations_of_type(first_plan, ComputeOperation, point_index=0)[0]
     second_call = operations_of_type(second_plan, ComputeOperation, point_index=0)[0]
-    assert first_call.semantic_operation_id == operation_id.qualified_name
+    assert first_call.logical_compute_node_id == operation_id.qualified_name
     assert first_call.implementation_id == "python-v1"
     assert second_call.implementation_id == "python-v2"
 

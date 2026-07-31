@@ -270,7 +270,7 @@ class RunEffectInterpreter:
         try:
             values = execute_domain_job_values(
                 job.execution,
-                semantic_operation_id=job.id,
+                logical_compute_node_id=job.id,
                 run_id=self.run_id,
                 journal=self._journal.execution_journal,
             )

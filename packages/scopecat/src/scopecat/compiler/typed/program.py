@@ -16,11 +16,6 @@ from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
 from scopecat.compiler.relations.uses import RelationUse, relation_use
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    LocalPythonImplementation,
-    MeasurementPostprocessorId,
-)
 from scopecat.compiler.semantic.value_expressions import (
     CompilerValue,
     ScalarValueExpr,
@@ -61,6 +56,11 @@ from scopecat.measurements.products import (
 )
 from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementVariableRole
+from scopecat.program.logical import (
+    AcquireEffect,
+    LocalPythonImplementation,
+    MeasurementPostprocessorId,
+)
 
 ValueT_co = TypeVar(
     "ValueT_co",

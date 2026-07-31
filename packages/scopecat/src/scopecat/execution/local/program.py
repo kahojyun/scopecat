@@ -56,7 +56,7 @@ class ComputeOperation:
     """One point-local pure compute kernel invocation."""
 
     operation_id: str
-    semantic_operation_id: str
+    logical_compute_node_id: str
     implementation_id: str
     kernel: ComputeKernel
     inputs: Mapping[str, ComputeInput]

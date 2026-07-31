@@ -8,17 +8,9 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.bind import bind_program
-from scopecat.compiler.frontend.elaboration import LogicalProgram
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    PlanExpressionSource,
-    SemanticDomainExecution,
-    SemanticGraphIR,
-    ValueDef,
-)
-from scopecat.compiler.semantic.verification import verify_semantic_graph
+from scopecat.compiler.semantic.verification import verify_logical_graph
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import (
     VerifiedCoreProgram,
@@ -36,6 +28,15 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.program.bindings import requires, resource_port
 from scopecat.program.domain import domain_program
+from scopecat.program.logical import (
+    AcquireEffect,
+    LogicalComputeNode,
+    LogicalDomainExecution,
+    LogicalMeasurementPostprocessor,
+    LogicalProgram,
+    PlanExpressionSource,
+    ValueDef,
+)
 from scopecat.program.products import ModuleProductDecl, record_product
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
@@ -349,8 +350,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
     compiled = compile_invocation(template())
 
     assert [
-        operation.id.local_id
-        for operation in compiled.program.program.semantic_graph.operations
+        operation.id.local_id for operation in compiled.program.program.compute_nodes
     ] == [
         "producer",
         "consumer",
@@ -369,10 +369,8 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
 
     assert compiled.request.inputs == {"subject": "q0"}
     assert compiled.program.program.inputs == {"subject": EntityRef(id="q0")}
-    assert (
-        compiled.program.program.semantic_graph
-        == compiled.program.program.semantic_graph
-    )
+    assert compiled.program.program.value_defs == ()
+    assert compiled.program.program.compute_nodes == ()
 
 
 def test_compile_invocation_projects_request_metadata() -> None:
@@ -403,12 +401,23 @@ def test_compile_verifies_and_seals_the_final_program_once(
     calls = {"graph": 0, "seal": 0}
 
     def counted_graph(
-        graph: SemanticGraphIR,
+        value_defs: tuple[ValueDef, ...],
+        compute_nodes: tuple[LogicalComputeNode, ...],
+        measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = (),
         *,
-        effects: tuple[SemanticDomainExecution | AcquireEffect, ...] = (),
-    ) -> SemanticGraphIR:
+        effects: tuple[LogicalDomainExecution | AcquireEffect, ...] = (),
+    ) -> tuple[
+        tuple[ValueDef, ...],
+        tuple[LogicalComputeNode, ...],
+        tuple[LogicalMeasurementPostprocessor, ...],
+    ]:
         calls["graph"] += 1
-        return verify_semantic_graph(graph, effects=effects)
+        return verify_logical_graph(
+            value_defs,
+            compute_nodes,
+            measurement_postprocessors,
+            effects=effects,
+        )
 
     def counted_seal(
         program: CoreProgram,
@@ -419,7 +428,7 @@ def test_compile_verifies_and_seals_the_final_program_once(
         return seal_typed_program(program, phase=phase)
 
     monkeypatch.setattr(
-        "scopecat.compiler.frontend.logical_verification.verify_semantic_graph",
+        "scopecat.compiler.frontend.logical_verification.verify_logical_graph",
         counted_graph,
     )
     monkeypatch.setattr(
@@ -470,14 +479,12 @@ def test_logical_verifier_owns_expression_proofs() -> None:
     program = LogicalProgram(
         experiment_id="test.graph.expression-proof",
         kind="graph",
-        semantic_graph=SemanticGraphIR(
-            value_defs=(
-                ValueDef(
-                    id=value_id,
-                    value_type=Scalar(Float()),
-                    source=PlanExpressionSource(input_ref("missing")),
-                ),
-            )
+        value_defs=(
+            ValueDef(
+                id=value_id,
+                value_type=Scalar(Float()),
+                source=PlanExpressionSource(input_ref("missing")),
+            ),
         ),
     )
 
@@ -487,7 +494,7 @@ def test_logical_verifier_owns_expression_proofs() -> None:
     [problem] = error.value.problems
     assert problem.code == "relation_plan_unknown_input"
     assert problem.location == model_location(
-        "semantic_graph",
+        "logical_program",
         "values",
         value_id.qualified_name,
     )

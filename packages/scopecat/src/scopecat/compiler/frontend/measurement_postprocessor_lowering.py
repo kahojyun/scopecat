@@ -6,9 +6,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
-from scopecat.compiler.semantic.model import (
-    MeasurementPostprocessorId,
-)
 from scopecat.compiler.typed.program import (
     TypedMeasurementPostprocessor,
     TypedMeasurementPostprocessorOutput,
@@ -17,6 +14,9 @@ from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
     ProductUseId,
+)
+from scopecat.program.logical import (
+    MeasurementPostprocessorId,
 )
 
 
@@ -38,7 +38,7 @@ def lower_semantic_measurement_postprocessor_graph(
     after liveness so an unused declaration cannot cause an acquisition.
     """
 
-    declarations = tuple(program.program.semantic_graph.measurement_postprocessors)
+    declarations = tuple(program.program.measurement_postprocessors)
     demanded_product_ids = {use.product_id for use in record_product_uses}
     live = tuple(
         postprocessor

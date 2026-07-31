@@ -87,7 +87,7 @@ def bind_compute_operations(
         operations.append(
             ComputeOperation(
                 operation_id=operation_id,
-                semantic_operation_id=node.id.qualified_name,
+                logical_compute_node_id=node.id.qualified_name,
                 implementation_id=implementation.id.value,
                 kernel=implementation.kernel,
                 inputs=inputs,

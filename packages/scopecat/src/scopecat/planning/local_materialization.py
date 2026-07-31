@@ -16,7 +16,6 @@ from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.invocation import (
     InvokeEffect,
     evaluate_invoke_argument,
@@ -71,6 +70,7 @@ from scopecat.planning.routing import (
     ResourcePortManifest,
     RoutingView,
 )
+from scopecat.program.logical import AcquireEffect
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,

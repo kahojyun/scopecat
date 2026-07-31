@@ -12,7 +12,6 @@ from scopecat.compiler.relations.context import (
 )
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -56,6 +55,7 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.program.logical import AcquireEffect
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,

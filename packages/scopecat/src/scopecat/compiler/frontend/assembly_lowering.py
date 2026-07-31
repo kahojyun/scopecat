@@ -9,7 +9,6 @@ from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.elaboration import LogicalProgram
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
     raise_frontend_problem,
@@ -25,14 +24,6 @@ from scopecat.compiler.frontend.value_binding import (
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
-)
-from scopecat.compiler.semantic.model import (
-    LiteralValueSource,
-    LocalPythonImplementation,
-    PlanExpressionSource,
-    SemanticDomainExecution,
-    SemanticOperation,
-    ValueDef,
 )
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
@@ -73,6 +64,15 @@ from scopecat.kernel.product_identity import (
     ProductUseId,
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.program.logical import (
+    LiteralValueSource,
+    LocalPythonImplementation,
+    LogicalComputeNode,
+    LogicalDomainExecution,
+    LogicalProgram,
+    PlanExpressionSource,
+    ValueDef,
+)
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.scans import (
     AxisSpec,
@@ -105,7 +105,7 @@ class _LogicalProgramProof(Protocol):
     def value_defs(self) -> Mapping[ValueId, ValueDef]: ...
 
     @property
-    def operation_results(self) -> Mapping[ValueId, SemanticOperation]: ...
+    def operation_results(self) -> Mapping[ValueId, LogicalComputeNode]: ...
 
     @property
     def value_types(self) -> Mapping[ValueId, ValueType]: ...
@@ -223,14 +223,14 @@ def lower_semantic_compute_graph(
             inputs=inputs,
             type_bindings=type_bindings,
         )
-        for operation in program.program.semantic_graph.operations
+        for operation in program.program.compute_nodes
     )
     return nodes
 
 
 def lower_semantic_domain_graph(
     program: _LogicalProgramProof,
-    executions: Sequence[SemanticDomainExecution],
+    executions: Sequence[LogicalDomainExecution],
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
@@ -293,11 +293,11 @@ def lower_semantic_domain_graph(
 
 
 def _lower_semantic_operation(
-    operation: SemanticOperation,
+    operation: LogicalComputeNode,
     *,
     implementation: LocalPythonImplementation,
     definitions: Mapping[ValueId, ValueDef],
-    operation_results: Mapping[ValueId, SemanticOperation],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
     value_types: Mapping[ValueId, ValueType],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
@@ -331,7 +331,7 @@ def _lower_semantic_input(
     value_id: ValueId,
     *,
     definitions: Mapping[ValueId, ValueDef],
-    operation_results: Mapping[ValueId, SemanticOperation],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
     value_types: Mapping[ValueId, ValueType],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
@@ -443,7 +443,7 @@ def validate_consumed_inputs(
     )
     consumed_dependencies.update(
         input_id
-        for definition in assembly.semantic_graph.value_defs
+        for definition in assembly.value_defs
         for input_id in _semantic_source_dependencies(definition.source)
     )
     values.extend(

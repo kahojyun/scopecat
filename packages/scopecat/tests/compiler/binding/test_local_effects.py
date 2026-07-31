@@ -10,10 +10,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
@@ -62,6 +58,10 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
+)
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
@@ -304,12 +304,12 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
     [unused] = [
         call
         for call in operations_of_type(plan, ComputeOperation, point_index=0)
-        if call.semantic_operation_id == unused_id.qualified_name
+        if call.logical_compute_node_id == unused_id.qualified_name
     ]
     assert unused.payload_slot is None
     for point in plan.points:
         node_ids = [
-            call.semantic_operation_id
+            call.logical_compute_node_id
             for call in operations_of_type(
                 plan, ComputeOperation, point_index=point.ordinal
             )
@@ -322,7 +322,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
             for call in operations_of_type(
                 plan, ComputeOperation, point_index=point.ordinal
             )
-            if call.semantic_operation_id == consumer_id.qualified_name
+            if call.logical_compute_node_id == consumer_id.qualified_name
         )
         assert consumer.inputs["value"] == OutputInput(producer_output_id)
         assert consumer.payload_slot is not None
@@ -347,7 +347,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 ComputeOperation,
                 point_index=point.ordinal,
             )
-            if call.semantic_operation_id == consumer_id.qualified_name
+            if call.logical_compute_node_id == consumer_id.qualified_name
         )
         assert repeated_consumer.payload_slot is not None
         repeated_payload_ids.append(repeated_consumer.payload_slot.id)

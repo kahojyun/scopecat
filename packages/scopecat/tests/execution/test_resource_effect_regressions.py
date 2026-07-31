@@ -5,7 +5,6 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.relations.uses import relation_use
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomain,
@@ -31,6 +30,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.measurements.products import ProductDef
+from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
