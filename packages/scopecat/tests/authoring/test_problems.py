@@ -133,7 +133,7 @@ def test_compile_rejects_repeated_scan_overrides_before_merging() -> None:
     ]
 
 
-def test_authoring_compile_precedes_config_linking(tmp_path: Path) -> None:
+def test_authoring_compile_precedes_config_binding(tmp_path: Path) -> None:
     del tmp_path
     with pytest.raises(CheckFailed) as error:
         compiled = compile_invocation(simple_template().bind())

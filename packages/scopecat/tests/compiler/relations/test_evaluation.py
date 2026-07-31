@@ -143,7 +143,7 @@ def test_evaluation_normalizes_multiple_lookup_projections_cumulatively() -> Non
     ) == QuantityValue(value=11.0, unit="GHz")
 
 
-def test_evaluation_rejects_invalid_lookup_projection_without_linking() -> None:
+def test_evaluation_rejects_invalid_lookup_projection_without_config_binding() -> None:
     use = ParameterLookupUse(
         table_id="devices",
         key_input_types=(("id", _STRING),),

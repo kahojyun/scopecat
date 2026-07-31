@@ -63,7 +63,7 @@ from tests.testkit.relation_plans import (
 )
 
 
-def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
+def test_bound_fact_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     value_type = Scalar(Float())
     config_value = scalar_value_expr(
         param("gain"),
@@ -106,7 +106,7 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     assert isinstance(domain_input.root, LiteralScalarExpr)
 
 
-def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
+def test_bound_fact_specialization_preserves_direct_parameter_table_sources() -> None:
     integer = Scalar(Int())
     table_type = Table((TableColumn("x", integer),))
     source = ParameterTableSource("rows")
@@ -138,7 +138,7 @@ def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
     assert specialized_value.value_type == table_type
 
 
-def test_core_specialization_prunes_dead_compute_nodes() -> None:
+def test_bound_fact_specialization_prunes_dead_compute_nodes() -> None:
     value_type = Scalar(Float())
 
     def compute(
@@ -187,7 +187,7 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
     )
 
 
-def test_core_specialization_preserves_exact_empty_point_composition() -> None:
+def test_bound_fact_specialization_preserves_exact_empty_point_composition() -> None:
     integer = Scalar(Int())
 
     specialized = specialize_bound_facts(

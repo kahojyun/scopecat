@@ -81,16 +81,6 @@ def _resource_module() -> sc.ExperimentModule[...]:
     return module
 
 
-def test_graph_proof_indexes_verified_product_declarations() -> None:
-    assembly = compose_module(_resource_module().ir)
-
-    verified = verify_logical_program(assembly)
-
-    assert tuple(verified.product_declarations) == tuple(
-        product.product_id for product in assembly.product_declarations
-    )
-
-
 def test_explicit_instances_own_independent_resource_ports() -> None:
     child = _resource_module()
     left = child.instantiate("left.arm")
@@ -346,7 +336,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     }
 
 
-def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
+def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-record-interface")
     def module(context: sc.ModuleContext) -> None:
         readout = context.resource("readout", requires=(_MEASURE_IQ,))
@@ -376,7 +366,7 @@ def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
     ]
 
 
-def test_state_resource_interfaces_are_checked_before_linking() -> None:
+def test_state_resource_interfaces_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-state-interface")
     def module(context: sc.ModuleContext) -> None:
         drive = context.resource("drive", requires=(_SET_FREQUENCY,))

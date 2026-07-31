@@ -208,7 +208,7 @@ def _environment() -> ConfigEnvironment:
     return build_config_environment(load_config())
 
 
-def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> None:
+def test_bind_specializes_config_values_and_retains_backend_neutral_domain() -> None:
     program = _symbolic_program()
 
     bound = bind_program_facts(program, _environment())
@@ -232,7 +232,7 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
     ) == (("axes", 2, "source", "center"),)
 
 
-def test_link_retains_unit_domain() -> None:
+def test_bind_retains_unit_domain() -> None:
     program = BoundProgramFacts(
         point_domain=PointDomain(axes=()),
     )
@@ -345,7 +345,7 @@ def test_bind_rejects_a_domain_program_without_a_configured_target() -> None:
     assert issue.location == model_location("config", "system", "domain_target")
 
 
-def test_raw_link_retains_product_metadata_and_accepted_environment() -> None:
+def test_bind_retains_product_metadata_and_accepted_environment() -> None:
     program = _symbolic_program()
     environment = _environment()
     bound = bind_program_facts(program, environment)
@@ -368,7 +368,7 @@ def test_raw_link_retains_product_metadata_and_accepted_environment() -> None:
     assert bound.bindings.record_uses[0].metadata == {"owner": "record"}
 
 
-def test_unselected_product_definition_survives_link_without_collection() -> None:
+def test_unselected_product_definition_survives_binding_without_collection() -> None:
     program = _symbolic_program()
 
     bound = bind_program_facts(program, _environment())
@@ -426,7 +426,7 @@ def test_config_problems_do_not_produce_an_environment() -> None:
     ),
     ids=("scalar-center", "lookup-center"),
 )
-def test_link_closes_every_used_axis_center_parameter_import(
+def test_bind_closes_every_used_axis_center_parameter_import(
     expression: ScalarExpr,
     bindings: RelationTypeBindings,
 ) -> None:
@@ -447,7 +447,7 @@ def test_link_closes_every_used_axis_center_parameter_import(
     assert caught.value.problems[0].details["parameter_id"] == "definitely_missing"
 
 
-def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
+def test_bind_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
     parameter_id = "lookup-bound-as-scalar"
     program = BoundProgramFacts(
         point_domain=PointDomain(
@@ -480,7 +480,7 @@ def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
     assert "expected table parameter, got scalar" in caught.value.problems[0].message
 
 
-def test_link_rejects_remaining_relation_input_imports() -> None:
+def test_bind_rejects_remaining_relation_input_imports() -> None:
     input_id = "unresolved"
     program = BoundProgramFacts(
         point_domain=PointDomain(axes=()),
@@ -516,7 +516,7 @@ def test_link_rejects_remaining_relation_input_imports() -> None:
     }
 
 
-def test_link_reports_every_missing_import_in_one_axis_center() -> None:
+def test_bind_reports_every_missing_import_in_one_axis_center() -> None:
     missing_ids = ("missing-left", "missing-right")
     program = BoundProgramFacts(
         point_domain=PointDomain(

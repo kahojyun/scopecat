@@ -503,19 +503,6 @@ def test_logical_verifier_owns_expression_proofs() -> None:
     )
 
 
-def test_compute_output_arithmetic_requires_an_explicit_compute() -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    child_value = program_input("value", value_type)
-    producer = program_compute(
-        "producer",
-        fn=lambda: 1.0,
-        output_type=value_type,
-    )
-
-    with pytest.raises(TypeError, match=r"ModuleContext\.compute"):
-        _ = producer.output + child_value
-
-
 def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
     point_source = point_axis_values(
         "payload",

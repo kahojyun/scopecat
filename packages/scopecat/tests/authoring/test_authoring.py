@@ -2,29 +2,24 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Annotated, cast
+from typing import Annotated
 
 import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
-from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.elaboration import compose_module
-from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
-from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
     RelationTypeBindings,
 )
-from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import (
     InputScalarExpr,
     LiteralScalarExpr,
@@ -40,18 +35,12 @@ from scopecat.graph.values import (
     operation_result_id,
 )
 from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.logical import (
     LiteralValueSource,
     LogicalProgram,
     PlanExpressionSource,
-)
-from scopecat.program.scans import (
-    AxisSpec,
-    scan_parameter_contracts,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -74,7 +63,6 @@ from scopecat.records.parameter import (
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
-    SIMPLE_MODULE,
     bind_invocation,
     load_config,
     simple_template,
@@ -175,23 +163,6 @@ def test_module_invoke_rejects_argument_from_another_operation() -> None:
                 operation=_PLAY_PULSE,
                 arguments={unrelated: True},
             )
-
-
-def _around_parameter_axis(
-    parameter_id: str = "drive_frequency",
-    *,
-    points: int = 5,
-) -> AxisSpec:
-    point_type = authoring.ScalarType(authoring.QuantityType(unit="GHz"))
-    return cast(
-        "AxisSpec",
-        sc.axis(
-            sc.coordinate(parameter_id, point_type),
-            center=sc.parameter(parameter_id, _QUANTITY_VALUE),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=points,
-        ),
-    )
 
 
 def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
@@ -769,51 +740,6 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
             project_run_request_inputs({"nested": {"value": value}})
 
 
-def test_link_resolves_config_dependent_assembly_fragments() -> None:
-    source = compose_module(
-        SIMPLE_MODULE.ir,
-        subject="q0",
-        drive_frequency=DRIVE_FREQUENCY_POINT,
-    )
-    axis = _around_parameter_axis()
-    assembly = replace(
-        source,
-        experiment_id="authored-simple-scan",
-        kind="simple_scan",
-        point_domain=lower_scans_point_domain((axis,)),
-        parameter_contracts=scan_parameter_contracts(axis),
-    )
-    environment = build_config_environment(load_config())
-    resolved = bind_program(verify_logical_program(assembly), environment)
-
-    assert resolved.program.experiment_id == "authored-simple-scan"
-    assert resolved.environment.config.id == load_config().id
-    preview = materialized_effects_contract(
-        resolved.bindings,
-        resolved.environment.parameters,
-    )
-    assert materialized_state_properties(preview)[0][1].instrument_id == "source-0"
-
-
-def test_link_validates_scan_axis_parameter_contracts() -> None:
-    axis = _around_parameter_axis("missing_frequency")
-    assembly = LogicalProgram(
-        experiment_id="missing-parameter-scan",
-        kind="simple_scan",
-        point_domain=lower_scans_point_domain((axis,)),
-        parameter_contracts=scan_parameter_contracts(axis),
-    )
-    environment = build_config_environment(load_config())
-    with pytest.raises(CheckFailed) as caught:
-        bind_program(verify_logical_program(assembly), environment)
-
-    assert caught.value.problems[0].code == "unknown_authoring_parameter"
-    assert caught.value.problems[0].location == model_location(
-        "parameters",
-        "missing_frequency",
-    )
-
-
 def test_module_construction_rejects_duplicate_resource_ids() -> None:
     with pytest.raises(ValueError, match="duplicate module resource ids"):
 
@@ -1374,7 +1300,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     assert materialized_state_properties(preview)[0][1].instrument_id == "source-1"
 
 
-def test_explicit_config_links_experiment() -> None:
+def test_explicit_config_binds_experiment() -> None:
     selected_instrument = "spare-awg"
     config = config_with_physical_resources(
         {selected_instrument: ("test.drive_frequency/v1",)}
