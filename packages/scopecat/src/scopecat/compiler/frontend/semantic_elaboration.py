@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
@@ -24,7 +24,6 @@ from scopecat.program.bindings import (
     InvocationIntent,
 )
 from scopecat.program.domain import LoweredDomainExecution
-from scopecat.program.identities import ComputeDeclarationKey
 from scopecat.program.logical import (
     AcquireEffect,
     ImplementationId,
@@ -56,19 +55,10 @@ from scopecat.program.value_refs import (
 from scopecat.program.values import ComputeFunction
 
 
-@dataclass(frozen=True, slots=True)
-class ScopedPythonImplementation:
-    """A module implementation already associated with its scoped operation."""
-
-    operation_id: OperationId
-    declaration_key: ComputeDeclarationKey
-    fn: ComputeFunction
-
-
 def close_logical_program(
     program: LogicalProgram,
     operations: Sequence[ModuleOperationDecl],
-    implementations: Sequence[ScopedPythonImplementation],
+    implementations: Mapping[OperationId, ComputeFunction],
     *,
     measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
     effects: Sequence[
@@ -129,12 +119,9 @@ def logical_value_id(value: ValueRef) -> ValueId:
 class _LogicalSemanticsBuilder:
     def __init__(
         self,
-        implementations: Sequence[ScopedPythonImplementation],
+        implementations: Mapping[OperationId, ComputeFunction],
     ) -> None:
-        self._module_implementations = {
-            implementation.operation_id: implementation
-            for implementation in implementations
-        }
+        self._module_implementations = dict(implementations)
         self._definitions: dict[ValueId, ValueDef] = {}
         self._compute_nodes: dict[OperationId, LogicalComputeNode] = {}
         self._measurement_postprocessors: list[LogicalMeasurementPostprocessor] = []
@@ -161,15 +148,15 @@ class _LogicalSemanticsBuilder:
             result_type=declaration.output_type,
         )
         self._add_compute_node(operation)
-        implementation = self._module_implementations.get(operation_id)
-        if implementation is not None:
+        kernel = self._module_implementations.get(operation_id)
+        if kernel is not None:
             self._implementations[operation_id] = LocalPythonImplementation(
                 id=ImplementationId(
                     "python:"
                     f"{declaration.declaration_key.value.hex}:"
                     f"{operation_id.qualified_name}"
                 ),
-                kernel=implementation.fn,
+                kernel=kernel,
             )
 
     def add_domain_execution(

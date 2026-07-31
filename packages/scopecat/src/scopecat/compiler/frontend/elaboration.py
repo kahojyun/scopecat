@@ -7,10 +7,10 @@ from dataclasses import dataclass, field, replace
 from typing import Protocol, cast
 
 from scopecat.compiler.frontend.semantic_elaboration import (
-    ScopedPythonImplementation,
     close_logical_program,
     logical_compute_node_id,
 )
+from scopecat.graph.values import OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemPhase,
@@ -85,6 +85,7 @@ from scopecat.program.value_types import (
 from scopecat.program.value_types import (
     Table as TableType,
 )
+from scopecat.program.values import ComputeFunction
 
 type _FragmentEffect = (
     BindingIntent
@@ -93,6 +94,10 @@ type _FragmentEffect = (
     | LoweredDomainExecution
     | AcquireEffect
 )
+
+
+def _empty_python_implementations() -> dict[OperationId, ComputeFunction]:
+    return {}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -115,7 +120,9 @@ class _ModuleFragment(_AssemblyEnvelope):
     """Hierarchy-free module declarations before semantic graph closure."""
 
     operations: tuple[ModuleOperationDecl, ...] = ()
-    python_implementations: tuple[ScopedPythonImplementation, ...] = ()
+    python_implementations: Mapping[OperationId, ComputeFunction] = field(
+        default_factory=_empty_python_implementations
+    )
     measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
     effects: tuple[_FragmentEffect, ...] = ()
 
@@ -176,7 +183,7 @@ def _merge_module_fragments(
     parameter_overlays: list[AxisSpec] = []
     operations: list[ModuleOperationDecl] = []
     measurement_postprocessors: list[MeasurementPostprocessor] = []
-    python_implementations: list[ScopedPythonImplementation] = []
+    python_implementations: dict[OperationId, ComputeFunction] = {}
     product_declarations: list[ModuleProductDecl] = []
     record_selections: list[RecordSelection] = []
     parameter_contracts: list[tuple[ParameterContract, ...]] = []
@@ -190,7 +197,7 @@ def _merge_module_fragments(
         parameter_overlays.extend(fragment.parameter_overlays)
         operations.extend(fragment.operations)
         measurement_postprocessors.extend(fragment.measurement_postprocessors)
-        python_implementations.extend(fragment.python_implementations)
+        python_implementations.update(fragment.python_implementations)
         product_declarations.extend(fragment.product_declarations)
         record_selections.extend(fragment.record_selections)
         parameter_contracts.append(fragment.parameter_contracts)
@@ -210,7 +217,7 @@ def _merge_module_fragments(
         parameter_overlays=tuple(parameter_overlays),
         operations=tuple(operations),
         measurement_postprocessors=tuple(measurement_postprocessors),
-        python_implementations=tuple(python_implementations),
+        python_implementations=python_implementations,
         product_declarations=tuple(product_declarations),
         record_selections=tuple(record_selections),
         parameter_contracts=merge_parameter_contracts(*parameter_contracts),
@@ -343,14 +350,12 @@ def _elaborate_program_ir(
         ),
         measurement_postprocessors=module.body.measurement_postprocessors,
         effects=tuple(own_effects),
-        python_implementations=tuple(
-            ScopedPythonImplementation(
-                operation_id=logical_compute_node_id(operation.operation_id),
-                declaration_key=operation.declaration_key,
-                fn=implementations[operation.declaration_key].fn,
-            )
+        python_implementations={
+            logical_compute_node_id(operation.operation_id): implementations[
+                operation.declaration_key
+            ].fn
             for operation in module.body.operations
-        ),
+        },
         product_declarations=tuple(
             _resolve_product(product, resolver=resolver)
             for product in module.body.products
@@ -854,13 +859,10 @@ def _scope_instance_graph(
             for operation in fragment.operations
         ),
         measurement_postprocessors=measurement_postprocessors,
-        python_implementations=tuple(
-            replace(
-                implementation,
-                operation_id=implementation.operation_id.prefixed(*scope),
-            )
-            for implementation in fragment.python_implementations
-        ),
+        python_implementations={
+            operation_id.prefixed(*scope): implementation
+            for operation_id, implementation in fragment.python_implementations.items()
+        },
         product_declarations=tuple(
             _scope_product_declaration(
                 product,
