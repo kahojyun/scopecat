@@ -28,7 +28,6 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    ComputeEdge,
     ComputeInput,
     TypedComputeNode,
     TypedDomainExecution,
@@ -289,7 +288,7 @@ def _lower_semantic_operation(
         if isinstance(lowered, VerifiedRelationPlan):
             lowered_inputs[name] = lowered
         else:
-            lowered_inputs[name] = cast("ComputeEdge", lowered)
+            lowered_inputs[name] = cast("ComputeResultRef", lowered)
     return TypedComputeNode(
         id=operation.id,
         implementation=implementation,
@@ -304,12 +303,9 @@ def _lower_semantic_operation(
 def lower_logical_value(
     program: _LogicalProgramProof,
     value_id: ValueId,
-) -> CompilerValue | ComputeEdge:
+) -> CompilerValue | ComputeResultRef:
     if value_id in program.operation_results:
-        return ComputeEdge(
-            value_id=value_id,
-            expected_type=program.operation_results[value_id].result_type,
-        )
+        return ComputeResultRef(value_id)
     scalar = program.scalar_values.get(value_id)
     if scalar is not None:
         return scalar

@@ -10,7 +10,6 @@ from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     BoundProgramFacts,
-    ComputeEdge,
     TypedComputeNode,
     TypedDomainExecution,
     set_state_property,
@@ -159,12 +158,7 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
             inputs=(
                 {}
                 if upstream is None
-                else {
-                    "upstream": ComputeEdge(
-                        upstream.result.id,
-                        expected_type=value_type,
-                    )
-                }
+                else {"upstream": ComputeResultRef(upstream.result.id)}
             ),
         )
 

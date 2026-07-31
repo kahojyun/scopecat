@@ -29,7 +29,6 @@ from scopecat.compiler.typed.invocation import (
     InvokeId,
 )
 from scopecat.compiler.typed.program import (
-    ComputeEdge,
     LogicalResourceRequirement,
     set_state_property,
 )
@@ -127,8 +126,8 @@ def _lower_effect_value(
         program,
         value_id,
     )
-    if isinstance(lowered, ComputeEdge):
-        return ComputeResultRef(lowered.value_id)
+    if isinstance(lowered, ComputeResultRef):
+        return lowered
     if not isinstance(lowered, VerifiedRelationPlan):
         raise AssertionError("verified logical effect values must be scalar")
     return lowered

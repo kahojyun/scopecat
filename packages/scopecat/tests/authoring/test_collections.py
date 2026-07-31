@@ -12,12 +12,9 @@ from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import (
     BoundProgramFacts,
-    ComputeEdge,
 )
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.values import (
-    OperationId,
-)
+from scopecat.graph.values import ComputeResultRef, OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
@@ -234,12 +231,11 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         node for node in program.compute_nodes if node.id.local_id == "produce"
     )
     program_edge = bound_consumer.inputs["program"]
-    assert isinstance(program_edge, ComputeEdge)
+    assert isinstance(program_edge, ComputeResultRef)
     assert bound_producer.result.id.local_id == producer.result_id.local_id
     assert bound_producer.result.id.scope == ("parent", *producer.result_id.scope)
     assert bound_producer.result.value_type == pulse
     assert program_edge.value_id == bound_producer.result.id
-    assert program_edge.expected_type == bound_producer.result.value_type
 
     @authoring.module(id="test.compute_edge.incompatible")
     def incompatible_child(

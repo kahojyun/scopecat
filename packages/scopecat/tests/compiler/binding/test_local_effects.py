@@ -12,7 +12,6 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    ComputeEdge,
     LogicalResourceRequirement,
     TypedComputeNode,
     set_state_property,
@@ -33,6 +32,7 @@ from scopecat.graph.relations.model import (
 from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.graph.values import (
     ComputeOutput,
+    ComputeResultRef,
     OperationId,
     ValueId,
     operation_result_id,
@@ -251,12 +251,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
             TypedComputeNode(
                 id=consumer_id,
                 implementation=_implementation(consumer_id, _wrap_value),
-                inputs={
-                    "value": ComputeEdge(
-                        value_id=producer_output_id,
-                        expected_type=Scalar(Float()),
-                    )
-                },
+                inputs={"value": ComputeResultRef(producer_output_id)},
                 result=_output(consumer_id, Scalar(Payload("pulse_program"))),
             ),
         ),

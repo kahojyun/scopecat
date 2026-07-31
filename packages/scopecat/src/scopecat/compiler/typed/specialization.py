@@ -23,7 +23,6 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     BoundEffect,
     BoundProgramFacts,
-    ComputeEdge,
     ComputeInput,
     LogicalResourceRequirement,
     TypedComputeNode,
@@ -152,7 +151,7 @@ def _live_compute_nodes(program: BoundProgramFacts) -> tuple[TypedComputeNode, .
         pending.extend(
             value.value_id
             for value in node.inputs.values()
-            if isinstance(value, ComputeEdge)
+            if isinstance(value, ComputeResultRef)
         )
     return tuple(node for node in program.compute_nodes if node.id in live_ids)
 

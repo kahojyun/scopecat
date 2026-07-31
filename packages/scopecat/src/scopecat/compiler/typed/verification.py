@@ -14,7 +14,6 @@ from scopecat.compiler.typed.point_domain import (
 )
 from scopecat.compiler.typed.program import (
     BoundProgramFacts,
-    ComputeEdge,
     bound_acquisitions,
     bound_domain_executions,
     bound_invocations,
@@ -192,7 +191,7 @@ def _program_relation_consumers(
 
     for node in program.compute_nodes:
         for input_name, input_value in node.inputs.items():
-            if isinstance(input_value, ComputeEdge):
+            if isinstance(input_value, ComputeResultRef):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.COMPUTE_INPUT,

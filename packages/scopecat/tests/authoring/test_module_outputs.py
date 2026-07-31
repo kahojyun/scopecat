@@ -14,12 +14,10 @@ from scopecat.compiler.bind import _lower_logical_program
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.typed.program import BoundProgramFacts, ComputeEdge
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import ScalarExpr
-from scopecat.graph.values import (
-    OperationId,
-)
+from scopecat.graph.values import ComputeResultRef, OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.logical import PlanExpressionSource
@@ -154,8 +152,8 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
     second_edge = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "second-consumer"), local_id="consume"))
     ].inputs["payload"]
-    assert isinstance(first_edge, ComputeEdge)
-    assert isinstance(second_edge, ComputeEdge)
+    assert isinstance(first_edge, ComputeResultRef)
+    assert isinstance(second_edge, ComputeResultRef)
     first_producer = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "first-producer"), local_id="produce"))
     ]
@@ -163,9 +161,7 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         OperationId(SymbolId(scope=("siblings", "second-producer"), local_id="produce"))
     ]
     assert first_edge.value_id == first_producer.result.id
-    assert first_edge.expected_type == first_producer.result.value_type
     assert second_edge.value_id == second_producer.result.id
-    assert second_edge.expected_type == second_producer.result.value_type
 
 
 def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
@@ -261,7 +257,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
             )
         ]
         edge = sink_node.inputs["payload"]
-        assert isinstance(edge, ComputeEdge)
+        assert isinstance(edge, ComputeResultRef)
         assert producer_node.result.value_type == expected_type
         assert producer_node.result.id.scope == (
             "typed-result-root",
@@ -272,7 +268,6 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         )
         assert producer_node.result.id.local_id == "result"
         assert edge.value_id == producer_node.result.id
-        assert edge.expected_type == producer_node.result.value_type
 
 
 def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:

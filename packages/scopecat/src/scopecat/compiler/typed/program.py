@@ -31,7 +31,6 @@ from scopecat.graph.values import (
     ComputeOutput,
     ComputeResultRef,
     OperationId,
-    ValueId,
 )
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
@@ -44,7 +43,6 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
@@ -60,20 +58,7 @@ from scopecat.program.logical import (
     MeasurementPostprocessorId,
 )
 
-
-@dataclass(frozen=True, slots=True)
-class ComputeEdge:
-    """Explicit dependency on the result of another compute node."""
-
-    value_id: ValueId
-    expected_type: Scalar
-
-    @property
-    def value_type(self) -> Scalar:
-        return self.expected_type
-
-
-type ComputeInput = VerifiedRelationPlan | ComputeEdge
+type ComputeInput = VerifiedRelationPlan | ComputeResultRef
 
 
 def _empty_scalar_value_inputs() -> dict[str, VerifiedRelationPlan]:
