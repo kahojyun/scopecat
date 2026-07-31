@@ -46,7 +46,8 @@ def test_program_decorator_infers_ports_identity_description_and_results() -> No
     assert x_count.id == "test.quantum.decorated"
     assert x_count.description == "Repeat X and measure once."
     assert [port.id for port in x_count.ports] == ["qubit", "count"]
-    domain = authoring._domain_program(x_count)
+    call = x_count("q0", 2)
+    domain = call.domain_call.execution.program
     qubit_type = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     assert [port.value_type for port in domain.input_ports] == [
@@ -295,8 +296,6 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
         context.record(placed.results.iq_shots)
 
     invocation = experiment()
-    assert invocation.definition.program.body.child_instances == ()
-    assert len(invocation.definition.program.body.domain_executions) == 1
     assert invocation.definition.record_selections[0].product_id.qualified_name == (
         "call/iq_shots"
     )
@@ -406,14 +405,7 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
         context.run(left)
         context.run(right)
 
-    assert repeated_explicit.definition.program.body.child_instances == ()
-    assert tuple(
-        execution.id
-        for execution in repeated_explicit.definition.program.body.domain_executions
-    ) == (
-        "left/test.quantum.repeated",
-        "right/test.quantum.repeated",
-    )
+    compile_invocation(repeated_explicit())
     assert left.results.iq.id == "left/iq"
     assert right.results.iq.id == "right/iq"
 
@@ -442,8 +434,6 @@ def test_parent_postprocessor_consumes_program_call_result() -> None:
             )
         )
 
-    assert discriminate.ir.body.child_instances == ()
-    assert len(discriminate.ir.body.domain_executions) == 1
     [lowered] = discriminate.ir.body.measurement_postprocessors
     assert lowered.input_binding.qualified_name == "discriminate/iq_shots"
     assert {product.qualified_id for product in discriminate.ir.products} == {

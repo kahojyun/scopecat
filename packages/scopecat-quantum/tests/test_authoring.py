@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.program.domain import domain_program
 
 from scopecat_quantum import authoring
 from scopecat_quantum._ids import AcquisitionSlotId, QubitId
@@ -232,51 +233,21 @@ def test_program_rejects_conflicting_gate_definitions() -> None:
         )
 
 
-def test_domain_call_requires_exact_handle_bindings() -> None:
-    declaration, x_count, _raw_iq = _x_count_declaration()
-    program = authoring._domain_program(declaration)
-
-    with pytest.raises(ValueError, match="bind every declared port"):
-        authoring._domain_call(
-            program,
-            id="call",
-        )
-    call = authoring._domain_call(program, id="call", inputs={x_count: 1})
-    assert call.results.raw_iq.id == "call/raw_iq"
-
-
-def test_domain_call_rejects_forged_ports_and_normalizes_number_literal() -> None:
-    q0 = authoring.qubit("q0")
-    amplitude = authoring.scalar_input("amplitude", GateParameterKind.NUMBER)
+def test_program_call_normalizes_number_literal() -> None:
     drive = authoring.single_qubit_gate(
         "drive",
         parameters={"amplitude": GateParameterKind.NUMBER},
     )
-    readout = authoring.measure(q0, result="iq")
-    declaration = authoring._close_program(
-        "number-input",
-        authoring.sequence(drive(q0, amplitude=amplitude), readout),
-    )
-    program = authoring._domain_program(declaration)
 
-    call = authoring._domain_call(
-        program,
-        id="call",
-        inputs={amplitude: 1},
-    )
-    assert call.execution.input_bindings == (("amplitude", 1.0),)
-
-    forged = domain_program(
-        declaration.id,
-        dialect_id=authoring.QUANTUM_PROGRAM_DIALECT_ID,
-        dialect_version=authoring.QUANTUM_PROGRAM_DIALECT_VERSION,
-        body=declaration,
-        inputs={"amplitude": sc.ScalarType(sc.IntType())},
-        results={"iq": readout.result},
-    )
-    with pytest.raises(ValueError, match="ports do not match"):
-        authoring._domain_call(
-            forged,
-            id="call",
-            inputs={amplitude: 1},
+    @authoring.program(id="number-input")
+    def declaration(
+        qubit: authoring.Qubit,
+        amplitude: Annotated[float, GateParameterKind.NUMBER],
+    ) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            drive(qubit, amplitude=amplitude),
+            authoring.measure(qubit, result="iq"),
         )
+
+    call = declaration.call("call", "q0", 1)
+    assert dict(call.domain_call.execution.input_bindings)["amplitude"] == 1.0

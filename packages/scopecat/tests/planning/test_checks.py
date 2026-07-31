@@ -28,7 +28,7 @@ from scopecat.sdk.domain.batch import (
     DomainBatchRequest,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
-from tests.testkit.authoring import simple_template, template_fixture
+from tests.testkit.authoring import simple_template
 from tests.testkit.domain import domain_call
 from tests.testkit.in_process_lab import (
     InProcessLab,
@@ -125,11 +125,11 @@ def _domain_invocation() -> sc.ExperimentInvocation:
     def module(context: sc.ModuleContext) -> None:
         context.call(domain_call(program))
 
-    return template_fixture(
-        module,
-        id="test.check-domain",
-        kind="check-domain",
-    ).bind()
+    @sc.template(id="test.check-domain", kind="check-domain")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
+    return template()
 
 
 def test_prepared_check_returns_preview_when_successful(tmp_path: Path) -> None:

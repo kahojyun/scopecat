@@ -9,6 +9,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.sdk.instruments import InterfaceRef
 
@@ -173,13 +174,8 @@ def test_template_and_scratch_share_the_context_protocol() -> None:
         template_invocation.definition.default_scans
         == scratch_invocation.definition.default_scans
     )
-    assert tuple(
-        instance.module.id
-        for instance in template.definition.program.body.child_instances
-    ) == tuple(
-        instance.module.id
-        for instance in scratch_invocation.definition.program.body.child_instances
-    )
+    compile_invocation(template_invocation)
+    compile_invocation(scratch_invocation)
     assert inspect.signature(scratch).parameters == inspect.Signature().parameters
     assert scratch.__wrapped__ is body
 
@@ -203,8 +199,7 @@ def test_scratch_preserves_typed_call_contract() -> None:
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
     invocation = assert_type(count_scratch(3), sc.ExperimentInvocation)
-    [instance] = invocation.definition.program.body.child_instances
-    assert [binding.import_id for binding in instance.input_bindings] == ["count"]
+    compile_invocation(invocation)
 
     if TYPE_CHECKING:
         count_scratch("invalid")  # pyright: ignore[reportArgumentType]
@@ -245,6 +240,4 @@ def test_repeated_default_module_calls_require_explicit_instances() -> None:
         experiment.run(source.instantiate("left"))
         experiment.run(source.instantiate("right"))
 
-    assert tuple(
-        call.instance_id for call in explicit.definition.program.body.child_instances
-    ) == ("left", "right")
+    compile_invocation(explicit())

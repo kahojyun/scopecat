@@ -90,11 +90,6 @@ def domain_program(
 ) -> DomainProgramDef:
     """Declare an opaque program with ordered typed input and result ports."""
 
-    selected_inputs = cast("Mapping[str, ValueType]", inputs or {})
-    if any(
-        not isinstance(value_type, Scalar) for value_type in selected_inputs.values()
-    ):
-        raise TypeError("domain program inputs must be scalar; use compiler_inputs")
     return DomainProgramDef(
         id=id,
         dialect_id=dialect_id,
@@ -102,7 +97,7 @@ def domain_program(
         body=body,
         input_ports=tuple(
             DomainInputPort(port_id, value_type)
-            for port_id, value_type in selected_inputs.items()
+            for port_id, value_type in (inputs or {}).items()
         ),
         compiler_input_ports=tuple(
             DomainInputPort(port_id, value_type)

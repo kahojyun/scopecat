@@ -274,71 +274,15 @@ def _program_call(
             name: value.value_type for name, value in compiler_inputs.items()
         },
     )
-    call = _domain_call(
+    normalized_shots = _normalize_shots(shots)
+    call = create_domain_call_internal(
         domain,
         id=instance_id,
-        inputs={port: inputs[port.id] for port in program.ports},
-        compiler_inputs=compiler_inputs,
-        shots=shots,
-        key=key,
-    )
-    return QuantumProgramCall(
-        program=program,
-        domain_call=call,
-        arguments=tuple(inputs.items()),
-        compiler_arguments=tuple(compiler_inputs.items()),
-        shots=shots,
-    )
-
-
-def _domain_call(
-    program: DomainProgramDef,
-    *,
-    id: str,
-    inputs: Mapping[ProgramPort, ComputeInput] | None = None,
-    compiler_inputs: Mapping[str, ValueRef] | None = None,
-    shots: ComputeInput = 1,
-    key: DomainCallKey | None = None,
-) -> DomainCall:
-    """Bind one quantum program as a native core domain occurrence."""
-
-    if (
-        program.dialect_id != QUANTUM_PROGRAM_DIALECT_ID
-        or program.dialect_version != QUANTUM_PROGRAM_DIALECT_VERSION
-        or not isinstance(program.body, Program)
-    ):
-        raise TypeError("quantum domain call requires a quantum program")
-    declaration = program.body
-    selected_inputs = inputs or {}
-    selected_compiler_inputs = compiler_inputs or {}
-    expected_program = _domain_program(
-        declaration,
-        compiler_inputs={
-            name: value.value_type for name, value in selected_compiler_inputs.items()
-        },
-    )
-    if (
-        program.id != expected_program.id
-        or program.input_ports != expected_program.input_ports
-        or program.compiler_input_ports != expected_program.compiler_input_ports
-        or program.result_ports != expected_program.result_ports
-    ):
-        raise ValueError("quantum program domain ports do not match its Program body")
-    if set(selected_inputs) != set(declaration.ports):
-        raise ValueError("quantum domain call inputs must bind every declared port")
-    if set(selected_compiler_inputs) != {
-        port.id for port in program.compiler_input_ports
-    }:
-        raise ValueError("quantum compiler inputs must bind every declared port")
-    normalized_shots = _normalize_shots(shots)
-    return create_domain_call_internal(
-        program,
-        id=id,
         inputs={
-            port.id: _normalize_program_input(port, selected_inputs[port])
-            for port in declaration.ports
+            port.id: _normalize_program_input(port, inputs[port.id])
+            for port in program.ports
         },
-        compiler_inputs=selected_compiler_inputs,
+        compiler_inputs=compiler_inputs,
         result_products={
             result.id: ModuleProductDecl(
                 id=result.id,
@@ -351,9 +295,16 @@ def _domain_call(
                     ),
                 ),
             )
-            for result in declaration.results
+            for result in program.results
         },
         key=key,
+    )
+    return QuantumProgramCall(
+        program=program,
+        domain_call=call,
+        arguments=tuple(inputs.items()),
+        compiler_arguments=tuple(compiler_inputs.items()),
+        shots=shots,
     )
 
 

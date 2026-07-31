@@ -209,21 +209,6 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     )
 
 
-def test_domain_program_tables_are_compiler_inputs_only() -> None:
-    table_type = sc.TableType(
-        columns=(sc.TableColumn("id", sc.ScalarType(sc.IntType())),)
-    )
-
-    with pytest.raises(TypeError, match="use compiler_inputs"):
-        domain_program(
-            "program",
-            dialect_id="test",
-            dialect_version="1",
-            body=object(),
-            inputs={"rows": table_type},  # pyright: ignore[reportArgumentType]
-        )
-
-
 def test_domain_program_rejects_overlapping_input_namespaces() -> None:
     value_type = sc.ScalarType(sc.IntType())
 

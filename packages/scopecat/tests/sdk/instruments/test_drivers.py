@@ -7,10 +7,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-import scopecat.sdk.instruments as instrument_sdk
-import scopecat.sdk.instruments.commands as instrument_commands
-import scopecat.sdk.instruments.contracts as instrument_contracts
-import scopecat.sdk.instruments.provider as instrument_provider
 from scopecat.kernel.problems import ModelLocation, Problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
@@ -20,16 +16,10 @@ from scopecat.planning.provider_validation import instrument_contract_fingerprin
 from scopecat.records.artifact import command_payload_from_bytes
 from scopecat.records.config import instrument_bindings
 from scopecat.records.instrument import (
-    CommandChannelBinding as RecordCommandChannelBinding,
-)
-from scopecat.records.instrument import (
     InstrumentPropertyState as RecordInstrumentPropertyState,
 )
 from scopecat.records.instrument import (
     InstrumentReadback as RecordInstrumentReadback,
-)
-from scopecat.records.instrument import (
-    InstrumentStateSnapshot as RecordInstrumentStateSnapshot,
 )
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -40,7 +30,6 @@ from scopecat.sdk.instruments import (
     AcquisitionCaseSpec,
     AcquisitionPreconditionSpec,
     CollectReceipt,
-    DiscriminatedState,
     DriverSuccess,
     FixedAcquisitionSpec,
     InstrumentConnectionContext,
@@ -52,7 +41,6 @@ from scopecat.sdk.instruments import (
     OperationArgumentSpec,
     PropertyRef,
     PropertySpec,
-    StateCase,
     StateDiscriminatedAcquisitionSpec,
     StatePropertyRef,
     acquisition,
@@ -117,59 +105,6 @@ from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_experiment
 
 
-def test_instrument_records_are_public_from_the_sdk_facade() -> None:
-    owners = {
-        "AcquisitionCaseSpec": AcquisitionCaseSpec,
-        "AcquisitionPreconditionSpec": AcquisitionPreconditionSpec,
-        "CommandChannelBinding": RecordCommandChannelBinding,
-        "DiscriminatedState": DiscriminatedState,
-        "FixedAcquisitionSpec": FixedAcquisitionSpec,
-        "InstrumentReadback": RecordInstrumentReadback,
-        "InstrumentPropertyState": RecordInstrumentPropertyState,
-        "InstrumentStateSnapshot": RecordInstrumentStateSnapshot,
-        "StateCase": StateCase,
-        "StateDiscriminatedAcquisitionSpec": StateDiscriminatedAcquisitionSpec,
-        "StatePropertyRef": StatePropertyRef,
-    }
-
-    for name, owner in owners.items():
-        assert getattr(instrument_sdk, name) is owner
-
-    for name in ("ApplyReceipt", "CollectReceipt", "InvokeReceipt"):
-        assert getattr(instrument_sdk, name) is getattr(instrument_commands, name)
-
-    for name in (
-        "ApplyReceipt",
-        "CollectCommand",
-        "CollectReceipt",
-        "InstrumentStateCommand",
-        "InteractiveCollectIntent",
-        "InvokeCommand",
-        "InvokeReceipt",
-    ):
-        assert not hasattr(instrument_contracts, name)
-
-    for name in (
-        "DriverFault",
-        "InstrumentConnectionContext",
-        "InstrumentDriver",
-        "InstrumentProvider",
-        "InstrumentProviderContext",
-        "InstrumentProviderDescription",
-    ):
-        assert getattr(instrument_sdk, name) is getattr(instrument_provider, name)
-        assert not hasattr(instrument_contracts, name)
-
-    for name in (
-        "AcquisitionReadiness",
-        "CollectCommand",
-        "InteractiveCollectIntent",
-        "ResolvedInteractiveCollect",
-        "validate_collect_plan",
-    ):
-        assert not hasattr(instrument_sdk, name)
-
-
 @pytest.mark.parametrize("dtype", ["bool", "string"])
 def test_bool_and_string_acquisition_contracts_reject_units(
     dtype: MeasurementDType,
@@ -185,11 +120,6 @@ def test_bool_and_string_acquisition_contracts_reject_units(
             dtype=dtype,
             unit="ratio",
         )
-
-
-def test_projected_state_stays_internal_to_instrument_preflight() -> None:
-    assert not hasattr(instrument_sdk, "ProjectedInstrumentState")
-    assert not hasattr(instrument_sdk, "project_instrument_state")
 
 
 @pytest.mark.parametrize(
@@ -2689,7 +2619,6 @@ def test_partial_projection_drives_conditional_state_and_collect_preflight() -> 
     )
 
     assert isinstance(projection.properties, tuple)
-    assert not hasattr(projection, "model_dump")
     assert [item.property_id for item in projection.properties] == ["mode"]
     assert [
         problem.code

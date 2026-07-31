@@ -23,7 +23,7 @@ from scopecat.program.bindings import (
 )
 from scopecat.program.domain import domain_program
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config
 from tests.testkit.domain import domain_call
 from tests.testkit.materialized_effects import config_with_physical_resources
 
@@ -273,11 +273,10 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         ("acquire", "root-read"),
     ]
 
-    template = template_fixture(
-        module,
-        id="test.effects.root",
-        kind="effects",
-    )
+    @sc.template(id="test.effects.root", kind="effects")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module.instantiate("root"))
+
     linked = link_invocation(template(), config_profile=load_config())
     assert [
         "binding"
@@ -293,11 +292,11 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     ] == [
         "binding",
         "binding",
-        "domain:child/call/noop",
-        "acquire:child/read-signal",
+        "domain:root/child/call/noop",
+        "acquire:root/child/read-signal",
         "binding",
-        "domain:root-call/noop",
-        "acquire:root-read",
+        "domain:root/root-call/noop",
+        "acquire:root/root-read",
     ]
     assert (
         sum(isinstance(effect, SetStateSpec) for effect in linked.program.effects) == 3

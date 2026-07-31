@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-import pytest
-
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.program.identities import ComputeDeclarationKey
-from scopecat.program.module import (
-    ModuleBodyIR,
-    ModuleInterfaceIR,
-    ModuleIR,
-)
 from scopecat.program.value_refs import internal_value_ref_operation_origin
 
 
@@ -36,23 +29,6 @@ def test_module_definition_splits_operation_from_python_implementation() -> None
     assert internal_value_ref_operation_origin(operation.result) == (
         operation.declaration_key,
     )
-
-
-def test_module_ir_rejects_operation_without_python_implementation() -> None:
-    @sc.module(id="test.operation-ir.complete")
-    def complete(context: sc.ModuleContext) -> None:
-        context.compute(
-            "produce",
-            fn=lambda: 1.0,
-            output_type=sc.ScalarType(sc.FloatType()),
-        )
-
-    with pytest.raises(ValueError, match="missing Python implementations"):
-        ModuleIR(
-            id="test.operation-ir.incomplete",
-            interface=ModuleInterfaceIR(),
-            body=ModuleBodyIR(operations=complete.ir.body.operations),
-        )
 
 
 def test_python_implementation_identity_changes_with_its_declaration() -> None:

@@ -76,7 +76,6 @@ from tests.testkit.authoring import (
     link_invocation,
     load_config,
     simple_template,
-    template_fixture,
 )
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
@@ -230,36 +229,43 @@ def test_template_selects_module_products_as_records() -> None:
         )
 
     scan = sc.axis(DRIVE_FREQUENCY_POINT, [4.9, 5.0, 5.1], unit="GHz")
-    without_selection = template_fixture(
-        module,
-        id="test.product_unselected",
-        kind="product_test",
-        scans=(scan,),
-    )
-    with_selection = template_fixture(
-        module,
-        id="test.product_selected",
-        kind="product_test",
-        scans=(scan,),
-        records=(authoring.record_product(module.products.signal),),
-    )
+
+    @sc.template(id="test.product_unselected", kind="product_test")
+    def without_selection(
+        experiment: sc.ExperimentContext,
+        subject: _EntityInput,
+    ) -> None:
+        experiment.run(module(subject=subject))
+        experiment.scan(scan)
+
+    @sc.template(id="test.product_selected", kind="product_test")
+    def with_selection(
+        experiment: sc.ExperimentContext,
+        subject: _EntityInput,
+    ) -> None:
+        call = experiment.run(module(subject=subject))
+        experiment.scan(scan)
+        experiment.record(call.products.signal)
 
     unselected = link_invocation(
-        without_selection.bind(subject="q0"),
+        without_selection(subject="q0"),
         config_profile=load_config(),
     )
     selected = link_invocation(
-        with_selection.bind(subject="q0"),
+        with_selection(subject="q0"),
         config_profile=load_config(),
     )
 
     assert unselected.program.record_uses == ()
     assert [
         product.id.qualified_name for product in unselected.program.product_defs
-    ] == ["signal"]
+    ] == ["product_module/signal"]
     assert [record.id for record in selected.program.record_uses] == ["signal"]
     assert selected.program.record_uses[0].metadata == {}
-    assert selected.program.product_uses[0].product_id.qualified_name == "signal"
+    assert (
+        selected.program.product_uses[0].product_id.qualified_name
+        == "product_module/signal"
+    )
 
 
 def test_compute_inputs_keep_template_input_provenance() -> None:
@@ -672,15 +678,13 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
             results={_SCALAR_IQ_VALUE: iq},
         )
 
-    template = template_fixture(
-        module,
-        id="test.categorical_axis",
-        kind="categorical_axis",
-        records=(authoring.record_product(module.products.iq),),
-    )
+    @sc.template(id="test.categorical_axis", kind="categorical_axis")
+    def template(experiment: sc.ExperimentContext) -> None:
+        call = experiment.run(module())
+        experiment.record(call.products.iq)
 
     resolved = link_invocation(
-        template.bind(),
+        template(),
         config_profile=load_config(),
     )
 
@@ -1373,14 +1377,11 @@ def test_explicit_config_links_experiment() -> None:
             value=Quantity(value=5.0, unit="GHz"),
         )
 
-    resolved = link_invocation(
-        template_fixture(
-            module,
-            id="test.explicit-config-source",
-            kind="config-source",
-        ).bind(),
-        config_profile=config,
-    )
+    @sc.template(id="test.explicit-config-source", kind="config-source")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+
+    resolved = link_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,

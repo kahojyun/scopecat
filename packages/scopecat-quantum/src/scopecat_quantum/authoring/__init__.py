@@ -87,12 +87,6 @@ from ._programs import (
     ProgramDefinition,
     QuantumProgramCall,
 )
-from ._programs import (
-    _domain_call as _domain_call,
-)
-from ._programs import (
-    _domain_program as _domain_program,
-)
 
 __all__ = [
     "INTEGRATED_IQ_RESULT",

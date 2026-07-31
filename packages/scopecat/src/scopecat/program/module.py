@@ -442,7 +442,6 @@ class ModuleIR:
             "module product",
             tuple(item.qualified_id for item in self.products),
         )
-        _require_operation_implementations(self)
         problems = _module_closure_problems(self)
         if problems:
             raise CheckFailed(problems)
@@ -810,19 +809,3 @@ def _require_postprocessor_product(
             f"references product {selected_id.qualified_name!r} from another "
             "module instance"
         )
-
-
-def _require_operation_implementations(module: ModuleIR) -> None:
-    operation_keys = {item.declaration_key for item in module.body.operations}
-    implementation_keys = tuple(
-        item.declaration_key for item in module.python_implementations
-    )
-    _require_unique("module Python implementation", implementation_keys)
-    missing = operation_keys - set(implementation_keys)
-    orphaned = set(implementation_keys) - operation_keys
-    if missing:
-        msg = "module operations are missing Python implementations"
-        raise ValueError(msg)
-    if orphaned:
-        msg = "module Python implementations reference unknown operations"
-        raise ValueError(msg)

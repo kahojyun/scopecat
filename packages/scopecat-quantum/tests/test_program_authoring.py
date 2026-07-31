@@ -67,7 +67,7 @@ def _symbolic_quantity(value: authoring.ProgramInput) -> Quantity:
 
 def _drag_play(
     qubit: authoring.Qubit,
-    beta: authoring.ProgramInput,
+    beta: authoring.QuantumQuantity,
 ) -> authoring.PulseFragment:
     return authoring.play(
         authoring.drive(qubit),
@@ -380,42 +380,50 @@ def test_program_binding_requires_exact_typed_inputs() -> None:
 
 
 def test_domain_program_and_execution_expose_typed_ports() -> None:
-    q0 = authoring.qubit("q0")
     beta_type = sc.ScalarType(sc.QuantityType(unit="ns"))
-    beta = authoring.input("beta", beta_type)
-    repetitions = authoring.input(
-        "repetitions",
-        sc.ScalarType(sc.IntType()),
-    )
-    readout = authoring.measure(q0, result="raw_iq")
-    declaration = authoring._close_program(
-        "typed-drag-program",
-        authoring.sequence(
-            authoring.repeat(_drag_play(q0, beta), repetitions),
-            readout,
-        ),
-    )
+
+    @authoring.program(id="typed-drag-program")
+    def declaration(
+        qubit: authoring.Qubit,
+        repetitions: int,
+        beta: Annotated[
+            Quantity,
+            sc.ScalarType(sc.QuantityType(unit="ns")),
+        ],
+    ) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            authoring.repeat(_drag_play(qubit, beta), repetitions),
+            authoring.measure(qubit, result="raw_iq"),
+        )
+
     repetitions_type = sc.ScalarType(sc.IntType(minimum=0))
     repetitions_point = sc.coordinate("repetitions", repetitions_type)
     beta_point = sc.coordinate("beta", beta_type)
 
-    domain_program = authoring._domain_program(declaration)
-    call = authoring._domain_call(
-        domain_program,
-        id="drag",
-        inputs={beta: beta_point, repetitions: repetitions_point},
+    call = declaration.call(
+        "drag",
+        "q0",
+        repetitions_point,
+        beta_point,
     )
-    execution = call.execution
+    execution = call.domain_call.execution
+    domain_program = execution.program
 
     assert domain_program.dialect_id == authoring.QUANTUM_PROGRAM_DIALECT_ID
     assert domain_program.body is declaration
     assert [(port.id, port.value_type) for port in domain_program.input_ports] == [
+        (
+            "qubit",
+            sc.ScalarType(
+                sc.EntityType(entity_kind="logical_qubit"),
+            ),
+        ),
         ("repetitions", repetitions_type),
         ("beta", beta_type),
     ]
     assert domain_program.result_ports[0].id == "raw_iq"
-    assert domain_program.result_ports[0].contract is readout.result
-    assert execution.input_bindings == (
+    assert domain_program.result_ports[0].contract is declaration.results.raw_iq
+    assert execution.input_bindings[1:] == (
         ("repetitions", repetitions_point),
         ("beta", beta_point),
     )

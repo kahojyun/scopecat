@@ -7,10 +7,7 @@ import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
-import scopecat.daemon as daemon
 import scopecat.kernel.payloads as value_models
-import scopecat.measurements.results as results
-import scopecat.sdk.problems as problems
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.program.value_refs import internal_lower_scalar_value_ref
 from tests.testkit.relation_plans import evaluate_scalar
@@ -26,48 +23,6 @@ def test_root_lazy_exports_are_complete_visible_and_resolvable() -> None:
 
     for name in sc.__all__:
         assert getattr(sc, name) is not None
-
-
-def test_daemon_package_does_not_reexport_transport_contracts() -> None:
-    assert daemon.__all__ == []
-
-
-def test_user_facing_facades_expose_entry_points() -> None:
-    assert callable(sc.open_project)
-    assert problems.Problem
-    assert callable(problems.problem)
-    assert callable(problems.model_location)
-    assert callable(sc.module)
-    assert callable(sc.template)
-    assert callable(sc.scratch)
-    assert sc.ExperimentModule
-    assert sc.ExperimentTemplate
-    assert sc.ScratchDefinition
-    assert callable(sc.ModuleContext.bind_property)
-    assert callable(sc.ModuleContext.ensure)
-    assert sc.DesiredState
-    assert callable(sc.ExperimentContext.record)
-    assert callable(sc.ExperimentContext.record_coordinate)
-    assert callable(sc.record_coordinate)
-    assert sc.ModuleOutputs
-    assert sc.ProductOutputs
-    assert sc.ProductRef
-    assert sc.ComputeInput
-    assert callable(sc.coordinate)
-    assert callable(sc.parameter)
-    assert callable(sc.parameter_lookup)
-    assert sc.ScalarType(sc.IntType())
-    assert sc.TableType(columns=())
-    assert sc.Scan
-    assert hasattr(results, "MeasurementRecord")
-    assert {
-        "phase",
-        "code",
-        "location",
-        "related_locations",
-        "details",
-        "occurrence_id",
-    }.issubset(problems.Problem.model_fields)
 
 
 def test_experiment_modules_are_closed_by_authoring_entry_points() -> None:

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import inspect
-from collections.abc import Callable, Mapping, Sequence
-from typing import Annotated, cast
+from typing import Annotated
 
 import scopecat.authoring as authoring
-from scopecat.authoring import ExperimentInvocation, ExperimentTemplate
-from scopecat.authoring.scans import Scan, axis
-from scopecat.authoring.templates import create_experiment_definition_internal
+from scopecat.authoring import ExperimentTemplate
+from scopecat.authoring.scans import axis
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
@@ -18,9 +15,6 @@ from scopecat.config.environment import build_config_environment
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
-from scopecat.program.experiment import ExperimentProgram
-from scopecat.program.products import RecordSelection
-from scopecat.program.values import MetadataValue
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
@@ -49,59 +43,6 @@ def link_invocation(
     return resolve_compiled_invocation(
         compile_invocation(invocation),
         environment=build_config_environment(config_profile),
-    )
-
-
-def template_fixture(
-    module: authoring.ExperimentModule[...],
-    *,
-    id: str,
-    kind: str,
-    required_inputs: Sequence[str] = (),
-    defaults: Mapping[str, authoring.RuntimeInput] | None = None,
-    scans: Sequence[Scan] = (),
-    records: Sequence[RecordSelection] = (),
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentTemplate[...]:
-    """Build exact-root fixtures for low-level IR and compiler tests."""
-
-    experiment_definition = create_experiment_definition_internal(
-        id=id,
-        kind=kind,
-        program=ExperimentProgram(
-            interface=module.ir.interface,
-            body=module.ir.body,
-            python_implementations=module.ir.python_implementations,
-            metadata=module.ir.metadata,
-        ),
-        record_selections=tuple(records),
-        input_defaults=defaults,
-        required_inputs=tuple(required_inputs),
-        default_scans=tuple(scans),
-        metadata=metadata or {},
-    )
-    signature = inspect.Signature(
-        tuple(
-            inspect.Parameter(
-                input_definition.id,
-                inspect.Parameter.KEYWORD_ONLY,
-                default=(
-                    input_definition.default
-                    if input_definition.has_default
-                    else inspect.Parameter.empty
-                ),
-            )
-            for input_definition in experiment_definition.inputs
-        )
-    )
-
-    def fixture_callable() -> object:
-        raise AssertionError("closed test templates are not re-evaluated")
-
-    return ExperimentTemplate(
-        definition=experiment_definition,
-        _callable=cast("Callable[..., object]", fixture_callable),
-        _signature=signature.replace(return_annotation=ExperimentInvocation),
     )
 
 
