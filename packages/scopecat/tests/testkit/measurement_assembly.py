@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
 )
 from scopecat.config.environment import build_config_environment
@@ -102,7 +102,7 @@ def measurement_assembly_scenario(
                 metadata={"projection": "secondary"},
             )
         )
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id=f"measurement-assembly-{len(point_values)}-{use_count}",
         kind="compiler_test",
         point_domain=PointDomain(

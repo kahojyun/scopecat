@@ -23,7 +23,7 @@ from scopecat.compiler.typed.invocation import (
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
-from scopecat.compiler.typed.program import CoreProgram, TypedDomainExecution
+from scopecat.compiler.typed.program import BoundProgramFacts, TypedDomainExecution
 from scopecat.compiler.typed.state import (
     EnsureStateSpec,
     SetStateSpec,
@@ -488,7 +488,7 @@ def _order_instrument_operations[T: _InstrumentOperation](
 
 
 def _select_coverage_resources(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
     points: Sequence[MaterializedPoint],
     params_by_ordinal: Mapping[int, ParameterRelationData],
@@ -509,7 +509,7 @@ def _select_coverage_resources(
 
 
 def _select_point_resources(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
     point: MaterializedPoint,
     params: ParameterRelationData,
@@ -525,7 +525,7 @@ def _select_point_resources(
 
 
 def _select_resources(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
     *,
     ctx: EvalContext,
@@ -585,7 +585,7 @@ def _select_resources(
 
 
 def _active_resource_port_ids(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     *,
     product_uses: Sequence[ProductUse],
 ) -> frozenset[LogicalResourcePortId]:

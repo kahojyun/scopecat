@@ -30,7 +30,7 @@ logical measurements and durable run records
 
 The authoring package owns Python UX; `scopecat.program` owns definitions,
 invocations, and the symbolic model consumed by compilation. The compiler does
-not import authoring modules. `CoreProgram` is transient compiler data, not a
+not import authoring modules. `BoundProgramFacts` is transient compiler data, not a
 versioned interchange format.
 `RunProgram` is the executable representation for one accepted run; physical
 batching does not change its logical points, product identities, or results.

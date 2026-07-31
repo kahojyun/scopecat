@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 
-from scopecat.compiler.bind import _bind_core_program as bind_core_program
+from scopecat.compiler.bind import _bind_program_facts as bind_core_program
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.relations.context import (
     ParameterRelationData,
@@ -15,7 +15,7 @@ from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
     TypedDomainExecution,
     record_product,
@@ -23,7 +23,7 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumerKind,
-    program_relation_consumers,
+    bound_relation_consumers,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainProgramDef
@@ -133,7 +133,7 @@ def _entity_rows(
     )
 
 
-def _symbolic_program() -> CoreProgram:
+def _symbolic_program() -> BoundProgramFacts:
     axes = (
         _values_axis("a", _FLOAT, (1.0,)),
         _values_axis(
@@ -175,7 +175,7 @@ def _symbolic_program() -> CoreProgram:
         interface="test.scalar_signal/v1",
         metadata={"owner": "selected-producer"},
     )
-    return CoreProgram(
+    return BoundProgramFacts(
         id="symbolic-bound-plan",
         kind="compiler_test",
         point_domain=PointDomain(axes=axes),
@@ -212,7 +212,7 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
     )
     assert tuple(
         consumer.location.path
-        for consumer in program_relation_consumers(
+        for consumer in bound_relation_consumers(
             bound.program,
             bound.point_domain,
         )
@@ -221,7 +221,7 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
 
 
 def test_link_retains_unit_domain() -> None:
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="unit-bound-plan",
         kind="compiler_test",
         point_domain=PointDomain(axes=()),
@@ -233,7 +233,7 @@ def test_link_retains_unit_domain() -> None:
     assert bound.point_domain.cardinality == 1
     assert all(
         consumer.kind is not ProgramRelationConsumerKind.POINT_AXIS_CENTER
-        for consumer in program_relation_consumers(
+        for consumer in bound_relation_consumers(
             bound.program,
             bound.point_domain,
         )
@@ -268,7 +268,7 @@ def test_bind_selects_and_snapshots_the_complete_domain_target() -> None:
             )
         }
     )
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="domain-target-bound-plan",
         kind="compiler_test",
         point_domain=PointDomain(axes=()),
@@ -313,7 +313,7 @@ def test_bind_rejects_a_domain_program_without_a_configured_target() -> None:
             "system": config.system.model_copy(update={"domain_target": None}),
         }
     )
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="missing-domain-target-bound-plan",
         kind="compiler_test",
         point_domain=PointDomain(axes=()),
@@ -422,7 +422,7 @@ def test_link_closes_every_used_axis_center_parameter_import(
     expression: ScalarExpr,
     bindings: RelationTypeBindings,
 ) -> None:
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="missing-parameter-link",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -443,7 +443,7 @@ def test_link_closes_every_used_axis_center_parameter_import(
 
 def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
     parameter_id = "lookup-bound-as-scalar"
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="lookup-parameter-shape-link",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -478,7 +478,7 @@ def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
 
 def test_link_rejects_remaining_relation_input_imports() -> None:
     input_id = "unresolved"
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="unresolved-input-link",
         kind="compiler_test",
         point_domain=PointDomain(axes=()),
@@ -516,7 +516,7 @@ def test_link_rejects_remaining_relation_input_imports() -> None:
 
 def test_link_reports_every_missing_import_in_one_axis_center() -> None:
     missing_ids = ("missing-left", "missing-right")
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="multiple-missing-parameter-link",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -562,7 +562,7 @@ def test_bound_points_retain_exact_proofs_when_materialized() -> None:
 
 
 def test_bound_points_normalize_entities_before_point_identity_is_sealed() -> None:
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="bound-entity-points",
         kind="compiler_test",
         point_domain=PointDomain(axes=(_entity_rows(("q0",)),)),
@@ -579,7 +579,7 @@ def test_bound_points_normalize_entities_before_point_identity_is_sealed() -> No
 
 
 def test_bound_points_reject_unknown_entities_at_the_planning_boundary() -> None:
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="unknown-bound-entity-point",
         kind="compiler_test",
         point_domain=PointDomain(axes=(_entity_rows(("missing",)),)),
@@ -597,7 +597,7 @@ def test_bound_points_reject_unknown_entities_at_the_planning_boundary() -> None
 
 
 def test_bound_points_preserve_entity_kind_mismatch_problem() -> None:
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="wrong-kind-bound-entity-point",
         kind="compiler_test",
         point_domain=PointDomain(
@@ -618,7 +618,7 @@ def test_bound_points_preserve_entity_kind_mismatch_problem() -> None:
 
 
 def test_bound_points_report_unknown_normalized_entities() -> None:
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="invalid-normalized-bound-entity-points",
         kind="compiler_test",
         point_domain=PointDomain(

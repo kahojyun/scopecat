@@ -1,9 +1,9 @@
-"""Target-independent typed meaning produced by the authoring compiler.
+"""Configuration-bound typed facts derived from a verified logical program.
 
-``CoreProgram`` keeps point composition, value dataflow, effect order, and
-product ownership symbolic so one experiment definition can be specialized for
-different physical systems. It is transient compiler data because accepted run
-semantics, not intermediate compiler shape, form the durable boundary.
+``BoundProgramFacts`` keeps point composition, value dataflow, effect order, and
+product ownership after configuration-dependent lowering. It is transient
+compiler data because accepted run semantics, not intermediate compiler shape,
+form the durable boundary.
 
 Construction follows verified semantic lowering, so these records normalize
 owned mappings but do not repeat authoring validation.
@@ -138,7 +138,7 @@ class TypedDomainExecution:
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
 
 
-type CoreEffect = (
+type BoundEffect = (
     SetStateSpec | EnsureStateSpec | InvokeEffect | TypedDomainExecution | AcquireEffect
 )
 
@@ -192,8 +192,8 @@ class LogicalResourceRequirement:
 
 
 @dataclass(frozen=True, slots=True)
-class CoreProgram:
-    """Canonical typed and symbolic meaning of one authored experiment.
+class BoundProgramFacts:
+    """Typed facts introduced by binding one canonical logical program.
 
     The ordered ``effects`` sequence is authoritative so specialization can
     choose host or domain placement while retaining logical point identity,
@@ -206,7 +206,7 @@ class CoreProgram:
     resource_requirements: tuple[LogicalResourceRequirement, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
-    effects: tuple[CoreEffect, ...] = ()
+    effects: tuple[BoundEffect, ...] = ()
     final_state: EnsureStateSpec | None = None
     measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
@@ -214,19 +214,21 @@ class CoreProgram:
     record_uses: tuple[RecordUse, ...] = ()
 
 
-def core_domain_executions(program: CoreProgram) -> tuple[TypedDomainExecution, ...]:
+def bound_domain_executions(
+    program: BoundProgramFacts,
+) -> tuple[TypedDomainExecution, ...]:
     return tuple(
         effect for effect in program.effects if isinstance(effect, TypedDomainExecution)
     )
 
 
-def core_acquisitions(program: CoreProgram) -> tuple[AcquireEffect, ...]:
+def bound_acquisitions(program: BoundProgramFacts) -> tuple[AcquireEffect, ...]:
     return tuple(
         effect for effect in program.effects if isinstance(effect, AcquireEffect)
     )
 
 
-def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
+def bound_state(program: BoundProgramFacts) -> tuple[SetStateSpec, ...]:
     effect_state = tuple(
         state
         for effect in program.effects
@@ -244,7 +246,7 @@ def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
     )
 
 
-def core_invocations(program: CoreProgram) -> tuple[InvokeEffect, ...]:
+def bound_invocations(program: BoundProgramFacts) -> tuple[InvokeEffect, ...]:
     return tuple(
         effect for effect in program.effects if isinstance(effect, InvokeEffect)
     )

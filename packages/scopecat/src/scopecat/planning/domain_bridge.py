@@ -10,7 +10,7 @@ from scopecat.compiler.typed.domain_results import (
 )
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
-    core_domain_executions,
+    bound_domain_executions,
 )
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.product_identity import ProductId, ProductUseId
@@ -46,7 +46,7 @@ def make_domain_call_view(
 
     typed_execution = next(
         item
-        for item in core_domain_executions(bound.program)
+        for item in bound_domain_executions(bound.program)
         if item.id == execution_id
     )
     (

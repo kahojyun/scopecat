@@ -4,7 +4,7 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.program import core_domain_executions
+from scopecat.compiler.typed.program import bound_domain_executions
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
@@ -73,7 +73,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     bound = resolved
     bound_points = materialize_bound_points(bound)
 
-    execution_id = core_domain_executions(bound.program)[0].id
+    execution_id = bound_domain_executions(bound.program)[0].id
     closure = domain_result_closure(bound.program, execution_id)
     call_view = make_domain_call_view(
         bound,

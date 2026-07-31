@@ -9,15 +9,15 @@ from scopecat.compiler.semantic.value_expressions import (
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
+    BoundProgramFacts,
     ComputeEdge,
-    CoreProgram,
     TypedComputeNode,
     TypedDomainExecution,
     ValueInput,
     set_state_property,
 )
 from scopecat.compiler.typed.specialization import (
-    specialize_core_program,
+    specialize_bound_facts,
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
@@ -88,8 +88,8 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
         property_id="gain",
         value=config_value,
     )
-    specialized = specialize_core_program(
-        CoreProgram(
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             id="specialized",
             kind="test",
             point_domain=PointDomain(axes=()),
@@ -125,8 +125,8 @@ def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
         ),
         compiler_inputs={"rows": ValueInput(value)},
     )
-    specialized = specialize_core_program(
-        CoreProgram(
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             id="table-source",
             kind="test",
             point_domain=PointDomain(axes=()),
@@ -182,8 +182,8 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
         value=ComputeResultRef(live.result.id),
     )
 
-    specialized = specialize_core_program(
-        CoreProgram(
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             id="dce",
             kind="test",
             point_domain=PointDomain(axes=()),
@@ -202,8 +202,8 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
 def test_core_specialization_preserves_exact_empty_point_composition() -> None:
     integer = Scalar(Int())
 
-    specialized = specialize_core_program(
-        CoreProgram(
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             id="empty-specialized",
             kind="test",
             point_domain=PointDomain(
@@ -263,8 +263,8 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
         inputs={"frequency": ValueInput(overlaid_lookup)},
     )
 
-    specialized = specialize_core_program(
-        CoreProgram(
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             id="parameter-centered-axis",
             kind="test",
             point_domain=PointDomain(

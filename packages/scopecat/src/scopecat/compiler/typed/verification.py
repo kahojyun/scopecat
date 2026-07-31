@@ -14,12 +14,12 @@ from scopecat.compiler.typed.point_domain import (
     verify_point_domain,
 )
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     ValueInput,
-    core_acquisitions,
-    core_domain_executions,
-    core_invocations,
-    core_state,
+    bound_acquisitions,
+    bound_domain_executions,
+    bound_invocations,
+    bound_state,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
 from scopecat.graph.relations.point_domain import iter_point_axis_linear
@@ -34,8 +34,8 @@ from scopecat.kernel.problems import (
 from scopecat.measurements.records import plan_records, validate_record_axes
 
 
-def _verify_core_program(
-    program: CoreProgram,
+def _verify_bound_facts(
+    program: BoundProgramFacts,
 ) -> VerifiedPointDomain:
     """Build final proofs without rechecking facts owned by earlier stages."""
 
@@ -75,17 +75,17 @@ def _verify_core_program(
     return point_domain
 
 
-def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
+def _product_demand_problems(program: BoundProgramFacts) -> tuple[Problem, ...]:
     """Close ownership after record demand has introduced exact product uses."""
 
     owned_products = {
         result.product_id
-        for acquisition in core_acquisitions(program)
+        for acquisition in bound_acquisitions(program)
         for result in acquisition.results
     }
     owned_products.update(
         result.product_id
-        for execution in core_domain_executions(program)
+        for execution in bound_domain_executions(program)
         for result in execution.results
     )
     owned_products.update(
@@ -116,15 +116,15 @@ class ProgramRelationConsumer:
     location: ModelLocation
 
 
-def verify_core_program(
-    program: CoreProgram,
+def verify_bound_facts(
+    program: BoundProgramFacts,
     *,
     phase: ProblemPhase = ProblemPhase.AUTHORING,
 ) -> VerifiedPointDomain:
     """Verify one residual program and return its derived point-domain proof."""
 
     try:
-        return _verify_core_program(program)
+        return _verify_bound_facts(program)
     except CheckFailed as error:
         if phase is ProblemPhase.AUTHORING:
             raise
@@ -160,8 +160,8 @@ def _point_axis_center_consumers(
         )
 
 
-def program_relation_consumers(
-    program: CoreProgram,
+def bound_relation_consumers(
+    program: BoundProgramFacts,
     point_domain: VerifiedPointDomain,
 ) -> Iterator[ProgramRelationConsumer]:
     """Iterate relation plans with paths only when diagnostics need them."""
@@ -171,7 +171,7 @@ def program_relation_consumers(
 
 
 def _program_relation_consumers(
-    program: CoreProgram,
+    program: BoundProgramFacts,
 ) -> Iterator[ProgramRelationConsumer]:
     """Index relation proofs already built with their exact lowering bindings."""
 
@@ -205,7 +205,7 @@ def _program_relation_consumers(
                 ),
             )
 
-    for execution_index, execution in enumerate(core_domain_executions(program)):
+    for execution_index, execution in enumerate(bound_domain_executions(program)):
         for input_name, input_value in execution.inputs.items():
             value = input_value.value
             yield _consumer(
@@ -233,7 +233,7 @@ def _program_relation_consumers(
                 ),
             )
 
-    for state_index, state in enumerate(core_state(program)):
+    for state_index, state in enumerate(bound_state(program)):
         if not isinstance(state.value_use, ComputeResultRef):
             yield _consumer(
                 ProgramRelationConsumerKind.STATE_VALUE,
@@ -241,7 +241,7 @@ def _program_relation_consumers(
                 model_location("state", state_index, "value"),
             )
 
-    for invocation_index, invocation in enumerate(core_invocations(program)):
+    for invocation_index, invocation in enumerate(bound_invocations(program)):
         for argument in invocation.arguments:
             if isinstance(argument.value_use, ComputeResultRef):
                 continue
@@ -269,5 +269,5 @@ def _problem(code: str, message: str, location: ModelLocation) -> Problem:
 __all__ = [
     "ProgramRelationConsumer",
     "ProgramRelationConsumerKind",
-    "verify_core_program",
+    "verify_bound_facts",
 ]

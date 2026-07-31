@@ -16,11 +16,11 @@ from scopecat.compiler.typed.domain_results import (
     domain_result_closure,
 )
 from scopecat.compiler.typed.program import (
-    CoreEffect,
+    BoundEffect,
     TypedDomainExecution,
-    core_domain_executions,
-    core_invocations,
-    core_state,
+    bound_domain_executions,
+    bound_invocations,
+    bound_state,
 )
 from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import (
@@ -158,7 +158,7 @@ def _compile_system_program(
         )
     domain_result_closures = {
         execution.id: domain_result_closure(bound.program, execution.id)
-        for execution in core_domain_executions(bound.program)
+        for execution in bound_domain_executions(bound.program)
     }
     domain_calls = {
         execution_id: make_domain_call_view(
@@ -194,12 +194,12 @@ def _compile_system_program(
     local_required = bool(
         local_product_use_ids
         or bound.program.compute_nodes
-        or core_state(bound.program)
-        or core_invocations(bound.program)
+        or bound_state(bound.program)
+        or bound_invocations(bound.program)
     )
     implementation_problems = list(
         _implementation_problems(
-            has_domain_call=bool(core_domain_executions(bound.program)),
+            has_domain_call=bool(bound_domain_executions(bound.program)),
             has_domain_compiler=system.domain_compiler is not None,
             local_required=local_required,
             has_local_instrument_catalog=catalog.provider_id is not None,
@@ -499,7 +499,7 @@ def _compile_coverage(
 
 def _coverage_operations(
     *,
-    effects: tuple[CoreEffect, ...],
+    effects: tuple[BoundEffect, ...],
     local_effects: MaterializedLocalEffects | None,
     region: tuple[int, ...],
     jobs_by_execution: dict[str, list[RunDomainJob]],

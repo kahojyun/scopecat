@@ -22,10 +22,10 @@ from scopecat.compiler.typed.parameter_overlays import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
+    BoundEffect,
+    BoundProgramFacts,
     ComputeEdge,
     ComputeInput,
-    CoreEffect,
-    CoreProgram,
     LogicalResourceRequirement,
     ScalarValueInput,
     TypedComputeNode,
@@ -41,12 +41,12 @@ from scopecat.graph.values import ComputeResultRef, OperationId
 from scopecat.program.logical import AcquireEffect
 
 
-def specialize_core_program(
-    program: CoreProgram,
+def specialize_bound_facts(
+    program: BoundProgramFacts,
     *,
     parameters: ParameterRelationData,
-) -> CoreProgram:
-    """Partially evaluate pure values across one CoreProgram."""
+) -> BoundProgramFacts:
+    """Partially evaluate pure values across one bound fact set."""
 
     base_known = EvalContext(params=parameters)
     parameter_cells = parameter_cell_bindings(program.parameter_overlays)
@@ -121,7 +121,7 @@ def _specialize_point_domain(
     )
 
 
-def _live_compute_nodes(program: CoreProgram) -> tuple[TypedComputeNode, ...]:
+def _live_compute_nodes(program: BoundProgramFacts) -> tuple[TypedComputeNode, ...]:
     """Keep the dependency closure of compute results observed by effects."""
 
     demanded = {
@@ -220,11 +220,11 @@ def _specialize_compute(
 
 
 def _specialize_effect(
-    effect: CoreEffect,
+    effect: BoundEffect,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> CoreEffect:
+) -> BoundEffect:
     if isinstance(effect, AcquireEffect):
         return effect
     if isinstance(effect, TypedDomainExecution):

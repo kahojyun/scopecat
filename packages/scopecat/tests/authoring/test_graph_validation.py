@@ -12,8 +12,8 @@ from scopecat.compiler.frontend.logical_verification import verify_logical_progr
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.semantic.verification import verify_logical_graph
 from scopecat.compiler.typed.point_domain import VerifiedPointDomain
-from scopecat.compiler.typed.program import CoreProgram
-from scopecat.compiler.typed.verification import verify_core_program
+from scopecat.compiler.typed.program import BoundProgramFacts
+from scopecat.compiler.typed.verification import verify_bound_facts
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import input_ref
 from scopecat.graph.relations.point_domain import point_axis_values
@@ -418,19 +418,19 @@ def test_compile_verifies_the_final_program_once(
         )
 
     def counted_core(
-        program: CoreProgram,
+        program: BoundProgramFacts,
         *,
         phase: ProblemPhase = ProblemPhase.AUTHORING,
     ) -> VerifiedPointDomain:
         calls["core"] += 1
-        return verify_core_program(program, phase=phase)
+        return verify_bound_facts(program, phase=phase)
 
     monkeypatch.setattr(
         "scopecat.compiler.frontend.logical_verification.verify_logical_graph",
         counted_graph,
     )
     monkeypatch.setattr(
-        "scopecat.compiler.bind.verify_core_program",
+        "scopecat.compiler.bind.verify_bound_facts",
         counted_core,
     )
 

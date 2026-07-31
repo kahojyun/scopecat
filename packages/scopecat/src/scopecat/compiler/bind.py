@@ -41,12 +41,12 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.point_domain import VerifiedPointDomain
-from scopecat.compiler.typed.program import CoreProgram, core_domain_executions
-from scopecat.compiler.typed.specialization import specialize_core_program
+from scopecat.compiler.typed.program import BoundProgramFacts, bound_domain_executions
+from scopecat.compiler.typed.specialization import specialize_bound_facts
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
-    program_relation_consumers,
-    verify_core_program,
+    bound_relation_consumers,
+    verify_bound_facts,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
@@ -89,9 +89,9 @@ class BoundDomainTarget:
 
 @dataclass(frozen=True, slots=True)
 class BoundPlan:
-    """One verified residual program bound to its accepted configuration."""
+    """One verified logical program bound to its accepted configuration."""
 
-    program: CoreProgram
+    program: BoundProgramFacts
     point_domain: VerifiedPointDomain
     environment: ConfigEnvironment
     domain_target: BoundDomainTarget | None
@@ -119,7 +119,7 @@ def bind_program(
                 "plan_path": list(error.path),
             },
         )
-    return _bind_core_program(
+    return _bind_program_facts(
         lowered,
         environment,
     )
@@ -128,7 +128,7 @@ def bind_program(
 def _lower_logical_program(
     verified: VerifiedLogicalProgram,
     environment: ConfigEnvironment,
-) -> CoreProgram:
+) -> BoundProgramFacts:
     assembly = verified.program
     config = environment.config
     parameter_catalog = config.parameter_catalog
@@ -222,7 +222,7 @@ def _lower_logical_program(
             type_bindings=type_bindings,
         )
     )
-    return CoreProgram(
+    return BoundProgramFacts(
         id=verified.experiment_id,
         kind=verified.kind,
         point_domain=point_domain,
@@ -273,17 +273,17 @@ def _relation_type_bindings(
     )
 
 
-def _bind_core_program(
-    program: CoreProgram,
+def _bind_program_facts(
+    program: BoundProgramFacts,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
-    """Specialize and seal the transitional residual compiler program."""
+    """Specialize and verify facts introduced by configuration binding."""
 
-    specialized = specialize_core_program(
+    specialized = specialize_bound_facts(
         program,
         parameters=environment.parameters,
     )
-    point_domain = verify_core_program(
+    point_domain = verify_bound_facts(
         specialized,
         phase=ProblemPhase.PLANNING,
     )
@@ -304,11 +304,11 @@ def _bind_core_program(
 
 
 def _make_bound_plan(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     point_domain: VerifiedPointDomain,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
-    """Attach shared config-bound facts to one already verified core program."""
+    """Attach shared config-bound facts to their accepted environment."""
 
     return BoundPlan(
         program=program,
@@ -322,12 +322,12 @@ def _make_bound_plan(
 
 
 def _bind_domain_target(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     config: ConfigProfileSnapshot,
 ) -> BoundDomainTarget | None:
     """Select the one configured target for every domain call in the program."""
 
-    if not core_domain_executions(program):
+    if not bound_domain_executions(program):
         return None
     target = config.domain_target
     if target is None:
@@ -350,12 +350,12 @@ def _bind_domain_target(
 
 
 def _relation_import_problems(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     point_domain: VerifiedPointDomain,
     parameters: ParameterRelationData,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    for consumer in program_relation_consumers(program, point_domain):
+    for consumer in bound_relation_consumers(program, point_domain):
         plan = consumer.plan
         for imported in plan.imports:
             if imported.namespace is PlanImportNamespace.INPUT:

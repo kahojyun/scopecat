@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat.compiler.bind import _bind_core_program as bind_core_program
+from scopecat.compiler.bind import _bind_program_facts as bind_core_program
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     TypedDomainExecution,
     TypedDomainResultBinding,
     record_product,
@@ -95,7 +95,7 @@ def _preparation(
     )
     product = ProductDef(id=product_id("result"), dtype="complex128")
     product_use, record_use = record_product(product, record_id="record")
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id=program_id,
         kind="mixed_quantum_mapping_test",
         point_domain=point_domain,

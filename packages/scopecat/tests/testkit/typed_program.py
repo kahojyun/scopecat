@@ -18,14 +18,14 @@ from scopecat.compiler.typed.invocation import (
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
     TypedComputeNode,
     TypedDomainExecution,
     TypedMeasurementPostprocessor,
 )
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.compiler.typed.verification import verify_core_program
+from scopecat.compiler.typed.verification import verify_bound_facts
 from scopecat.graph.relations.model import CellValue
 from scopecat.graph.values import (
     ComputeResultRef,
@@ -218,10 +218,10 @@ def typed_program(
     instrument_acquisitions: Sequence[AcquireEffect] = (),
     product_uses: Sequence[ProductUse] = (),
     record_uses: Sequence[RecordUse] = (),
-) -> CoreProgram:
+) -> BoundProgramFacts:
     """Build one low-level typed program from explicitly ordered components."""
 
-    return CoreProgram(
+    return BoundProgramFacts(
         id=id,
         kind=kind,
         point_domain=point_domain,
@@ -242,14 +242,14 @@ def typed_program(
 
 
 def bind_core_program(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
     """Bind a trusted low-level program for focused compiler tests."""
 
     return _make_bound_plan(
         program,
-        verify_core_program(
+        verify_bound_facts(
             program,
             phase=ProblemPhase.PLANNING,
         ),

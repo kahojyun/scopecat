@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from scopecat.compiler.bind import _bind_core_program as bind_core_program
+from scopecat.compiler.bind import _bind_program_facts as bind_core_program
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -75,7 +75,7 @@ def config_with_physical_resources(
 
 
 def materialized_effects_contract(
-    experiment: CoreProgram,
+    experiment: BoundProgramFacts,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
@@ -88,7 +88,7 @@ def materialized_effects_contract(
 
 
 def measurement_projection_contract(
-    experiment: CoreProgram,
+    experiment: BoundProgramFacts,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,

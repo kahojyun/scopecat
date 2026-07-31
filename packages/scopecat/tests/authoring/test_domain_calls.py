@@ -13,8 +13,8 @@ from scopecat.compiler.semantic.value_expressions import TableValue
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import (
     ValueInput,
-    core_acquisitions,
-    core_domain_executions,
+    bound_acquisitions,
+    bound_domain_executions,
 )
 from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.table_values import LiteralTableSource
@@ -187,7 +187,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         config_profile=load_config(),
     )
 
-    [execution] = core_domain_executions(bound.program)
+    [execution] = bound_domain_executions(bound.program)
     table_value = execution.compiler_inputs["rows"].value
     assert isinstance(table_value, TableValue)
     assert isinstance(table_value.source, LiteralTableSource)
@@ -405,8 +405,8 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     )
     typed = resolved.program
 
-    assert core_acquisitions(typed) == ()
-    typed_execution = core_domain_executions(typed)[0]
+    assert bound_acquisitions(typed) == ()
+    typed_execution = bound_domain_executions(typed)[0]
     assert typed_execution.program.body is body
     assert isinstance(typed_execution.inputs["x_count"], ValueInput)
     result = typed_execution.results[0]

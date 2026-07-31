@@ -14,7 +14,7 @@ from scopecat.compiler.bind import _lower_logical_program
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.typed.program import ComputeEdge, CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts, ComputeEdge
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import ScalarExpr
 from scopecat.graph.values import (
@@ -33,7 +33,7 @@ from tests.testkit.relation_plans import evaluate_scalar
 def _bind_program(
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot,
-) -> CoreProgram:
+) -> BoundProgramFacts:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
     return _lower_logical_program(compiled.program, environment)

@@ -31,7 +31,7 @@ from scopecat.compiler.typed.point_domain import (
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     ValueInput,
-    core_domain_executions,
+    bound_domain_executions,
 )
 from scopecat.graph.relations.model import Row
 from scopecat.kernel.entity import EntityRef
@@ -81,7 +81,7 @@ class MaterializedBoundPoints:
             raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
-            for item in core_domain_executions(self.bound_plan.program)
+            for item in bound_domain_executions(self.bound_plan.program)
             if item.id == execution_id
         )
         available_inputs = (

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
@@ -29,7 +29,7 @@ class LocalTargetPlan:
     or provider inventory again.
     """
 
-    program: CoreProgram
+    program: BoundProgramFacts
     product_uses: tuple[ProductUse, ...]
     instrument_order: tuple[str, ...]
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest]
@@ -37,7 +37,7 @@ class LocalTargetPlan:
 
 @dataclass(frozen=True, slots=True)
 class MaterializedLocalEffects:
-    """Final local effects aligned with the ordered Core effect sequence."""
+    """Final local effects aligned with the ordered bound effect sequence."""
 
     compute_operations: tuple[RunCoverageEffect, ...]
     effect_operations: tuple[tuple[RunCoverageEffect, ...], ...]

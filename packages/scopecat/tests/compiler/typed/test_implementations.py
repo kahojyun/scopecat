@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     TypedComputeNode,
 )
 from scopecat.config.environment import build_config_environment
@@ -55,7 +55,7 @@ def _program(
     output_type: Scalar = _FLOAT,
     output_id: ValueId | None = None,
     point_count: int = 1,
-) -> CoreProgram:
+) -> BoundProgramFacts:
     operation_id = _operation_id()
     return typed_program(
         id="implementation-sidecar",

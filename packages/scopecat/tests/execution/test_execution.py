@@ -17,7 +17,7 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
     ValueInput,
-    core_acquisitions,
+    bound_acquisitions,
     record_product,
     set_state_property,
 )
@@ -878,7 +878,7 @@ def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
                     expected_type=Scalar(QuantityType(unit="GHz")),
                 ),
             ),
-            *core_acquisitions(base_experiment),
+            *bound_acquisitions(base_experiment),
         ),
     )
     manifest = execute_bound_run(

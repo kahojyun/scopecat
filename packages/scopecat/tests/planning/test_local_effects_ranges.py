@@ -7,7 +7,7 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
     record_product,
 )
@@ -44,7 +44,7 @@ from tests.testkit.typed_program import (
 from tests.testkit.workflow_fixtures import load_experiment
 
 
-def _materialized_effects_spec(spec: CoreProgram, config: ConfigProfileSnapshot):
+def _materialized_effects_spec(spec: BoundProgramFacts, config: ConfigProfileSnapshot):
     return materialized_effects_contract(
         spec, build_config_environment(config).parameters, config=config
     )

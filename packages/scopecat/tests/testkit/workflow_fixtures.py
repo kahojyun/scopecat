@@ -9,7 +9,7 @@ from scopecat.authoring import (
     parameter,
 )
 from scopecat.authoring.scans import axis
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.artifact import RunContentEntry
@@ -30,7 +30,7 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_snapshot_document(WORKFLOW_FIXTURE_DIR / "config-snapshot.json")
 
 
-def load_experiment() -> CoreProgram:
+def load_experiment() -> BoundProgramFacts:
     """Compile the simple-scan DSL fixture into a transient typed program."""
 
     return bind_invocation(

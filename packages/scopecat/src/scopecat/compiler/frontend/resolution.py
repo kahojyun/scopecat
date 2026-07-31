@@ -1,4 +1,4 @@
-"""Compile authoring invocations into canonical core programs."""
+"""Compose and verify authoring invocations as canonical logical programs."""
 
 from __future__ import annotations
 

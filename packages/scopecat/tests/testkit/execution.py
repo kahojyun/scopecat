@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.service import plan_scratch_experiment
@@ -68,7 +68,7 @@ class _ExplicitDriverProvider:
 def execute_bound_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: CoreProgram,
+    experiment: BoundProgramFacts,
     instruments: Sequence[InstrumentDriver],
     project_root: str | Path,
     payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
@@ -133,7 +133,7 @@ def execute_invocation_run(
 def execute_program_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: CoreProgram,
+    experiment: BoundProgramFacts,
     instrument_provider: InstrumentProvider,
     project_root: str | Path,
     request: RunRequest | None = None,

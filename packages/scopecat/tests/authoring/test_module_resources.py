@@ -8,7 +8,7 @@ from scopecat.compiler.frontend.logical_verification import verify_logical_progr
 from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
-    core_state,
+    bound_state,
 )
 from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.kernel.errors import CheckFailed
@@ -132,7 +132,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     )
     assert [
         state.interface_id
-        for state in core_state(resolved.program)
+        for state in bound_state(resolved.program)
         if isinstance(state, SetStateSpec)
     ] == [
         "test.set_frequency/v1",
@@ -140,7 +140,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     ]
     assert [
         state.property_id
-        for state in core_state(resolved.program)
+        for state in bound_state(resolved.program)
         if isinstance(state, SetStateSpec)
     ] == [
         "value.path",
@@ -422,7 +422,7 @@ def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
         ),
     )
 
-    state = core_state(resolved.program)[0]
+    state = bound_state(resolved.program)[0]
     assert isinstance(state, SetStateSpec)
     assert state.interface_id == "test.set_offset/v1"
     assert state.property_id == "value.path"

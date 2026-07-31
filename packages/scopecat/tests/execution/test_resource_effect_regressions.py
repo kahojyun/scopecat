@@ -10,7 +10,7 @@ from scopecat.compiler.typed.point_domain import (
     PointDomain,
 )
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
     record_product,
     set_state_property,
@@ -70,7 +70,7 @@ def _unit_program(
     state: tuple[SetStateSpec, ...] = (),
     products: tuple[ProductDef, ...] = (),
     acquisitions: tuple[AcquireEffect, ...] = (),
-) -> CoreProgram:
+) -> BoundProgramFacts:
     uses_and_records = tuple(record_product(product) for product in products)
     return typed_program(
         id=experiment_id,
@@ -86,7 +86,7 @@ def _unit_program(
 
 
 def _bind(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     *,
     config: ConfigProfileSnapshot,
 ) -> LocalEffectInspection:

@@ -17,7 +17,7 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
     ScalarValueInput,
     TypedDomainExecution,
@@ -431,7 +431,7 @@ def _bound_program(
         if record_instrument_products
         else selections[:selected_domain_product_count]
     )
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="unified-system-contract",
         kind="compiler_test",
         point_domain=points,
@@ -502,7 +502,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
         ),
         kernel=_postprocess_identity,
     )
-    program = CoreProgram(
+    program = BoundProgramFacts(
         id="instrument-postprocessor",
         kind="compiler_test",
         point_domain=PointDomain(axes=()),

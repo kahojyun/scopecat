@@ -6,9 +6,9 @@ import pytest
 
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
-    core_acquisitions,
+    bound_acquisitions,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
@@ -116,7 +116,7 @@ def _program(
     acquisitions: tuple[AcquireEffect, ...] = (),
     uses: tuple[ProductUse, ...] = (),
     records: tuple[RecordUse, ...] = (),
-) -> CoreProgram:
+) -> BoundProgramFacts:
     interfaces_by_port: dict[LogicalResourcePortId, set[str]] = {}
     for acquisition in acquisitions:
         interfaces = interfaces_by_port.setdefault(
@@ -124,7 +124,7 @@ def _program(
             set(),
         )
         interfaces.add(acquisition.interface_id)
-    return CoreProgram(
+    return BoundProgramFacts(
         id="product-ir",
         kind="compiler_test",
         point_domain=PointDomain(axes=()),
@@ -444,7 +444,7 @@ def test_unused_product_acquisition_is_bound_without_collection() -> None:
     )
 
     assert bound.program.product_defs == (product,)
-    assert core_acquisitions(bound.program) == (acquisition,)
+    assert bound_acquisitions(bound.program) == (acquisition,)
     assert bound.program.product_uses == ()
     assert bound.program.record_uses == ()
 

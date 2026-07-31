@@ -9,7 +9,7 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.typed.program import core_acquisitions
+from scopecat.compiler.typed.program import bound_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.instrument_members import AcquisitionResultRef
 from scopecat.kernel.problems import ProblemPhase
@@ -81,7 +81,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     )
 
     assert resolved.program.product_defs[0].metadata == {"schema_owner": "analysis"}
-    assert core_acquisitions(resolved.program)[0].results[0].metadata == {
+    assert bound_acquisitions(resolved.program)[0].results[0].metadata == {
         "adapter_mode": "fast"
     }
     assert [record.id for record in resolved.program.record_uses] == ["signal"]
@@ -310,7 +310,7 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
         config_profile=load_config(),
     )
 
-    [acquisition] = core_acquisitions(resolved.program)
+    [acquisition] = bound_acquisitions(resolved.program)
     assert acquisition.interface_id == "test.scalar_signal/v1"
     assert [
         (result.product_id.local_id, result.result_id) for result in acquisition.results
@@ -444,7 +444,7 @@ def test_explicit_instances_select_same_named_products_independently(
     ]
     acquisitions_by_product = {
         result.product_id: (acquisition, result)
-        for acquisition in core_acquisitions(resolved.program)
+        for acquisition in bound_acquisitions(resolved.program)
         for result in acquisition.results
     }
     selected_acquisitions = [
@@ -527,7 +527,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
         SymbolId(scope=("nested-root", "outer", "inner"), local_id="signal")
     )
     assert use.product_id == expected_product_id
-    [acquisition] = core_acquisitions(resolved.program)
+    [acquisition] = bound_acquisitions(resolved.program)
     [acquired_result] = acquisition.results
     assert acquired_result.product_id == expected_product_id
     assert acquisition.resource_port_id == logical_resource_port_id(

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.typed.program import core_acquisitions
+from scopecat.compiler.typed.program import bound_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
 from scopecat.sdk.instruments import InterfaceRef
@@ -79,7 +79,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     }
     assert {
         result.product_id.qualified_name
-        for acquisition in core_acquisitions(program)
+        for acquisition in bound_acquisitions(program)
         for result in acquisition.results
     } == {"lowering/raw"}
     assert postprocessor.kernel is _kernel

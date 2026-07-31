@@ -5,7 +5,7 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.program import core_domain_executions
+from scopecat.compiler.typed.program import bound_domain_executions
 from scopecat.measurements.results import MeasurementScalar, MeasurementValue
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
@@ -109,7 +109,7 @@ def _batch_context(
     batch_ordinal: int = 0,
 ) -> DomainBatchRequest:
     program = bound_points.bound_plan.program
-    execution = core_domain_executions(program)[0]
+    execution = bound_domain_executions(program)[0]
     call = make_domain_call_view(
         bound_points.bound_plan,
         execution.id,
@@ -132,7 +132,7 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
         record_raw=False,
     )
     program = bound_points.bound_plan.program
-    call = core_domain_executions(program)[0]
+    call = bound_domain_executions(program)[0]
     [postprocessor] = program.measurement_postprocessors
     [direct_result] = call.results
     [postprocessor_output] = postprocessor.outputs
