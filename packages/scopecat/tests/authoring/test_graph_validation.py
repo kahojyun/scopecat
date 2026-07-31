@@ -420,10 +420,15 @@ def test_compile_verifies_the_final_program_once(
     def counted_core(
         program: BoundProgramFacts,
         *,
+        program_id: str,
         phase: ProblemPhase = ProblemPhase.AUTHORING,
     ) -> VerifiedPointDomain:
         calls["core"] += 1
-        return verify_bound_facts(program, phase=phase)
+        return verify_bound_facts(
+            program,
+            program_id=program_id,
+            phase=phase,
+        )
 
     monkeypatch.setattr(
         "scopecat.compiler.frontend.logical_verification.verify_logical_graph",

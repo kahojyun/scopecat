@@ -178,8 +178,6 @@ def test_bound_state_preserves_primitive_field_types(
     value_type: Scalar,
 ) -> None:
     program = typed_program(
-        id="primitive-state",
-        kind="compiler_test",
         point_domain=_point_domain(
             ((),),
             Table(columns=()),
@@ -226,8 +224,6 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
     consumer_output_id = operation_result_id(consumer_id)
     point_type = Table(columns=(TableColumn("value", Scalar(Float())),))
     program = typed_program(
-        id="bound-identity",
-        kind="compiler_test",
         point_domain=_point_domain(
             ((1.0,), (1.0,), (2.0,)),
             point_type,
@@ -287,8 +283,20 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         config_with_physical_resources({"source-0": ("test.play_program/v1",)})
     )
 
-    plan = materialize_local_execution(bind_program_facts(program, environment))
-    repeated = materialize_local_execution(bind_program_facts(program, environment))
+    plan = materialize_local_execution(
+        bind_program_facts(
+            program,
+            environment,
+            experiment_id="bound-identity",
+        )
+    )
+    repeated = materialize_local_execution(
+        bind_program_facts(
+            program,
+            environment,
+            experiment_id="bound-identity",
+        )
+    )
 
     assert [point.logical_id.logical_ordinal for point in plan.points] == [0, 1, 2]
     assert {
@@ -365,8 +373,6 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
         ),
     )
     program = typed_program(
-        id="normalized-compute-input",
-        kind="compiler_test",
         point_domain=_point_domain(
             (
                 (Quantity(value=5000.0, unit="MHz"),),
@@ -427,8 +433,6 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
         columns=(TableColumn("payload", Scalar(Payload("mapping"))),),
     )
     program = typed_program(
-        id="mapping-fingerprint",
-        kind="compiler_test",
         point_domain=_point_domain(
             (
                 (
@@ -476,8 +480,6 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
 
 def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
     program = typed_program(
-        id="opaque-point",
-        kind="compiler_test",
         point_domain=_point_domain(
             (
                 (

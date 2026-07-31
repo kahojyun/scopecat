@@ -90,8 +90,6 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     )
     specialized = specialize_bound_facts(
         BoundProgramFacts(
-            id="specialized",
-            kind="test",
             point_domain=PointDomain(axes=()),
             effects=(state, domain),
         ),
@@ -127,8 +125,6 @@ def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
     )
     specialized = specialize_bound_facts(
         BoundProgramFacts(
-            id="table-source",
-            kind="test",
             point_domain=PointDomain(axes=()),
             effects=(domain,),
         ),
@@ -184,8 +180,6 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
 
     specialized = specialize_bound_facts(
         BoundProgramFacts(
-            id="dce",
-            kind="test",
             point_domain=PointDomain(axes=()),
             compute_nodes=(upstream, live, dead),
             effects=(state,),
@@ -204,8 +198,6 @@ def test_core_specialization_preserves_exact_empty_point_composition() -> None:
 
     specialized = specialize_bound_facts(
         BoundProgramFacts(
-            id="empty-specialized",
-            kind="test",
             point_domain=PointDomain(
                 axes=(
                     point_axis_values("x", integer, (1,)),
@@ -265,8 +257,6 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
 
     specialized = specialize_bound_facts(
         BoundProgramFacts(
-            id="parameter-centered-axis",
-            kind="test",
             point_domain=PointDomain(
                 axes=(
                     point_axis_linear(

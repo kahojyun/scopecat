@@ -73,8 +73,6 @@ def _unit_program(
 ) -> BoundProgramFacts:
     uses_and_records = tuple(record_product(product) for product in products)
     return typed_program(
-        id=experiment_id,
-        kind="resource_effect_regression",
         point_domain=PointDomain(axes=()),
         resource_requirements=resource_requirements,
         state=state,

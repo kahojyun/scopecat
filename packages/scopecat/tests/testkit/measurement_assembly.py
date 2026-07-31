@@ -103,8 +103,6 @@ def measurement_assembly_scenario(
             )
         )
     program = BoundProgramFacts(
-        id=f"measurement-assembly-{len(point_values)}-{use_count}",
-        kind="compiler_test",
         point_domain=PointDomain(
             axes=(
                 point_axis_values("x", Scalar(Float()), point_values),

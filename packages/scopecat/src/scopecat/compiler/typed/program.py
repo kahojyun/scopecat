@@ -200,8 +200,6 @@ class BoundProgramFacts:
     lexical parameter semantics, product ownership, and effect order.
     """
 
-    id: str
-    kind: str
     point_domain: PointDomain
     resource_requirements: tuple[LogicalResourceRequirement, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()

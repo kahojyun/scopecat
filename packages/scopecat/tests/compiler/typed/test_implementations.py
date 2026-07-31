@@ -58,8 +58,6 @@ def _program(
 ) -> BoundProgramFacts:
     operation_id = _operation_id()
     return typed_program(
-        id="implementation-sidecar",
-        kind="compiler_test",
         point_domain=PointDomain(
             axes=(
                 point_axis_values(

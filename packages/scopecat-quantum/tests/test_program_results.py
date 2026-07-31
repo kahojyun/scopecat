@@ -84,9 +84,11 @@ from scopecat_quantum.targets import (
 def bind_program_facts(
     bindings: BoundProgramFacts,
     environment: ConfigEnvironment,
+    *,
+    experiment_id: str,
 ) -> BoundPlan:
     program = verify_logical_program(
-        LogicalProgram(experiment_id=bindings.id, kind=bindings.kind)
+        LogicalProgram(experiment_id=experiment_id, kind="quantum_test")
     )
     return _bind_program_facts(program, bindings, environment)
 
@@ -110,8 +112,6 @@ def _preparation(
     product = ProductDef(id=product_id("result"), dtype="complex128")
     product_use, record_use = record_product(product, record_id="record")
     program = BoundProgramFacts(
-        id=program_id,
-        kind="mixed_quantum_mapping_test",
         point_domain=point_domain,
         product_defs=(product,),
         effects=(
@@ -141,7 +141,13 @@ def _preparation(
             _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
         )
     )
-    bound_points = materialize_bound_points(bind_program_facts(program, environment))
+    bound_points = materialize_bound_points(
+        bind_program_facts(
+            program,
+            environment,
+            experiment_id=program_id,
+        )
+    )
     closure = domain_result_closure(bound_points.bound_plan.bindings, "domain")
     point_ordinals = (0, 1)
     call = make_domain_call_view(

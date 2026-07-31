@@ -225,8 +225,6 @@ def _lower_logical_program(
         )
     )
     return BoundProgramFacts(
-        id=verified.experiment_id,
-        kind=verified.kind,
         point_domain=point_domain,
         resource_requirements=tuple(resource_requirements),
         compute_nodes=compute_nodes,
@@ -288,6 +286,7 @@ def _bind_program_facts(
     )
     point_domain = verify_bound_facts(
         specialized,
+        program_id=program.experiment_id,
         phase=ProblemPhase.PLANNING,
     )
     problems = list(

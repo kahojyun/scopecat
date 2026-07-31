@@ -187,8 +187,8 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     )
 
     experiment = resolved.bindings
-    assert experiment.id == "test.simple_scan"
-    assert experiment.kind == "simple_scan"
+    assert resolved.program.experiment_id == "test.simple_scan"
+    assert resolved.program.kind == "simple_scan"
     preview = materialized_effects_contract(
         experiment, resolved.environment.parameters, config=load_config()
     )

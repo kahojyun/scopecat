@@ -432,8 +432,6 @@ def _bound_program(
         else selections[:selected_domain_product_count]
     )
     program = BoundProgramFacts(
-        id="unified-system-contract",
-        kind="compiler_test",
         point_domain=points,
         resource_requirements=(
             *(
@@ -503,8 +501,6 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
         kernel=_postprocess_identity,
     )
     program = BoundProgramFacts(
-        id="instrument-postprocessor",
-        kind="compiler_test",
         point_domain=PointDomain(axes=()),
         resource_requirements=(
             LogicalResourceRequirement(

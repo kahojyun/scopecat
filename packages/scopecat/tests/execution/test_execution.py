@@ -754,8 +754,6 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="per-point-compute-run",
-        kind="per_point_compute",
         point_domain=PointDomain(
             axes=(
                 point_axis_values(

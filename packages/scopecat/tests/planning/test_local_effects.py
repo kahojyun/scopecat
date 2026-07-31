@@ -96,8 +96,6 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="readout-frequency-calibration",
-        kind="readout.frequency_scan",
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -186,8 +184,6 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="state-around-acquisition",
-        kind="problem",
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -220,8 +216,6 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     result_id = operation_result_id(operation_id)
     drive = logical_resource_port_id("drive")
     spec = typed_program(
-        id="preview-waveform-boundary",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         invocations=[
             instrument_invocation(
@@ -294,8 +288,6 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
         return {"kind": "waveform"}
 
     spec = typed_program(
-        id="preview-shared-payload",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -389,8 +381,6 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="record-plan",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(

@@ -108,8 +108,6 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     )
     point_bindings = _point_bindings(points)
     spec = typed_program(
-        id="readout-frequency-overlay",
-        kind="readout.frequency_scan",
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -189,8 +187,6 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
         },
     )
     spec = typed_program(
-        id="whole-table-parameter-overlay",
-        kind="readout.frequency_scan",
         point_domain=points,
         parameter_overlays=[_frequency_overlay(axis_id="frequency")],
         domain_execution=execution,

@@ -209,8 +209,6 @@ def instrument_invocation(
 
 def typed_program(
     *,
-    id: str,
-    kind: str,
     point_domain: PointDomain,
     resource_requirements: Sequence[LogicalResourceRequirement] = (),
     parameter_overlays: Sequence[PointParameterOverlay] = (),
@@ -227,8 +225,6 @@ def typed_program(
     """Build one low-level typed program from explicitly ordered components."""
 
     return BoundProgramFacts(
-        id=id,
-        kind=kind,
         point_domain=point_domain,
         resource_requirements=tuple(resource_requirements),
         parameter_overlays=tuple(parameter_overlays),
@@ -249,14 +245,22 @@ def typed_program(
 def bind_program_facts(
     bindings: BoundProgramFacts,
     environment: ConfigEnvironment,
+    *,
+    experiment_id: str = "test.bound-program",
+    kind: str = "test",
 ) -> BoundPlan:
     """Bind trusted low-level facts to a minimal verified source for tests."""
 
     return _make_bound_plan(
-        verified_logical_program_for(bindings),
+        verified_logical_program_for(
+            bindings,
+            experiment_id=experiment_id,
+            kind=kind,
+        ),
         bindings,
         verify_bound_facts(
             bindings,
+            program_id=experiment_id,
             phase=ProblemPhase.PLANNING,
         ),
         environment,
@@ -264,13 +268,16 @@ def bind_program_facts(
 
 
 def verified_logical_program_for(
-    bindings: BoundProgramFacts,
+    _bindings: BoundProgramFacts,
+    *,
+    experiment_id: str = "test.bound-program",
+    kind: str = "test",
 ) -> VerifiedLogicalProgram:
     """Build the minimal canonical source needed by a low-level fact fixture."""
 
     return verify_logical_program(
         LogicalProgram(
-            experiment_id=bindings.id,
-            kind=bindings.kind,
+            experiment_id=experiment_id,
+            kind=kind,
         )
     )

@@ -38,8 +38,6 @@ def test_domain_result_closure_contains_only_exact_direct_product_uses() -> None
         ),
     )
     program = BoundProgramFacts(
-        id="test.domain-results",
-        kind="test",
         point_domain=PointDomain(axes=()),
         effects=(execution,),
         product_uses=(direct_use, foreign_use, output_use),

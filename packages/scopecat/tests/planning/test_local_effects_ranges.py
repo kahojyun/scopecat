@@ -98,8 +98,6 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="float-range-scan",
-        kind="simple_scan",
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -140,8 +138,6 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     value = Quantity(value=5.0, unit="GHz")
     spec = typed_program(
-        id="duplicate-coordinate-scan",
-        kind="simple_scan",
         point_domain=_point_domain((value, value)),
     )
 
@@ -161,8 +157,6 @@ def test_materialized_effects_rejects_bind_problems_without_duplicates() -> None
         )
     )
     spec = typed_program(
-        id="bad-preview-points",
-        kind="problem",
         point_domain=PointDomain(
             axes=(
                 point_axis_linear(

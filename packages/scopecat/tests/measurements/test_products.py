@@ -125,8 +125,6 @@ def _program(
         )
         interfaces.add(acquisition.interface_id)
     return BoundProgramFacts(
-        id="product-ir",
-        kind="compiler_test",
         point_domain=PointDomain(axes=()),
         resource_requirements=tuple(
             LogicalResourceRequirement(

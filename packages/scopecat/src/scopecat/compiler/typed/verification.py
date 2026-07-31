@@ -36,6 +36,8 @@ from scopecat.measurements.records import plan_records, validate_record_axes
 
 def _verify_bound_facts(
     program: BoundProgramFacts,
+    *,
+    program_id: str,
 ) -> VerifiedPointDomain:
     """Build final proofs without rechecking facts owned by earlier stages."""
 
@@ -43,7 +45,7 @@ def _verify_bound_facts(
     try:
         point_domain = verify_point_domain(
             program.point_domain,
-            program_id=program.id,
+            program_id=program_id,
         )
     except PointDomainVerificationError as error:
         problems.extend(
@@ -119,12 +121,13 @@ class ProgramRelationConsumer:
 def verify_bound_facts(
     program: BoundProgramFacts,
     *,
+    program_id: str,
     phase: ProblemPhase = ProblemPhase.AUTHORING,
 ) -> VerifiedPointDomain:
     """Verify one residual program and return its derived point-domain proof."""
 
     try:
-        return _verify_bound_facts(program)
+        return _verify_bound_facts(program, program_id=program_id)
     except CheckFailed as error:
         if phase is ProblemPhase.AUTHORING:
             raise
