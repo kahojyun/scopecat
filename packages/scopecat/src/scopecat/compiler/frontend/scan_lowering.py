@@ -10,14 +10,14 @@ from scopecat.compiler.frontend.request_values import (
     project_run_request_value,
 )
 from scopecat.compiler.frontend.value_binding import bind_scalar_input_refs
-from scopecat.graph.relations.model import ScalarExpr, as_scalar_expr
-from scopecat.graph.relations.point_domain import (
+from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import ScalarExpr, as_scalar_expr
+from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
     point_axis_linear,
     point_axis_values,
 )
-from scopecat.kernel.value_types import Scalar
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,

@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.graph.table_values import TableSource
 from scopecat.kernel.value_types import Table
+from scopecat.program.table_values import TableSource
 
 
 @dataclass(frozen=True, slots=True)

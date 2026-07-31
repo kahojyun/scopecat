@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
-from scopecat.graph.relations.model import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
+from scopecat.program.expressions import (
     BinaryScalarExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
@@ -13,8 +15,6 @@ from scopecat.graph.relations.model import (
     ScalarExpr,
     ScalarExpression,
 )
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.quantity import Quantity
 from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,

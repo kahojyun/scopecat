@@ -24,19 +24,6 @@ from scopecat.execution.local.program import (
     InvokeOperation,
     OutputInput,
 )
-from scopecat.graph.relations.model import (
-    CellValue,
-    lit,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
-from scopecat.graph.values import (
-    ComputeOutput,
-    ComputeResultRef,
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
@@ -46,6 +33,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
     Bool,
     Float,
@@ -57,9 +45,21 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.expressions import (
+    lit,
+    point_col,
+)
 from scopecat.program.logical import (
     ImplementationId,
     LocalPythonImplementation,
+)
+from scopecat.program.point_domain import point_axis_values
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+    operation_result_id,
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (

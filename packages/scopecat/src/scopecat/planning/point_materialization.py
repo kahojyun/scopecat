@@ -31,7 +31,6 @@ from scopecat.compiler.typed.program import (
     bound_domain_executions,
 )
 from scopecat.compiler.typed.values import CompilerValue
-from scopecat.graph.relations.model import Row
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -40,6 +39,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
+from scopecat.kernel.value_data import Row
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
 
 

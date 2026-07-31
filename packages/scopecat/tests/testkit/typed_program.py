@@ -30,13 +30,6 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.compiler.typed.verification import verify_bound_facts
-from scopecat.graph.relations.model import CellValue
-from scopecat.graph.values import (
-    ComputeResultRef,
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
@@ -49,6 +42,7 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
@@ -60,6 +54,12 @@ from scopecat.program.logical import (
     AcquireId,
     AcquireResult,
     LogicalProgram,
+)
+from scopecat.program.value_graph import (
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+    operation_result_id,
 )
 
 

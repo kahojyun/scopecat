@@ -6,10 +6,10 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.typed.program import TypedDomainExecution
-from scopecat.graph.relations.model import PointColumnScalarExpr
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.domain import domain_program
+from scopecat.program.expressions import PointColumnScalarExpr
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,

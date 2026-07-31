@@ -17,25 +17,25 @@ from scopecat.execution.local.program import (
     ComputeOperation,
     InvokeOperation,
 )
-from scopecat.graph.relations.model import (
-    CellValue,
-    parameter_lookup,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
-from scopecat.graph.values import (
-    ComputeOutput,
-    OperationId,
-    operation_result_id,
-)
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Int, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.expressions import (
+    parameter_lookup,
+)
 from scopecat.program.logical import (
     ImplementationId,
     LocalPythonImplementation,
+)
+from scopecat.program.point_domain import point_axis_values
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
 )
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (

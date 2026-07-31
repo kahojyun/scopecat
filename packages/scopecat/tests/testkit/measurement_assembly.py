@@ -8,7 +8,6 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
 )
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -30,6 +29,7 @@ from scopecat.planning.point_materialization import (
     MaterializedBoundPoints,
     materialize_bound_points,
 )
+from scopecat.program.point_domain import point_axis_values
 from tests.testkit.authoring import load_config
 from tests.testkit.typed_program import (
     bind_program_facts,

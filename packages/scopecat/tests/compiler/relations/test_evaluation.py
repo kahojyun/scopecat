@@ -8,18 +8,9 @@ from scopecat.compiler.relations.context import (
 )
 from scopecat.compiler.relations.evaluation import evaluate_table_value
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.graph.relations.model import (
-    CellValue,
-    ParameterLookupUse,
-    Row,
-    input_ref,
-    param,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import (
     Entity,
     Int,
@@ -30,6 +21,14 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_validation import ValueValidationError
+from scopecat.program.expressions import (
+    ParameterLookupUse,
+    input_ref,
+    param,
+    parameter_lookup,
+    point_col,
+)
+from scopecat.program.table_values import ParameterTableSource
 from tests.testkit.relation_plans import evaluate_scalar
 
 _INT = Scalar(Int())

@@ -9,20 +9,20 @@ from scopecat.compiler.relations.verification import (
     RowType,
     verify_relation_plan,
 )
-from scopecat.graph.relations.model import (
-    ParameterLookupUse,
-    input_ref,
-    lit,
-    param,
-    parameter_lookup,
-    point_col,
-)
 from scopecat.kernel.value_types import (
     Float,
     Int,
     Scalar,
     String,
     TableColumn,
+)
+from scopecat.program.expressions import (
+    ParameterLookupUse,
+    input_ref,
+    lit,
+    param,
+    parameter_lookup,
+    point_col,
 )
 
 INT = Scalar(Int())

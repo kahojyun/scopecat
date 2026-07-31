@@ -27,16 +27,6 @@ from scopecat.execution.evidence import (
 from scopecat.execution.local.program import CollectOperation
 from scopecat.execution.ports.instruments import RunInstrumentHost
 from scopecat.execution.program import RunHostBinding
-from scopecat.graph.relations.model import (
-    lit,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
-from scopecat.graph.values import (
-    ComputeOutput,
-    OperationId,
-    operation_result_id,
-)
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.problems import (
     Problem,
@@ -54,9 +44,19 @@ from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
     validate_run_host_binding,
 )
+from scopecat.program.expressions import (
+    lit,
+    point_col,
+)
 from scopecat.program.logical import (
     ImplementationId,
     LocalPythonImplementation,
+)
+from scopecat.program.point_domain import point_axis_values
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence

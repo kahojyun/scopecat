@@ -7,21 +7,21 @@ from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import cast
 
-from scopecat.graph.relations.model import (
-    ParameterLookupUse,
-    param,
-)
-from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import Scalar, Table, ValueType
+from scopecat.program.expressions import (
+    ParameterLookupUse,
+    param,
+)
 from scopecat.program.identities import ComputeDeclarationKey
 from scopecat.program.parameters import (
     ParameterValueContract,
 )
+from scopecat.program.table_values import ParameterTableSource
 from scopecat.program.value_refs import (
     ValueRef,
     capture_runtime_input,

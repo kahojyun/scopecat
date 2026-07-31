@@ -6,16 +6,16 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import LogicalResourceRequirement
-from scopecat.graph.relations.model import (
-    CellValue,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import StateValue
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.expressions import (
+    point_col,
+)
+from scopecat.program.point_domain import point_axis_values
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,

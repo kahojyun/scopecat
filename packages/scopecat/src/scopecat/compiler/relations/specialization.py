@@ -9,9 +9,9 @@ from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.scalar_eval import cell_matches, eval_binary, read_path
-from scopecat.graph.relations.model import (
+from scopecat.kernel.value_data import CellValue
+from scopecat.program.expressions import (
     BinaryScalarExpr,
-    CellValue,
     InputScalarExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,

@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from scopecat.graph.relations.model import CellValue
 from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.value_data import CellValue
 
 
 @dataclass(frozen=True, slots=True)

@@ -37,22 +37,6 @@ from scopecat.compiler.typed.values import (
     CompilerValue,
     TableValue,
 )
-from scopecat.graph.relations.model import CellValue, ScalarExpr, as_scalar_expr
-from scopecat.graph.relations.point_domain import (
-    PointAxes,
-    PointAxis,
-    PointAxisLinear,
-    PointAxisValues,
-)
-from scopecat.graph.table_values import (
-    InputTableSource,
-    TableSource,
-)
-from scopecat.graph.values import (
-    ComputeOutput,
-    ComputeResultRef,
-    ValueId,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
@@ -60,7 +44,9 @@ from scopecat.kernel.product_identity import (
     ProductUse,
     ProductUseId,
 )
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.program.expressions import ScalarExpr, as_scalar_expr
 from scopecat.program.logical import (
     LocalPythonImplementation,
     LogicalComputeNode,
@@ -70,9 +56,24 @@ from scopecat.program.logical import (
     ValueDef,
 )
 from scopecat.program.operations import ModuleInputPort
+from scopecat.program.point_domain import (
+    PointAxes,
+    PointAxis,
+    PointAxisLinear,
+    PointAxisValues,
+)
 from scopecat.program.scans import (
     AxisSpec,
     parameter_cell_lookup,
+)
+from scopecat.program.table_values import (
+    InputTableSource,
+    TableSource,
+)
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    ComputeResultRef,
+    ValueId,
 )
 from scopecat.program.value_refs import (
     ValueRef,

@@ -33,17 +33,17 @@ from scopecat.compiler.typed.program import (
     set_state_property,
 )
 from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
-from scopecat.graph.relations.model import LiteralScalarExpr, ScalarExpr
-from scopecat.graph.values import ComputeResultRef, ValueId
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Entity, Scalar
 from scopecat.program.bindings import ResourcePort
+from scopecat.program.expressions import LiteralScalarExpr, ScalarExpr
 from scopecat.program.logical import (
     LogicalEnsureState,
     LogicalInvocation,
     LogicalStateAssignment,
 )
+from scopecat.program.value_graph import ComputeResultRef, ValueId
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_value_ref,

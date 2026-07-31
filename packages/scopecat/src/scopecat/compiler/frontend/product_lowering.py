@@ -18,11 +18,6 @@ from scopecat.compiler.frontend.problems import (
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.typed.program import product_axis as compiler_product_axis
-from scopecat.graph.relations.model import (
-    ScalarExpr,
-    as_scalar_expr,
-)
-from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation
@@ -31,6 +26,10 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.records import RecordUse
+from scopecat.program.expressions import (
+    ScalarExpr,
+    as_scalar_expr,
+)
 from scopecat.program.products import (
     AxisSizeInput,
     ModuleProductDecl,
@@ -38,6 +37,7 @@ from scopecat.program.products import (
     RecordSelection,
     product_axis_dimension_id,
 )
+from scopecat.program.value_graph import ComputeResultRef
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_value_ref,

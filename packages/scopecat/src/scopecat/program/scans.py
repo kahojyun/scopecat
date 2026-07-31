@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.graph.relations.model import ParameterLookupUse
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import ParameterLookupUse
 from scopecat.program.parameters import (
     ParameterContract,
     merge_parameter_contracts,

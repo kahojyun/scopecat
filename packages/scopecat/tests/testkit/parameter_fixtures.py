@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.graph.relations.model import ParameterLookupUse
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Bool, Scalar, String, Table, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.expressions import ParameterLookupUse
 
 READOUT_DEVICES_TYPE = Table(
     columns=(

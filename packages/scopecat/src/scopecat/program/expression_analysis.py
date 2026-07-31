@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from scopecat.graph.relations.model import (
+from scopecat.program.expressions import (
     BinaryScalarExpr,
     InputScalarExpr,
     ParameterLookupScalarExpr,

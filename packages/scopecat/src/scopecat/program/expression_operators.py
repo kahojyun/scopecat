@@ -1,4 +1,4 @@
-"""Shared contracts for typed scalar operators and their local evaluator.
+"""Shared contracts for canonical expression operators and evaluation.
 
 The authoring graph and transient relation evaluators deliberately consume
 the same operator matrix from this module.  Keeping the matrix here prevents a

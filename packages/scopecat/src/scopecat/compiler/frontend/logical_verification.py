@@ -28,13 +28,6 @@ from scopecat.compiler.relations.verification import (
     VerifiedRelationPlan,
     verify_relation_plan,
 )
-from scopecat.graph.relations.analysis import plan_point_refs
-from scopecat.graph.relations.model import ScalarExpr
-from scopecat.graph.relations.point_domain import (
-    analyze_point_domain,
-    is_point_coordinate_type,
-)
-from scopecat.graph.values import ValueId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -50,6 +43,8 @@ from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
 from scopecat.kernel.value_types import Entity, Payload, Scalar, ValueType
 from scopecat.program.bindings import ResourcePort
+from scopecat.program.expression_analysis import plan_point_refs
+from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     LiteralValueSource,
     LogicalComputeNode,
@@ -59,11 +54,16 @@ from scopecat.program.logical import (
 )
 from scopecat.program.logical_graph import verify_logical_graph
 from scopecat.program.parameters import ParameterValueContract
+from scopecat.program.point_domain import (
+    analyze_point_domain,
+    is_point_coordinate_type,
+)
 from scopecat.program.products import (
     ModuleProductDecl,
     ProductAxis,
     product_axis_dimension_id,
 )
+from scopecat.program.value_graph import ValueId
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_value_ref,

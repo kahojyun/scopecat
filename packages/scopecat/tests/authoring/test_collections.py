@@ -14,10 +14,10 @@ from scopecat.compiler.typed.program import (
     BoundProgramFacts,
 )
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.values import ComputeResultRef, OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.value_graph import ComputeResultRef, OperationId
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot

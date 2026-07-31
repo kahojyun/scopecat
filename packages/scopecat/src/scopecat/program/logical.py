@@ -7,14 +7,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import cast, override
 
-import scopecat.graph.values as graph_values
+import scopecat.program.value_graph as graph_values
 from scopecat.domain.program import DomainProgramDef
-from scopecat.graph.relations.analysis import plan_input_refs
-from scopecat.graph.relations.model import (
-    ScalarExpr,
-)
-from scopecat.graph.relations.point_domain import PointAxes
-from scopecat.graph.table_values import TableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.interface_identity import InterfaceId
@@ -31,10 +25,16 @@ from scopecat.measurements.postprocessor_contract import (
 from scopecat.program.bindings import (
     ResourcePort,
 )
+from scopecat.program.expression_analysis import plan_input_refs
+from scopecat.program.expressions import (
+    ScalarExpr,
+)
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.parameters import ParameterContract
+from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
 from scopecat.program.scans import AxisSpec
+from scopecat.program.table_values import TableSource
 from scopecat.program.value_refs import PointValueDependency, ValueRef
 
 

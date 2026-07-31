@@ -21,22 +21,21 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.values import TableValue
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
-from scopecat.graph.relations.model import (
-    CellValue,
-    Row,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import (
-    PointAxis,
-    point_axis_values,
-)
-from scopecat.graph.table_values import ParameterTableSource
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.program.expressions import (
+    parameter_lookup,
+    point_col,
+)
+from scopecat.program.point_domain import (
+    PointAxis,
+    point_axis_values,
+)
+from scopecat.program.table_values import ParameterTableSource
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,

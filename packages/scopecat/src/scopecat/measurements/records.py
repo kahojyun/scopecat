@@ -8,9 +8,6 @@ from typing import Protocol, cast
 
 from pydantic import JsonValue as WireJsonValue
 
-from scopecat.graph.relations.model import (
-    CellValue,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
 from scopecat.kernel.json_types import JsonValue
@@ -23,6 +20,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units
+from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.results import (
     MeasurementDatasetSchema,

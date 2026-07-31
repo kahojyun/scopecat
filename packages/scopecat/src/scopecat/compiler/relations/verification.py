@@ -13,7 +13,16 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.graph.relations.model import (
+from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
+from scopecat.kernel.value_types import (
+    Scalar,
+    Table,
+    TableColumn,
+)
+from scopecat.kernel.value_validation import ValueValidationError, validate_literal
+from scopecat.program.expression_operators import scalar_operator_result_type
+from scopecat.program.expressions import (
     BinaryScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
@@ -24,15 +33,6 @@ from scopecat.graph.relations.model import (
     ScalarExpr,
     ScalarExpression,
 )
-from scopecat.graph.relations.operators import scalar_operator_result_type
-from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
-from scopecat.kernel.value_types import (
-    Scalar,
-    Table,
-    TableColumn,
-)
-from scopecat.kernel.value_validation import ValueValidationError, validate_literal
 
 type PlanPathItem = str | int
 type PlanPath = tuple[PlanPathItem, ...]

@@ -14,9 +14,6 @@ from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.compiler.typed.verification import verify_bound_facts
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.relations.model import input_ref
-from scopecat.graph.relations.point_domain import point_axis_values
-from scopecat.graph.values import ValueId
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -25,6 +22,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.program.bindings import requires, resource_port
 from scopecat.program.domain import domain_program
+from scopecat.program.expressions import input_ref
 from scopecat.program.logical import (
     AcquireEffect,
     LogicalComputeNode,
@@ -35,7 +33,9 @@ from scopecat.program.logical import (
     ValueDef,
 )
 from scopecat.program.logical_graph import verify_logical_graph
+from scopecat.program.point_domain import point_axis_values
 from scopecat.program.products import ModuleProductDecl, record_product
+from scopecat.program.value_graph import ValueId
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import InterfaceRef

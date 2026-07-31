@@ -20,7 +20,10 @@ from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
     RelationTypeBindings,
 )
-from scopecat.graph.relations.model import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.symbols import SymbolId
+from scopecat.program.expressions import (
     InputScalarExpr,
     LiteralScalarExpr,
     ScalarExpr,
@@ -28,19 +31,16 @@ from scopecat.graph.relations.model import (
     input_ref,
     param,
 )
-from scopecat.graph.values import (
-    ComputeResultRef,
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.symbols import SymbolId
 from scopecat.program.logical import (
     LiteralValueSource,
     LogicalProgram,
     PlanExpressionSource,
+)
+from scopecat.program.value_graph import (
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+    operation_result_id,
 )
 from scopecat.program.value_refs import (
     ValueRef,

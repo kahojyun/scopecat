@@ -11,15 +11,15 @@ from scopecat.compiler.relations.specialization import (
     ResidualScalar,
     specialize_scalar,
 )
-from scopecat.graph.relations.model import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.value_types import Entity, Float, Scalar, String
+from scopecat.program.expressions import (
     ParameterLookupUse,
     input_ref,
     param,
     parameter_lookup,
     point_col,
 )
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.value_types import Entity, Float, Scalar, String
 
 _DEVICE_FREQUENCY_LOOKUP = ParameterLookupUse(
     table_id="devices",

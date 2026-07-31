@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.graph.relations.model import ParameterLookupUse
 from scopecat.kernel.value_types import ValueType
+from scopecat.program.expressions import ParameterLookupUse
 
 
 @dataclass(frozen=True, slots=True)

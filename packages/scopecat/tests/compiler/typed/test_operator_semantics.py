@@ -7,7 +7,7 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.graph.relations.operators import runtime_values_equal
+from scopecat.program.expression_operators import runtime_values_equal
 from scopecat.program.value_refs import internal_lower_scalar_value_ref
 from scopecat.program.values import input as program_input
 from tests.testkit.relation_plans import evaluate_scalar

@@ -9,7 +9,6 @@ from typing import cast
 
 from pydantic import JsonValue as WireJsonValue
 
-from scopecat.graph.relations.model import CellValue
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
@@ -17,6 +16,7 @@ from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_data import CellValue
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.products import ProductDef
 from scopecat.measurements.records import (

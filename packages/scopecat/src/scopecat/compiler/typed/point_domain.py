@@ -15,8 +15,12 @@ from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
     VerifiedRelationPlan,
 )
-from scopecat.graph.relations.model import CellValue, Row
-from scopecat.graph.relations.point_domain import (
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.quantity import Quantity as QuantityValue
+from scopecat.kernel.value_data import CellValue, Row
+from scopecat.kernel.value_types import Entity, Table, TableColumn
+from scopecat.kernel.value_validation import coerce_literal
+from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
     PointAxisLinear,
@@ -28,10 +32,6 @@ from scopecat.graph.relations.point_domain import (
     is_point_coordinate_type,
     point_axis_linear_value,
 )
-from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.kernel.value_types import Entity, Table, TableColumn
-from scopecat.kernel.value_validation import coerce_literal
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
 type CompilerPointAxes = PointAxes[VerifiedRelationPlan]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.graph.relations.model import BinaryScalarExpr
+from scopecat.program.expressions import BinaryScalarExpr
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_refs import (
     internal_bind_value_ref_inputs,

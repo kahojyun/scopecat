@@ -19,7 +19,6 @@ from scopecat.compiler.typed.program import (
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainProgramDef, DomainResultPort
-from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.product_identity import product_id
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.measurements.products import ProductDef
@@ -29,6 +28,7 @@ from scopecat.planning.domain_bridge import (
 )
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.logical import LogicalProgram
+from scopecat.program.point_domain import point_axis_values
 from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultMapping,

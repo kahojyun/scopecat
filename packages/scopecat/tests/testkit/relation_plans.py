@@ -13,17 +13,17 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.typed.program import set_state_property
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.graph.relations.model import (
-    CellValue,
-    ScalarExpr,
-    as_scalar_expr,
-)
-from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import (
+    ScalarExpr,
+    as_scalar_expr,
+)
+from scopecat.program.value_graph import ComputeResultRef
 
 
 def scalar_value_expr(

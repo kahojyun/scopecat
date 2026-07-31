@@ -14,16 +14,7 @@ from scopecat.compiler.relations.verification import (
     TypedPlanImport,
     VerifiedRelationPlan,
 )
-from scopecat.graph.relations.model import (
-    CellValue,
-    Row,
-    is_cell_value,
-)
-from scopecat.graph.table_values import (
-    LiteralTableSource,
-    ParameterTableSource,
-    TableSource,
-)
+from scopecat.kernel.value_data import CellValue, Row, is_cell_value
 from scopecat.kernel.value_types import (
     Scalar,
     Table,
@@ -33,6 +24,11 @@ from scopecat.kernel.value_types import (
 from scopecat.kernel.value_validation import (
     ValueValidationError,
     coerce_literal,
+)
+from scopecat.program.table_values import (
+    LiteralTableSource,
+    ParameterTableSource,
+    TableSource,
 )
 
 

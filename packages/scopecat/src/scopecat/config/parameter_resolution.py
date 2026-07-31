@@ -10,16 +10,13 @@ from scopecat.config.validation import (
     ParameterValueValidationError,
     coerce_stored_parameter_value,
 )
-from scopecat.graph.relations.model import (
-    CellValue,
-    Row,
-)
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
     model_location,
     problem,
 )
+from scopecat.kernel.value_data import CellValue, Row
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterCatalog,

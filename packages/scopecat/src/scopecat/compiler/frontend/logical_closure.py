@@ -6,16 +6,6 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
-from scopecat.graph.relations.model import (
-    ScalarExpr,
-)
-from scopecat.graph.relations.point_domain import PointAxes
-from scopecat.graph.values import (
-    ComputeResultRef,
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.program.bindings import (
@@ -25,6 +15,9 @@ from scopecat.program.bindings import (
     ResourcePort,
 )
 from scopecat.program.domain import DomainExecution
+from scopecat.program.expressions import (
+    ScalarExpr,
+)
 from scopecat.program.logical import (
     AcquireEffect,
     ImplementationId,
@@ -50,8 +43,15 @@ from scopecat.program.operations import (
     ModuleOperationDecl,
 )
 from scopecat.program.parameters import ParameterContract
+from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
 from scopecat.program.scans import AxisSpec
+from scopecat.program.value_graph import (
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+    operation_result_id,
+)
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,

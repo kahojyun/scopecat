@@ -7,7 +7,8 @@ from dataclasses import dataclass
 
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.specialization import ParameterCellBinding
-from scopecat.graph.relations.model import CellValue, point_col
+from scopecat.kernel.value_data import CellValue
+from scopecat.program.expressions import point_col
 
 
 @dataclass(frozen=True, slots=True)

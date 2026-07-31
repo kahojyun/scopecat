@@ -7,14 +7,12 @@ from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
 )
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.graph.relations.model import (
-    CellValue,
-)
-from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
+from scopecat.kernel.value_data import CellValue
+from scopecat.program.value_graph import ComputeResultRef
 
 type StateValueUse = VerifiedRelationPlan | ComputeResultRef
 type EvaluatedStateValue = ComputeResultRef | CellValue

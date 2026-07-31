@@ -8,21 +8,21 @@ from scopecat.compiler.typed.program import (
     record_product,
 )
 from scopecat.execution.local.program import CollectOperation
-from scopecat.graph.relations.model import (
-    CellValue,
-    param,
-)
-from scopecat.graph.relations.point_domain import (
-    point_axis_linear,
-    point_axis_values,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.products import ProductAxisDef
+from scopecat.program.expressions import (
+    param,
+)
+from scopecat.program.point_domain import (
+    point_axis_linear,
+    point_axis_values,
+)
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import materialized_effects_contract
 from tests.testkit.parameter_fixtures import parameters

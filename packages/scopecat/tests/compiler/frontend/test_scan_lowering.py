@@ -9,15 +9,15 @@ import scopecat as sc
 from scopecat.compiler.frontend.scan_lowering import (
     lower_scans_point_domain,
 )
-from scopecat.graph.relations.model import ParameterLookupUse
-from scopecat.graph.relations.point_domain import (
+from scopecat.kernel.quantity import Quantity
+from scopecat.program.expressions import ParameterLookupUse
+from scopecat.program.parameters import ParameterValueContract
+from scopecat.program.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
     analyze_point_domain,
 )
-from scopecat.kernel.quantity import Quantity
-from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.scans import (
     AxisSpec,
     scan_parameter_contracts,

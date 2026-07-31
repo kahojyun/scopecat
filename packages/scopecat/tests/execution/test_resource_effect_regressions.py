@@ -20,7 +20,6 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
 )
-from scopecat.graph.relations.model import lit
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import (
@@ -29,6 +28,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.measurements.products import ProductDef
+from scopecat.program.expressions import lit
 from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import (
     ConfigProfileSnapshot,

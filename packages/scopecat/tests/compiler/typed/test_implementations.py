@@ -9,18 +9,18 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ComputeOperation
-from scopecat.graph.relations.point_domain import point_axis_values
-from scopecat.graph.values import (
-    ComputeOutput,
-    OperationId,
-    ValueId,
-    operation_result_id,
-)
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Int, Payload, Scalar
 from scopecat.program.logical import (
     ImplementationId,
     LocalPythonImplementation,
+)
+from scopecat.program.point_domain import point_axis_values
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    OperationId,
+    ValueId,
+    operation_result_id,
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (

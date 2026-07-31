@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.graph.relations.model import as_scalar_expr, input_ref
-from scopecat.graph.values import OperationId, ValueId, operation_result_id
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
+from scopecat.program.expressions import as_scalar_expr, input_ref
 from scopecat.program.logical import (
     LiteralValueSource,
     LogicalComputeNode,
     PlanExpressionSource,
 )
 from scopecat.program.logical_graph import verify_logical_graph
+from scopecat.program.value_graph import OperationId, ValueId, operation_result_id
 
 FLOAT = Scalar(Float())
 

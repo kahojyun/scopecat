@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from math import prod
 from typing import Generic, Never, TypeVar
 
-from scopecat.graph.relations.model import CellValue
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
     Bool,
     Entity,

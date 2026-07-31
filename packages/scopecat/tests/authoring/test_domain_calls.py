@@ -14,7 +14,6 @@ from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import bound_acquisitions, bound_domain_executions
 from scopecat.compiler.typed.values import TableValue
 from scopecat.domain.program import DomainProgramDef
-from scopecat.graph.table_values import LiteralTableSource
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.planning.domain_bridge import (
@@ -24,6 +23,7 @@ from scopecat.planning.domain_bridge import (
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.domain import domain_execution, domain_program
 from scopecat.program.products import ModuleProductDecl
+from scopecat.program.table_values import LiteralTableSource
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 

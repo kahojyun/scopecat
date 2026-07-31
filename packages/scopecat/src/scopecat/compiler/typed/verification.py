@@ -20,8 +20,6 @@ from scopecat.compiler.typed.program import (
     bound_state,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
-from scopecat.graph.relations.point_domain import iter_point_axis_linear
-from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -30,6 +28,8 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.measurements.records import plan_records, validate_record_axes
+from scopecat.program.point_domain import iter_point_axis_linear
+from scopecat.program.value_graph import ComputeResultRef
 
 
 def _verify_bound_facts(

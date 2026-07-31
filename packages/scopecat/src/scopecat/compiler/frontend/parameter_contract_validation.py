@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from scopecat.compiler.frontend.problems import raise_frontend_problem
-from scopecat.graph.relations.model import ParameterLookupUse
 from scopecat.kernel.value_type_compatibility import describe_value_type, is_assignable
 from scopecat.kernel.value_types import Entity, String, Table, ValueType
+from scopecat.program.expressions import ParameterLookupUse
 from scopecat.program.parameters import (
     ParameterContract,
     ParameterValueContract,

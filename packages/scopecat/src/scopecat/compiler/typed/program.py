@@ -27,11 +27,6 @@ from scopecat.compiler.typed.values import (
     CompilerValue,
 )
 from scopecat.domain.program import DomainProgramDef
-from scopecat.graph.values import (
-    ComputeOutput,
-    ComputeResultRef,
-    OperationId,
-)
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -56,6 +51,11 @@ from scopecat.program.logical import (
     AcquireEffect,
     LocalPythonImplementation,
     MeasurementPostprocessorId,
+)
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    ComputeResultRef,
+    OperationId,
 )
 
 type ComputeInput = VerifiedRelationPlan | ComputeResultRef

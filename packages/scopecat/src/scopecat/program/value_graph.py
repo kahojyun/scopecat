@@ -1,4 +1,4 @@
-"""Shared identities and references for graph operation values."""
+"""Shared identities and references for logical program values."""
 
 from __future__ import annotations
 

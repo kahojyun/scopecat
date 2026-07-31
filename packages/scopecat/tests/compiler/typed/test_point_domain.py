@@ -24,22 +24,10 @@ from scopecat.compiler.typed.point_domain import (
     materialize_point_domain,
     verify_point_domain,
 )
-from scopecat.graph.relations.model import (
-    CellValue,
-    as_scalar_expr,
-    input_ref,
-    param,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import (
-    PointAxis,
-    iter_point_axis_linear,
-    point_axis_linear,
-    point_axis_values,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
     Entity,
     Int,
@@ -50,6 +38,18 @@ from scopecat.kernel.value_types import (
     Quantity as QuantityType,
 )
 from scopecat.kernel.value_validation import ValueValidationError
+from scopecat.program.expressions import (
+    as_scalar_expr,
+    input_ref,
+    param,
+    point_col,
+)
+from scopecat.program.point_domain import (
+    PointAxis,
+    iter_point_axis_linear,
+    point_axis_linear,
+    point_axis_values,
+)
 
 _INT = Scalar(Int())
 _TIME = Scalar(QuantityType(dimension="time", unit="ns"))

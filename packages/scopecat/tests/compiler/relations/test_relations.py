@@ -1,10 +1,10 @@
 import pytest
 
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.graph.relations.input_binding import bind_scalar_input_refs
-from scopecat.graph.relations.model import input_ref
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.expression_binding import bind_scalar_input_refs
+from scopecat.program.expressions import input_ref
 
 
 def test_quantity_converts_and_combines_compatible_units() -> None:

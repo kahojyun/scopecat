@@ -20,25 +20,6 @@ from scopecat.compiler.typed.specialization import (
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.compiler.typed.values import TableValue
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
-from scopecat.graph.relations.model import (
-    LiteralScalarExpr,
-    PointColumnScalarExpr,
-    param,
-    parameter_lookup,
-)
-from scopecat.graph.relations.point_domain import (
-    PointAxis,
-    PointAxisLinear,
-    point_axis_linear,
-    point_axis_values,
-)
-from scopecat.graph.table_values import ParameterTableSource
-from scopecat.graph.values import (
-    ComputeOutput,
-    ComputeResultRef,
-    OperationId,
-    operation_result_id,
-)
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
@@ -50,9 +31,28 @@ from scopecat.kernel.value_types import (
     Table,
     TableColumn,
 )
+from scopecat.program.expressions import (
+    LiteralScalarExpr,
+    PointColumnScalarExpr,
+    param,
+    parameter_lookup,
+)
 from scopecat.program.logical import (
     ImplementationId,
     LocalPythonImplementation,
+)
+from scopecat.program.point_domain import (
+    PointAxis,
+    PointAxisLinear,
+    point_axis_linear,
+    point_axis_values,
+)
+from scopecat.program.table_values import ParameterTableSource
+from scopecat.program.value_graph import (
+    ComputeOutput,
+    ComputeResultRef,
+    OperationId,
+    operation_result_id,
 )
 from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,

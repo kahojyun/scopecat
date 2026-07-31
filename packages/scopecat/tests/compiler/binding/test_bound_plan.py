@@ -29,19 +29,6 @@ from scopecat.compiler.typed.verification import (
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainProgramDef
 from scopecat.execution.local.program import CollectOperation
-from scopecat.graph.relations.model import (
-    CellValue,
-    ParameterLookupUse,
-    ScalarExpr,
-    input_ref,
-    param,
-    parameter_lookup,
-)
-from scopecat.graph.relations.point_domain import (
-    PointAxis,
-    point_axis_linear,
-    point_axis_values,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -50,6 +37,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import (
     Entity,
     Float,
@@ -58,7 +46,19 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.program.expressions import (
+    ParameterLookupUse,
+    ScalarExpr,
+    input_ref,
+    param,
+    parameter_lookup,
+)
 from scopecat.program.logical import AcquireEffect
+from scopecat.program.point_domain import (
+    PointAxis,
+    point_axis_linear,
+    point_axis_values,
+)
 from scopecat.records.config import (
     DomainTargetBinding,
     DomainTargetInstrumentMember,

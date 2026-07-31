@@ -13,11 +13,9 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     verify_relation_plan,
 )
-from scopecat.graph.relations.model import (
-    CellValue,
-    ScalarExpr,
-)
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import ScalarExpr
 
 
 def _static_bindings(bindings: RelationTypeBindings) -> RelationTypeBindings:

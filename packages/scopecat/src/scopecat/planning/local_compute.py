@@ -15,12 +15,12 @@ from scopecat.execution.local.program import (
     OutputInput,
     PayloadSlot,
 )
-from scopecat.graph.values import ValueId
 from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.problems import Problem, model_location
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.kernel.value_validation import coerce_literal
 from scopecat.planning.local_values import evaluate_scalar_value
+from scopecat.program.value_graph import ValueId
 
 
 def bind_compute_operations(

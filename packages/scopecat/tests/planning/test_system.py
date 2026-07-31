@@ -39,12 +39,6 @@ from scopecat.execution.program import (
     RunCoverageEffect,
     RunDomainJob,
 )
-from scopecat.graph.relations.model import (
-    lit,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.product_identity import product_use
@@ -69,9 +63,15 @@ from scopecat.planning.provider_binding import (
 )
 from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem, build_experiment_system
+from scopecat.program.expressions import (
+    lit,
+    parameter_lookup,
+    point_col,
+)
 from scopecat.program.logical import (
     MeasurementPostprocessorId,
 )
+from scopecat.program.point_domain import point_axis_values
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,

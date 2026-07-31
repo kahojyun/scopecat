@@ -16,12 +16,12 @@ from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.relations.model import ScalarExpr
-from scopecat.graph.values import ComputeResultRef, OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import PlanExpressionSource
 from scopecat.program.parameters import ParameterValueContract
+from scopecat.program.value_graph import ComputeResultRef, OperationId
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import load_config

@@ -9,10 +9,10 @@ from scopecat.compiler.frontend.logical_verification import (
     VerifiedLogicalProgram,
     verify_logical_program,
 )
-from scopecat.graph.values import ValueId
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.logical import LogicalProgram
+from scopecat.program.value_graph import ValueId
 from scopecat.sdk.instruments import InterfaceRef
 
 _MEASURE = InterfaceRef("test.measure/v1")

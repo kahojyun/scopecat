@@ -29,12 +29,12 @@ from scopecat.compiler.typed.program import (
     TypedDomainExecution,
 )
 from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
-from scopecat.graph.relations.model import lit
-from scopecat.graph.relations.point_domain import (
+from scopecat.program.expressions import lit
+from scopecat.program.logical import AcquireEffect
+from scopecat.program.point_domain import (
     map_point_axis_centers,
 )
-from scopecat.graph.values import ComputeResultRef, OperationId
-from scopecat.program.logical import AcquireEffect
+from scopecat.program.value_graph import ComputeResultRef, OperationId
 
 
 def specialize_bound_facts(

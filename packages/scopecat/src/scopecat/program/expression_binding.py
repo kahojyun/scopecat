@@ -10,19 +10,19 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
 from typing import cast, override
 
-from scopecat.graph.relations.analysis import plan_input_refs
-from scopecat.graph.relations.model import (
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_data import CellValue
+from scopecat.program.expression_analysis import plan_input_refs
+from scopecat.program.expressions import (
     BinaryScalarExpr,
-    CellValue,
     InputScalarExpr,
     ParameterLookupScalarExpr,
     ScalarExpr,
     ScalarExpression,
     lit,
 )
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.quantity import Quantity
 
 _EMPTY_INPUT_RESOLUTION: frozenset[str] = frozenset()
 

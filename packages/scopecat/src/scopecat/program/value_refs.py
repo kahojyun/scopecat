@@ -9,39 +9,11 @@ from typing import Never, cast, override
 from uuid import UUID, uuid4
 
 import scopecat.kernel.frozen as _frozen
-from scopecat.graph.relations.analysis import plan_input_refs
-from scopecat.graph.relations.model import (
-    BinaryScalarExpr,
-    ParameterLookupUse,
-    Row,
-    ScalarExpr,
-    ScalarExpression,
-    as_scalar_expr,
-    input_ref,
-    lit,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.graph.relations.operators import (
-    ScalarOperator,
-    scalar_operator_result_type,
-)
-from scopecat.graph.table_values import (
-    InputTableSource,
-    LiteralTableSource,
-    ParameterTableSource,
-    TableSource,
-    literal_table_source,
-)
-from scopecat.graph.values import (
-    ComputeResultRef,
-    OperationId,
-    operation_result_id,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_data import Row
 from scopecat.kernel.value_type_compatibility import (
     literal_scalar_type as _literal_scalar_type,
 )
@@ -50,10 +22,38 @@ from scopecat.kernel.value_validation import (
     ValuePath,
     coerce_literal,
 )
+from scopecat.program.expression_analysis import plan_input_refs
+from scopecat.program.expression_operators import (
+    ScalarOperator,
+    scalar_operator_result_type,
+)
+from scopecat.program.expressions import (
+    BinaryScalarExpr,
+    ParameterLookupUse,
+    ScalarExpr,
+    ScalarExpression,
+    as_scalar_expr,
+    input_ref,
+    lit,
+    parameter_lookup,
+    point_col,
+)
 from scopecat.program.identities import InvocationKey
 from scopecat.program.parameters import (
     ParameterContract,
     merge_parameter_contracts,
+)
+from scopecat.program.table_values import (
+    InputTableSource,
+    LiteralTableSource,
+    ParameterTableSource,
+    TableSource,
+    literal_table_source,
+)
+from scopecat.program.value_graph import (
+    ComputeResultRef,
+    OperationId,
+    operation_result_id,
 )
 
 type _InputBindingLayers = tuple[tuple[tuple[str, ValueRef], ...], ...]
@@ -666,7 +666,7 @@ def internal_lower_value_ref(
         layers = source.input_binding_layers
         if not layers:
             return expression
-        from scopecat.graph.relations.input_binding import (
+        from scopecat.program.expression_binding import (
             substitute_scalar_input_refs,
         )
 
@@ -746,7 +746,7 @@ def internal_literal_value_ref(
 ) -> ValueRef:
     """Capture one closed literal as a typed edge without exposing raw IR."""
 
-    from scopecat.graph.relations.input_binding import input_cell
+    from scopecat.program.expression_binding import input_cell
 
     coerced = coerce_literal(value_type, value, path=path)
     if isinstance(value_type, Table):
@@ -813,7 +813,7 @@ def _value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
     if not isinstance(source, _ExpressionValueSource):
         return frozenset()
 
-    from scopecat.graph.relations.input_binding import scalar_input_refs
+    from scopecat.program.expression_binding import scalar_input_refs
 
     input_ids = frozenset(scalar_input_refs(source.expression))
     layers = source.input_binding_layers

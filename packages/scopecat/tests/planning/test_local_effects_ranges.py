@@ -12,19 +12,19 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.relations.model import (
-    param,
-    point_col,
-)
-from scopecat.graph.relations.point_domain import (
-    point_axis_linear,
-    point_axis_values,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import (
+    param,
+    point_col,
+)
+from scopecat.program.point_domain import (
+    point_axis_linear,
+    point_axis_values,
+)
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,

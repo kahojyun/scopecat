@@ -1,15 +1,15 @@
-from scopecat.graph.relations.analysis import plan_input_refs
-from scopecat.graph.relations.model import (
+from scopecat.kernel.value_types import (
+    Float,
+    Scalar,
+    String,
+)
+from scopecat.program.expression_analysis import plan_input_refs
+from scopecat.program.expressions import (
     ParameterLookupUse,
     input_ref,
     param,
     parameter_lookup,
     point_col,
-)
-from scopecat.kernel.value_types import (
-    Float,
-    Scalar,
-    String,
 )
 
 _FLOAT = Scalar(Float())

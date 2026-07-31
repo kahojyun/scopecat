@@ -1,34 +1,20 @@
-"""Backend-neutral scalar plan nodes and runtime relation values.
+"""Canonical scalar expressions and runtime values shared across the program.
 
-Nodes contain declared semantics and construction helpers only. Traversal and
-reference analysis live in :mod:`scopecat.graph.relations.analysis`;
-materialization belongs to an explicitly selected compiler backend.
+Expressions retain one shape from authoring composition through verification,
+binding, specialization, and evaluation. Runtime materialization remains an
+explicitly selected compiler concern.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TypeGuard, cast
+from typing import cast
 
-from scopecat.graph.relations.operators import ScalarOperator
-from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_data import CellValue as _CellValue
+from scopecat.kernel.value_data import is_cell_value as _is_cell_value
 from scopecat.kernel.value_types import Scalar
-
-type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
-type CellValue = ScalarValue | dict[str, object]
-type Row = dict[str, CellValue]
-
-
-def is_cell_value(value: object) -> TypeGuard[CellValue]:
-    """Return whether a runtime value belongs to the relation cell domain."""
-
-    return value is None or isinstance(
-        value,
-        str | int | float | bool | Quantity | EntityRef | PayloadValue | dict,
-    )
+from scopecat.program.expression_operators import ScalarOperator
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +97,7 @@ class ScalarExpr:
 
 @dataclass(frozen=True, slots=True)
 class LiteralScalarExpr(ScalarExpr):
-    value: CellValue
+    value: _CellValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +138,7 @@ type ScalarExpression = (
 )
 
 
-def lit(value: CellValue) -> LiteralScalarExpr:
+def lit(value: _CellValue) -> LiteralScalarExpr:
     return LiteralScalarExpr(value=value)
 
 
@@ -189,7 +175,7 @@ def parameter_lookup(
 def as_scalar_expr(value: object) -> ScalarExpression:
     if isinstance(value, ScalarExpr):
         return cast("ScalarExpression", value)
-    if is_cell_value(value):
+    if _is_cell_value(value):
         return lit(value)
     msg = f"cannot convert {value!r} to scalar expression"
     raise TypeError(msg)

@@ -8,9 +8,9 @@ from scopecat.execution.effects.compute import (
 )
 from scopecat.execution.effects.journaled import JournaledEffectBoundary
 from scopecat.execution.local.program import ComputeOperation, PayloadSlot
-from scopecat.graph.values import ComputeOutput, OperationId, operation_result_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar
+from scopecat.program.value_graph import ComputeOutput, OperationId, operation_result_id
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from tests.testkit.runtime import FakeExecutionJournal
 

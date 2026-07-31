@@ -39,7 +39,6 @@ from scopecat.execution.local.program import (
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageEffect
-from scopecat.graph.values import ComputeResultRef, ValueId
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
@@ -71,6 +70,7 @@ from scopecat.planning.routing import (
     RoutingView,
 )
 from scopecat.program.logical import AcquireEffect
+from scopecat.program.value_graph import ComputeResultRef, ValueId
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,

@@ -11,8 +11,6 @@ from scopecat.compiler.frontend.logical_closure import (
     logical_compute_node_id,
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
-from scopecat.graph.relations.point_domain import PointAxes
-from scopecat.graph.values import OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemPhase,
@@ -55,6 +53,7 @@ from scopecat.program.parameters import (
     ParameterContract,
     merge_parameter_contracts,
 )
+from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import (
     ModuleProductDecl,
     RecordSelection,
@@ -62,6 +61,7 @@ from scopecat.program.products import (
     prefix_product_decl,
 )
 from scopecat.program.scans import AxisSpec, scan_parameter_contracts
+from scopecat.program.value_graph import OperationId
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,
