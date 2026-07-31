@@ -1,31 +1,32 @@
-"""Project compiler results into closed runtime measurement catalogs."""
+"""Project bound compiler results into closed runtime measurement catalogs."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
-from scopecat.compiler.linking.linked import LinkedPlan, MaterializedLinkedPoints
+from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.typed.point_domain import MaterializedPointDomain
 from scopecat.measurements.points import RunPoint, RunPointCatalog, RunPointContract
 from scopecat.measurements.records import point_coordinate_ids
 from scopecat.measurements.values import MeasurementValueCatalog
+from scopecat.planning.point_materialization import MaterializedBoundPoints
 
 
 def project_measurement_catalog(
-    linked_points: MaterializedLinkedPoints,
+    bound_points: MaterializedBoundPoints,
     point_ordinals: Sequence[int] | None = None,
 ) -> MeasurementValueCatalog:
     """Close compiler point and product inventories at the run boundary."""
 
     return project_measurement_catalog_from_domain(
-        linked_points.linked_plan,
-        linked_points.point_domain,
+        bound_points.bound_plan,
+        bound_points.point_domain,
         point_ordinals,
     )
 
 
 def project_measurement_catalog_from_domain(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     point_domain: MaterializedPointDomain,
     point_ordinals: Sequence[int] | None = None,
 ) -> MeasurementValueCatalog:
@@ -41,28 +42,28 @@ def project_measurement_catalog_from_domain(
     coordinate_ids = tuple(point_coordinate_ids(points))
     return MeasurementValueCatalog(
         RunPointContract(
-            experiment_id=linked.program.id,
-            experiment_kind=linked.program.kind,
+            experiment_id=bound.program.id,
+            experiment_kind=bound.program.kind,
             coordinate_ids=coordinate_ids,
         ),
-        linked.program.product_uses,
-        linked.program.product_defs,
+        bound.program.product_uses,
+        bound.program.product_defs,
     )
 
 
 def project_run_point_catalog(
-    linked_points: MaterializedLinkedPoints,
+    bound_points: MaterializedBoundPoints,
     point_ordinals: Sequence[int] | None = None,
 ) -> RunPointCatalog:
     return project_run_point_catalog_from_domain(
-        linked_points.linked_plan,
-        linked_points.point_domain,
+        bound_points.bound_plan,
+        bound_points.point_domain,
         point_ordinals,
     )
 
 
 def project_run_point_catalog_from_domain(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     point_domain: MaterializedPointDomain,
     point_ordinals: Sequence[int] | None = None,
 ) -> RunPointCatalog:
@@ -78,8 +79,8 @@ def project_run_point_catalog_from_domain(
     coordinate_ids = tuple(point_coordinate_ids(points))
     return RunPointCatalog(
         contract=RunPointContract(
-            experiment_id=linked.program.id,
-            experiment_kind=linked.program.kind,
+            experiment_id=bound.program.id,
+            experiment_kind=bound.program.kind,
             coordinate_ids=coordinate_ids,
         ),
         points=tuple(

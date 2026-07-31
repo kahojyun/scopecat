@@ -1,7 +1,7 @@
 """Config-free verification for one fully composed logical program.
 
 This pass owns invariants that depend only on the source graph.  Keeping it
-separate from linking prevents malformed dataflow from being hidden behind an
+separate from binding prevents malformed dataflow from being hidden behind an
 unrelated config or parameter-catalog error.
 """
 
@@ -118,7 +118,7 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
     """Normalize and close every config-independent invariant once.
 
     The verifier deliberately has no authoring context or config argument.  A
-    successful result therefore proves that config-dependent linking will not
+    successful result therefore proves that config-dependent binding will not
     encounter a missing compute producer, a compute cycle, or a dangling
     logical-resource reference.
     """

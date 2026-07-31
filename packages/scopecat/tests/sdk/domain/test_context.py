@@ -4,13 +4,17 @@ from pathlib import Path
 from typing import Annotated
 
 import scopecat as sc
-from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPoints,
-    materialize_linked_points,
-)
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.measurements.results import MeasurementScalar, MeasurementValue
+from scopecat.planning.domain_bridge import (
+    make_domain_batch_request,
+    make_domain_call_view,
+)
+from scopecat.planning.point_materialization import (
+    MaterializedBoundPoints,
+    materialize_bound_points,
+)
 from scopecat.program.domain import domain_program
 from scopecat.program.products import ModuleProductDecl
 from scopecat.sdk.domain import (
@@ -19,11 +23,7 @@ from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainProductUseRef,
 )
-from scopecat.sdk.domain._bridge import (
-    make_domain_batch_request,
-    make_domain_call_view,
-)
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
 
@@ -32,7 +32,7 @@ def _domain_scenario(
     *,
     namespace: str,
     record_raw: bool = True,
-) -> MaterializedLinkedPoints:
+) -> MaterializedBoundPoints:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.coordinate(f"{namespace}_count", count_type)
     program = domain_program(
@@ -93,31 +93,31 @@ def _domain_scenario(
             experiment.record(module_call.products["call/raw"], record_id="raw")
         experiment.record(module_call.products.summary, record_id="summary")
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template.bind(),
         config_profile=load_config(),
     )
-    linked = resolved
-    linked_points = materialize_linked_points(linked)
-    return linked_points
+    bound = resolved
+    bound_points = materialize_bound_points(bound)
+    return bound_points
 
 
 def _batch_context(
-    linked_points: MaterializedLinkedPoints,
+    bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
     *,
     batch_ordinal: int = 0,
 ) -> DomainBatchRequest:
-    program = linked_points.linked_plan.program
+    program = bound_points.bound_plan.program
     execution = core_domain_executions(program)[0]
     call = make_domain_call_view(
-        linked_points.linked_plan,
+        bound_points.bound_plan,
         execution.id,
         domain_result_closure(program, execution.id),
     )
     return make_domain_batch_request(
         call,
-        linked_points,
+        bound_points,
         point_ordinals,
         batch_ordinal=batch_ordinal,
     )
@@ -126,12 +126,12 @@ def _batch_context(
 def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
     tmp_path: Path,
 ) -> None:
-    linked_points = _domain_scenario(
+    bound_points = _domain_scenario(
         tmp_path,
         namespace="hidden-input",
         record_raw=False,
     )
-    program = linked_points.linked_plan.program
+    program = bound_points.bound_plan.program
     call = core_domain_executions(program)[0]
     [postprocessor] = program.measurement_postprocessors
     [direct_result] = call.results
@@ -144,7 +144,7 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
     assert set(postprocessor_output.product_use_ids) == recorded_use_ids
 
     context = _batch_context(
-        linked_points,
+        bound_points,
         (0, 1, 2),
     )
 
@@ -156,17 +156,17 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
 def test_domain_batch_request_scopes_points_inputs_and_product_uses(
     tmp_path: Path,
 ) -> None:
-    linked_points = _domain_scenario(
+    bound_points = _domain_scenario(
         tmp_path,
         namespace="owned",
     )
     full = _batch_context(
-        linked_points,
+        bound_points,
         (0, 1, 2),
     )
     raw_uses = full.call.result("raw").product_uses
     context = _batch_context(
-        linked_points,
+        bound_points,
         (1, 2),
         batch_ordinal=4,
     )
@@ -202,7 +202,7 @@ def test_domain_batch_request_scopes_points_inputs_and_product_uses(
 def test_domain_batch_request_owns_fresh_sdk_refs(
     tmp_path: Path,
 ) -> None:
-    linked_points = _domain_scenario(
+    bound_points = _domain_scenario(
         tmp_path,
         namespace="owned",
     )
@@ -211,7 +211,7 @@ def test_domain_batch_request_owns_fresh_sdk_refs(
         namespace="foreign",
     )
     context = _batch_context(
-        linked_points,
+        bound_points,
         (0, 1),
     )
     foreign = _batch_context(

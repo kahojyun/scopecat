@@ -9,8 +9,8 @@ from scopecat.compiler.typed.program import core_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
-from tests.testkit.typed_program import link_program
+from tests.testkit.authoring import bind_invocation, load_config
+from tests.testkit.typed_program import bind_core_program
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_SAMPLE_RAW = _SCALAR_SIGNAL.acquisition("sample").result("raw")
@@ -61,7 +61,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         experiment.record(call.products.derived, record_id="first")
         experiment.record(call.products.derived, record_id="second")
 
-    resolved = link_invocation(template(), config_profile=load_config())
+    resolved = bind_invocation(template(), config_profile=load_config())
     program = resolved.program
 
     [postprocessor] = program.measurement_postprocessors
@@ -84,8 +84,8 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     } == {"lowering/raw"}
     assert postprocessor.kernel is _kernel
 
-    linked = link_program(program, resolved.environment)
-    assert linked.program.measurement_postprocessors == (postprocessor,)
+    bound = bind_core_program(program, resolved.environment)
+    assert bound.program.measurement_postprocessors == (postprocessor,)
 
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
@@ -118,7 +118,7 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
         experiment.record(call.products["right/derived"], record_id="right")
 
     def compile_input_use_ids() -> dict[str, str]:
-        program = link_invocation(
+        program = bind_invocation(
             template(),
             config_profile=load_config(),
         ).program
@@ -152,7 +152,7 @@ def test_recorded_product_requires_a_producer() -> None:
         experiment.record(call.products.orphan)
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(template(), config_profile=load_config())
+        bind_invocation(template(), config_profile=load_config())
 
     assert [problem.code for problem in error.value.problems] == [
         "product_acquire_missing"

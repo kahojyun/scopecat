@@ -13,7 +13,7 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     TableParameterValue,
 )
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 from tests.testkit.materialized_effects import materialized_effects_contract
 
@@ -57,7 +57,7 @@ def _resolve_root_domain_dependency(
             )
         )
 
-    link_invocation(template(), config_profile=config)
+    bind_invocation(template(), config_profile=config)
 
 
 def _empty_module(id: str) -> sc.ExperimentModule[...]:
@@ -244,7 +244,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
         experiment.run(parent(frequency=parameter))
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(template(), config_profile=load_config())
+        bind_invocation(template(), config_profile=load_config())
 
     assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
 
@@ -267,7 +267,7 @@ def test_parameter_contract_survives_scan_lowering() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             invocation,
             config_profile=load_config(),
         )
@@ -311,7 +311,7 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
     invocation = _scan_invocation("test.parameter-contract-scan-target", scan)
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             invocation,
             config_profile=_config_with_parameter_table(),
         )
@@ -342,7 +342,7 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
     invocation = _scan_invocation("test.parameter-contract-scan-key", scan)
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             invocation,
             config_profile=_config_with_parameter_table(),
         )
@@ -371,7 +371,7 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
         ),
     )
 
-    resolved = link_invocation(invocation, config_profile=config)
+    resolved = bind_invocation(invocation, config_profile=config)
     materialized = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,
@@ -410,7 +410,7 @@ def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
     invocation = _scan_invocation("test.parameter-scan-write-type", scan)
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(invocation, config_profile=config)
+        bind_invocation(invocation, config_profile=config)
 
     assert error.value.problems[0].code == "authoring_parameter_scan_type_mismatch"
 
@@ -490,7 +490,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             )
         )
 
-    link_invocation(
+    bind_invocation(
         template(device="q0"),
         config_profile=config,
     )
@@ -541,7 +541,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
                 )
             )
 
-        link_invocation(wrong_template(device="q0"), config_profile=config)
+        bind_invocation(wrong_template(device="q0"), config_profile=config)
 
     assert wrong_key_shape.value.problems[0].code == (
         "authoring_parameter_lookup_key_mismatch"

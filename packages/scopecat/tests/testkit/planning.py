@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_invocation,
-    resolve_compiled_invocation,
 )
 from scopecat.config.candidates import (
     CandidateConfig,
@@ -60,11 +60,11 @@ def plan_experiment(
         else build_experiment_system(selected_config)
     )
     environment = build_config_environment(selected_config)
-    linked = resolve_compiled_invocation(compiled, environment=environment)
+    bound = bind_program(compiled.program, environment)
     return PlannedRun(
         config=selected_config,
         request=compiled.request,
-        program=compile_run_program(selected_system, linked=linked),
+        program=compile_run_program(selected_system, bound=bound),
         config_source=config_source,
         system=selected_system,
     )
@@ -124,9 +124,9 @@ def _check_compiled_experiment(
         return ExperimentCheckResult(problems=error.problems, preview=None)
 
     try:
-        linked = resolve_compiled_invocation(experiment, environment=environment)
+        bound = bind_program(experiment.program, environment)
         preview = build_run_program_preview(
-            compile_run_program(selected_system, linked=linked)
+            compile_run_program(selected_system, bound=bound)
         )
         problems: tuple[Problem, ...] = ()
     except ProblemFailure as error:

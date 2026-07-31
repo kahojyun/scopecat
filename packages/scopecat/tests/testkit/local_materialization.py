@@ -4,8 +4,7 @@ from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
-from scopecat.compiler.linking.linked import LinkedPlan, materialize_linked_points
-from scopecat.compiler.measurement_projection import project_run_point_catalog
+from scopecat.compiler.bind import BoundPlan
 from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.product_identity import ProductUseId
@@ -18,6 +17,8 @@ from scopecat.planning.local_materialization import (
 from scopecat.planning.local_materialization import (
     prepare_local_target,
 )
+from scopecat.planning.measurement_projection import project_run_point_catalog
+from scopecat.planning.point_materialization import materialize_bound_points
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,26 +50,26 @@ class LocalEffectInspection:
 
 
 def materialize_local_execution(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     *,
     product_use_ids: AbstractSet[ProductUseId] | None = None,
     instrument_order: Sequence[str] = (),
 ) -> LocalEffectInspection:
-    """Lower a linked program for focused inspection of final effect coverage."""
+    """Lower a bound program for focused inspection of final effect coverage."""
 
-    linked_points = materialize_linked_points(linked)
+    bound_points = materialize_bound_points(bound)
     selected_product_use_ids = (
-        frozenset(use.id for use in linked.program.product_uses)
+        frozenset(use.id for use in bound.program.product_uses)
         if product_use_ids is None
         else frozenset(product_use_ids)
     )
     target = prepare_local_target(
-        linked,
+        bound,
         product_use_ids=selected_product_use_ids,
         instrument_order=instrument_order,
     )
     lowered = lower_local_execution(
-        linked_points,
+        bound_points,
         target=target,
     )
     ordered_effects = (
@@ -88,7 +89,7 @@ def materialize_local_execution(
         *sorted(instrument_ids - set(target.instrument_order)),
     )
     return LocalEffectInspection(
-        points=project_run_point_catalog(linked_points).points,
+        points=project_run_point_catalog(bound_points).points,
         effects=ordered_effects,
         resource_order=resource_order,
         resource_requirements=claims,

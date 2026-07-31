@@ -44,8 +44,8 @@ from tests.testkit.local_materialization import (
 )
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import (
+    bind_core_program,
     instrument_acquisition,
-    link_program,
     observable_product,
     typed_program,
 )
@@ -94,7 +94,7 @@ def _bind(
         build_config_environment(config),
         parameters=parameters(),
     )
-    return materialize_local_execution(link_program(program, environment))
+    return materialize_local_execution(bind_core_program(program, environment))
 
 
 def test_record_products_keep_their_exact_logical_resource_bindings() -> None:

@@ -150,7 +150,7 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     assert len({point.logical_id.value for point in preview.points}) == 2
 
 
-def test_materialized_effects_rejects_link_problems_without_duplicates() -> None:
+def test_materialized_effects_rejects_bind_problems_without_duplicates() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     center_type = Scalar(QuantityType(unit="GHz"))
     center = relation_use(
@@ -182,5 +182,5 @@ def test_materialized_effects_rejects_link_problems_without_duplicates() -> None
     assert [
         problem.code
         for problem in failure.value.problems
-        if problem.code == "linked_parameter_missing"
-    ] == ["linked_parameter_missing"]
+        if problem.code == "bound_parameter_missing"
+    ] == ["bound_parameter_missing"]

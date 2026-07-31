@@ -19,7 +19,7 @@ program model           shared symbolic ModuleIR, values, products, scans
 VerifiedLogicalProgram  config-free experiment proof
     | lower, specialize, verify, and bind one accepted environment
     v
-LinkedPlan              sealed CoreProgram plus configuration environment
+BoundPlan               config-bound symbolic program
     | materialize for one experiment system
     v
 RunProgram              closed residual effect program

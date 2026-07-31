@@ -5,13 +5,17 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.linking.linked import (
-    materialize_linked_points,
-)
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.measurements.results import MeasurementDType, MeasurementScalar
+from scopecat.planning.domain_bridge import (
+    make_domain_batch_request,
+    make_domain_call_view,
+)
+from scopecat.planning.point_materialization import (
+    materialize_bound_points,
+)
 from scopecat.program.domain import domain_program
 from scopecat.program.products import ModuleProductDecl
 from scopecat.sdk.domain import (
@@ -19,10 +23,6 @@ from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultBinding,
     DomainResultMapping,
-)
-from scopecat.sdk.domain._bridge import (
-    make_domain_batch_request,
-    make_domain_call_view,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output_values
@@ -35,7 +35,7 @@ from scopecat.sdk.domain.runtime import (
     DomainFetchResult,
     DomainSubmitReceipt,
 )
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
 type _ResultBinding = DomainResultBinding[str]
@@ -109,22 +109,22 @@ def _preparation_context(
                 record_id="raw-second",
             )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         selected.bind(),
         config_profile=load_config(),
     )
-    linked = resolved
-    linked_points = materialize_linked_points(linked)
-    execution_id = core_domain_executions(linked.program)[0].id
-    closure = domain_result_closure(linked.program, execution_id)
+    bound = resolved
+    bound_points = materialize_bound_points(bound)
+    execution_id = core_domain_executions(bound.program)[0].id
+    closure = domain_result_closure(bound.program, execution_id)
     call_view = make_domain_call_view(
-        linked,
+        bound,
         execution_id,
         closure,
     )
     return make_domain_batch_request(
         call_view,
-        linked_points,
+        bound_points,
         (0, 1),
         batch_ordinal=0,
     )

@@ -9,12 +9,12 @@ import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
+from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.elaboration import (
     LogicalProgram,
     compose_module,
 )
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.frontend.program_lowering import link_verified_assembly
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
@@ -73,7 +73,7 @@ from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     SIMPLE_MODULE,
-    link_invocation,
+    bind_invocation,
     load_config,
     simple_template,
 )
@@ -183,7 +183,7 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     template = simple_template()
     assert template.definition.metadata == {"assembled_by": "template"}
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template.bind(subject="q0"),
         config_profile=load_config(),
     )
@@ -247,11 +247,11 @@ def test_template_selects_module_products_as_records() -> None:
         experiment.scan(scan)
         experiment.record(call.products.signal)
 
-    unselected = link_invocation(
+    unselected = bind_invocation(
         without_selection(subject="q0"),
         config_profile=load_config(),
     )
-    selected = link_invocation(
+    selected = bind_invocation(
         with_selection(subject="q0"),
         config_profile=load_config(),
     )
@@ -510,7 +510,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         )
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template.bind().scan(
             sc.axis(
                 qubit,
@@ -638,7 +638,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
         )
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(template(qubit="q0"), config_profile=config)
+    resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,
@@ -683,7 +683,7 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
         call = experiment.run(module())
         experiment.record(call.products.iq)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template(),
         config_profile=load_config(),
     )
@@ -762,7 +762,7 @@ def test_link_resolves_config_dependent_assembly_fragments() -> None:
         parameter_contracts=scan_parameter_contracts(axis),
     )
     environment = build_config_environment(load_config())
-    resolved = link_verified_assembly(verify_logical_program(assembly), environment)
+    resolved = bind_program(verify_logical_program(assembly), environment)
 
     assert resolved.program.id == "authored-simple-scan"
     assert resolved.environment.config.id == load_config().id
@@ -783,7 +783,7 @@ def test_link_validates_scan_axis_parameter_contracts() -> None:
     )
     environment = build_config_environment(load_config())
     with pytest.raises(CheckFailed) as caught:
-        link_verified_assembly(verify_logical_program(assembly), environment)
+        bind_program(verify_logical_program(assembly), environment)
 
     assert caught.value.problems[0].code == "unknown_authoring_parameter"
     assert caught.value.problems[0].location == model_location(
@@ -1189,7 +1189,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         call = experiment.run(scan(DRIVE_FREQUENCY_POINT))
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template().scan(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
@@ -1248,7 +1248,7 @@ def test_product_declaration_uses_axes() -> None:
         call = experiment.run(module(DRIVE_FREQUENCY_POINT))
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template().scan(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
@@ -1349,7 +1349,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
             )
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template(qubit="q1"),
         config_profile=config,
     )
@@ -1381,7 +1381,7 @@ def test_explicit_config_links_experiment() -> None:
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
 
-    resolved = link_invocation(template(), config_profile=config)
+    resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,

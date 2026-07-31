@@ -27,7 +27,7 @@ from scopecat.program.products import (
     product_axis_dimension_id,
 )
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SAMPLE = _SCALAR_SIGNAL.acquisition("sample")
@@ -75,7 +75,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
         experiment.run(call)
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -111,7 +111,7 @@ def test_product_axes_use_product_local_dimensions_by_default() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -155,7 +155,7 @@ def test_product_axes_share_dimensions_only_when_explicit() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -305,7 +305,7 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
             call.products.default,
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -427,7 +427,7 @@ def test_explicit_instances_select_same_named_products_independently(
             record_id="right_signal",
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -513,7 +513,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
             record_id="nested_signal",
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -599,7 +599,7 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
             record_id="second",
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -635,7 +635,7 @@ def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) 
         experiment.run(call)
         experiment.records(primary, secondary)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )

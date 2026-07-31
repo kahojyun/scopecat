@@ -1,4 +1,4 @@
-"""Specialize linked host semantics into point-local operations."""
+"""Specialize bound host semantics into point-local operations."""
 
 from __future__ import annotations
 
@@ -10,11 +10,8 @@ from typing import Protocol, cast
 
 from pydantic import JsonValue
 
+from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
-    MaterializedLinkedPoints,
-)
 from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
@@ -67,6 +64,7 @@ from scopecat.planning.local_effects import (
     MaterializedLocalEffects,
 )
 from scopecat.planning.local_values import evaluate_scalar_value
+from scopecat.planning.point_materialization import MaterializedBoundPoints
 from scopecat.planning.routing import (
     ResourceBinding,
     ResourceBindingError,
@@ -136,7 +134,7 @@ class _InstrumentOperation(Protocol):
 
 
 def materialize_local_execution(
-    linked_points: MaterializedLinkedPoints,
+    bound_points: MaterializedBoundPoints,
     *,
     target: LocalTargetPlan,
 ) -> MaterializedLocalEffects:
@@ -145,7 +143,7 @@ def materialize_local_execution(
     program = target.program
     problems: list[Problem] = []
     selected_instrument_order = target.instrument_order
-    materialized_domain = linked_points.point_domain
+    materialized_domain = bound_points.point_domain
     planner_points = materialized_domain.points
     point_count = len(planner_points)
     point_by_ordinal = {point.logical_ordinal: point for point in planner_points}
@@ -153,7 +151,7 @@ def materialize_local_execution(
         point.logical_ordinal: params
         for point, params in zip(
             planner_points,
-            linked_points.point_parameters,
+            bound_points.point_parameters,
             strict=True,
         )
     }
@@ -325,7 +323,7 @@ def materialize_local_execution(
 
 
 def materialize_local_final_state(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     *,
     target: LocalTargetPlan,
 ) -> tuple[ApplyStateOperation, ...]:
@@ -338,7 +336,7 @@ def materialize_local_final_state(
     resources = _select_resources(
         target.program,
         target.resource_ports,
-        ctx=EvalContext(params=linked.environment.parameters),
+        ctx=EvalContext(params=bound.environment.parameters),
         context="normal completion",
         problems=problems,
         selected_port_ids=frozenset(
@@ -352,7 +350,7 @@ def materialize_local_final_state(
                 evaluate_state_spec(
                     assignment,
                     point_index=0,
-                    ctx=EvalContext(params=linked.environment.parameters),
+                    ctx=EvalContext(params=bound.environment.parameters),
                 )
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
@@ -382,7 +380,7 @@ def materialize_local_final_state(
 
 
 def prepare_local_target(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     *,
     product_use_ids: AbstractSet[ProductUseId],
     instrument_order: Sequence[str] = (),
@@ -395,31 +393,31 @@ def prepare_local_target(
     """
 
     requested = frozenset(product_use_ids)
-    available = {use.id for use in linked.program.product_uses}
+    available = {use.id for use in bound.program.product_uses}
     unknown = sorted(use_id.value for use_id in requested - available)
     if unknown:
         msg = "local product selection contains unknown uses: " + ", ".join(unknown)
         raise ValueError(msg)
     product_uses = tuple(
-        use for use in linked.program.product_uses if use.id in requested
+        use for use in bound.program.product_uses if use.id in requested
     )
     active_resource_ports = _active_resource_port_ids(
-        linked.program,
+        bound.program,
         product_uses=product_uses,
     )
     resource_ports: dict[LogicalResourcePortId, ResourcePortManifest] = {}
     if active_resource_ports:
-        physical_resources = RoutingView.from_config(linked.environment.config)
+        physical_resources = RoutingView.from_config(bound.environment.config)
         resource_ports = {
             requirement.port_id: physical_resources.bind_port(
                 port_id=requirement.port_id,
                 interfaces=requirement.interfaces,
             )
-            for requirement in linked.program.resource_requirements
+            for requirement in bound.program.resource_requirements
             if requirement.port_id in active_resource_ports
         }
     return LocalTargetPlan(
-        program=linked.program,
+        program=bound.program,
         product_uses=product_uses,
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,

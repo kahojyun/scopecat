@@ -91,7 +91,7 @@ class ProductRef:
 
     @property
     def id(self) -> str:
-        """The injective, scope-qualified identity used during linking."""
+        """The injective, scope-qualified identity used during binding."""
 
         return self.product_id.qualified_name
 

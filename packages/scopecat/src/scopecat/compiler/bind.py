@@ -1,9 +1,10 @@
-"""Lower a verified symbolic assembly into a typed compiler program."""
+"""Bind one verified logical program to an accepted configuration."""
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
+from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_lowering import (
     input_row,
@@ -30,15 +31,30 @@ from scopecat.compiler.frontend.parameter_contract_validation import (
 from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.compiler.frontend.product_lowering import lower_products
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
-from scopecat.compiler.linking.linked import LinkedPlan, link_program
+from scopecat.compiler.relations.context import ParameterRelationData
+from scopecat.compiler.relations.evaluation import (
+    normalize_relation_parameter_import,
+)
 from scopecat.compiler.relations.verification import (
+    PlanImportNamespace,
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
 )
 from scopecat.compiler.semantic.model import AcquireEffect
+from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.specialization import specialize_core_program
+from scopecat.compiler.typed.verification import (
+    ProgramRelationConsumer,
+    VerifiedCoreProgram,
+    program_relation_consumers,
+    seal_typed_program,
+)
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import Problem, ProblemPhase, model_location
 from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.program.bindings import (
     EnsureStateIntent,
     ExperimentBindingIntent,
@@ -50,15 +66,38 @@ from scopecat.program.parameters import (
 from scopecat.records.parameter import ParameterCatalog
 
 
-def lower_verified_assembly(
-    verified: VerifiedLogicalProgram,
+@dataclass(frozen=True, slots=True)
+class BoundPlan:
+    """One symbolic program bound to its sole accepted configuration.
+
+    ``VerifiedCoreProgram`` is a private transitional residual while logical
+    expressions and effects move into the shared program model. Physical
+    points and targets remain planning concerns.
+    """
+
+    _verified_program: VerifiedCoreProgram
+    environment: ConfigEnvironment
+
+    @property
+    def program(self) -> CoreProgram:
+        """Return the specialized residual program."""
+
+        return self._verified_program.program
+
+    @property
+    def point_domain(self) -> VerifiedPointDomain:
+        return self._verified_program.point_domain
+
+
+def bind_program(
+    program: VerifiedLogicalProgram,
     environment: ConfigEnvironment,
-) -> CoreProgram:
-    """Bind a config-free assembly proof into one config-dependent program."""
+) -> BoundPlan:
+    """Lower, specialize, verify, and bind one logical program exactly once."""
 
     try:
-        return _lower_verified_assembly(
-            verified,
+        lowered = _lower_logical_program(
+            program,
             environment,
         )
     except RelationPlanVerificationError as error:
@@ -72,21 +111,13 @@ def lower_verified_assembly(
                 "plan_path": list(error.path),
             },
         )
-
-
-def link_verified_assembly(
-    verified: VerifiedLogicalProgram,
-    environment: ConfigEnvironment,
-) -> LinkedPlan:
-    """Lower, specialize, verify, and bind one assembly to its environment."""
-
-    return link_program(
-        lower_verified_assembly(verified, environment),
+    return _bind_core_program(
+        lowered,
         environment,
     )
 
 
-def _lower_verified_assembly(
+def _lower_logical_program(
     verified: VerifiedLogicalProgram,
     environment: ConfigEnvironment,
 ) -> CoreProgram:
@@ -231,4 +262,104 @@ def _relation_type_bindings(
             if isinstance(port.value_type, Scalar)
         },
         parameters=parameter_types,
+    )
+
+
+def _bind_core_program(
+    program: CoreProgram,
+    environment: ConfigEnvironment,
+) -> BoundPlan:
+    """Specialize and seal the transitional residual compiler program."""
+
+    verified_program = seal_typed_program(
+        specialize_core_program(
+            program,
+            parameters=environment.parameters,
+        ),
+        phase=ProblemPhase.PLANNING,
+    )
+    problems = list(
+        _relation_import_problems(
+            verified_program,
+            environment.parameters,
+        )
+    )
+    if problems:
+        raise CheckFailed(problems)
+    return BoundPlan(
+        verified_program,
+        environment,
+    )
+
+
+def _relation_import_problems(
+    verified_program: VerifiedCoreProgram,
+    parameters: ParameterRelationData,
+) -> tuple[Problem, ...]:
+    problems: list[Problem] = []
+    for consumer in program_relation_consumers(verified_program):
+        plan = consumer.plan
+        for imported in plan.imports:
+            if imported.namespace is PlanImportNamespace.INPUT:
+                problems.append(_unresolved_input_problem(consumer, imported.id))
+                continue
+            try:
+                normalize_relation_parameter_import(
+                    plan,
+                    imported,
+                    parameters,
+                )
+            except ValueValidationError as error:
+                problems.append(_parameter_import_problem(consumer, error))
+    return tuple(problems)
+
+
+def _unresolved_input_problem(
+    consumer: ProgramRelationConsumer,
+    input_id: str,
+) -> Problem:
+    return compiler_problem(
+        "bound_input_unresolved",
+        f"bound relation still depends on unresolved input {input_id!r}",
+        model_location(
+            consumer.location.root,
+            *consumer.location.path,
+            "inputs",
+            input_id,
+        ),
+        phase=ProblemPhase.PLANNING,
+        details={
+            "consumer_kind": consumer.kind.value,
+            "input_id": input_id,
+        },
+    )
+
+
+def _parameter_import_problem(
+    consumer: ProgramRelationConsumer,
+    error: ValueValidationError,
+) -> Problem:
+    missing = error.code == "unknown_parameter"
+    parameter_id = (
+        error.path[1]
+        if len(error.path) > 1 and isinstance(error.path[1], str)
+        else None
+    )
+    return compiler_problem(
+        "bound_parameter_missing" if missing else "bound_parameter_contract_mismatch",
+        (
+            "accepted configuration cannot satisfy relation "
+            f"parameter import: {error.reason}"
+        ),
+        model_location(
+            consumer.location.root,
+            *consumer.location.path,
+            *error.path,
+        ),
+        phase=ProblemPhase.PLANNING,
+        details={
+            "consumer_kind": consumer.kind.value,
+            **({"parameter_id": parameter_id} if parameter_id is not None else {}),
+            "value_path": list(error.path),
+        },
     )

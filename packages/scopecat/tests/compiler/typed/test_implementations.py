@@ -27,7 +27,7 @@ from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.typed_program import link_program, typed_program
+from tests.testkit.typed_program import bind_core_program, typed_program
 
 _FLOAT = Scalar(Float())
 
@@ -96,8 +96,8 @@ def test_binding_preserves_stable_implementation_identity() -> None:
     )
     environment = build_config_environment(load_config())
 
-    first_plan = materialize_local_execution(link_program(first, environment))
-    second_plan = materialize_local_execution(link_program(second, environment))
+    first_plan = materialize_local_execution(bind_core_program(first, environment))
+    second_plan = materialize_local_execution(bind_core_program(second, environment))
 
     first_call = operations_of_type(first_plan, ComputeOperation, point_index=0)[0]
     second_call = operations_of_type(second_plan, ComputeOperation, point_index=0)[0]
@@ -122,8 +122,10 @@ def test_plan_pins_exact_implementation_callable() -> None:
         kernel=second_kernel,
     )
     environment = build_config_environment(load_config())
-    plan = materialize_local_execution(link_program(first_program, environment))
-    second_plan = materialize_local_execution(link_program(second_program, environment))
+    plan = materialize_local_execution(bind_core_program(first_program, environment))
+    second_plan = materialize_local_execution(
+        bind_core_program(second_program, environment)
+    )
 
     assert operations_of_type(plan, ComputeOperation, point_index=0)[0].kernel is (
         first_kernel
@@ -143,7 +145,7 @@ def test_dependency_free_compute_is_lowered_for_each_point() -> None:
         point_count=2,
     )
     materialized = materialize_local_execution(
-        link_program(program, build_config_environment(load_config())),
+        bind_core_program(program, build_config_environment(load_config())),
     )
 
     calls = operations_of_type(materialized, ComputeOperation)
@@ -157,10 +159,10 @@ def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
     second_output = ValueId(SymbolId(local_id="second-output"))
 
     first = materialize_local_execution(
-        link_program(_program(output_id=first_output), environment)
+        bind_core_program(_program(output_id=first_output), environment)
     )
     second = materialize_local_execution(
-        link_program(_program(output_id=second_output), environment)
+        bind_core_program(_program(output_id=second_output), environment)
     )
 
     first_call = operations_of_type(first, ComputeOperation, point_index=0)[0]
@@ -176,5 +178,5 @@ def test_compute_interface_accepts_payload_schema() -> None:
     )
 
     materialize_local_execution(
-        link_program(program, build_config_environment(load_config()))
+        bind_core_program(program, build_config_environment(load_config()))
     )

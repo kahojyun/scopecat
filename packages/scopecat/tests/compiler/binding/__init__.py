@@ -1,0 +1,1 @@
+"""Configuration-binding compiler tests."""

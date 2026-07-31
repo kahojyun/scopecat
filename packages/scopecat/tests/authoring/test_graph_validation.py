@@ -7,12 +7,10 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
+from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.elaboration import LogicalProgram
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.frontend.resolution import (
-    compile_invocation,
-    resolve_compiled_invocation,
-)
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     SemanticDomainExecution,
@@ -37,7 +35,7 @@ from scopecat.program.products import ModuleProductDecl, record_product
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
 _PLAY_WAVEFORMS = InterfaceRef("test.play_waveforms/v1")
@@ -52,7 +50,7 @@ def _resolve(module: sc.ExperimentModule[...]) -> None:
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
 
-    link_invocation(
+    bind_invocation(
         template(),
         config_profile=load_config(),
     )
@@ -201,7 +199,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(template(), config_profile=load_config())
+        bind_invocation(template(), config_profile=load_config())
 
     assert error.value.problems[0].code == ("product_axis_duplicate")
     assert error.value.problems[0].location == model_location(
@@ -310,7 +308,7 @@ def test_product_axis_rejects_point_dependent_value() -> None:
         experiment.scan(sc.axis(size, (2, 3)))
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             template(),
             config_profile=load_config(),
         )
@@ -420,7 +418,7 @@ def test_compile_verifies_and_seals_the_final_program_once(
         counted_graph,
     )
     monkeypatch.setattr(
-        "scopecat.compiler.linking.linked.seal_typed_program",
+        "scopecat.compiler.bind.seal_typed_program",
         counted_seal,
     )
 
@@ -429,9 +427,9 @@ def test_compile_verifies_and_seals_the_final_program_once(
         del experiment
 
     compiled = compile_invocation(template())
-    resolved = resolve_compiled_invocation(
-        compiled,
-        environment=build_config_environment(load_config()),
+    resolved = bind_program(
+        compiled.program,
+        build_config_environment(load_config()),
     )
 
     assert calls == {"graph": 1, "seal": 1}

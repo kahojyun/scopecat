@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_invocation,
-    resolve_compiled_invocation,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.program import RunProgram
@@ -39,13 +39,10 @@ def _plan_compiled_run(
     config_source: RunConfigSource | None,
 ) -> PlannedRun:
     environment = build_config_environment(config)
-    linked = resolve_compiled_invocation(
-        experiment,
-        environment=environment,
-    )
+    bound = bind_program(experiment.program, environment)
     program = compile_run_program(
         system,
-        linked=linked,
+        bound=bound,
     )
     return PlannedRun(
         config=config,

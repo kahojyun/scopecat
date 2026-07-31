@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
-)
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireId,
@@ -65,7 +63,7 @@ def overlay_parameter_cell(
     column_id: str,
     axis_id: str,
 ) -> PointParameterOverlay:
-    """Build one statically linked point-local cell overlay."""
+    """Build one statically bound point-local cell overlay."""
 
     return PointParameterOverlay(
         table_id=table_id,
@@ -240,13 +238,13 @@ def typed_program(
     )
 
 
-def link_program(
+def bind_core_program(
     program: CoreProgram,
     environment: ConfigEnvironment,
-) -> LinkedPlan:
-    """Seal a trusted test program directly into a linked-plan fixture."""
+) -> BoundPlan:
+    """Bind a trusted low-level program for focused compiler tests."""
 
-    return LinkedPlan(
+    return BoundPlan(
         seal_typed_program(
             program,
             phase=ProblemPhase.PLANNING,

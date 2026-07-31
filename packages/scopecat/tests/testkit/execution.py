@@ -33,7 +33,7 @@ from tests.testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
 )
-from tests.testkit.typed_program import link_program
+from tests.testkit.typed_program import bind_core_program
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,13 +143,13 @@ def execute_program_run(
     """Execute a typed test program through the unified production boundary."""
 
     environment = build_config_environment(config)
-    linked = link_program(experiment, environment)
+    bound = bind_core_program(experiment, environment)
     composition = compose_test_instruments(
         config=config,
         provider=instrument_provider,
         payload_codecs=payload_codecs,
     )
-    program = composition.system.compile(linked)
+    program = composition.system.compile(bound)
     repository = sqlite_run_repository(project_root)
     accepted = admit_test_run(
         config=config,

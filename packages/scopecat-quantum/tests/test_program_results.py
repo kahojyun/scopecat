@@ -5,10 +5,7 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat.compiler.linking.linked import (
-    link_program,
-    materialize_linked_points,
-)
+from scopecat.compiler.bind import _bind_core_program as bind_core_program
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -24,13 +21,14 @@ from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.product_identity import product_id
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.measurements.products import ProductDef
+from scopecat.planning.domain_bridge import (
+    make_domain_batch_request,
+    make_domain_call_view,
+)
+from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultMapping,
-)
-from scopecat.sdk.domain._bridge import (
-    make_domain_batch_request,
-    make_domain_call_view,
 )
 
 from scopecat_quantum._ids import (
@@ -129,17 +127,17 @@ def _preparation(
             _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
         )
     )
-    linked_points = materialize_linked_points(link_program(program, environment))
-    closure = domain_result_closure(linked_points.linked_plan.program, "domain")
+    bound_points = materialize_bound_points(bind_core_program(program, environment))
+    closure = domain_result_closure(bound_points.bound_plan.program, "domain")
     point_ordinals = (0, 1)
     call = make_domain_call_view(
-        linked_points.linked_plan,
+        bound_points.bound_plan,
         "domain",
         closure,
     )
     request = make_domain_batch_request(
         call,
-        linked_points,
+        bound_points,
         point_ordinals,
         batch_ordinal=0,
     )

@@ -1,7 +1,7 @@
 """Structured local-effect payloads embedded in a ``RunProgram``.
 
 The authoring compiler may use richer symbolic IRs.  This module starts after
-configuration linking and point binding: values and resource bindings are
+configuration binding and point materialization: values and resource bindings are
 concrete, pure compute dependencies are ordered, and hardware effects are
 represented as explicit stages.  The program is intentionally not a durable
 wire format.

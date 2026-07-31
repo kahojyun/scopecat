@@ -3,11 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat.compiler.linking.linked import (
-    materialize_linked_points,
-)
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
+from scopecat.planning.domain_bridge import (
+    make_domain_batch_request,
+    make_domain_call_view,
+)
+from scopecat.planning.point_materialization import (
+    materialize_bound_points,
+)
 from scopecat.program.domain import domain_program
 from scopecat.program.products import ModuleProductDecl
 from scopecat.sdk.domain import (
@@ -16,11 +20,7 @@ from scopecat.sdk.domain import (
     DomainProductContractView,
     DomainProductUseRef,
 )
-from scopecat.sdk.domain._bridge import (
-    make_domain_batch_request,
-    make_domain_call_view,
-)
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
 
@@ -66,23 +66,23 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         experiment.scan(sc.axis(count, (1, 3, 5)))
         experiment.record(placed.results.counts, record_id="counts")
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template.bind(),
         config_profile=load_config(),
     )
-    linked = resolved
-    linked_points = materialize_linked_points(linked)
+    bound = resolved
+    bound_points = materialize_bound_points(bound)
 
-    execution_id = core_domain_executions(linked.program)[0].id
-    closure = domain_result_closure(linked.program, execution_id)
+    execution_id = core_domain_executions(bound.program)[0].id
+    closure = domain_result_closure(bound.program, execution_id)
     call_view = make_domain_call_view(
-        linked,
+        bound,
         execution_id,
         closure,
     )
     full = make_domain_batch_request(
         call_view,
-        linked_points,
+        bound_points,
         (0, 1, 2),
         batch_ordinal=0,
     )
@@ -103,13 +103,13 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     assert result.product.axes[0].dimension_label == "shot"
     product_use = result.require_one_product_use()
     assert isinstance(product_use, DomainProductUseRef)
-    assert product_use.id == linked.program.product_uses[0].id.value
+    assert product_use.id == bound.program.product_uses[0].id.value
     assert product_use.product is result.product
     assert product_use is full.product_uses[0]
 
     batch = make_domain_batch_request(
         call_view,
-        linked_points,
+        bound_points,
         (1, 2),
         batch_ordinal=1,
     )

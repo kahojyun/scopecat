@@ -224,7 +224,7 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
         materialized_effects_contract(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
-        "linked_parameter_missing"
+        "bound_parameter_missing"
     ]
 
 

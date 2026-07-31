@@ -9,7 +9,6 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
-from scopecat.compiler.linking.linked import materialize_linked_points
 from scopecat.compiler.semantic.value_expressions import TableValue
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import (
@@ -21,13 +20,14 @@ from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.table_values import LiteralTableSource
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.program.domain import domain_execution, domain_program
-from scopecat.program.products import ModuleProductDecl
-from scopecat.sdk.domain._bridge import (
+from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
-from tests.testkit.authoring import link_invocation, load_config
+from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.program.domain import domain_execution, domain_program
+from scopecat.program.products import ModuleProductDecl
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
 
@@ -182,21 +182,21 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     ) -> None:
         experiment.run(root(rows))
 
-    linked = link_invocation(
+    bound = bind_invocation(
         template(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
         config_profile=load_config(),
     )
 
-    [execution] = core_domain_executions(linked.program)
+    [execution] = core_domain_executions(bound.program)
     table_value = execution.compiler_inputs["rows"].value
     assert isinstance(table_value, TableValue)
     assert isinstance(table_value.source, LiteralTableSource)
 
-    points = materialize_linked_points(linked)
+    points = materialize_bound_points(bound)
     call = make_domain_call_view(
-        linked,
+        bound,
         execution.id,
-        domain_result_closure(linked.program, execution.id),
+        domain_result_closure(bound.program, execution.id),
     )
     request = make_domain_batch_request(
         call,
@@ -399,7 +399,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         experiment.record(selected_product, record_id="counts_first")
         experiment.record(selected_product, record_id="counts_second")
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template(),
         config_profile=load_config(),
     )

@@ -23,7 +23,7 @@ from scopecat.program.bindings import (
 )
 from scopecat.program.domain import domain_program
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 from tests.testkit.materialized_effects import config_with_physical_resources
 
@@ -126,7 +126,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -277,7 +277,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module.instantiate("root"))
 
-    linked = link_invocation(template(), config_profile=load_config())
+    bound = bind_invocation(template(), config_profile=load_config())
     assert [
         "binding"
         if isinstance(effect, SetStateSpec)
@@ -288,7 +288,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         else f"invoke:{effect.id.qualified_name}"
         if isinstance(effect, InvokeEffect)
         else f"domain:{effect.id}"
-        for effect in linked.program.effects
+        for effect in bound.program.effects
     ] == [
         "binding",
         "binding",
@@ -299,12 +299,11 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         "acquire:root/root-read",
     ]
     assert (
-        sum(isinstance(effect, SetStateSpec) for effect in linked.program.effects) == 3
+        sum(isinstance(effect, SetStateSpec) for effect in bound.program.effects) == 3
     )
     assert (
         sum(
-            isinstance(effect, TypedDomainExecution)
-            for effect in linked.program.effects
+            isinstance(effect, TypedDomainExecution) for effect in bound.program.effects
         )
         == 2
     )
@@ -416,7 +415,7 @@ def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=config_with_physical_resources(
             {"source-0": ("test.set_offset/v1",)}

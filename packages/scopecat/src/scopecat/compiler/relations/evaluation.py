@@ -85,7 +85,7 @@ def normalize_relation_parameter_import(
 ) -> object:
     """Normalize one used parameter import without evaluating its plan.
 
-    Compiler linking uses the same boundary as runtime dispatch so an
+    Compiler binding uses the same boundary as runtime dispatch so an
     accepted configuration cannot become a late missing-parameter or
     parameter-type failure merely because no relation has been evaluated yet.
     """

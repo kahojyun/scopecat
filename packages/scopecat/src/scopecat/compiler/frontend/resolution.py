@@ -7,7 +7,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
 
-from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.elaboration import (
     LogicalProgram,
     compose_experiment,
@@ -17,7 +16,6 @@ from scopecat.compiler.frontend.logical_verification import (
     verify_logical_program,
 )
 from scopecat.compiler.frontend.problems import frontend_problem as _problem
-from scopecat.compiler.frontend.program_lowering import link_verified_assembly
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
@@ -29,7 +27,6 @@ from scopecat.compiler.frontend.scan_validation import (
     ScanValidationError,
     verify_scans,
 )
-from scopecat.compiler.linking.linked import LinkedPlan
 from scopecat.graph.relations.point_domain import analyze_point_domain
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
@@ -58,14 +55,6 @@ class CompiledInvocation:
 
     program: VerifiedLogicalProgram
     request: RunRequest
-
-
-def resolve_compiled_invocation(
-    compiled: CompiledInvocation,
-    *,
-    environment: ConfigEnvironment,
-) -> LinkedPlan:
-    return link_verified_assembly(compiled.program, environment)
 
 
 def compile_invocation(

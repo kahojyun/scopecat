@@ -27,7 +27,7 @@ def resolve_point_parameters(
     *,
     point_row: Mapping[str, CellValue],
 ) -> ParameterRelationData:
-    """Apply every statically linked cell overlay for one logical point."""
+    """Apply every statically bound cell overlay for one logical point."""
 
     resolved = base
     for overlay in overlays:
@@ -43,7 +43,7 @@ def resolve_point_parameters(
 def parameter_cell_bindings(
     overlays: Sequence[PointParameterOverlay],
 ) -> tuple[ParameterCellBinding, ...]:
-    """Project linked overlays into scalar-specialization bindings."""
+    """Project bound overlays into scalar-specialization bindings."""
 
     return tuple(
         ParameterCellBinding(

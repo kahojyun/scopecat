@@ -5,11 +5,8 @@ from typing import Annotated
 import scopecat.authoring as authoring
 from scopecat.authoring import ExperimentTemplate
 from scopecat.authoring.scans import axis
-from scopecat.compiler.frontend.resolution import (
-    compile_invocation,
-    resolve_compiled_invocation,
-)
-from scopecat.compiler.linking.linked import LinkedPlan
+from scopecat.compiler.bind import BoundPlan, bind_program
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.config.parameter_resolution import resolve_config_parameters
@@ -33,16 +30,16 @@ def parameters():
     return resolve_config_parameters(load_config()).data
 
 
-def link_invocation(
+def bind_invocation(
     invocation: authoring.ExperimentInvocation,
     *,
     config_profile: ConfigProfileSnapshot,
-) -> LinkedPlan:
-    """Compile and link an authoring fixture against an explicit snapshot."""
+) -> BoundPlan:
+    """Compile and bind an authoring fixture against an explicit snapshot."""
 
-    return resolve_compiled_invocation(
-        compile_invocation(invocation),
-        environment=build_config_environment(config_profile),
+    return bind_program(
+        compile_invocation(invocation).program,
+        build_config_environment(config_profile),
     )
 
 

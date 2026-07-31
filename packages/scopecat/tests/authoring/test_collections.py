@@ -7,8 +7,8 @@ import pytest
 import scopecat.authoring as authoring
 from scopecat.authoring.scans import axis
 from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.compiler.bind import _lower_logical_program
 from scopecat.compiler.frontend.elaboration import compose_module
-from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import (
     ComputeEdge,
@@ -24,7 +24,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.local_materialization import materialize_local_execution
 
 
@@ -34,7 +34,7 @@ def _bind_program(
 ) -> CoreProgram:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return lower_verified_assembly(compiled.program, environment)
+    return _lower_logical_program(compiled.program, environment)
 
 
 def _echo_program(*, program: object) -> dict[str, object]:
@@ -77,7 +77,7 @@ def test_nested_module_requires_explicit_input_forwarding() -> None:
     ) -> None:
         experiment.run(root(outer_value))
 
-    link_invocation(
+    bind_invocation(
         template(outer_value=1),
         config_profile=load_config(),
     )
@@ -93,7 +93,7 @@ def test_scan_points_are_coerced_by_their_target_type() -> None:
     def template(experiment: authoring.ExperimentContext) -> None:
         experiment.scan(axis(point, (1,)))
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template(),
         config_profile=load_config(),
     )
@@ -272,7 +272,7 @@ def test_explicit_null_is_rejected_as_a_bound_value() -> None:
         del experiment, label
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             required.bind(label=None),
             config_profile=load_config(),
         )

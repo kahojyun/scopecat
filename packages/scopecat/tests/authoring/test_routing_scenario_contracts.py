@@ -19,7 +19,7 @@ from scopecat.records.config import (
     RoutingGraph,
 )
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
@@ -124,7 +124,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         experiment.run(module(qubit))
         experiment.scan(axis(qubit, ("q1", "q0", "q1")))
 
-    resolved = link_invocation(template(), config_profile=config)
+    resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,
@@ -216,7 +216,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         experiment.scan(axis(qubit, ("q0", "q1", "q0")))
         experiment.record(call.products.iq)
 
-    resolved = link_invocation(template(), config_profile=config)
+    resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,
@@ -315,7 +315,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         call = experiment.run(module(qubit))
         experiment.record(call.products.iq)
 
-    resolved = link_invocation(template(qubit="q0"), config_profile=config)
+    resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
         resolved.program,
         resolved.environment.parameters,

@@ -2,14 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPoints,
-    materialize_linked_points,
-)
-from scopecat.compiler.measurement_projection import (
-    project_measurement_catalog,
-    project_run_point_catalog,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
@@ -30,24 +22,32 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
     seal_measurement_values,
 )
+from scopecat.planning.measurement_projection import (
+    project_measurement_catalog,
+    project_run_point_catalog,
+)
+from scopecat.planning.point_materialization import (
+    MaterializedBoundPoints,
+    materialize_bound_points,
+)
 from tests.testkit.authoring import load_config
 from tests.testkit.typed_program import (
+    bind_core_program,
     instrument_acquisitions,
-    link_program,
     observable_product,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class MeasurementAssemblyScenario:
-    linked_points: MaterializedLinkedPoints
+    bound_points: MaterializedBoundPoints
     catalog: MeasurementValueCatalog
     uses: tuple[ProductUse, ...]
     records: tuple[RecordUse, ...]
 
     @property
     def points(self) -> tuple[RunPoint, ...]:
-        return project_run_point_catalog(self.linked_points).points
+        return project_run_point_catalog(self.bound_points).points
 
 
 def measurement_assembly_scenario(
@@ -138,12 +138,12 @@ def measurement_assembly_scenario(
         product_uses=uses,
         record_uses=tuple(records),
     )
-    linked_points = materialize_linked_points(
-        link_program(program, build_config_environment(load_config()))
+    bound_points = materialize_bound_points(
+        bind_core_program(program, build_config_environment(load_config()))
     )
     return MeasurementAssemblyScenario(
-        linked_points=linked_points,
-        catalog=project_measurement_catalog(linked_points),
+        bound_points=bound_points,
+        catalog=project_measurement_catalog(bound_points),
         uses=uses,
         records=tuple(records),
     )
@@ -163,7 +163,7 @@ def measurement_value_candidates(
                 unit="ratio",
             ),
         )
-        for point in scenario.linked_points.point_domain.points
+        for point in scenario.bound_points.point_domain.points
         for use_index, use in enumerate(uses)
     )
 

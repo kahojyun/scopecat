@@ -3,8 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from scopecat.compiler.linking.linked import link_program, materialize_linked_points
-from scopecat.compiler.measurement_projection import project_measurement_catalog
+from scopecat.compiler.bind import _bind_core_program as bind_core_program
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.config.environment import build_config_environment
@@ -16,6 +15,8 @@ from scopecat.measurements.projection import (
     MeasurementProjection,
     select_measurement_projection,
 )
+from scopecat.planning.measurement_projection import project_measurement_catalog
+from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
@@ -83,7 +84,7 @@ def materialized_effects_contract(
         build_config_environment(config or load_config()),
         parameters=parameters,
     )
-    return materialize_local_execution(link_program(experiment, environment))
+    return materialize_local_execution(bind_core_program(experiment, environment))
 
 
 def measurement_projection_contract(
@@ -96,10 +97,10 @@ def measurement_projection_contract(
         build_config_environment(config or load_config()),
         parameters=parameters,
     )
-    linked_points = materialize_linked_points(link_program(experiment, environment))
+    bound_points = materialize_bound_points(bind_core_program(experiment, environment))
     return select_measurement_projection(
-        project_measurement_catalog(linked_points),
-        linked_points.linked_plan.program.record_uses,
+        project_measurement_catalog(bound_points),
+        bound_points.bound_plan.program.record_uses,
     )
 
 

@@ -3,10 +3,6 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from scopecat.compiler.measurement_projection import (
-    project_measurement_catalog,
-    project_run_point_catalog,
-)
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.points import RunPoint
@@ -21,6 +17,10 @@ from scopecat.measurements.results import (
 )
 from scopecat.measurements.values import (
     seal_measurement_values,
+)
+from scopecat.planning.measurement_projection import (
+    project_measurement_catalog,
+    project_run_point_catalog,
 )
 from tests.testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
@@ -41,16 +41,16 @@ def test_projection_keeps_all_records_without_narrowing_the_value_catalog() -> N
     )
 
 
-def test_projection_selects_only_the_linked_point_batch() -> None:
+def test_projection_selects_only_the_bound_point_batch() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0, 1.0, 2.0), use_count=2)
     complete_projection = select_measurement_projection(
         scenario.catalog,
         scenario.records,
     )
-    catalog = project_measurement_catalog(scenario.linked_points, (1, 2))
+    catalog = project_measurement_catalog(scenario.bound_points, (1, 2))
     projection = select_measurement_projection(catalog, scenario.records)
 
-    selected_points = project_run_point_catalog(scenario.linked_points, (1, 2)).points
+    selected_points = project_run_point_catalog(scenario.bound_points, (1, 2)).points
     ordinals = tuple(point.ordinal for point in selected_points)
     assert ordinals == (1, 2)
     assert projection.coordinate_ids == ("x",)
@@ -123,7 +123,7 @@ def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> 
         points=scenario.points,
     )
 
-    assert len(assembled.values) == len(scenario.linked_points.point_domain.points) * 3
+    assert len(assembled.values) == len(scenario.bound_points.point_domain.points) * 3
     assert len(projected.records) == 2
     assert [record.point_index for record in projected.records] == [0, 1]
     for record in projected.records:
@@ -268,8 +268,8 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
         {"x": MeasurementScalar.create(dtype="float64", value=4.0)},
     ]
     assert (
-        scenario.linked_points.point_domain.points[0].logical_id
-        != scenario.linked_points.point_domain.points[1].logical_id
+        scenario.bound_points.point_domain.points[0].logical_id
+        != scenario.bound_points.point_domain.points[1].logical_id
     )
 
 

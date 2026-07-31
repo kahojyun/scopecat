@@ -10,8 +10,8 @@ import pytest
 import scopecat as sc
 from scopecat.authoring import ValueValidationError
 from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.compiler.bind import _lower_logical_program
 from scopecat.compiler.frontend.elaboration import compose_module
-from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.semantic.model import PlanExpressionSource
@@ -36,7 +36,7 @@ def _bind_program(
 ) -> CoreProgram:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return lower_verified_assembly(compiled.program, environment)
+    return _lower_logical_program(compiled.program, environment)
 
 
 def _payload_type() -> sc.ScalarType:

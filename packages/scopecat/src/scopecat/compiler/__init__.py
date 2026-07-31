@@ -1,7 +1,7 @@
 """Transient, one-way compiler stages and their semantic foundations.
 
 Authoring structure is lowered into backend-neutral semantic and typed graphs,
-then linked to accepted configuration before any target-specific
+then bound to accepted configuration before any target-specific
 materialization. A lower stage may retain explicit provenance, but must not
 recover meaning from display names or depend on public authoring handles.
 

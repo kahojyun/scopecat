@@ -17,7 +17,7 @@ from scopecat.planning.local_materialization import (
 )
 from scopecat.program.module import ModuleEnsureEffect
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
-from tests.testkit.authoring import link_invocation
+from tests.testkit.authoring import bind_invocation
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import config_with_physical_resources
 
@@ -92,21 +92,21 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
 
-    linked = link_invocation(
+    bound = bind_invocation(
         template(),
         config_profile=config_with_physical_resources(
             {"source-device": (_SOURCE.interface_id,)}
         ),
     )
 
-    [effect] = linked.program.effects
+    [effect] = bound.program.effects
     assert isinstance(effect, EnsureStateSpec)
     assert [assignment.property_id for assignment in effect.assignments] == [
         "level",
         "enabled",
     ]
 
-    plan = materialize_local_execution(linked)
+    plan = materialize_local_execution(bound)
     operations = tuple(
         effect.operation
         for effect in plan.effects
@@ -130,15 +130,15 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
 
-    linked = link_invocation(
+    bound = bind_invocation(
         template(),
         config_profile=config_with_physical_resources(
             {"source-device": (_SOURCE.interface_id,)}
         ),
     )
 
-    assert all(isinstance(effect, EnsureStateSpec) for effect in linked.program.effects)
-    plan = materialize_local_execution(linked)
+    assert all(isinstance(effect, EnsureStateSpec) for effect in bound.program.effects)
+    plan = materialize_local_execution(bound)
     operations = tuple(
         effect.operation
         for effect in plan.effects
@@ -164,26 +164,26 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
             _SourceTarget(level=level, enabled=False),
         )
 
-    linked = link_invocation(
+    bound = bind_invocation(
         experiment_definition(),
         config_profile=config_with_physical_resources(
             {"source-device": (_SOURCE.interface_id,)}
         ),
     )
 
-    assert linked.program.effects == ()
-    final_state = linked.program.final_state
+    assert bound.program.effects == ()
+    final_state = bound.program.final_state
     assert isinstance(final_state, EnsureStateSpec)
     assert [assignment.property_id for assignment in final_state.assignments] == [
         "level",
         "enabled",
     ]
     target = prepare_local_target(
-        linked,
+        bound,
         product_use_ids=frozenset(),
         instrument_order=("source-device",),
     )
-    [operation] = materialize_local_final_state(linked, target=target)
+    [operation] = materialize_local_final_state(bound, target=target)
     assert operation.instrument_id == "source-device"
     assert [target.property_id for target in operation.targets] == [
         "level",

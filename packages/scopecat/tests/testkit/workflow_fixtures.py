@@ -19,7 +19,7 @@ from scopecat.runs.access import (
 )
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
-    link_invocation,
+    bind_invocation,
     simple_template,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
@@ -33,7 +33,7 @@ def load_config() -> ConfigProfileSnapshot:
 def load_experiment() -> CoreProgram:
     """Compile the simple-scan DSL fixture into a transient typed program."""
 
-    return link_invocation(
+    return bind_invocation(
         load_invocation(),
         config_profile=load_config(),
     ).program

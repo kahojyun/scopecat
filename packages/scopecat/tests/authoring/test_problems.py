@@ -7,10 +7,8 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.resolution import (
-    compile_invocation,
-    resolve_compiled_invocation,
-)
+from scopecat.compiler.bind import bind_program
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.environment import build_config_environment
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -18,7 +16,7 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from tests.testkit.authoring import (
-    link_invocation,
+    bind_invocation,
     load_config,
     simple_template,
 )
@@ -33,12 +31,12 @@ def test_missing_experiment_input_and_unknown_subject_report_stable_problems(
     config = load_config()
     missing_subject = simple_template().bind()
     with pytest.raises(CheckFailed) as missing_error:
-        link_invocation(missing_subject, config_profile=config)
+        bind_invocation(missing_subject, config_profile=config)
     assert missing_error.value.problems[0].code == ("experiment_missing_input")
 
     unknown_subject = simple_template().bind(subject="missing")
     with pytest.raises(CheckFailed) as subject_error:
-        link_invocation(unknown_subject, config_profile=config)
+        bind_invocation(unknown_subject, config_profile=config)
     assert subject_error.value.problems[0].code == "unknown_authoring_entity"
 
 
@@ -139,9 +137,9 @@ def test_authoring_compile_precedes_config_linking(tmp_path: Path) -> None:
     del tmp_path
     with pytest.raises(CheckFailed) as error:
         compiled = compile_invocation(simple_template().bind())
-        resolve_compiled_invocation(
-            compiled,
-            environment=build_config_environment(load_config()),
+        bind_program(
+            compiled.program,
+            build_config_environment(load_config()),
         )
 
     assert error.value.problems[0].code == "experiment_missing_input"
@@ -208,7 +206,7 @@ def test_unused_child_binding_accepts_an_explicit_outer_value() -> None:
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(outer(1.0))
 
-    link_invocation(template(), config_profile=load_config())
+    bind_invocation(template(), config_profile=load_config())
 
 
 def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> None:
@@ -229,7 +227,7 @@ def test_unused_child_expression_binding_accepts_an_explicit_outer_value() -> No
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(outer(1.0))
 
-    link_invocation(template(), config_profile=load_config())
+    bind_invocation(template(), config_profile=load_config())
 
 
 def test_scan_point_does_not_implicitly_bind_consumed_module_input() -> None:
