@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
@@ -22,6 +21,7 @@ from scopecat.program.bindings import (
     BindingIntent,
     EnsureStateIntent,
     InvocationIntent,
+    ResourcePort,
 )
 from scopecat.program.domain import DomainExecution
 from scopecat.program.logical import (
@@ -45,9 +45,13 @@ from scopecat.program.logical import (
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.operations import (
     ComputeNodeInputValue,
+    ModuleInputPort,
     ModuleOperationDecl,
 )
+from scopecat.program.parameters import ParameterContract
+from scopecat.program.products import ModuleProductDecl
 from scopecat.program.value_refs import (
+    PointValueDependency,
     ValueRef,
     internal_lower_value_ref,
     internal_value_ref_operation_id,
@@ -56,10 +60,18 @@ from scopecat.program.values import ComputeFunction
 
 
 def close_logical_program(
-    program: LogicalProgram,
+    *,
+    experiment_id: str,
+    kind: str,
+    inputs: Mapping[str, object],
+    input_ports: Sequence[ModuleInputPort],
+    entity_inputs: Sequence[str],
+    resource_ports: Sequence[ResourcePort],
+    point_dependencies: Sequence[PointValueDependency],
+    product_declarations: Sequence[ModuleProductDecl],
+    parameter_contracts: Sequence[ParameterContract],
     operations: Sequence[ModuleOperationDecl],
     implementations: Mapping[OperationId, ComputeFunction],
-    *,
     measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
     effects: Sequence[
         BindingIntent
@@ -86,7 +98,15 @@ def close_logical_program(
         if isinstance(root, ValueRef):
             builder.add_value_root(root)
     return builder.finish(
-        program,
+        experiment_id=experiment_id,
+        kind=kind,
+        inputs=inputs,
+        input_ports=input_ports,
+        entity_inputs=entity_inputs,
+        resource_ports=resource_ports,
+        point_dependencies=point_dependencies,
+        product_declarations=product_declarations,
+        parameter_contracts=parameter_contracts,
         effects=logical_effects,
         final_state=(
             None
@@ -310,8 +330,16 @@ class _LogicalProgramBuilder:
 
     def finish(
         self,
-        program: LogicalProgram,
         *,
+        experiment_id: str,
+        kind: str,
+        inputs: Mapping[str, object],
+        input_ports: Sequence[ModuleInputPort],
+        entity_inputs: Sequence[str],
+        resource_ports: Sequence[ResourcePort],
+        point_dependencies: Sequence[PointValueDependency],
+        product_declarations: Sequence[ModuleProductDecl],
+        parameter_contracts: Sequence[ParameterContract],
         effects: tuple[
             LogicalStateAssignment
             | LogicalEnsureState
@@ -322,8 +350,16 @@ class _LogicalProgramBuilder:
         ],
         final_state: LogicalEnsureState | None,
     ) -> LogicalProgram:
-        return replace(
-            program,
+        return LogicalProgram(
+            experiment_id=experiment_id,
+            kind=kind,
+            inputs=dict(inputs),
+            input_ports=tuple(input_ports),
+            entity_inputs=tuple(entity_inputs),
+            resource_ports=tuple(resource_ports),
+            point_dependencies=tuple(point_dependencies),
+            product_declarations=tuple(product_declarations),
+            parameter_contracts=tuple(parameter_contracts),
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
             measurement_postprocessors=tuple(self._measurement_postprocessors),

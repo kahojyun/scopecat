@@ -305,7 +305,7 @@ def _elaborate_hierarchy(
         )
         for value in _nested_value_refs(source)
     )
-    program = LogicalProgram(
+    return close_logical_program(
         experiment_id=experiment_id,
         kind=kind,
         inputs=dict(inputs),
@@ -315,11 +315,8 @@ def _elaborate_hierarchy(
         point_dependencies=dependencies.point,
         product_declarations=tuple(composer.product_declarations),
         parameter_contracts=dependencies.parameters,
-    )
-    return close_logical_program(
-        program,
-        composer.operations,
-        composer.python_implementations,
+        operations=composer.operations,
+        implementations=composer.python_implementations,
         measurement_postprocessors=composer.measurement_postprocessors,
         effects=effects,
         final_state=final_state,
