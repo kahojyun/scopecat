@@ -56,16 +56,12 @@ def lower_state_binding(
     assignment: LogicalStateAssignment,
     *,
     program: VerifiedLogicalProgram,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
 ) -> SetStateSpec:
     """Bind one closed logical state edge to its typed value."""
 
     value = _lower_effect_value(
         assignment.value_id,
         program=program,
-        inputs=inputs,
-        type_bindings=type_bindings,
     )
     return set_state_property(
         resource_port_id=assignment.port_id,
@@ -80,8 +76,6 @@ def lower_ensure_state(
     effect: LogicalEnsureState,
     *,
     program: VerifiedLogicalProgram,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
 ) -> EnsureStateSpec:
     """Bind one coherent logical target into typed desired state."""
 
@@ -90,8 +84,6 @@ def lower_ensure_state(
             lower_state_binding(
                 assignment,
                 program=program,
-                inputs=inputs,
-                type_bindings=type_bindings,
             )
             for assignment in effect.assignments
         )
@@ -102,8 +94,6 @@ def lower_invocation(
     invocation: LogicalInvocation,
     *,
     program: VerifiedLogicalProgram,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
 ) -> InvokeEffect:
     """Bind one verified logical operation invocation."""
 
@@ -115,8 +105,6 @@ def lower_invocation(
                 value_use=_lower_effect_value(
                     argument.value_id,
                     program=program,
-                    inputs=inputs,
-                    type_bindings=type_bindings,
                 ),
             )
         )
@@ -134,14 +122,10 @@ def _lower_effect_value(
     value_id: ValueId,
     *,
     program: VerifiedLogicalProgram,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
 ) -> VerifiedRelationPlan | ComputeResultRef:
     lowered = lower_logical_value(
         program,
         value_id,
-        inputs=inputs,
-        type_bindings=type_bindings,
     )
     if isinstance(lowered, ComputeEdge):
         return ComputeResultRef(lowered.value_id)

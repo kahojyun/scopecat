@@ -16,10 +16,16 @@ from scopecat.compiler.frontend.assembly_lowering import (
     coerce_assembly_inputs,
     validate_consumed_inputs,
 )
+from scopecat.compiler.frontend.value_binding import (
+    bind_scalar_input_refs,
+    bind_table_source,
+    literal_scalar_expr,
+)
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
+    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.graph.relations.analysis import plan_point_refs
@@ -42,9 +48,10 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Entity, Payload, Scalar, TableColumn, ValueType
+from scopecat.kernel.value_types import Entity, Payload, Scalar, ValueType
 from scopecat.program.bindings import ResourcePort
 from scopecat.program.logical import (
+    LiteralValueSource,
     LogicalComputeNode,
     LogicalProgram,
     PlanExpressionSource,
@@ -71,6 +78,7 @@ class VerifiedLogicalProgram:
 
     program: LogicalProgram
     product_declarations: Mapping[ProductId, ModuleProductDecl]
+    scalar_values: Mapping[ValueId, VerifiedRelationPlan]
     value_defs: Mapping[ValueId, ValueDef] = field(
         init=False,
         compare=False,
@@ -88,6 +96,11 @@ class VerifiedLogicalProgram:
     )
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "scalar_values",
+            MappingProxyType(dict(self.scalar_values)),
+        )
         value_defs = {
             definition.id: definition for definition in self.program.value_defs
         }
@@ -135,9 +148,16 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
     """
 
     inputs = coerce_assembly_inputs(program.input_ports, program.inputs)
-    normalized = replace(program, inputs=inputs)
+    normalized = replace(
+        program,
+        inputs=inputs,
+        value_defs=tuple(
+            _bind_value_definition_inputs(definition, inputs)
+            for definition in program.value_defs
+        ),
+    )
     problems: list[Problem] = []
-    _verify_plan_expression_sources(normalized, problems)
+    scalar_values = _verify_scalar_values(normalized, problems)
     resource_ports = _resource_ports(normalized.resource_ports, problems)
     product_declarations = _verify_product_schema(normalized, problems)
     try:
@@ -180,17 +200,32 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
     return VerifiedLogicalProgram(
         program=canonical,
         product_declarations=MappingProxyType(product_declarations),
+        scalar_values=scalar_values,
     )
 
 
-def _verify_plan_expression_sources(
+def _bind_value_definition_inputs(
+    definition: ValueDef,
+    inputs: Mapping[str, object],
+) -> ValueDef:
+    source = definition.source
+    if isinstance(source, PlanExpressionSource):
+        return replace(
+            definition,
+            source=PlanExpressionSource(
+                bind_scalar_input_refs(source.expression, inputs)
+            ),
+        )
+    if isinstance(source, LiteralValueSource):
+        return definition
+    return replace(definition, source=bind_table_source(source, inputs))
+
+
+def _verify_scalar_values(
     program: LogicalProgram,
     problems: list[Problem],
-) -> None:
-    point_columns = tuple(
-        TableColumn(dependency.id, dependency.value_type)
-        for dependency in program.point_dependencies
-    )
+) -> Mapping[ValueId, VerifiedRelationPlan]:
+    point_columns = analyze_point_domain(program.point_domain).columns
     bindings = RelationTypeBindings(
         inputs={
             port.id: port.value_type
@@ -205,16 +240,21 @@ def _verify_plan_expression_sources(
         },
         point_row=RowType(point_columns) if point_columns else None,
     )
+    verified: dict[ValueId, VerifiedRelationPlan] = {}
     for definition in sorted(
         program.value_defs,
         key=lambda item: item.id.qualified_name,
     ):
         source = definition.source
-        if not isinstance(source, PlanExpressionSource):
+        if isinstance(source, PlanExpressionSource):
+            expression = source.expression
+        elif isinstance(source, LiteralValueSource):
+            expression = literal_scalar_expr(source.value)
+        else:
             continue
         try:
-            verify_relation_plan(
-                source.expression,
+            verified[definition.id] = verify_relation_plan(
+                expression,
                 bindings=bindings,
                 expected_type=cast("Scalar", definition.value_type),
             )
@@ -236,6 +276,7 @@ def _verify_plan_expression_sources(
                     },
                 )
             )
+    return MappingProxyType(verified)
 
 
 def _resource_ports(

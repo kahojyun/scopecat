@@ -20,7 +20,10 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.relations.verification import (
+    PlanImportNamespace,
+    RelationTypeBindings,
+)
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import (
     InputScalarExpr,
@@ -280,7 +283,7 @@ def test_template_selects_module_products_as_records() -> None:
     )
 
 
-def test_compute_inputs_keep_template_input_provenance() -> None:
+def test_compute_inputs_close_template_inputs_before_logical_verification() -> None:
     def build_program(
         *,
         qubit: object,
@@ -363,9 +366,14 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     assert isinstance(qubit_source, PlanExpressionSource)
     assert isinstance(length_source, PlanExpressionSource)
     assert isinstance(frequency_source, PlanExpressionSource)
-    assert qubit_source.source_inputs == ("qubit",)
-    assert length_source.source_inputs == ("pulse_length",)
-    assert frequency_source.source_inputs == ("qubit",)
+    assert qubit_source.source_inputs == ()
+    assert length_source.source_inputs == ()
+    assert frequency_source.source_inputs == ()
+    assert all(
+        compiled.program.scalar_values[value_id].import_ids(PlanImportNamespace.INPUT)
+        == ()
+        for value_id in uses.values()
+    )
     assert operation.result_type == authoring.ScalarType(authoring.PayloadType("pulse"))
 
 

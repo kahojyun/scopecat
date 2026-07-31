@@ -172,8 +172,6 @@ def _lower_logical_program(
     )
     compute_nodes = lower_semantic_compute_graph(
         verified,
-        inputs,
-        type_bindings=type_bindings,
     )
     record_product_uses = products.product_uses
     measurement_postprocessors = lower_semantic_measurement_postprocessor_graph(
@@ -187,8 +185,6 @@ def _lower_logical_program(
     domain_executions = lower_semantic_domain_graph(
         verified,
         assembly.domain_executions,
-        inputs,
-        type_bindings=type_bindings,
         product_uses=product_uses,
     )
     domain_effects = {execution.id: execution for execution in domain_executions}
@@ -196,22 +192,16 @@ def _lower_logical_program(
         lower_state_binding(
             effect,
             program=verified,
-            inputs=inputs,
-            type_bindings=type_bindings,
         )
         if isinstance(effect, LogicalStateAssignment)
         else lower_ensure_state(
             effect,
             program=verified,
-            inputs=inputs,
-            type_bindings=type_bindings,
         )
         if isinstance(effect, LogicalEnsureState)
         else lower_invocation(
             effect,
             program=verified,
-            inputs=inputs,
-            type_bindings=type_bindings,
         )
         if isinstance(effect, LogicalInvocation)
         else effect
@@ -225,8 +215,6 @@ def _lower_logical_program(
         else lower_ensure_state(
             assembly.final_state,
             program=verified,
-            inputs=inputs,
-            type_bindings=type_bindings,
         )
     )
     return BoundProgramFacts(

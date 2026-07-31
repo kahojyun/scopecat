@@ -18,7 +18,6 @@ from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
     bind_table_source,
     input_cell,
-    literal_scalar_expr,
     scalar_input_refs,
 )
 from scopecat.compiler.relations.verification import (
@@ -48,6 +47,7 @@ from scopecat.graph.relations.point_domain import (
 )
 from scopecat.graph.table_values import (
     InputTableSource,
+    TableSource,
 )
 from scopecat.graph.values import (
     ComputeOutput,
@@ -63,7 +63,6 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.program.logical import (
-    LiteralValueSource,
     LocalPythonImplementation,
     LogicalComputeNode,
     LogicalDomainExecution,
@@ -82,7 +81,6 @@ from scopecat.program.value_refs import (
     internal_lower_value_ref,
 )
 from scopecat.program.value_types import (
-    Scalar,
     Table,
     ValueType,
     ValueValidationError,
@@ -107,6 +105,9 @@ class _LogicalProgramProof(Protocol):
 
     @property
     def value_types(self) -> Mapping[ValueId, ValueType]: ...
+
+    @property
+    def scalar_values(self) -> Mapping[ValueId, VerifiedRelationPlan]: ...
 
 
 def lower_parameter_overlay_intent(
@@ -205,9 +206,6 @@ def validate_entity_inputs(
 
 def lower_semantic_compute_graph(
     program: _LogicalProgramProof,
-    inputs: Mapping[str, object],
-    *,
-    type_bindings: RelationTypeBindings,
 ) -> tuple[TypedComputeNode, ...]:
     """Lower implementation-defined operations to the local residual artifact."""
 
@@ -216,8 +214,6 @@ def lower_semantic_compute_graph(
             program,
             operation,
             implementation=program.program.implementations[operation.id],
-            inputs=inputs,
-            type_bindings=type_bindings,
         )
         for operation in program.program.compute_nodes
     )
@@ -227,9 +223,7 @@ def lower_semantic_compute_graph(
 def lower_semantic_domain_graph(
     program: _LogicalProgramProof,
     executions: Sequence[LogicalDomainExecution],
-    inputs: Mapping[str, object],
     *,
-    type_bindings: RelationTypeBindings,
     product_uses: Sequence[ProductUse],
 ) -> tuple[TypedDomainExecution, ...]:
     """Lower ordered prepare-stage domain effects and their product uses."""
@@ -246,8 +240,6 @@ def lower_semantic_domain_graph(
                 lower_logical_value(
                     program,
                     value_id,
-                    inputs=inputs,
-                    type_bindings=type_bindings,
                 ),
             )
             lowered_inputs[name] = lowered
@@ -258,8 +250,6 @@ def lower_semantic_domain_graph(
                 lower_logical_value(
                     program,
                     value_id,
-                    inputs=inputs,
-                    type_bindings=type_bindings,
                 ),
             )
             lowered_compiler_inputs[name] = lowered
@@ -289,16 +279,12 @@ def _lower_semantic_operation(
     operation: LogicalComputeNode,
     *,
     implementation: LocalPythonImplementation,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
 ) -> TypedComputeNode:
     lowered_inputs: dict[str, ComputeInput] = {}
     for name, value_id in operation.inputs:
         lowered = lower_logical_value(
             program,
             value_id,
-            inputs=inputs,
-            type_bindings=type_bindings,
         )
         if isinstance(lowered, VerifiedRelationPlan):
             lowered_inputs[name] = lowered
@@ -318,32 +304,19 @@ def _lower_semantic_operation(
 def lower_logical_value(
     program: _LogicalProgramProof,
     value_id: ValueId,
-    *,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
 ) -> CompilerValue | ComputeEdge:
     if value_id in program.operation_results:
         return ComputeEdge(
             value_id=value_id,
             expected_type=program.operation_results[value_id].result_type,
         )
-    definition = program.value_defs[value_id]
-    source = definition.source
+    scalar = program.scalar_values.get(value_id)
+    if scalar is not None:
+        return scalar
+    source = program.value_defs[value_id].source
     value_type = program.value_types[value_id]
-    if isinstance(source, PlanExpressionSource):
-        return verify_relation_plan(
-            bind_scalar_input_refs(source.expression, inputs),
-            bindings=type_bindings,
-            expected_type=cast("Scalar", value_type),
-        )
-    if isinstance(source, LiteralValueSource):
-        return verify_relation_plan(
-            literal_scalar_expr(source.value),
-            bindings=type_bindings,
-            expected_type=cast("Scalar", value_type),
-        )
     return TableValue(
-        source=bind_table_source(source, inputs),
+        source=cast("TableSource", source),
         value_type=cast("Table", value_type),
     )
 
