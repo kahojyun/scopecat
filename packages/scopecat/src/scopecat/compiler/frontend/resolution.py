@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import cast
 
 from scopecat.compiler.frontend.elaboration import (
@@ -18,10 +18,7 @@ from scopecat.compiler.frontend.problems import frontend_problem as _problem
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
-from scopecat.compiler.frontend.scan_lowering import (
-    lower_scans_point_domain,
-    project_scan_record,
-)
+from scopecat.compiler.frontend.scan_lowering import project_scan_record
 from scopecat.compiler.frontend.scan_validation import (
     ScanValidationError,
     verify_scans,
@@ -35,13 +32,10 @@ from scopecat.kernel.value_type_compatibility import (
 )
 from scopecat.program.definitions import ExperimentInvocation
 from scopecat.program.logical import LogicalProgram
-from scopecat.program.parameters import merge_parameter_contracts
 from scopecat.program.scans import (
     AxisSpec,
     Scan,
-    scan_parameter_contracts,
 )
-from scopecat.program.values import ModuleInput
 from scopecat.records.run_request import RunRequest
 
 
@@ -61,7 +55,6 @@ def compile_invocation(
 ) -> CompiledInvocation:
     scans = _effective_scans(invocation)
     inputs = _merged_inputs(invocation)
-    compiled = _compile_invocation_definition(invocation, inputs)
     scan_axes = _verified_scans(
         scans,
         inputs=inputs,
@@ -77,44 +70,15 @@ def compile_invocation(
         metadata=metadata,
         operator=operator,
     )
-    merged_inputs = {**compiled.inputs, **inputs}
-    logical = replace(
-        compiled,
-        inputs=merged_inputs,
+    logical = compose_experiment(
+        invocation.definition,
+        inputs=inputs,
+        scans=scan_axes,
     )
     _validate_point_dependencies(logical, scan_axes)
-    logical = _apply_scans(
-        logical,
-        scan_axes,
-        inputs=inputs,
-    )
     return CompiledInvocation(
         program=verify_logical_program(logical),
         request=request,
-    )
-
-
-def _compile_invocation_definition(
-    invocation: ExperimentInvocation,
-    inputs: Mapping[str, object],
-) -> LogicalProgram:
-    definition = invocation.definition
-    program_input_ids = {port.id for port in definition.interface.imports}
-    program_inputs: dict[str, ModuleInput] = {}
-    for input_id, value in inputs.items():
-        if input_id not in program_input_ids:
-            continue
-        program_inputs[input_id] = cast("ModuleInput", value)
-    assembly = compose_experiment(
-        definition,
-        inputs=program_inputs,
-    )
-    return replace(
-        assembly,
-        record_selections=(
-            *assembly.record_selections,
-            *definition.record_selections,
-        ),
     )
 
 
@@ -222,30 +186,6 @@ def _verified_scans(
                 for issue in error.issues
             ]
         ) from error
-
-
-def _apply_scans(
-    assembly: LogicalProgram,
-    scan_axes: Sequence[AxisSpec],
-    *,
-    inputs: Mapping[str, object],
-) -> LogicalProgram:
-    point_domain = lower_scans_point_domain(
-        scan_axes,
-        inputs=inputs,
-    )
-    return replace(
-        assembly,
-        point_domain=point_domain,
-        parameter_contracts=merge_parameter_contracts(
-            assembly.parameter_contracts,
-            *(scan_parameter_contracts(axis) for axis in scan_axes),
-        ),
-        parameter_overlays=(
-            *assembly.parameter_overlays,
-            *(axis for axis in scan_axes if axis.parameter_lookup is not None),
-        ),
-    )
 
 
 def _validate_point_dependencies(

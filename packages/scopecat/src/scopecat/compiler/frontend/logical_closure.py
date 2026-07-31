@@ -9,6 +9,7 @@ from scopecat.compiler.frontend.value_binding import input_cell
 from scopecat.graph.relations.model import (
     ScalarExpr,
 )
+from scopecat.graph.relations.point_domain import PointAxes
 from scopecat.graph.values import (
     ComputeResultRef,
     OperationId,
@@ -49,7 +50,8 @@ from scopecat.program.operations import (
     ModuleOperationDecl,
 )
 from scopecat.program.parameters import ParameterContract
-from scopecat.program.products import ModuleProductDecl
+from scopecat.program.products import ModuleProductDecl, RecordSelection
+from scopecat.program.scans import AxisSpec
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,
@@ -68,8 +70,11 @@ def close_logical_program(
     entity_inputs: Sequence[str],
     resource_ports: Sequence[ResourcePort],
     point_dependencies: Sequence[PointValueDependency],
+    parameter_overlays: Sequence[AxisSpec] = (),
     product_declarations: Sequence[ModuleProductDecl],
+    record_selections: Sequence[RecordSelection] = (),
     parameter_contracts: Sequence[ParameterContract],
+    point_domain: PointAxes[ValueRef] = (),
     operations: Sequence[ModuleOperationDecl],
     implementations: Mapping[OperationId, ComputeFunction],
     measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
@@ -105,8 +110,11 @@ def close_logical_program(
         entity_inputs=entity_inputs,
         resource_ports=resource_ports,
         point_dependencies=point_dependencies,
+        parameter_overlays=parameter_overlays,
         product_declarations=product_declarations,
+        record_selections=record_selections,
         parameter_contracts=parameter_contracts,
+        point_domain=point_domain,
         effects=logical_effects,
         final_state=(
             None
@@ -338,8 +346,11 @@ class _LogicalProgramBuilder:
         entity_inputs: Sequence[str],
         resource_ports: Sequence[ResourcePort],
         point_dependencies: Sequence[PointValueDependency],
+        parameter_overlays: Sequence[AxisSpec],
         product_declarations: Sequence[ModuleProductDecl],
+        record_selections: Sequence[RecordSelection],
         parameter_contracts: Sequence[ParameterContract],
+        point_domain: PointAxes[ValueRef],
         effects: tuple[
             LogicalStateAssignment
             | LogicalEnsureState
@@ -358,8 +369,11 @@ class _LogicalProgramBuilder:
             entity_inputs=tuple(entity_inputs),
             resource_ports=tuple(resource_ports),
             point_dependencies=tuple(point_dependencies),
+            parameter_overlays=tuple(parameter_overlays),
             product_declarations=tuple(product_declarations),
+            record_selections=tuple(record_selections),
             parameter_contracts=tuple(parameter_contracts),
+            point_domain=point_domain,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
             measurement_postprocessors=tuple(self._measurement_postprocessors),

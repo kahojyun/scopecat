@@ -10,6 +10,8 @@ from scopecat.compiler.frontend.logical_closure import (
     close_logical_program,
     logical_compute_node_id,
 )
+from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
+from scopecat.graph.relations.point_domain import PointAxes
 from scopecat.graph.values import OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -55,9 +57,11 @@ from scopecat.program.parameters import (
 )
 from scopecat.program.products import (
     ModuleProductDecl,
+    RecordSelection,
     localize_product_input_refs,
     prefix_product_decl,
 )
+from scopecat.program.scans import AxisSpec, scan_parameter_contracts
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,
@@ -250,14 +254,30 @@ def compose_experiment(
     definition: ExperimentDef,
     *,
     inputs: Mapping[str, object],
+    scans: Sequence[AxisSpec] = (),
 ) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
+    program_input_ids = {port.id for port in definition.interface.imports}
+    value_inputs = {
+        input_id: value
+        for input_id, value in inputs.items()
+        if input_id in program_input_ids
+    }
     return _elaborate_hierarchy(
         definition,
         experiment_id=definition.id,
         kind=definition.kind,
-        inputs=inputs,
+        inputs=value_inputs,
+        logical_inputs=inputs,
+        parameter_overlays=tuple(
+            axis for axis in scans if axis.parameter_lookup is not None
+        ),
+        record_selections=definition.record_selections,
+        additional_parameter_contracts=merge_parameter_contracts(
+            *(scan_parameter_contracts(axis) for axis in scans),
+        ),
+        point_domain=lower_scans_point_domain(scans, inputs=inputs),
         final_state=definition.final_state,
     )
 
@@ -268,6 +288,11 @@ def _elaborate_hierarchy(
     experiment_id: str,
     kind: str,
     inputs: Mapping[str, object],
+    logical_inputs: Mapping[str, object] | None = None,
+    parameter_overlays: Sequence[AxisSpec] = (),
+    record_selections: Sequence[RecordSelection] = (),
+    additional_parameter_contracts: tuple[ParameterContract, ...] = (),
+    point_domain: PointAxes[ValueRef] = (),
     final_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     composer = _LogicalProgramComposer()
@@ -308,13 +333,19 @@ def _elaborate_hierarchy(
     return close_logical_program(
         experiment_id=experiment_id,
         kind=kind,
-        inputs=dict(inputs),
+        inputs=dict(inputs if logical_inputs is None else logical_inputs),
         input_ports=root.interface.imports,
         entity_inputs=_entity_input_ids(root.interface.imports),
         resource_ports=tuple(composer.resource_ports),
         point_dependencies=dependencies.point,
+        parameter_overlays=parameter_overlays,
         product_declarations=tuple(composer.product_declarations),
-        parameter_contracts=dependencies.parameters,
+        record_selections=record_selections,
+        parameter_contracts=merge_parameter_contracts(
+            dependencies.parameters,
+            additional_parameter_contracts,
+        ),
+        point_domain=point_domain,
         operations=composer.operations,
         implementations=composer.python_implementations,
         measurement_postprocessors=composer.measurement_postprocessors,
