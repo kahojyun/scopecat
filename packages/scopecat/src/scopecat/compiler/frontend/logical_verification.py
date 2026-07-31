@@ -12,8 +12,8 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.compiler.frontend.assembly_lowering import (
-    coerce_assembly_inputs,
+from scopecat.compiler.frontend.logical_lowering import (
+    coerce_logical_inputs,
     validate_consumed_inputs,
 )
 from scopecat.compiler.frontend.value_binding import (
@@ -147,7 +147,7 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
     logical-resource reference.
     """
 
-    inputs = coerce_assembly_inputs(program.input_ports, program.inputs)
+    inputs = coerce_logical_inputs(program.input_ports, program.inputs)
     normalized = replace(
         program,
         inputs=inputs,
@@ -303,11 +303,11 @@ def _resource_ports(
 
 
 def _verify_property_resource_ports(
-    assembly: LogicalProgram,
+    program: LogicalProgram,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    for index, binding in enumerate(assembly.bindings):
+    for index, binding in enumerate(program.bindings):
         _verify_interface_resource_port(
             binding.port_id,
             binding.interface_id,
@@ -316,7 +316,7 @@ def _verify_property_resource_ports(
             location=model_location("bindings", index, "resource"),
             problems=problems,
         )
-    for index, acquire in enumerate(assembly.acquisitions):
+    for index, acquire in enumerate(program.acquisitions):
         _verify_interface_resource_port(
             acquire.resource_port_id,
             acquire.interface_id,
@@ -325,7 +325,7 @@ def _verify_property_resource_ports(
             location=model_location("acquisitions", index, "resource_port"),
             problems=problems,
         )
-    for index, invocation in enumerate(assembly.invocations):
+    for index, invocation in enumerate(program.invocations):
         _verify_interface_resource_port(
             invocation.port_id,
             invocation.interface_id,
@@ -385,21 +385,21 @@ def _verify_resource_port_interface(
 
 
 def _verify_binding_compute_values(
-    assembly: LogicalProgram,
+    program: LogicalProgram,
     definition_ids: set[ValueId],
     operation_results: Mapping[ValueId, LogicalComputeNode],
     problems: list[Problem],
 ) -> None:
     values = [
         (model_location("bindings", index, "value"), binding.value_id)
-        for index, binding in enumerate(assembly.bindings)
+        for index, binding in enumerate(program.bindings)
     ]
     values.extend(
         (
             model_location("invocations", invocation_index, "arguments", argument.id),
             argument.value_id,
         )
-        for invocation_index, invocation in enumerate(assembly.invocations)
+        for invocation_index, invocation in enumerate(program.invocations)
         for argument in invocation.arguments
     )
     for location, value_id in values:
@@ -431,10 +431,10 @@ def _is_payload_type(value_type: object) -> bool:
 
 
 def _verify_static_value_dependencies(
-    assembly: LogicalProgram,
+    program: LogicalProgram,
     problems: list[Problem],
 ) -> None:
-    for port in assembly.resource_ports:
+    for port in program.resource_ports:
         for index, value in enumerate(port.selector.entity_inputs):
             location = model_location(
                 "resources",
@@ -456,7 +456,7 @@ def _verify_static_value_dependencies(
                     problems=problems,
                 )
 
-    for product in assembly.product_declarations:
+    for product in program.product_declarations:
         for axis in product.axes:
             if not isinstance(axis.size, ValueRef):
                 continue
@@ -487,16 +487,16 @@ def _verify_static_value_dependencies(
 
 
 def _verify_final_state_dependencies(
-    assembly: LogicalProgram,
+    program: LogicalProgram,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    final_state = assembly.final_state
+    final_state = program.final_state
     if final_state is None:
         return
     selected_ports: set[LogicalResourcePortId] = set()
-    definitions = {definition.id: definition for definition in assembly.value_defs}
-    operation_result_ids = {operation.result_id for operation in assembly.compute_nodes}
+    definitions = {definition.id: definition for definition in program.value_defs}
+    operation_result_ids = {operation.result_id for operation in program.compute_nodes}
     for index, assignment in enumerate(final_state.assignments):
         selected_ports.add(assignment.port_id)
         location = model_location("final_state", index, "value")
@@ -585,17 +585,17 @@ def _require_plan_value(
 
 
 def _verify_product_schema(
-    assembly: LogicalProgram,
+    program: LogicalProgram,
     problems: list[Problem],
 ) -> dict[ProductId, ModuleProductDecl]:
     product_by_id: dict[ProductId, ModuleProductDecl] = {}
     duplicate_products: set[ProductId] = set()
-    for product in assembly.product_declarations:
+    for product in program.product_declarations:
         if product.product_id in product_by_id:
             duplicate_products.add(product.product_id)
             continue
         product_by_id[product.product_id] = product
-    for acquire_index, acquire in enumerate(assembly.acquisitions):
+    for acquire_index, acquire in enumerate(program.acquisitions):
         for result_index, result in enumerate(acquire.results):
             if result.product_id in product_by_id:
                 continue
@@ -617,7 +617,7 @@ def _verify_product_schema(
         problems.append(
             _problem(
                 "module_product_duplicate",
-                "experiment assembly defines duplicate products: "
+                "logical program defines duplicate products: "
                 + ", ".join(sorted(item.qualified_name for item in duplicate_products)),
                 model_location("products"),
             )
@@ -625,7 +625,7 @@ def _verify_product_schema(
 
     product_uses: dict[ProductUseId, ProductUse] = {}
     conflicting_product_uses: dict[ProductUseId, tuple[ProductUse, ProductUse]] = {}
-    for selection in assembly.record_selections:
+    for selection in program.record_selections:
         use = selection.product_use
         existing_use = product_uses.get(use.id)
         if existing_use is None:
@@ -672,7 +672,7 @@ def _verify_product_schema(
 
     record_ids = [
         selection.record_id or selection.product_id.qualified_name
-        for selection in assembly.record_selections
+        for selection in program.record_selections
     ]
     duplicate_records = _duplicates(record_ids)
     if duplicate_records:
@@ -687,7 +687,7 @@ def _verify_product_schema(
 
     point_columns = {
         column.id
-        for column in analyze_point_domain(assembly.point_domain).value_type.columns
+        for column in analyze_point_domain(program.point_domain).value_type.columns
         if is_point_coordinate_type(column.value_type)
     }
     for record_id in sorted(set(record_ids) & point_columns):
@@ -699,7 +699,7 @@ def _verify_product_schema(
             )
         )
 
-    _verify_product_axes(assembly.product_declarations, problems)
+    _verify_product_axes(program.product_declarations, problems)
     return product_by_id
 
 

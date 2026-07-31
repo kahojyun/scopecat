@@ -1,4 +1,4 @@
-"""Validate and lower a composed authoring assembly into compiler values."""
+"""Lower verified logical-program values into config-bound compiler values."""
 
 from __future__ import annotations
 
@@ -317,7 +317,7 @@ def lower_logical_value(
     )
 
 
-def coerce_assembly_inputs(
+def coerce_logical_inputs(
     ports: Sequence[ModuleInputPort],
     inputs: Mapping[str, object],
 ) -> dict[str, object]:
@@ -372,30 +372,30 @@ def coerce_assembly_inputs(
 
 
 def validate_consumed_inputs(
-    assembly: LogicalProgram,
+    program: LogicalProgram,
     inputs: Mapping[str, object],
 ) -> None:
-    """Reject only free module inputs that the assembled program actually uses."""
+    """Reject only free module inputs that the logical program actually uses."""
 
     consumed_dependencies: set[str] = set()
     values: list[object] = []
     values.extend(
         source
-        for port in assembly.resource_ports
+        for port in program.resource_ports
         for source in port.selector.entity_inputs
     )
     values.extend(
         value
-        for overlay in assembly.parameter_overlays
+        for overlay in program.parameter_overlays
         for _name, value in parameter_cell_lookup(overlay)[1]
     )
     consumed_dependencies.update(
         input_id
-        for definition in assembly.value_defs
+        for definition in program.value_defs
         for input_id in _value_source_dependencies(definition.source)
     )
     values.extend(
-        axis.size for product in assembly.product_declarations for axis in product.axes
+        axis.size for product in program.product_declarations for axis in product.axes
     )
     for value in values:
         consumed_dependencies.update(_nested_input_dependencies(value, inputs=inputs))
@@ -405,7 +405,7 @@ def validate_consumed_inputs(
     if missing:
         raise_frontend_problem(
             "module_input_binding_missing",
-            "experiment assembly consumes module inputs without bindings: "
+            "logical program consumes module inputs without bindings: "
             + ", ".join(missing),
             "inputs",
             phase=ProblemPhase.AUTHORING,

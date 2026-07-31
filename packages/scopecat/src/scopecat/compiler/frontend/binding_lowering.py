@@ -10,7 +10,7 @@ from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.assembly_lowering import lower_logical_value
+from scopecat.compiler.frontend.logical_lowering import lower_logical_value
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,

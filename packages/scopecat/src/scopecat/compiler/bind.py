@@ -6,19 +6,19 @@ from dataclasses import dataclass, replace
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.frontend.assembly_lowering import (
+from scopecat.compiler.frontend.binding_lowering import (
+    build_resource_requirements,
+    lower_ensure_state,
+    lower_invocation,
+    lower_state_binding,
+)
+from scopecat.compiler.frontend.logical_lowering import (
     input_row,
     lower_compute_graph,
     lower_domain_graph,
     lower_parameter_overlay_intent,
     lower_point_domain,
     validate_entity_inputs,
-)
-from scopecat.compiler.frontend.binding_lowering import (
-    build_resource_requirements,
-    lower_ensure_state,
-    lower_invocation,
-    lower_state_binding,
 )
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
@@ -132,19 +132,19 @@ def _lower_logical_program(
     verified: VerifiedLogicalProgram,
     environment: ConfigEnvironment,
 ) -> BoundProgramFacts:
-    assembly = verified.program
+    logical = verified.program
     config = environment.config
     parameter_catalog = config.parameter_catalog
     topology = config.topology
-    inputs = assembly.inputs
+    inputs = logical.inputs
     validate_parameter_contracts(
         parameter_catalog,
-        assembly.parameter_contracts,
+        logical.parameter_contracts,
     )
-    validate_entity_inputs(topology, assembly.entity_inputs, inputs)
-    root_type_bindings = _relation_type_bindings(assembly, parameter_catalog)
+    validate_entity_inputs(topology, logical.entity_inputs, inputs)
+    root_type_bindings = _relation_type_bindings(logical, parameter_catalog)
     point_domain = lower_point_domain(
-        assembly.point_domain,
+        logical.point_domain,
         inputs=inputs,
         type_bindings=root_type_bindings,
     )
@@ -154,7 +154,7 @@ def _lower_logical_program(
     )
     resource_requirements = build_resource_requirements(
         topology,
-        assembly.resource_ports,
+        logical.resource_ports,
         inputs=inputs,
         type_bindings=type_bindings,
     )
@@ -164,7 +164,7 @@ def _lower_logical_program(
     products = lower_products(
         static_evaluator,
         topology,
-        assembly.record_selections,
+        logical.record_selections,
         verified.product_declarations,
         inputs,
         type_bindings=type_bindings,
@@ -184,7 +184,7 @@ def _lower_logical_program(
     )
     domain_executions = lower_domain_graph(
         verified,
-        assembly.domain_executions,
+        logical.domain_executions,
         product_uses=product_uses,
     )
     domain_effects = {execution.id: execution for execution in domain_executions}
@@ -207,13 +207,13 @@ def _lower_logical_program(
         else effect
         if isinstance(effect, AcquireEffect)
         else domain_effects[effect.id]
-        for effect in assembly.effects
+        for effect in logical.effects
     )
     final_state = (
         None
-        if assembly.final_state is None
+        if logical.final_state is None
         else lower_ensure_state(
-            assembly.final_state,
+            logical.final_state,
             program=verified,
         )
     )
@@ -232,7 +232,7 @@ def _lower_logical_program(
                 inputs,
                 type_bindings=type_bindings,
             )
-            for intent in assembly.parameter_overlays
+            for intent in logical.parameter_overlays
         ),
         product_defs=products.product_defs,
         product_uses=product_uses,
@@ -241,13 +241,13 @@ def _lower_logical_program(
 
 
 def _relation_type_bindings(
-    assembly: LogicalProgram,
+    program: LogicalProgram,
     parameter_catalog: ParameterCatalog,
 ) -> RelationTypeBindings:
-    """Project assembly contracts into the final plan-verification environment."""
+    """Project logical contracts into the final plan-verification environment."""
 
     parameter_types: dict[str, Scalar] = {}
-    for contract in assembly.parameter_contracts:
+    for contract in program.parameter_contracts:
         if not isinstance(contract, ParameterValueContract):
             continue
         definition = parameter_catalog.get(contract.parameter_id)
@@ -259,7 +259,7 @@ def _relation_type_bindings(
     return RelationTypeBindings(
         inputs={
             port.id: port.value_type
-            for port in assembly.input_ports
+            for port in program.input_ports
             if isinstance(port.value_type, Scalar)
         },
         parameters=parameter_types,

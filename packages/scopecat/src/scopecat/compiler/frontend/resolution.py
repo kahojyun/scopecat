@@ -189,16 +189,16 @@ def _verified_scans(
 
 
 def _validate_point_dependencies(
-    assembly: LogicalProgram,
+    program: LogicalProgram,
     scan_axes: Sequence[AxisSpec],
 ) -> None:
-    domain_type = analyze_point_domain(assembly.point_domain).value_type
+    domain_type = analyze_point_domain(program.point_domain).value_type
     point_types = {
         **{column.id: column.value_type for column in domain_type.columns},
         **{axis.id: axis.value_type for axis in scan_axes},
     }
     problems: list[Problem] = []
-    for dependency in assembly.point_dependencies:
+    for dependency in program.point_dependencies:
         actual = point_types.get(dependency.id)
         if actual is None:
             problems.append(
