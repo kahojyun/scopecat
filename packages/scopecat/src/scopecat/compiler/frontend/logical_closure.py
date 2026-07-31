@@ -123,19 +123,12 @@ def logical_compute_node_id(symbol: SymbolId) -> OperationId:
 
 
 def logical_value_id(value: ValueRef) -> ValueId:
-    """Return the graph identity deterministically assigned to a typed value."""
+    """Return the graph identity already owned by a typed value."""
 
     operation_id = internal_value_ref_operation_id(value)
     if operation_id is not None:
         return operation_result_id(logical_compute_node_id(operation_id))
-    declaration_key = value.declaration_key
-    scope = value.declaration_scope
-    return ValueId(
-        SymbolId(
-            scope=(*scope, "values"),
-            local_id=f"v_{declaration_key.value.hex}",
-        )
-    )
+    return value.id
 
 
 class _LogicalProgramBuilder:

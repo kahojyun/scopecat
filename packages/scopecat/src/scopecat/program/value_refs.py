@@ -6,7 +6,7 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Never, cast, override
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import scopecat.kernel.frozen as _frozen
 from scopecat.kernel.entity import EntityRef
@@ -61,6 +61,7 @@ from scopecat.program.table_values import (
 )
 from scopecat.program.value_graph import (
     OperationId,
+    ValueId,
     operation_result_id,
 )
 
@@ -68,17 +69,6 @@ type FrozenScalarLiteral = (
     Quantity | EntityRef | PayloadValue | str | int | float | bool | None
 )
 type ScalarOperand = ValueRef | FrozenScalarLiteral
-
-
-@dataclass(frozen=True, slots=True)
-class ValueDeclarationKey:
-    """Nominal identity of one transient authoring value declaration."""
-
-    value: UUID
-
-    @classmethod
-    def fresh(cls) -> ValueDeclarationKey:
-        return cls(uuid4())
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +81,15 @@ class _ModuleExportTableSource:
 
 
 type _ValueSource = ScalarExpr | _ModuleExportTableSource | TableSource
+
+
+def _fresh_value_id() -> ValueId:
+    return ValueId(
+        SymbolId(
+            scope=("values",),
+            local_id=f"v_{uuid4().hex}",
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,10 +111,7 @@ class ValueRef:
 
     source: _ValueSource
     value_type: ValueType
-    declaration_key: ValueDeclarationKey = field(
-        default_factory=ValueDeclarationKey.fresh
-    )
-    declaration_scope: tuple[str, ...] = ()
+    id: ValueId = field(default_factory=_fresh_value_id)
 
     def __post_init__(self) -> None:
         source = self.source
@@ -149,17 +145,11 @@ class ValueRef:
 
     @override
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, ValueRef) and (
-            self.declaration_key,
-            self.declaration_scope,
-        ) == (
-            other.declaration_key,
-            other.declaration_scope,
-        )
+        return isinstance(other, ValueRef) and self.id == other.id
 
     @override
     def __hash__(self) -> int:
-        return hash((self.declaration_key, self.declaration_scope))
+        return hash(self.id)
 
     def __add__(self, other: object) -> ValueRef:
         return _binary_value(self, other, "+")
@@ -405,8 +395,7 @@ def internal_transform_value_ref(
     return ValueRef(
         source=transformed_source,
         value_type=value.value_type,
-        declaration_key=value.declaration_key,
-        declaration_scope=value.declaration_scope,
+        id=value.id,
     )
 
 
@@ -424,10 +413,6 @@ def internal_scope_value_ref(
         # An export is an interface use owned by its InvocationKey, not a
         # declaration introduced by the surrounding instance scope.
         return value
-    declaration_scope = (
-        *scope,
-        *value.declaration_scope,
-    )
     selected_source = (
         _scope_scalar_expression(
             cast("ScalarExpression", source),
@@ -440,8 +425,7 @@ def internal_scope_value_ref(
     return ValueRef(
         source=selected_source,
         value_type=value.value_type,
-        declaration_key=value.declaration_key,
-        declaration_scope=declaration_scope,
+        id=value.id.prefixed(*scope),
     )
 
 
@@ -548,15 +532,12 @@ def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpression:
 def internal_value_ref_from_expression(
     expression: ScalarExpr,
     value_type: Scalar,
-    *,
-    declaration_key: ValueDeclarationKey | None = None,
 ) -> ValueRef:
     """Construct a typed expression edge inside the authoring implementation."""
 
     return ValueRef(
         source=expression,
         value_type=value_type,
-        declaration_key=declaration_key or ValueDeclarationKey.fresh(),
     )
 
 
@@ -626,8 +607,7 @@ def internal_bind_value_ref_inputs(
     return ValueRef(
         source=bound_source,
         value_type=value.value_type,
-        declaration_key=value.declaration_key,
-        declaration_scope=value.declaration_scope,
+        id=value.id,
     )
 
 
@@ -776,8 +756,7 @@ def _transform_value_leaf(
     return ValueRef(
         source=transformed.source,
         value_type=value.value_type,
-        declaration_key=value.declaration_key,
-        declaration_scope=value.declaration_scope,
+        id=value.id,
     )
 
 
@@ -789,8 +768,7 @@ def _preserve_bound_value_use(value: ValueRef, selected: ValueRef) -> ValueRef:
     return ValueRef(
         source=selected.source,
         value_type=value.value_type,
-        declaration_key=value.declaration_key,
-        declaration_scope=value.declaration_scope,
+        id=value.id,
     )
 
 
