@@ -4,14 +4,12 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.relations.uses import relation_use
-from scopecat.compiler.semantic.model import AcquireEffect
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.point_domain import (
     PointDomain,
 )
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
     record_product,
     set_state_property,
@@ -31,6 +29,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.measurements.products import ProductDef
+from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
@@ -44,8 +43,8 @@ from tests.testkit.local_materialization import (
 )
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import (
+    bind_program_facts,
     instrument_acquisition,
-    link_program,
     observable_product,
     typed_program,
 )
@@ -55,11 +54,11 @@ def _port(value: str) -> LogicalResourcePortId:
     return logical_resource_port_id(value)
 
 
-def _number(value: float) -> ScalarValueExpr:
+def _number(value: float) -> VerifiedRelationPlan:
     return scalar_value_expr(lit(value), expected_type=Scalar(Float()))
 
 
-def _entity(value: str) -> ScalarValueExpr:
+def _entity(value: str) -> VerifiedRelationPlan:
     return scalar_value_expr(lit(value), expected_type=Scalar(Entity()))
 
 
@@ -70,11 +69,9 @@ def _unit_program(
     state: tuple[SetStateSpec, ...] = (),
     products: tuple[ProductDef, ...] = (),
     acquisitions: tuple[AcquireEffect, ...] = (),
-) -> CoreProgram:
+) -> BoundProgramFacts:
     uses_and_records = tuple(record_product(product) for product in products)
     return typed_program(
-        id=experiment_id,
-        kind="resource_effect_regression",
         point_domain=PointDomain(axes=()),
         resource_requirements=resource_requirements,
         state=state,
@@ -86,7 +83,7 @@ def _unit_program(
 
 
 def _bind(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     *,
     config: ConfigProfileSnapshot,
 ) -> LocalEffectInspection:
@@ -94,7 +91,7 @@ def _bind(
         build_config_environment(config),
         parameters=parameters(),
     )
-    return materialize_local_execution(link_program(program, environment))
+    return materialize_local_execution(bind_program_facts(program, environment))
 
 
 def test_record_products_keep_their_exact_logical_resource_bindings() -> None:
@@ -193,7 +190,7 @@ def test_each_effect_uses_only_its_explicit_interface_endpoints() -> None:
             LogicalResourceRequirement(
                 port_id=port,
                 interfaces=("test.a/v1", "test.b/v1"),
-                entity_uses=(relation_use(_entity("q0")),),
+                entity_uses=(_entity("q0"),),
             ),
         ),
         state=(
@@ -267,7 +264,7 @@ def test_logical_state_bindings_reach_required_instrument() -> None:
                 LogicalResourceRequirement(
                     port_id=source,
                     interfaces=("test.set_level/v1",),
-                    entity_uses=(relation_use(_entity("q0")),),
+                    entity_uses=(_entity("q0"),),
                 ),
             ),
             state=(first_state,),
@@ -297,8 +294,8 @@ def test_logical_state_does_not_broadcast_across_instruments() -> None:
                 port_id=source,
                 interfaces=("test.set_level/v1",),
                 entity_uses=(
-                    relation_use(_entity("q0")),
-                    relation_use(_entity("q1")),
+                    _entity("q0"),
+                    _entity("q1"),
                 ),
             ),
         ),
@@ -330,7 +327,7 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
             LogicalResourceRequirement(
                 port_id=signal,
                 interfaces=("test.set_level/v1", "test.measure_signal/v1"),
-                entity_uses=(relation_use(_entity("q0")),),
+                entity_uses=(_entity("q0"),),
             ),
         ),
         state=(
@@ -384,12 +381,12 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
             LogicalResourceRequirement(
                 port_id=left,
                 interfaces=("test.set_level/v1",),
-                entity_uses=(relation_use(_entity("q0")),),
+                entity_uses=(_entity("q0"),),
             ),
             LogicalResourceRequirement(
                 port_id=right,
                 interfaces=("test.set_level/v1",),
-                entity_uses=(relation_use(_entity("q0")),),
+                entity_uses=(_entity("q0"),),
             ),
         ),
         state=(

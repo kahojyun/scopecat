@@ -1,9 +1,9 @@
-"""Target-independent typed meaning produced by the authoring compiler.
+"""Configuration-bound typed facts derived from a verified logical program.
 
-``CoreProgram`` keeps point composition, value dataflow, effect order, and
-product ownership symbolic so one experiment definition can be specialized for
-different physical systems. It is transient compiler data because accepted run
-semantics, not intermediate compiler shape, form the durable boundary.
+``BoundProgramFacts`` keeps point composition, value dataflow, effect order, and
+product ownership after configuration-dependent lowering. It is transient
+compiler data because accepted run semantics, not intermediate compiler shape,
+form the durable boundary.
 
 Construction follows verified semantic lowering, so these records normalize
 owned mappings but do not repeat authoring validation.
@@ -13,18 +13,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
 
-from scopecat.compiler.relations.uses import RelationUse, relation_use
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    LocalPythonImplementation,
-    MeasurementPostprocessorId,
-)
-from scopecat.compiler.semantic.value_expressions import (
-    CompilerValue,
-    ScalarValueExpr,
-)
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -33,12 +23,14 @@ from scopecat.compiler.typed.state import (
     LogicalStateResourceTarget,
     SetStateSpec,
 )
+from scopecat.compiler.typed.values import (
+    CompilerValue,
+)
 from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.values import (
     ComputeOutput,
     ComputeResultRef,
     OperationId,
-    ValueId,
 )
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.json_types import JsonValue
@@ -51,7 +43,6 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
@@ -61,47 +52,20 @@ from scopecat.measurements.products import (
 )
 from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementVariableRole
-
-ValueT_co = TypeVar(
-    "ValueT_co",
-    bound=CompilerValue,
-    covariant=True,
-    default=CompilerValue,
+from scopecat.program.logical import (
+    AcquireEffect,
+    LocalPythonImplementation,
+    MeasurementPostprocessorId,
 )
 
-
-@dataclass(frozen=True, slots=True)
-class ValueInput(Generic[ValueT_co]):
-    """One typed value materialized for a point-local consumer."""
-
-    value: ValueT_co
-
-    @property
-    def value_type(self) -> ValueType:
-        return self.value.value_type
+type ComputeInput = VerifiedRelationPlan | ComputeResultRef
 
 
-@dataclass(frozen=True, slots=True)
-class ComputeEdge:
-    """Explicit dependency on the result of another compute node."""
-
-    value_id: ValueId
-    expected_type: Scalar
-
-    @property
-    def value_type(self) -> Scalar:
-        return self.expected_type
-
-
-type ScalarValueInput = ValueInput[ScalarValueExpr]
-type ComputeInput = ScalarValueInput | ComputeEdge
-
-
-def _empty_scalar_value_inputs() -> dict[str, ScalarValueInput]:
+def _empty_scalar_value_inputs() -> dict[str, VerifiedRelationPlan]:
     return {}
 
 
-def _empty_value_inputs() -> dict[str, ValueInput]:
+def _empty_compiler_values() -> dict[str, CompilerValue]:
     return {}
 
 
@@ -124,21 +88,21 @@ class TypedDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: Mapping[str, ScalarValueInput] = field(
+    inputs: Mapping[str, VerifiedRelationPlan] = field(
         default_factory=_empty_scalar_value_inputs
     )
-    compiler_inputs: Mapping[str, ValueInput] = field(
-        default_factory=_empty_value_inputs
+    compiler_inputs: Mapping[str, CompilerValue] = field(
+        default_factory=_empty_compiler_values
     )
     results: tuple[TypedDomainResultBinding, ...] = ()
 
     def __post_init__(self) -> None:
-        selected_inputs: dict[str, ScalarValueInput] = dict(self.inputs)
+        selected_inputs: dict[str, VerifiedRelationPlan] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
 
 
-type CoreEffect = (
+type BoundEffect = (
     SetStateSpec | EnsureStateSpec | InvokeEffect | TypedDomainExecution | AcquireEffect
 )
 
@@ -188,25 +152,23 @@ class LogicalResourceRequirement:
 
     port_id: LogicalResourcePortId
     interfaces: tuple[InterfaceId, ...] = ()
-    entity_uses: tuple[RelationUse[ScalarValueExpr], ...] = ()
+    entity_uses: tuple[VerifiedRelationPlan, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class CoreProgram:
-    """Canonical typed and symbolic meaning of one authored experiment.
+class BoundProgramFacts:
+    """Typed facts introduced by binding one canonical logical program.
 
     The ordered ``effects`` sequence is authoritative so specialization can
     choose host or domain placement while retaining logical point identity,
     lexical parameter semantics, product ownership, and effect order.
     """
 
-    id: str
-    kind: str
     point_domain: PointDomain
     resource_requirements: tuple[LogicalResourceRequirement, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
-    effects: tuple[CoreEffect, ...] = ()
+    effects: tuple[BoundEffect, ...] = ()
     final_state: EnsureStateSpec | None = None
     measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
@@ -214,19 +176,21 @@ class CoreProgram:
     record_uses: tuple[RecordUse, ...] = ()
 
 
-def core_domain_executions(program: CoreProgram) -> tuple[TypedDomainExecution, ...]:
+def bound_domain_executions(
+    program: BoundProgramFacts,
+) -> tuple[TypedDomainExecution, ...]:
     return tuple(
         effect for effect in program.effects if isinstance(effect, TypedDomainExecution)
     )
 
 
-def core_acquisitions(program: CoreProgram) -> tuple[AcquireEffect, ...]:
+def bound_acquisitions(program: BoundProgramFacts) -> tuple[AcquireEffect, ...]:
     return tuple(
         effect for effect in program.effects if isinstance(effect, AcquireEffect)
     )
 
 
-def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
+def bound_state(program: BoundProgramFacts) -> tuple[SetStateSpec, ...]:
     effect_state = tuple(
         state
         for effect in program.effects
@@ -244,7 +208,7 @@ def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
     )
 
 
-def core_invocations(program: CoreProgram) -> tuple[InvokeEffect, ...]:
+def bound_invocations(program: BoundProgramFacts) -> tuple[InvokeEffect, ...]:
     return tuple(
         effect for effect in program.effects if isinstance(effect, InvokeEffect)
     )
@@ -255,7 +219,7 @@ def set_state_property(
     resource_port_id: LogicalResourcePortId,
     interface_id: InterfaceId,
     property_id: str,
-    value: ScalarValueExpr | ComputeResultRef,
+    value: VerifiedRelationPlan | ComputeResultRef,
     component_path: tuple[str, ...] = (),
 ) -> SetStateSpec:
     """Build desired state from explicit interface and property identities."""
@@ -265,7 +229,7 @@ def set_state_property(
         interface_id=interface_id,
         component_path=component_path,
         property_id=property_id,
-        value_use=value if isinstance(value, ComputeResultRef) else relation_use(value),
+        value_use=value,
     )
 
 

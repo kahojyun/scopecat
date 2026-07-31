@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from scopecat.compiler.semantic.model import MeasurementPostprocessorId
 from scopecat.compiler.typed.program import (
     TypedMeasurementPostprocessor,
     TypedMeasurementPostprocessorOutput,
@@ -28,6 +27,7 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
+from scopecat.program.logical import MeasurementPostprocessorId
 from tests.testkit.measurement_assembly import (
     MeasurementAssemblyScenario,
     measurement_assembly_scenario,

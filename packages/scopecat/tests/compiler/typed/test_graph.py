@@ -4,9 +4,6 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.semantic.model import (
-    ValueUse,
-)
 from scopecat.graph.values import (
     OperationId,
     ValueId,
@@ -68,8 +65,8 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
 
     invocation = template.bind()
     compiled = compile_invocation(invocation)
-    graph = compiled.assembly.graph.semantic_graph.graph
-    operations = graph.operations
+    logical_program = compiled.program.program
+    operations = logical_program.compute_nodes
     assert [operation.id.local_id for operation in operations] == [
         "produce",
         "consume",
@@ -80,8 +77,8 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
     assert operations[2].id.scope == ("parent", "second-consumer")
     for consumer in operations[1:]:
         use = dict(consumer.inputs)["program"]
-        assert isinstance(use, ValueUse)
-        assert use.value_id == operations[0].result_id
+        assert isinstance(use, ValueId)
+        assert use == operations[0].result_id
 
 
 def _identity_program(*, program: object) -> object:

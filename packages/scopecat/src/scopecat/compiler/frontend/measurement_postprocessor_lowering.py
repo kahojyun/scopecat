@@ -5,10 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from scopecat.compiler.semantic.model import (
-    MeasurementPostprocessorId,
-)
-from scopecat.compiler.semantic.verification import VerifiedSemanticGraph
+from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.typed.program import (
     TypedMeasurementPostprocessor,
     TypedMeasurementPostprocessorOutput,
@@ -17,6 +14,9 @@ from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
     ProductUseId,
+)
+from scopecat.program.logical import (
+    MeasurementPostprocessorId,
 )
 
 
@@ -28,8 +28,8 @@ class LoweredMeasurementPostprocessorGraph:
     input_product_uses: tuple[ProductUse, ...]
 
 
-def lower_semantic_measurement_postprocessor_graph(
-    graph: VerifiedSemanticGraph,
+def lower_measurement_postprocessor_graph(
+    program: VerifiedLogicalProgram,
     record_product_uses: Sequence[ProductUse],
 ) -> LoweredMeasurementPostprocessorGraph:
     """Retain only record-reachable postprocessors and mint exact input uses.
@@ -38,7 +38,7 @@ def lower_semantic_measurement_postprocessor_graph(
     after liveness so an unused declaration cannot cause an acquisition.
     """
 
-    declarations = tuple(graph.graph.measurement_postprocessors)
+    declarations = tuple(program.program.measurement_postprocessors)
     demanded_product_ids = {use.product_id for use in record_product_uses}
     live = tuple(
         postprocessor

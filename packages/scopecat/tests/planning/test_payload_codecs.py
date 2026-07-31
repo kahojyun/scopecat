@@ -17,7 +17,7 @@ def _compute_operation(name: str, *, materializes_payload: bool) -> ComputeOpera
     operation_id = f"point.compute.{name}"
     return ComputeOperation(
         operation_id=operation_id,
-        semantic_operation_id=name,
+        logical_compute_node_id=name,
         implementation_id=f"tests.{name}",
         kernel=lambda: {"program": name},
         inputs={},

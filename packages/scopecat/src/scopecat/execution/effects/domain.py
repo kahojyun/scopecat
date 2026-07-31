@@ -29,7 +29,7 @@ from scopecat.sdk.runtime_problems import (
 def execute_domain_job_values(
     prepared: PreparedDomainExecution,
     *,
-    semantic_operation_id: str,
+    logical_compute_node_id: str,
     run_id: str,
     journal: ExecutionJournal,
 ) -> tuple[MeasurementValueCandidate, ...]:
@@ -40,7 +40,7 @@ def execute_domain_job_values(
     submission_id = plan_domain_submission(
         invocation,
         run_id=run_id,
-        semantic_operation_id=semantic_operation_id,
+        logical_compute_node_id=logical_compute_node_id,
     )
     job_id = submit_domain_invocation(
         runtime,

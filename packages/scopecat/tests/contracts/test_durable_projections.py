@@ -8,10 +8,8 @@ from typing import Any, cast
 import pytest
 from pydantic import ValidationError
 
-from scopecat.compiler.frontend.resolution import (
-    compile_invocation,
-    resolve_compiled_invocation,
-)
+from scopecat.compiler.bind import bind_program
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.environment import build_config_environment
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config, load_invocation
@@ -32,10 +30,7 @@ def _canonical_request(project_root: Path) -> RunRequest:
     del project_root
     compiled_invocation = compile_invocation(load_invocation())
     environment = build_config_environment(load_config())
-    resolved = resolve_compiled_invocation(
-        compiled_invocation,
-        environment=environment,
-    )
+    resolved = bind_program(compiled_invocation.program, environment)
     assert resolved.environment is environment
     return compiled_invocation.request
 

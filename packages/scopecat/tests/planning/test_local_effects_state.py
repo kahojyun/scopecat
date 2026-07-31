@@ -53,8 +53,6 @@ def _point_bindings(
 def test_materialized_effects_binds_desired_state_for_each_point() -> None:
     unchanged_points = _point_domain("index", Scalar(Int()), (0, 1))
     unchanged = typed_program(
-        id="unchanged-state-patches",
-        kind="problem",
         point_domain=unchanged_points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -81,8 +79,6 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         ),
     )
     swept = typed_program(
-        id="swept-state-patches",
-        kind="problem",
         point_domain=swept_points,
         resource_requirements=(
             LogicalResourceRequirement(

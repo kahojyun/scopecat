@@ -1,27 +1,22 @@
-"""Config-free validation for experiment definitions and invocations.
-
-This module deliberately depends only on source authoring handles.  It keeps
-definition-shape and closed-literal checks ahead of config validation and the
-config-dependent assembly linker.
-"""
+"""Config-free verification for experiment definitions and invocations."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Protocol, cast
 
-from scopecat.authoring._problems import authoring_problem as problem
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
     ProblemPhase,
     model_location,
+    problem,
 )
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import ValueType
 from scopecat.kernel.value_validation import ValueValidationError, validate_literal
-from scopecat.program.experiment import ExperimentProgram
+from scopecat.program.operations import ModuleInputPort
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
@@ -44,9 +39,24 @@ class ExperimentInputDefinition(Protocol):
     def value_type(self) -> ValueType | None: ...
 
 
+def _definition_problem(
+    code: str,
+    message: str,
+    root: str,
+    *,
+    path: Sequence[str | int] = (),
+) -> Problem:
+    return problem(
+        code=code,
+        phase=ProblemPhase.AUTHORING,
+        message=message,
+        location=model_location(root, *path),
+    )
+
+
 def validate_experiment_definition(
     *,
-    program: ExperimentProgram,
+    input_ports: Sequence[ModuleInputPort],
     defaults: Mapping[str, object],
     default_scans: Sequence[Scan],
 ) -> dict[str, ValueType]:
@@ -54,7 +64,7 @@ def validate_experiment_definition(
 
     problems: list[Problem] = []
     input_types, input_type_problems = _definition_input_types(
-        program,
+        input_ports,
         default_scans,
     )
     problems.extend(input_type_problems)
@@ -87,7 +97,7 @@ def validate_experiment_inputs(
     problems: list[Problem] = []
     if unknown:
         problems.append(
-            problem(
+            _definition_problem(
                 "experiment_unknown_input",
                 "experiment received unknown input: " + ", ".join(unknown),
                 "experiment",
@@ -105,10 +115,10 @@ def validate_experiment_inputs(
 
 
 def _definition_input_types(
-    program: ExperimentProgram,
+    input_ports: Sequence[ModuleInputPort],
     default_scans: Sequence[Scan],
 ) -> tuple[dict[str, ValueType], list[Problem]]:
-    selected = {port.id: port.value_type for port in program.interface.imports}
+    selected = {port.id: port.value_type for port in input_ports}
     problems: list[Problem] = []
 
     for scan in default_scans:
@@ -119,7 +129,7 @@ def _definition_input_types(
                 selected[input_id] = value_type
             elif not is_assignable(existing, value_type):
                 problems.append(
-                    problem(
+                    _definition_problem(
                         "module_input_type_conflict",
                         f"experiment input {input_id} has incompatible value types",
                         "inputs",
@@ -171,7 +181,7 @@ def _literal_type_problems(
             )
         except ValueValidationError as error:
             problems.append(
-                problem(
+                _definition_problem(
                     "module_input_type_mismatch",
                     str(error),
                     value_location.root,

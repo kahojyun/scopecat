@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
+from scopecat.compiler.frontend.elaboration import compose_module
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
 from scopecat.program.domain import domain_program
@@ -114,7 +114,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
             )
         )
 
-    [lowered] = elaborate_module(module.ir).semantic_graph.measurement_postprocessors
+    [lowered] = compose_module(module.ir).measurement_postprocessors
     assert lowered.input.qualified_name == "nested/raw"
     assert lowered.outputs[0][1].qualified_name == "derived"
 
@@ -130,7 +130,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
     def root(context: sc.ModuleContext) -> None:
         context.call(nested_module.instantiate("nested"))
 
-    [scoped] = elaborate_module(root.ir).semantic_graph.measurement_postprocessors
+    [scoped] = compose_module(root.ir).measurement_postprocessors
     assert scoped.id.qualified_name == "nested/derive"
     assert scoped.input.qualified_name == "nested/raw"
 
@@ -149,9 +149,9 @@ def test_postprocessor_chaining_is_rejected() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module.ir))
+        verify_logical_program(compose_module(module.ir))
     assert {problem.code for problem in error.value.problems} == {
-        "semantic_measurement_postprocessor_chaining_unsupported"
+        "logical_measurement_postprocessor_chaining_unsupported"
     }
 
 
@@ -174,7 +174,7 @@ def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
         context.call(call)
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module.ir))
-    assert "semantic_product_producer_duplicate" in {
+        verify_logical_program(compose_module(module.ir))
+    assert "logical_product_producer_duplicate" in {
         problem.code for problem in error.value.problems
     }

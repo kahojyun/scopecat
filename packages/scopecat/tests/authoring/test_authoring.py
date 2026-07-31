@@ -2,36 +2,28 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Annotated, cast
+from typing import Annotated
 
 import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
-from scopecat.compiler.frontend.assembly_verification import verify_assembly
-from scopecat.compiler.frontend.elaboration import (
-    ExperimentAssembly,
-    elaborate_module,
-)
-from scopecat.compiler.frontend.program_lowering import link_verified_assembly
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
-from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.model import (
-    PlanExpressionSource,
-    ValueUse,
+from scopecat.compiler.relations.verification import (
+    PlanImportNamespace,
+    RelationTypeBindings,
 )
-from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import (
     InputScalarExpr,
     LiteralScalarExpr,
+    ScalarExpr,
     as_scalar_expr,
     input_ref,
     param,
@@ -39,22 +31,21 @@ from scopecat.graph.relations.model import (
 from scopecat.graph.values import (
     ComputeResultRef,
     OperationId,
+    ValueId,
     operation_result_id,
 )
 from scopecat.kernel.entity import EntityRef
-from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
-from scopecat.program.scans import (
-    AxisSpec,
-    scan_parameter_contracts,
+from scopecat.program.logical import (
+    LiteralValueSource,
+    LogicalProgram,
+    PlanExpressionSource,
 )
 from scopecat.program.value_refs import (
     ValueRef,
     internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
-    internal_lower_value_ref,
     internal_value_ref_from_expression,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
@@ -72,8 +63,7 @@ from scopecat.records.parameter import (
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
-    SIMPLE_MODULE,
-    link_invocation,
+    bind_invocation,
     load_config,
     simple_template,
 )
@@ -92,6 +82,19 @@ def _identity_value(*, value: object) -> object:
 
 def _collect_values(**values: object) -> dict[str, object]:
     return values
+
+
+def _logical_binding_expression(
+    program: LogicalProgram,
+    index: int,
+) -> ScalarExpr:
+    value_id = program.bindings[index].value_id
+    definition = next(item for item in program.value_defs if item.id == value_id)
+    source = definition.source
+    if isinstance(source, PlanExpressionSource):
+        return source.expression
+    assert isinstance(source, LiteralValueSource)
+    return as_scalar_expr(source.value)
 
 
 def _table_definition(
@@ -162,35 +165,18 @@ def test_module_invoke_rejects_argument_from_another_operation() -> None:
             )
 
 
-def _around_parameter_axis(
-    parameter_id: str = "drive_frequency",
-    *,
-    points: int = 5,
-) -> AxisSpec:
-    point_type = authoring.ScalarType(authoring.QuantityType(unit="GHz"))
-    return cast(
-        "AxisSpec",
-        sc.axis(
-            sc.coordinate(parameter_id, point_type),
-            center=sc.parameter(parameter_id, _QUANTITY_VALUE),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=points,
-        ),
-    )
-
-
 def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
     template = simple_template()
     assert template.definition.metadata == {"assembled_by": "template"}
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template.bind(subject="q0"),
         config_profile=load_config(),
     )
 
-    experiment = resolved.program
-    assert experiment.id == "test.simple_scan"
-    assert experiment.kind == "simple_scan"
+    experiment = resolved.bindings
+    assert resolved.program.experiment_id == "test.simple_scan"
+    assert resolved.program.kind == "simple_scan"
     preview = materialized_effects_contract(
         experiment, resolved.environment.parameters, config=load_config()
     )
@@ -247,28 +233,28 @@ def test_template_selects_module_products_as_records() -> None:
         experiment.scan(scan)
         experiment.record(call.products.signal)
 
-    unselected = link_invocation(
+    unselected = bind_invocation(
         without_selection(subject="q0"),
         config_profile=load_config(),
     )
-    selected = link_invocation(
+    selected = bind_invocation(
         with_selection(subject="q0"),
         config_profile=load_config(),
     )
 
-    assert unselected.program.record_uses == ()
+    assert unselected.bindings.record_uses == ()
     assert [
-        product.id.qualified_name for product in unselected.program.product_defs
+        product.id.qualified_name for product in unselected.bindings.product_defs
     ] == ["product_module/signal"]
-    assert [record.id for record in selected.program.record_uses] == ["signal"]
-    assert selected.program.record_uses[0].metadata == {}
+    assert [record.id for record in selected.bindings.record_uses] == ["signal"]
+    assert selected.bindings.record_uses[0].metadata == {}
     assert (
-        selected.program.product_uses[0].product_id.qualified_name
+        selected.bindings.product_uses[0].product_id.qualified_name
         == "product_module/signal"
     )
 
 
-def test_compute_inputs_keep_template_input_provenance() -> None:
+def test_compute_inputs_close_template_inputs_before_logical_verification() -> None:
     def build_program(
         *,
         qubit: object,
@@ -333,25 +319,32 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
             pulse_length=Quantity(value=20.0, unit="ns"),
         )
     )
-    graph = compiled.assembly.source.semantic_graph
+    logical_program = compiled.program.program
     operation = next(
         operation
-        for operation in graph.operations
+        for operation in logical_program.compute_nodes
         if operation.id.local_id == "build-program"
     )
-    definitions = {definition.id: definition for definition in graph.value_defs}
+    definitions = {
+        definition.id: definition for definition in logical_program.value_defs
+    }
     uses = dict(operation.inputs)
 
-    assert all(isinstance(use, ValueUse) for use in uses.values())
-    qubit_source = definitions[uses["qubit"].value_id].source
-    length_source = definitions[uses["length"].value_id].source
-    frequency_source = definitions[uses["frequency"].value_id].source
+    assert all(isinstance(use, ValueId) for use in uses.values())
+    qubit_source = definitions[uses["qubit"]].source
+    length_source = definitions[uses["length"]].source
+    frequency_source = definitions[uses["frequency"]].source
     assert isinstance(qubit_source, PlanExpressionSource)
     assert isinstance(length_source, PlanExpressionSource)
     assert isinstance(frequency_source, PlanExpressionSource)
-    assert qubit_source.source_inputs == ("qubit",)
-    assert length_source.source_inputs == ("pulse_length",)
-    assert frequency_source.source_inputs == ("qubit",)
+    assert qubit_source.source_inputs == ()
+    assert length_source.source_inputs == ()
+    assert frequency_source.source_inputs == ()
+    assert all(
+        compiled.program.scalar_values[value_id].import_ids(PlanImportNamespace.INPUT)
+        == ()
+        for value_id in uses.values()
+    )
     assert operation.result_type == authoring.ScalarType(authoring.PayloadType("pulse"))
 
 
@@ -510,7 +503,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         )
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template.bind().scan(
             sc.axis(
                 qubit,
@@ -520,7 +513,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         config_profile=config,
     )
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -638,9 +631,9 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
         )
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(template(qubit="q0"), config_profile=config)
+    resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -683,15 +676,15 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
         call = experiment.run(module())
         experiment.record(call.products.iq)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template(),
         config_profile=load_config(),
     )
 
-    axis = resolved.program.product_defs[0].axes[0]
+    axis = resolved.bindings.product_defs[0].axes[0]
     assert axis.size == 2
     assert axis.metadata == {}
-    role_axis = resolved.program.product_defs[0].axes[1]
+    role_axis = resolved.bindings.product_defs[0].axes[1]
     assert role_axis.kind == "entity"
     assert role_axis.size == 2
     assert role_axis.metadata == {}
@@ -747,51 +740,6 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
             project_run_request_inputs({"nested": {"value": value}})
 
 
-def test_link_resolves_config_dependent_assembly_fragments() -> None:
-    source = elaborate_module(
-        SIMPLE_MODULE.ir,
-        subject="q0",
-        drive_frequency=DRIVE_FREQUENCY_POINT,
-    )
-    axis = _around_parameter_axis()
-    assembly = replace(
-        source,
-        experiment_id="authored-simple-scan",
-        kind="simple_scan",
-        point_domain=lower_scans_point_domain((axis,)),
-        parameter_contracts=scan_parameter_contracts(axis),
-    )
-    environment = build_config_environment(load_config())
-    resolved = link_verified_assembly(verify_assembly(assembly), environment)
-
-    assert resolved.program.id == "authored-simple-scan"
-    assert resolved.environment.config.id == load_config().id
-    preview = materialized_effects_contract(
-        resolved.program,
-        resolved.environment.parameters,
-    )
-    assert materialized_state_properties(preview)[0][1].instrument_id == "source-0"
-
-
-def test_link_validates_scan_axis_parameter_contracts() -> None:
-    axis = _around_parameter_axis("missing_frequency")
-    assembly = ExperimentAssembly(
-        experiment_id="missing-parameter-scan",
-        kind="simple_scan",
-        point_domain=lower_scans_point_domain((axis,)),
-        parameter_contracts=scan_parameter_contracts(axis),
-    )
-    environment = build_config_environment(load_config())
-    with pytest.raises(CheckFailed) as caught:
-        link_verified_assembly(verify_assembly(assembly), environment)
-
-    assert caught.value.problems[0].code == "unknown_authoring_parameter"
-    assert caught.value.problems[0].location == model_location(
-        "parameters",
-        "missing_frequency",
-    )
-
-
 def test_module_construction_rejects_duplicate_resource_ids() -> None:
     with pytest.raises(ValueError, match="duplicate module resource ids"):
 
@@ -823,14 +771,13 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
             )
         )
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         parent.ir,
     )
 
     assert "drive_frequency" not in assembly.inputs
     assert all(port.id != "drive_frequency" for port in assembly.input_ports)
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    first_value = _logical_binding_expression(assembly, 0)
     assert isinstance(first_value, LiteralScalarExpr)
     assert first_value.value == Quantity(value=5.0, unit="GHz")
 
@@ -871,13 +818,10 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
             )
         )
 
-    assembly = compile_invocation(template()).assembly.source
+    assembly = compile_invocation(template()).program.program
 
     assert "drive_frequency" not in assembly.inputs
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    assert internal_lower_value_ref(assembly.bindings[0].value) == param(
-        "drive_frequency"
-    )
+    assert _logical_binding_expression(assembly, 0) == param("drive_frequency")
 
 
 def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
@@ -929,13 +873,10 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
             )
         )
 
-    assembly = compile_invocation(template()).assembly.source
+    assembly = compile_invocation(template()).program.program
 
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    expression = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    expression = _logical_binding_expression(assembly, 0)
     assert evaluate_scalar(expression, EvalContext()) == 1.75
-    assert internal_value_ref_parameter_contracts(assembly.bindings[0].value) == ()
-    assert internal_value_ref_point_dependencies(assembly.bindings[0].value) == ()
     assert assembly.parameter_contracts == ()
     assert assembly.point_dependencies == ()
 
@@ -972,7 +913,7 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     used_point = authoring.coordinate("reachable_point", value_type)
     unused_point = authoring.coordinate("phantom_point", value_type)
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         module.ir,
         used_parameter=used_parameter,
         unused_parameter=unused_parameter,
@@ -1048,13 +989,12 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
             )
         )
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         parent.ir, outer_frequency=Quantity(value=5.2, unit="GHz")
     )
 
     assert "drive_frequency" not in assembly.inputs
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    localized = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    localized = _logical_binding_expression(assembly, 0)
     assert isinstance(localized, InputScalarExpr)
     assert localized.name == "outer_frequency"
 
@@ -1099,15 +1039,13 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
             )
         )
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         module.ir,
     )
 
     assert "drive_frequency" not in assembly.inputs
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    assert isinstance(assembly.bindings[1].value, ValueRef)
-    first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
-    second_value = internal_lower_scalar_value_ref(assembly.bindings[1].value)
+    first_value = _logical_binding_expression(assembly, 0)
+    second_value = _logical_binding_expression(assembly, 1)
     assert isinstance(first_value, LiteralScalarExpr)
     assert isinstance(second_value, LiteralScalarExpr)
     assert first_value.value == Quantity(value=5.0, unit="GHz")
@@ -1142,7 +1080,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
             )
         )
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         parent.ir,
     )
 
@@ -1189,7 +1127,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         call = experiment.run(scan(DRIVE_FREQUENCY_POINT))
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template().scan(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
@@ -1201,11 +1139,11 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         config_profile=load_config(),
     )
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
     )
 
-    assert resolved.program.id == "test.scripted_scan"
+    assert resolved.program.experiment_id == "test.scripted_scan"
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
@@ -1248,7 +1186,7 @@ def test_product_declaration_uses_axes() -> None:
         call = experiment.run(module(DRIVE_FREQUENCY_POINT))
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template().scan(
             sc.axis(
                 DRIVE_FREQUENCY_POINT,
@@ -1260,8 +1198,8 @@ def test_product_declaration_uses_axes() -> None:
         config_profile=load_config(),
     )
 
-    assert len(resolved.program.record_uses) == 1
-    product = resolved.program.product_defs[0]
+    assert len(resolved.bindings.record_uses) == 1
+    product = resolved.bindings.product_defs[0]
     assert product.id.local_id == "signal"
     assert [axis.id for axis in product.axes] == ["shot", "repetition"]
     assert [axis.size for axis in product.axes] == [2, 3]
@@ -1349,20 +1287,20 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
             )
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template(qubit="q1"),
         config_profile=config,
     )
 
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
     assert materialized_state_properties(preview)[0][1].instrument_id == "source-1"
 
 
-def test_explicit_config_links_experiment() -> None:
+def test_explicit_config_binds_experiment() -> None:
     selected_instrument = "spare-awg"
     config = config_with_physical_resources(
         {selected_instrument: ("test.drive_frequency/v1",)}
@@ -1381,9 +1319,9 @@ def test_explicit_config_links_experiment() -> None:
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
 
-    resolved = link_invocation(template(), config_profile=config)
+    resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )

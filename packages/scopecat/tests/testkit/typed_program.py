@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
+from scopecat.compiler.bind import (
+    BoundPlan,
+    _make_bound_plan,
 )
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    AcquireId,
-    AcquireResult,
+from scopecat.compiler.environment import ConfigEnvironment
+from scopecat.compiler.frontend.logical_verification import (
+    VerifiedLogicalProgram,
+    verify_logical_program,
 )
 from scopecat.compiler.typed.invocation import (
     InvocationValueUse,
@@ -22,14 +22,14 @@ from scopecat.compiler.typed.invocation import (
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
     TypedComputeNode,
     TypedDomainExecution,
     TypedMeasurementPostprocessor,
 )
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.compiler.typed.verification import seal_typed_program
+from scopecat.compiler.typed.verification import verify_bound_facts
 from scopecat.graph.relations.model import CellValue
 from scopecat.graph.values import (
     ComputeResultRef,
@@ -55,6 +55,12 @@ from scopecat.measurements.products import (
 )
 from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementDType
+from scopecat.program.logical import (
+    AcquireEffect,
+    AcquireId,
+    AcquireResult,
+    LogicalProgram,
+)
 
 
 def overlay_parameter_cell(
@@ -65,7 +71,7 @@ def overlay_parameter_cell(
     column_id: str,
     axis_id: str,
 ) -> PointParameterOverlay:
-    """Build one statically linked point-local cell overlay."""
+    """Build one statically bound point-local cell overlay."""
 
     return PointParameterOverlay(
         table_id=table_id,
@@ -203,8 +209,6 @@ def instrument_invocation(
 
 def typed_program(
     *,
-    id: str,
-    kind: str,
     point_domain: PointDomain,
     resource_requirements: Sequence[LogicalResourceRequirement] = (),
     parameter_overlays: Sequence[PointParameterOverlay] = (),
@@ -217,12 +221,10 @@ def typed_program(
     instrument_acquisitions: Sequence[AcquireEffect] = (),
     product_uses: Sequence[ProductUse] = (),
     record_uses: Sequence[RecordUse] = (),
-) -> CoreProgram:
+) -> BoundProgramFacts:
     """Build one low-level typed program from explicitly ordered components."""
 
-    return CoreProgram(
-        id=id,
-        kind=kind,
+    return BoundProgramFacts(
         point_domain=point_domain,
         resource_requirements=tuple(resource_requirements),
         parameter_overlays=tuple(parameter_overlays),
@@ -240,16 +242,42 @@ def typed_program(
     )
 
 
-def link_program(
-    program: CoreProgram,
+def bind_program_facts(
+    bindings: BoundProgramFacts,
     environment: ConfigEnvironment,
-) -> LinkedPlan:
-    """Seal a trusted test program directly into a linked-plan fixture."""
+    *,
+    experiment_id: str = "test.bound-program",
+    kind: str = "test",
+) -> BoundPlan:
+    """Bind trusted low-level facts to a minimal verified source for tests."""
 
-    return LinkedPlan(
-        seal_typed_program(
-            program,
+    return _make_bound_plan(
+        verified_logical_program_for(
+            bindings,
+            experiment_id=experiment_id,
+            kind=kind,
+        ),
+        bindings,
+        verify_bound_facts(
+            bindings,
+            program_id=experiment_id,
             phase=ProblemPhase.PLANNING,
         ),
         environment,
+    )
+
+
+def verified_logical_program_for(
+    _bindings: BoundProgramFacts,
+    *,
+    experiment_id: str = "test.bound-program",
+    kind: str = "test",
+) -> VerifiedLogicalProgram:
+    """Build the minimal canonical source needed by a low-level fact fixture."""
+
+    return verify_logical_program(
+        LogicalProgram(
+            experiment_id=experiment_id,
+            kind=kind,
+        )
     )

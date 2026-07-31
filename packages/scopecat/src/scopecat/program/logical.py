@@ -1,26 +1,19 @@
-"""Backend-neutral typed value and pure-operation graph.
-
-The verified frontend owns structural validation. These transient compiler
-records only snapshot mutable values that must not leak into later stages.
-"""
+"""Canonical config-free logical program and its immutable leaf records."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import cast, override
 
 import scopecat.graph.values as graph_values
-from scopecat.compiler.relations.verification import (
-    PlanImportNamespace,
-    PointRequirement,
-    TypedPlanImport,
-    VerifiedRelationPlan,
-)
 from scopecat.domain.program import DomainProgramDef
+from scopecat.graph.relations.analysis import plan_input_refs
 from scopecat.graph.relations.model import (
     ScalarExpr,
 )
+from scopecat.graph.relations.point_domain import PointAxes
 from scopecat.graph.table_values import TableSource
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -35,13 +28,14 @@ from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
-
-type _PlanExpressionSemanticKey = tuple[
-    ScalarExpr,
-    Scalar,
-    tuple[TypedPlanImport, ...],
-    PointRequirement | None,
-]
+from scopecat.program.bindings import (
+    ResourcePort,
+)
+from scopecat.program.operations import ModuleInputPort
+from scopecat.program.parameters import ParameterContract
+from scopecat.program.products import ModuleProductDecl, RecordSelection
+from scopecat.program.scans import AxisSpec
+from scopecat.program.value_refs import PointValueDependency, ValueRef
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:
@@ -86,49 +80,26 @@ class MeasurementPostprocessorId:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class PlanExpressionSource:
-    _verified_plan: VerifiedRelationPlan = field(repr=False)
+    """A symbolic expression whose proof belongs to the whole logical program."""
 
-    @property
-    def expression(self) -> ScalarExpr:
-        return self._verified_plan.root
+    expression: ScalarExpr = field(repr=False)
 
     @property
     def source_inputs(self) -> tuple[str, ...]:
         """Return input dependencies derived from the retained expression."""
 
-        return self._verified_plan.import_ids(PlanImportNamespace.INPUT)
-
-    @property
-    def certified_type(self) -> Scalar:
-        return self._verified_plan.certified_type
-
-    @property
-    def imports(self) -> tuple[TypedPlanImport, ...]:
-        return self._verified_plan.imports
-
-    @property
-    def verified_plan(self) -> VerifiedRelationPlan:
-        return self._verified_plan
-
-    def _semantic_key(self) -> _PlanExpressionSemanticKey:
-        plan = self._verified_plan
-        return (
-            plan.root,
-            plan.certified_type,
-            plan.imports,
-            plan.external_point_requirement,
-        )
+        return plan_input_refs(self.expression)
 
     @override
     def __eq__(self, other: object) -> bool:
         return isinstance(other, PlanExpressionSource) and (
-            self._semantic_key() == other._semantic_key()
+            self.expression == other.expression
         )
 
     @override
     def __hash__(self) -> int:
         # Scalar literals may contain unhashable record cells.
-        return hash(self.certified_type)
+        return hash((PlanExpressionSource, type(self.expression)))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -160,33 +131,26 @@ class ValueDef:
 
 
 @dataclass(frozen=True, slots=True)
-class ValueUse:
-    """A use contains only the identity of its target definition."""
-
-    value_id: graph_values.ValueId
-
-
-@dataclass(frozen=True, slots=True)
-class SemanticOperation:
+class LogicalComputeNode:
     id: graph_values.OperationId
-    inputs: tuple[tuple[str, ValueUse], ...]
+    inputs: tuple[tuple[str, graph_values.ValueId], ...]
     result_id: graph_values.ValueId
     result_type: Scalar
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticDomainExecution:
+class LogicalDomainExecution:
     """One program and its plan-stage logical product bindings."""
 
     id: str
     program: DomainProgramDef
-    inputs: tuple[tuple[str, ValueUse], ...] = ()
-    compiler_inputs: tuple[tuple[str, ValueUse], ...] = ()
+    inputs: tuple[tuple[str, graph_values.ValueId], ...] = ()
+    compiler_inputs: tuple[tuple[str, graph_values.ValueId], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticMeasurementPostprocessor:
+class LogicalMeasurementPostprocessor:
     """One point-local Python calculation with explicit product edges."""
 
     id: MeasurementPostprocessorId
@@ -231,10 +195,40 @@ class AcquireEffect:
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticGraphIR:
-    value_defs: tuple[ValueDef, ...] = ()
-    operations: tuple[SemanticOperation, ...] = ()
-    measurement_postprocessors: tuple[SemanticMeasurementPostprocessor, ...] = ()
+class LogicalStateAssignment:
+    """One closed desired-state edge in the logical value graph."""
+
+    port_id: LogicalResourcePortId
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    property_id: str
+    value_id: graph_values.ValueId
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalEnsureState:
+    """One coherent group of logical desired-state assignments."""
+
+    assignments: tuple[LogicalStateAssignment, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalInvocationArgument:
+    id: str
+    value_id: graph_values.ValueId
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalInvocation:
+    """One closed operation invocation over logical resources and values."""
+
+    id: str
+    port_id: LogicalResourcePortId
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    operation_id: str
+    arguments: tuple[LogicalInvocationArgument, ...]
+    scope: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +240,105 @@ class ImplementationId:
 class LocalPythonImplementation:
     id: ImplementationId
     kernel: Callable[..., object] = field(repr=False, compare=False)
+
+
+type LogicalEffect = (
+    LogicalStateAssignment
+    | LogicalEnsureState
+    | LogicalInvocation
+    | LogicalDomainExecution
+    | AcquireEffect
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class LogicalProgram:
+    """Closed, flat, config-free program consumed by compiler binding."""
+
+    experiment_id: str
+    kind: str
+    inputs: dict[str, object] = field(default_factory=dict)
+    input_ports: tuple[ModuleInputPort, ...] = ()
+    entity_inputs: tuple[str, ...] = ()
+    resource_ports: tuple[ResourcePort, ...] = ()
+    point_dependencies: tuple[PointValueDependency, ...] = ()
+    parameter_overlays: tuple[AxisSpec, ...] = ()
+    product_declarations: tuple[ModuleProductDecl, ...] = ()
+    record_selections: tuple[RecordSelection, ...] = ()
+    parameter_contracts: tuple[ParameterContract, ...] = ()
+    point_domain: PointAxes[ValueRef] = ()
+    value_defs: tuple[ValueDef, ...] = ()
+    compute_nodes: tuple[LogicalComputeNode, ...] = ()
+    measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = ()
+    implementations: Mapping[graph_values.OperationId, LocalPythonImplementation] = (
+        field(
+            default_factory=dict[
+                graph_values.OperationId,
+                LocalPythonImplementation,
+            ],
+            repr=False,
+            compare=False,
+        )
+    )
+    effects: tuple[LogicalEffect, ...] = ()
+    final_state: LogicalEnsureState | None = None
+
+    def __post_init__(self) -> None:
+        if not self.experiment_id or not self.kind:
+            raise ValueError("logical program requires an id and kind")
+        object.__setattr__(
+            self,
+            "implementations",
+            MappingProxyType(dict(self.implementations)),
+        )
+
+    @property
+    def bindings(self) -> tuple[LogicalStateAssignment, ...]:
+        effect_bindings = tuple(
+            binding
+            for effect in self.effects
+            for binding in (
+                (effect,)
+                if isinstance(effect, LogicalStateAssignment)
+                else effect.assignments
+                if isinstance(effect, LogicalEnsureState)
+                else ()
+            )
+        )
+        return (
+            *effect_bindings,
+            *(() if self.final_state is None else self.final_state.assignments),
+        )
+
+    @property
+    def product_effects(
+        self,
+    ) -> tuple[LogicalDomainExecution | AcquireEffect, ...]:
+        return tuple(
+            effect
+            for effect in self.effects
+            if isinstance(effect, LogicalDomainExecution | AcquireEffect)
+        )
+
+    @property
+    def invocations(self) -> tuple[LogicalInvocation, ...]:
+        return tuple(
+            effect for effect in self.effects if isinstance(effect, LogicalInvocation)
+        )
+
+    @property
+    def domain_executions(self) -> tuple[LogicalDomainExecution, ...]:
+        return tuple(
+            effect
+            for effect in self.effects
+            if isinstance(effect, LogicalDomainExecution)
+        )
+
+    @property
+    def acquisitions(self) -> tuple[AcquireEffect, ...]:
+        return tuple(
+            effect for effect in self.effects if isinstance(effect, AcquireEffect)
+        )
 
 
 def _snapshot_literal(value: object) -> object:

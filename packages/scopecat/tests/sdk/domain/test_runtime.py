@@ -78,7 +78,7 @@ def _submission_id(invocation: _Invocation) -> DomainSubmissionId:
     return plan_domain_submission(
         invocation,
         run_id="run-domain",
-        semantic_operation_id="domain.batch",
+        logical_compute_node_id="domain.batch",
     )
 
 
@@ -159,7 +159,7 @@ def test_submission_identity_is_deterministic_and_covers_intent() -> None:
     changed_id = plan_domain_submission(
         changed,
         run_id=first.run_id,
-        semantic_operation_id=first.semantic_operation_id,
+        logical_compute_node_id=first.logical_compute_node_id,
     )
 
     assert first == repeated

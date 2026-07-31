@@ -127,22 +127,22 @@ class VerifiedRelationPlan:
 
     __slots__ = (
         "_bindings",
-        "_certified_type",
         "_external_point_requirement",
         "_imports",
         "_root",
+        "_value_type",
     )
 
     def __init__(
         self,
         root: ScalarExpr,
-        certified_type: Scalar,
+        value_type: Scalar,
         imports: tuple[TypedPlanImport, ...],
         bindings: RelationTypeBindings,
         external_point_requirement: PointRequirement | None,
     ) -> None:
         self._root = root
-        self._certified_type = certified_type
+        self._value_type = value_type
         self._imports = imports
         self._bindings = bindings
         self._external_point_requirement = external_point_requirement
@@ -152,8 +152,8 @@ class VerifiedRelationPlan:
         return self._root
 
     @property
-    def certified_type(self) -> Scalar:
-        return self._certified_type
+    def value_type(self) -> Scalar:
+        return self._value_type
 
     @property
     def imports(self) -> tuple[TypedPlanImport, ...]:

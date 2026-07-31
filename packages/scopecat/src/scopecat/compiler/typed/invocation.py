@@ -6,15 +6,14 @@ from dataclasses import dataclass
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
-from scopecat.compiler.relations.uses import RelationUse
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.graph.relations.model import CellValue
 from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 
-type InvocationValueUse = RelationUse[ScalarValueExpr] | ComputeResultRef
+type InvocationValueUse = VerifiedRelationPlan | ComputeResultRef
 type EvaluatedInvocationValue = CellValue | ComputeResultRef
 
 
@@ -59,5 +58,5 @@ def evaluate_invoke_argument(
     return (
         value_use
         if isinstance(value_use, ComputeResultRef)
-        else evaluate_scalar(value_use.value.plan, ctx)
+        else evaluate_scalar(value_use, ctx)
     )

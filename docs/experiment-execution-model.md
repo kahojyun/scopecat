@@ -13,13 +13,13 @@ and functions that enforce it.
 @module / @template contexts
     | close definitions
     v
-program model           shared symbolic ModuleIR, values, products, scans
+program model           shared symbolic ModuleDef, values, products, scans
     | elaborate and verify
     v
-VerifiedAssembly        config-free experiment proof
+VerifiedLogicalProgram  config-free experiment proof
     | lower, specialize, verify, and bind one accepted environment
     v
-LinkedPlan              sealed CoreProgram plus configuration environment
+BoundPlan               verified logical program + config-bound facts
     | materialize for one experiment system
     v
 RunProgram              closed residual effect program
@@ -28,10 +28,10 @@ RunProgram              closed residual effect program
 logical measurements and durable run records
 ```
 
-The authoring package owns Python UX; `scopecat.program` owns the symbolic
-model consumed by both authoring and compilation. The compiler does not import
-authoring-private implementation modules. `CoreProgram` is transient compiler
-data, not a versioned interchange format.
+The authoring package owns Python UX; `scopecat.program` owns definitions,
+invocations, and the symbolic model consumed by compilation. The compiler does
+not import authoring modules. `BoundProgramFacts` is transient compiler data,
+not a versioned interchange format.
 `RunProgram` is the executable representation for one accepted run; physical
 batching does not change its logical points, product identities, or results.
 

@@ -19,7 +19,7 @@ def _operation() -> ComputeOperation:
     operation_id = "point.compute.program"
     return ComputeOperation(
         operation_id=operation_id,
-        semantic_operation_id="program",
+        logical_compute_node_id="program",
         implementation_id="tests.program",
         kernel=lambda: {"program": 1},
         inputs={},

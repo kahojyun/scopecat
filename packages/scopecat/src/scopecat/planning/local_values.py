@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 
 
 def evaluate_scalar_value(
-    value: ScalarValueExpr,
+    value: VerifiedRelationPlan,
     ctx: EvalContext,
 ) -> object:
-    return evaluate_scalar(value.plan, ctx)
+    return evaluate_scalar(value, ctx)

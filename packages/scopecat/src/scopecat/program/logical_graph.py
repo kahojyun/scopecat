@@ -1,26 +1,10 @@
-"""Backend-neutral typed value and pure-operation graph.
-
-The graph is semantic data only.  Python kernels and authoring provenance are
-carried by explicit sidecars so implementation choice and diagnostics cannot
-change graph equality.
-"""
+"""Normalize and verify the dataflow fields of one logical program."""
 
 from __future__ import annotations
 
 import heapq
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from types import MappingProxyType
 
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    MeasurementPostprocessorId,
-    SemanticDomainExecution,
-    SemanticGraphIR,
-    SemanticMeasurementPostprocessor,
-    SemanticOperation,
-    ValueDef,
-)
 from scopecat.graph.values import (
     OperationId,
     ValueId,
@@ -34,73 +18,46 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import ValueType
+from scopecat.program.logical import (
+    AcquireEffect,
+    LogicalComputeNode,
+    LogicalDomainExecution,
+    LogicalMeasurementPostprocessor,
+    MeasurementPostprocessorId,
+    ValueDef,
+)
 
 
-@dataclass(frozen=True, slots=True)
-class VerifiedSemanticGraph:
-    graph: SemanticGraphIR
-    value_defs: Mapping[ValueId, ValueDef] = field(
-        init=False,
-        compare=False,
-        hash=False,
-    )
-    operation_results: Mapping[ValueId, SemanticOperation] = field(
-        init=False,
-        compare=False,
-        hash=False,
-    )
-    value_types: Mapping[ValueId, ValueType] = field(
-        init=False,
-        compare=False,
-        hash=False,
-    )
-
-    def __post_init__(self) -> None:
-        definitions = {
-            definition.id: definition for definition in self.graph.value_defs
-        }
-        operation_results = {
-            operation.result_id: operation for operation in self.graph.operations
-        }
-        value_types = {
-            definition.id: definition.value_type for definition in self.graph.value_defs
-        }
-        value_types.update(
-            {
-                operation.result_id: operation.result_type
-                for operation in self.graph.operations
-            }
-        )
-        object.__setattr__(self, "value_defs", MappingProxyType(definitions))
-        object.__setattr__(
-            self,
-            "operation_results",
-            MappingProxyType(operation_results),
-        )
-        object.__setattr__(self, "value_types", MappingProxyType(value_types))
-
-
-def verify_semantic_graph(
-    graph: SemanticGraphIR,
+def verify_logical_graph(
+    value_defs: Sequence[ValueDef],
+    compute_nodes: Sequence[LogicalComputeNode],
+    measurement_postprocessors: Sequence[LogicalMeasurementPostprocessor] = (),
     *,
-    effects: Sequence[SemanticDomainExecution | AcquireEffect] = (),
-) -> VerifiedSemanticGraph:
+    effects: Sequence[LogicalDomainExecution | AcquireEffect] = (),
+) -> tuple[
+    tuple[ValueDef, ...],
+    tuple[LogicalComputeNode, ...],
+    tuple[LogicalMeasurementPostprocessor, ...],
+]:
     """Validate closure and normalize semantic dataflow."""
 
+    definitions_in_order = tuple(value_defs)
+    declared_compute_nodes = tuple(compute_nodes)
+    declared_postprocessors = tuple(measurement_postprocessors)
     domain_executions = tuple(
-        effect for effect in effects if isinstance(effect, SemanticDomainExecution)
+        effect for effect in effects if isinstance(effect, LogicalDomainExecution)
     )
     acquisitions = tuple(
         effect for effect in effects if isinstance(effect, AcquireEffect)
     )
     problems: list[Problem] = []
-    definitions = {definition.id: definition for definition in graph.value_defs}
+    definitions = {definition.id: definition for definition in definitions_in_order}
     ambiguous_measurement_postprocessor_ids = _measurement_postprocessors_by_id(
-        graph.measurement_postprocessors,
+        declared_postprocessors,
         problems,
     )
     operation_results = {
-        operation.result_id: operation for operation in graph.operations
+        operation.result_id: operation for operation in declared_compute_nodes
     }
     value_types = {
         definition.id: definition.value_type for definition in definitions.values()
@@ -121,7 +78,7 @@ def verify_semantic_graph(
         )
     unambiguous_measurement_postprocessors = tuple(
         postprocessor
-        for postprocessor in graph.measurement_postprocessors
+        for postprocessor in declared_postprocessors
         if postprocessor.id not in ambiguous_measurement_postprocessor_ids
     )
     _verify_product_owners(
@@ -135,30 +92,29 @@ def verify_semantic_graph(
         problems,
     )
     ordered_operations = _topological_operations(
-        graph.operations,
+        declared_compute_nodes,
         operation_results,
         problems,
     )
     if problems:
         raise CheckFailed(problems)
     ordered_defs = tuple(
-        sorted(graph.value_defs, key=lambda item: item.id.qualified_name)
+        sorted(definitions_in_order, key=lambda item: item.id.qualified_name)
     )
-    normalized = SemanticGraphIR(
-        value_defs=ordered_defs,
-        operations=ordered_operations,
-        measurement_postprocessors=ordered_measurement_postprocessors,
+    return (
+        ordered_defs,
+        ordered_operations,
+        ordered_measurement_postprocessors,
     )
-    return VerifiedSemanticGraph(normalized)
 
 
 def _measurement_postprocessors_by_id(
-    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
+    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
     problems: list[Problem],
 ) -> frozenset[MeasurementPostprocessorId]:
     grouped: dict[
         MeasurementPostprocessorId,
-        list[SemanticMeasurementPostprocessor],
+        list[LogicalMeasurementPostprocessor],
     ] = {}
     for postprocessor in postprocessors:
         grouped.setdefault(postprocessor.id, []).append(postprocessor)
@@ -170,7 +126,7 @@ def _measurement_postprocessors_by_id(
     for transform_id in sorted(ambiguous, key=lambda item: item.qualified_name):
         problems.append(
             _problem(
-                "semantic_measurement_postprocessor_duplicate",
+                "logical_measurement_postprocessor_duplicate",
                 "measurement postprocessor "
                 f"{transform_id.qualified_name!r} is declared more than once",
                 "measurement_postprocessors",
@@ -182,8 +138,8 @@ def _measurement_postprocessors_by_id(
 
 def _verify_product_owners(
     acquisitions: tuple[AcquireEffect, ...],
-    executions: tuple[SemanticDomainExecution, ...],
-    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
+    executions: tuple[LogicalDomainExecution, ...],
+    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
     problems: list[Problem],
 ) -> None:
     owners: dict[object, tuple[str, str]] = {}
@@ -194,7 +150,7 @@ def _verify_product_owners(
                 owner, owner_port = existing
                 problems.append(
                     _problem(
-                        "semantic_product_producer_duplicate",
+                        "logical_product_producer_duplicate",
                         f"logical product {result.product_id.qualified_name!r} is "
                         f"produced by both {owner}/{owner_port!r} and acquisition "
                         f"{acquire.id.qualified_name!r}/{result.result_id!r}",
@@ -216,7 +172,7 @@ def _verify_product_owners(
                 owner, owner_port = existing
                 problems.append(
                     _problem(
-                        "semantic_product_producer_duplicate",
+                        "logical_product_producer_duplicate",
                         f"logical product {product_id.qualified_name!r} is produced "
                         f"by both {owner}/{owner_port!r} and domain execution "
                         f"{execution.id!r}/{result_id!r}",
@@ -235,7 +191,7 @@ def _verify_product_owners(
                 owner, owner_port = existing
                 problems.append(
                     _problem(
-                        "semantic_product_producer_duplicate",
+                        "logical_product_producer_duplicate",
                         f"logical product {product_id.qualified_name!r} is "
                         f"produced by both {owner}/{owner_port!r} and measurement "
                         "postprocessor "
@@ -254,9 +210,9 @@ def _verify_product_owners(
 
 
 def _verify_measurement_postprocessor_sources(
-    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
+    postprocessors: tuple[LogicalMeasurementPostprocessor, ...],
     problems: list[Problem],
-) -> tuple[SemanticMeasurementPostprocessor, ...]:
+) -> tuple[LogicalMeasurementPostprocessor, ...]:
     owner_by_output = {
         product_id: postprocessor.id
         for postprocessor in postprocessors
@@ -268,7 +224,7 @@ def _verify_measurement_postprocessor_sources(
             continue
         problems.append(
             _problem(
-                "semantic_measurement_postprocessor_chaining_unsupported",
+                "logical_measurement_postprocessor_chaining_unsupported",
                 f"measurement postprocessor "
                 f"{postprocessor.id.qualified_name!r} consumes output from "
                 f"{source_owner.qualified_name!r}; postprocessor chaining is "
@@ -282,9 +238,9 @@ def _verify_measurement_postprocessor_sources(
 
 
 def _verify_domain_execution(
-    execution: SemanticDomainExecution,
+    execution: LogicalDomainExecution,
     value_types: Mapping[ValueId, ValueType],
-    operation_results: Mapping[ValueId, SemanticOperation],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
     problems: list[Problem],
     *,
     execution_index: int,
@@ -292,8 +248,8 @@ def _verify_domain_execution(
     program = execution.program
     location = ("domain_executions", str(execution_index))
     input_ports = {port.id: port for port in program.input_ports}
-    for name, use in execution.inputs:
-        value_type = value_types[use.value_id]
+    for name, value_id in execution.inputs:
+        value_type = value_types[value_id]
         port = input_ports[name]
         if not is_assignable(
             value_type,
@@ -301,7 +257,7 @@ def _verify_domain_execution(
         ):
             problems.append(
                 _problem(
-                    "semantic_domain_execution_input_type_mismatch",
+                    "logical_domain_execution_input_type_mismatch",
                     f"domain execution input {name!r} is not assignable to its "
                     "declared port type",
                     *location,
@@ -309,10 +265,10 @@ def _verify_domain_execution(
                     name,
                 )
             )
-        if use.value_id in operation_results:
+        if value_id in operation_results:
             problems.append(
                 _problem(
-                    "semantic_domain_execution_input_stage_unavailable",
+                    "logical_domain_execution_input_stage_unavailable",
                     f"domain execution input {name!r} must be available at plan stage",
                     *location,
                     "inputs",
@@ -320,8 +276,8 @@ def _verify_domain_execution(
                 )
             )
     compiler_input_ports = {port.id: port for port in program.compiler_input_ports}
-    for name, use in execution.compiler_inputs:
-        value_type = value_types[use.value_id]
+    for name, value_id in execution.compiler_inputs:
+        value_type = value_types[value_id]
         port = compiler_input_ports[name]
         if not is_assignable(
             value_type,
@@ -329,7 +285,7 @@ def _verify_domain_execution(
         ):
             problems.append(
                 _problem(
-                    "semantic_domain_compiler_input_type_mismatch",
+                    "logical_domain_compiler_input_type_mismatch",
                     f"domain compiler input {name!r} is not assignable to its "
                     "declared port type",
                     *location,
@@ -337,10 +293,10 @@ def _verify_domain_execution(
                     name,
                 )
             )
-        if use.value_id in operation_results:
+        if value_id in operation_results:
             problems.append(
                 _problem(
-                    "semantic_domain_compiler_input_stage_unavailable",
+                    "logical_domain_compiler_input_stage_unavailable",
                     f"domain compiler input {name!r} must be available at plan stage",
                     *location,
                     "compiler_inputs",
@@ -350,10 +306,10 @@ def _verify_domain_execution(
 
 
 def _topological_operations(
-    declared: tuple[SemanticOperation, ...],
-    operation_results: Mapping[ValueId, SemanticOperation],
+    declared: tuple[LogicalComputeNode, ...],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
     problems: list[Problem],
-) -> tuple[SemanticOperation, ...]:
+) -> tuple[LogicalComputeNode, ...]:
     operations = {operation.id: operation for operation in declared}
     dependencies: dict[OperationId, set[OperationId]] = {
         operation.id: set() for operation in declared
@@ -362,8 +318,8 @@ def _topological_operations(
         operation.id: set() for operation in declared
     }
     for operation in declared:
-        for _name, use in operation.inputs:
-            producer_operation = operation_results.get(use.value_id)
+        for _name, value_id in operation.inputs:
+            producer_operation = operation_results.get(value_id)
             if producer_operation is None:
                 continue
             producer = producer_operation.id
@@ -378,7 +334,7 @@ def _topological_operations(
         if count == 0
     ]
     heapq.heapify(ready)
-    ordered: list[SemanticOperation] = []
+    ordered: list[LogicalComputeNode] = []
     while ready:
         _name, operation_id = heapq.heappop(ready)
         ordered.append(operations[operation_id])
@@ -396,7 +352,7 @@ def _topological_operations(
         first = cyclic[0]
         problems.append(
             _problem(
-                "semantic_operation_cycle",
+                "logical_operation_cycle",
                 "semantic operation graph contains a cycle involving: "
                 + ", ".join(item.qualified_name for item in cyclic),
                 "operations",

@@ -9,7 +9,7 @@ from scopecat.authoring import (
     parameter,
 )
 from scopecat.authoring.scans import axis
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.artifact import RunContentEntry
@@ -19,7 +19,7 @@ from scopecat.runs.access import (
 )
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
-    link_invocation,
+    bind_invocation,
     simple_template,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
@@ -30,13 +30,13 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_snapshot_document(WORKFLOW_FIXTURE_DIR / "config-snapshot.json")
 
 
-def load_experiment() -> CoreProgram:
+def load_experiment() -> BoundProgramFacts:
     """Compile the simple-scan DSL fixture into a transient typed program."""
 
-    return link_invocation(
+    return bind_invocation(
         load_invocation(),
         config_profile=load_config(),
-    ).program
+    ).bindings
 
 
 def load_invocation() -> ExperimentInvocation:

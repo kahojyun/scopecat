@@ -3,27 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
-from types import MappingProxyType
+from dataclasses import dataclass, replace
 from typing import Protocol, cast
 
-from scopecat.compiler.frontend.semantic_elaboration import (
-    ScopedPythonImplementation,
-    elaborate_semantic_graph,
-    semantic_operation_id,
+from scopecat.compiler.frontend.logical_closure import (
+    close_logical_program,
+    logical_compute_node_id,
 )
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    AcquireId,
-    AcquireResult,
-    LocalPythonImplementation,
-    SemanticDomainExecution,
-    SemanticGraphIR,
-)
+from scopecat.compiler.frontend.scan_lowering import lower_scans_point_domain
 from scopecat.graph.relations.point_domain import PointAxes
-from scopecat.graph.values import (
-    OperationId,
-)
+from scopecat.graph.values import OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemPhase,
@@ -33,27 +22,28 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
     ResourceSelector,
-    prefix_resource_port,
 )
-from scopecat.program.domain import LoweredDomainExecution, lower_domain_execution
-from scopecat.program.experiment import ExperimentProgram
+from scopecat.program.definitions import ExperimentDef
+from scopecat.program.domain import DomainExecution
 from scopecat.program.identities import InvocationKey
+from scopecat.program.logical import (
+    AcquireEffect,
+    AcquireId,
+    AcquireResult,
+    LogicalProgram,
+)
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
     ModuleAcquireEffect,
-    ModuleBindingEffect,
     ModuleBodyIR,
-    ModuleDomainEffect,
-    ModuleEnsureEffect,
+    ModuleDef,
     ModuleInstanceIR,
     ModuleInterfaceIR,
-    ModuleInvokeEffect,
-    ModuleIR,
     ModulePythonImplementation,
 )
 from scopecat.program.operations import (
@@ -71,7 +61,7 @@ from scopecat.program.products import (
     localize_product_input_refs,
     prefix_product_decl,
 )
-from scopecat.program.scans import AxisSpec
+from scopecat.program.scans import AxisSpec, scan_parameter_contracts
 from scopecat.program.value_refs import (
     PointValueDependency,
     ValueRef,
@@ -92,72 +82,21 @@ from scopecat.program.value_types import (
 from scopecat.program.value_types import (
     Table as TableType,
 )
+from scopecat.program.values import ComputeFunction
 
-type _FragmentEffect = (
-    ExperimentBindingIntent
+type _DefinitionEffect = (
+    BindingIntent
     | EnsureStateIntent
     | InvocationIntent
-    | LoweredDomainExecution
+    | DomainExecution
     | AcquireEffect
 )
-type AssemblyEffect = (
-    ExperimentBindingIntent
-    | EnsureStateIntent
-    | InvocationIntent
-    | SemanticDomainExecution
-    | AcquireEffect
-)
-
-
-@dataclass(frozen=True, kw_only=True)
-class _AssemblyEnvelope:
-    """Non-dataflow intents carried alongside transient semantic graphs."""
-
-    inputs: dict[str, object] = field(default_factory=dict)
-    input_ports: tuple[ModuleInputPort, ...] = ()
-    entity_inputs: tuple[str, ...] = ()
-    resource_ports: tuple[ResourcePort, ...] = ()
-    point_dependencies: tuple[PointValueDependency, ...] = ()
-    parameter_overlays: tuple[AxisSpec, ...] = ()
-    product_declarations: tuple[ModuleProductDecl, ...] = ()
-    record_selections: tuple[RecordSelection, ...] = ()
-    parameter_contracts: tuple[ParameterContract, ...] = ()
-
-
-@dataclass(frozen=True, kw_only=True)
-class _ModuleFragment(_AssemblyEnvelope):
-    """Hierarchy-free module declarations before semantic graph closure."""
-
-    operations: tuple[ModuleOperationDecl, ...] = ()
-    python_implementations: tuple[ScopedPythonImplementation, ...] = ()
-    measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
-    effects: tuple[_FragmentEffect, ...] = ()
-
-    @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
-        return tuple(
-            binding
-            for effect in self.effects
-            for binding in (
-                (effect,)
-                if isinstance(effect, ExperimentBindingIntent)
-                else effect.assignments
-                if isinstance(effect, EnsureStateIntent)
-                else ()
-            )
-        )
 
 
 @dataclass(frozen=True, slots=True)
 class _ValueRefDependencies:
     point: tuple[PointValueDependency, ...]
     parameters: tuple[ParameterContract, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _ModuleFragmentValueRoots:
-    consumed: tuple[object, ...]
-    semantic: tuple[object, ...]
 
 
 class _HierarchyRoot(Protocol):
@@ -175,142 +114,131 @@ class _HierarchyRoot(Protocol):
     ) -> tuple[ModulePythonImplementation, ...]: ...
 
 
-@dataclass(frozen=True, kw_only=True)
-class ExperimentAssembly(_AssemblyEnvelope):
-    """Closed config-free semantic graph plus plan and resource intents."""
+@dataclass(frozen=True, slots=True)
+class _InstanceBoundary:
+    """One child-to-parent localization step in a hierarchy traversal."""
 
-    experiment_id: str
-    kind: str
-    point_domain: PointAxes[ValueRef] = ()
-    semantic_graph: SemanticGraphIR = field(default_factory=SemanticGraphIR)
-    implementations: Mapping[OperationId, LocalPythonImplementation] = field(
-        default_factory=dict[OperationId, LocalPythonImplementation],
-        repr=False,
-        compare=False,
-    )
-    effects: tuple[AssemblyEffect, ...] = ()
-    final_state: EnsureStateIntent | None = None
-
-    def __post_init__(self) -> None:
-        if not self.experiment_id or not self.kind:
-            raise ValueError("semantic experiment requires an id and kind")
-        object.__setattr__(
-            self,
-            "implementations",
-            MappingProxyType(dict(self.implementations)),
-        )
+    instance_id: str
+    invocation_key: InvocationKey
+    inputs: Mapping[str, ValueRef]
+    resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId]
 
     @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
-        effect_bindings = tuple(
-            binding
-            for effect in self.effects
-            for binding in (
-                (effect,)
-                if isinstance(effect, ExperimentBindingIntent)
-                else effect.assignments
-                if isinstance(effect, EnsureStateIntent)
-                else ()
-            )
-        )
-        return (
-            *effect_bindings,
-            *(() if self.final_state is None else self.final_state.assignments),
-        )
+    def scope(self) -> tuple[str, ...]:
+        return (self.instance_id,)
 
     @property
-    def semantic_effects(
+    def origin(self) -> tuple[object, ...]:
+        return (self.invocation_key,)
+
+
+class _LogicalProgramComposer:
+    """Recursively flatten definitions directly into logical-program fields."""
+
+    def __init__(self) -> None:
+        self.resource_ports: list[ResourcePort] = []
+        self.operations: list[ModuleOperationDecl] = []
+        self.python_implementations: dict[OperationId, ComputeFunction] = {}
+        self.measurement_postprocessors: list[MeasurementPostprocessor] = []
+        self.product_declarations: list[ModuleProductDecl] = []
+        self.dependency_roots: list[ValueRef] = []
+
+    def add_hierarchy(self, root: _HierarchyRoot) -> tuple[_DefinitionEffect, ...]:
+        return self._add_module(root, boundaries=())
+
+    def _add_module(
         self,
-    ) -> tuple[SemanticDomainExecution | AcquireEffect, ...]:
-        return tuple(
-            effect
-            for effect in self.effects
-            if isinstance(effect, SemanticDomainExecution | AcquireEffect)
+        module: _HierarchyRoot,
+        *,
+        boundaries: tuple[_InstanceBoundary, ...],
+    ) -> tuple[_DefinitionEffect, ...]:
+        resolver = _ModuleValueResolver(module)
+        child_effects: dict[InvocationKey, tuple[_DefinitionEffect, ...]] = {}
+        for instance in module.body.child_instances:
+            boundary = _InstanceBoundary(
+                instance_id=instance.instance_id,
+                invocation_key=instance.invocation_key,
+                inputs={
+                    binding.import_id: resolver.resolve(binding.source)
+                    for binding in instance.input_bindings
+                },
+                resource_bindings={
+                    binding.import_id: binding.source_id
+                    for binding in instance.resource_bindings
+                },
+            )
+            child_effects[instance.invocation_key] = self._add_module(
+                instance.module,
+                boundaries=(boundary, *boundaries),
+            )
+
+        self._add_declarations(module, resolver=resolver, boundaries=boundaries)
+        own_effects = tuple(
+            _localize_effect(
+                _lower_module_effect(effect, resolver=resolver),
+                boundaries,
+            )
+            for effect in module.body.effects
+            if not isinstance(effect, ModuleInstanceIR)
+        )
+        ordered: list[_DefinitionEffect] = []
+        own_effect_iterator = iter(own_effects)
+        for effect in module.body.effects:
+            if isinstance(effect, ModuleInstanceIR):
+                ordered.extend(child_effects[effect.invocation_key])
+            else:
+                ordered.append(next(own_effect_iterator))
+        return tuple(ordered)
+
+    def _add_declarations(
+        self,
+        module: _HierarchyRoot,
+        *,
+        resolver: _ModuleValueResolver,
+        boundaries: tuple[_InstanceBoundary, ...],
+    ) -> None:
+        implementations = {
+            implementation.declaration_key: implementation.fn
+            for implementation in module.python_implementations
+        }
+        for port in module.interface.resources:
+            localized = _localize_resource_port(
+                _resolve_resource_port(port, resolver=resolver),
+                boundaries,
+            )
+            if localized is not None:
+                self.resource_ports.append(localized)
+        for operation in module.body.operations:
+            localized = _localize_operation(
+                _resolve_operation(operation, resolver=resolver),
+                boundaries,
+            )
+            self.operations.append(localized)
+            self.python_implementations[
+                logical_compute_node_id(localized.operation_id)
+            ] = implementations[operation.declaration_key]
+        self.measurement_postprocessors.extend(
+            _localize_measurement_postprocessor(postprocessor, boundaries)
+            for postprocessor in module.body.measurement_postprocessors
+        )
+        self.product_declarations.extend(
+            _localize_product_declaration(
+                _resolve_product(product, resolver=resolver),
+                boundaries,
+            )
+            for product in module.body.products
+        )
+        self.dependency_roots.extend(
+            _localize_value_ref(resolver.resolve(export.source), boundaries)
+            for export in module.interface.exports
         )
 
-    @property
-    def invocations(self) -> tuple[InvocationIntent, ...]:
-        return tuple(
-            effect for effect in self.effects if isinstance(effect, InvocationIntent)
-        )
 
-    @property
-    def domain_executions(self) -> tuple[SemanticDomainExecution, ...]:
-        return tuple(
-            effect
-            for effect in self.effects
-            if isinstance(effect, SemanticDomainExecution)
-        )
-
-    @property
-    def acquisitions(self) -> tuple[AcquireEffect, ...]:
-        return tuple(
-            effect for effect in self.effects if isinstance(effect, AcquireEffect)
-        )
-
-
-def _merge_module_fragments(
-    *,
-    fragments: Sequence[_ModuleFragment],
-) -> _ModuleFragment:
-    if not fragments:
-        msg = "module fragment merge requires at least one fragment"
-        raise ValueError(msg)
-    merged_inputs: dict[str, object] = {}
-    input_ports: list[ModuleInputPort] = []
-    entity_inputs: list[str] = []
-    resource_ports: list[ResourcePort] = []
-    point_dependencies: list[tuple[PointValueDependency, ...]] = []
-    parameter_overlays: list[AxisSpec] = []
-    operations: list[ModuleOperationDecl] = []
-    measurement_postprocessors: list[MeasurementPostprocessor] = []
-    python_implementations: list[ScopedPythonImplementation] = []
-    product_declarations: list[ModuleProductDecl] = []
-    record_selections: list[RecordSelection] = []
-    parameter_contracts: list[tuple[ParameterContract, ...]] = []
-    effects: list[_FragmentEffect] = []
-    for fragment in fragments:
-        merged_inputs.update(fragment.inputs)
-        input_ports.extend(fragment.input_ports)
-        entity_inputs.extend(fragment.entity_inputs)
-        resource_ports.extend(fragment.resource_ports)
-        point_dependencies.append(fragment.point_dependencies)
-        parameter_overlays.extend(fragment.parameter_overlays)
-        operations.extend(fragment.operations)
-        measurement_postprocessors.extend(fragment.measurement_postprocessors)
-        python_implementations.extend(fragment.python_implementations)
-        product_declarations.extend(fragment.product_declarations)
-        record_selections.extend(fragment.record_selections)
-        parameter_contracts.append(fragment.parameter_contracts)
-        effects.extend(fragment.effects)
-    merged_point_dependencies = _merge_point_dependencies(*point_dependencies)
-    execution_ids = tuple(
-        effect.id for effect in effects if isinstance(effect, LoweredDomainExecution)
-    )
-    if len(execution_ids) != len(set(execution_ids)):
-        raise ValueError("module fragments contain repeated domain execution ids")
-    return _ModuleFragment(
-        inputs=merged_inputs,
-        input_ports=tuple(input_ports),
-        entity_inputs=tuple(entity_inputs),
-        resource_ports=tuple(resource_ports),
-        point_dependencies=merged_point_dependencies,
-        parameter_overlays=tuple(parameter_overlays),
-        operations=tuple(operations),
-        measurement_postprocessors=tuple(measurement_postprocessors),
-        python_implementations=tuple(python_implementations),
-        product_declarations=tuple(product_declarations),
-        record_selections=tuple(record_selections),
-        parameter_contracts=merge_parameter_contracts(*parameter_contracts),
-        effects=tuple(effects),
-    )
-
-
-def elaborate_module(
-    module: ModuleIR,
+def compose_module(
+    module: ModuleDef,
     /,
     **inputs: object,
-) -> ExperimentAssembly:
+) -> LogicalProgram:
     """Elaborate one root module through the only hierarchy-flattening pass."""
 
     return _elaborate_hierarchy(
@@ -318,23 +246,39 @@ def elaborate_module(
         experiment_id=module.id,
         kind=module.id,
         inputs=inputs,
+        final_state=None,
     )
 
 
-def elaborate_experiment_program(
-    program: ExperimentProgram,
+def compose_experiment(
+    definition: ExperimentDef,
     *,
-    experiment_id: str,
-    kind: str,
     inputs: Mapping[str, object],
-) -> ExperimentAssembly:
+    scans: Sequence[AxisSpec] = (),
+) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
+    program_input_ids = {port.id for port in definition.interface.imports}
+    value_inputs = {
+        input_id: value
+        for input_id, value in inputs.items()
+        if input_id in program_input_ids
+    }
     return _elaborate_hierarchy(
-        program,
-        experiment_id=experiment_id,
-        kind=kind,
-        inputs=inputs,
+        definition,
+        experiment_id=definition.id,
+        kind=definition.kind,
+        inputs=value_inputs,
+        logical_inputs=inputs,
+        parameter_overlays=tuple(
+            axis for axis in scans if axis.parameter_lookup is not None
+        ),
+        record_selections=definition.record_selections,
+        additional_parameter_contracts=merge_parameter_contracts(
+            *(scan_parameter_contracts(axis) for axis in scans),
+        ),
+        point_domain=lower_scans_point_domain(scans, inputs=inputs),
+        final_state=definition.final_state,
     )
 
 
@@ -344,158 +288,98 @@ def _elaborate_hierarchy(
     experiment_id: str,
     kind: str,
     inputs: Mapping[str, object],
-) -> ExperimentAssembly:
-    fragment = _elaborate_program_ir(
-        root,
-        inputs=inputs,
+    logical_inputs: Mapping[str, object] | None = None,
+    parameter_overlays: Sequence[AxisSpec] = (),
+    record_selections: Sequence[RecordSelection] = (),
+    additional_parameter_contracts: tuple[ParameterContract, ...] = (),
+    point_domain: PointAxes[ValueRef] = (),
+    final_state: EnsureStateIntent | None,
+) -> LogicalProgram:
+    composer = _LogicalProgramComposer()
+    effects = composer.add_hierarchy(root)
+    execution_ids = tuple(
+        effect.id for effect in effects if isinstance(effect, DomainExecution)
     )
-    value_roots = _module_fragment_value_roots(fragment)
-    _require_closed_module_fragment(fragment, value_roots.consumed)
-    semantic = elaborate_semantic_graph(
-        fragment.operations,
-        fragment.python_implementations,
-        measurement_postprocessors=fragment.measurement_postprocessors,
-        effects=fragment.effects,
-        value_roots=value_roots.semantic,
-        input_types={port.id: port.value_type for port in fragment.input_ports},
-        point_dependencies=fragment.point_dependencies,
-        parameter_contracts=fragment.parameter_contracts,
+    if len(execution_ids) != len(set(execution_ids)):
+        raise ValueError("logical program contains repeated domain execution ids")
+    value_roots = _logical_value_roots(
+        resource_ports=composer.resource_ports,
+        operations=composer.operations,
+        product_declarations=composer.product_declarations,
+        effects=effects,
     )
-    return ExperimentAssembly(
-        experiment_id=experiment_id,
-        kind=kind,
-        inputs=fragment.inputs,
-        input_ports=fragment.input_ports,
-        entity_inputs=fragment.entity_inputs,
-        resource_ports=fragment.resource_ports,
-        point_dependencies=fragment.point_dependencies,
-        parameter_overlays=fragment.parameter_overlays,
-        semantic_graph=semantic.graph,
-        implementations=semantic.implementations,
-        product_declarations=fragment.product_declarations,
-        record_selections=fragment.record_selections,
-        parameter_contracts=fragment.parameter_contracts,
-        effects=semantic.effects,
+    final_state_values = tuple(
+        assignment.value
+        for assignment in (() if final_state is None else final_state.assignments)
     )
-
-
-def _elaborate_program_ir(
-    module: _HierarchyRoot,
-    *,
-    inputs: Mapping[str, object],
-) -> _ModuleFragment:
-    resolver = _ModuleValueResolver(module)
-    source_fragments = {
-        instance.invocation_key: _elaborate_instance(instance, resolver=resolver)
-        for instance in module.body.child_instances
-    }
-
-    implementations = {
-        implementation.declaration_key: implementation
-        for implementation in module.python_implementations
-    }
-    own_effects: list[_FragmentEffect] = []
-    for effect in module.body.effects:
-        if isinstance(effect, ModuleInstanceIR):
-            continue
-        own_effects.append(_lower_module_effect(effect, resolver=resolver))
-    own = _ModuleFragment(
-        inputs=dict(inputs),
-        input_ports=module.interface.imports,
-        entity_inputs=_entity_input_ids(module.interface.imports),
-        resource_ports=tuple(
-            _resolve_resource_port(port, resolver=resolver)
-            for port in module.interface.resources
-        ),
-        operations=tuple(
-            _resolve_operation(operation, resolver=resolver)
-            for operation in module.body.operations
-        ),
-        measurement_postprocessors=module.body.measurement_postprocessors,
-        effects=tuple(own_effects),
-        python_implementations=tuple(
-            ScopedPythonImplementation(
-                operation_id=semantic_operation_id(operation.operation_id),
-                declaration_key=operation.declaration_key,
-                fn=implementations[operation.declaration_key].fn,
-            )
-            for operation in module.body.operations
-        ),
-        product_declarations=tuple(
-            _resolve_product(product, resolver=resolver)
-            for product in module.body.products
-        ),
+    _require_closed_logical_values(
+        inputs,
+        (*value_roots, *final_state_values),
     )
     typed_inputs = {
         input_id: value
         for input_id, value in inputs.items()
         if isinstance(value, ValueRef)
     }
-    value_roots = (
-        *_module_fragment_value_roots(own).consumed,
-        *(resolver.resolve(export.source) for export in module.interface.exports),
-    )
-    value_dependencies = _summarize_value_ref_dependencies(
+    dependencies = _summarize_value_ref_dependencies(
         internal_bind_value_ref_inputs(value, typed_inputs)
-        for root in value_roots
-        for value in _nested_value_refs(root)
+        for source in (
+            *value_roots,
+            *composer.dependency_roots,
+            *final_state_values,
+        )
+        for value in _nested_value_refs(source)
     )
-    own = replace(
-        own,
-        point_dependencies=value_dependencies.point,
-        parameter_contracts=value_dependencies.parameters,
-    )
-    if not source_fragments:
-        return own
-
-    ordered_sources = tuple(
-        source_fragments[instance.invocation_key]
-        for instance in module.body.child_instances
-    )
-    combined = _merge_module_fragments(
-        fragments=(*ordered_sources, own),
-    )
-    effects: list[_FragmentEffect] = []
-    own_effect_iterator = iter(own.effects)
-    for effect in module.body.effects:
-        if isinstance(effect, ModuleInstanceIR):
-            effects.extend(source_fragments[effect.invocation_key].effects)
-        else:
-            effects.append(next(own_effect_iterator))
-    return replace(
-        combined,
-        effects=tuple(effects),
+    return close_logical_program(
+        experiment_id=experiment_id,
+        kind=kind,
+        inputs=dict(inputs if logical_inputs is None else logical_inputs),
+        input_ports=root.interface.imports,
+        entity_inputs=_entity_input_ids(root.interface.imports),
+        resource_ports=tuple(composer.resource_ports),
+        point_dependencies=dependencies.point,
+        parameter_overlays=parameter_overlays,
+        product_declarations=tuple(composer.product_declarations),
+        record_selections=record_selections,
+        parameter_contracts=merge_parameter_contracts(
+            dependencies.parameters,
+            additional_parameter_contracts,
+        ),
+        point_domain=point_domain,
+        operations=composer.operations,
+        implementations=composer.python_implementations,
+        measurement_postprocessors=composer.measurement_postprocessors,
+        effects=effects,
+        final_state=final_state,
+        value_roots=(*value_roots, *final_state_values),
     )
 
 
 def _lower_module_effect(
     effect: (
-        ModuleBindingEffect
-        | ModuleEnsureEffect
-        | ModuleInvokeEffect
-        | ModuleDomainEffect
+        BindingIntent
+        | EnsureStateIntent
+        | InvocationIntent
+        | DomainExecution
         | ModuleAcquireEffect
     ),
     *,
     resolver: _ModuleValueResolver,
-) -> _FragmentEffect:
-    if isinstance(effect, ModuleBindingEffect):
-        return _resolve_binding(effect.intent, resolver=resolver)
-    if isinstance(effect, ModuleEnsureEffect):
+) -> _DefinitionEffect:
+    if isinstance(effect, BindingIntent):
+        return _resolve_binding(effect, resolver=resolver)
+    if isinstance(effect, EnsureStateIntent):
         return replace(
-            effect.intent,
+            effect,
             assignments=tuple(
                 _resolve_binding(assignment, resolver=resolver)
-                for assignment in effect.intent.assignments
+                for assignment in effect.assignments
             ),
         )
-    if isinstance(effect, ModuleInvokeEffect):
-        return _resolve_invocation(effect.intent, resolver=resolver)
-    if isinstance(effect, ModuleDomainEffect):
-        return _resolve_domain_execution(
-            lower_domain_execution(effect.execution),
-            resolver=resolver,
-        )
+    if isinstance(effect, InvocationIntent):
+        return _resolve_invocation(effect, resolver=resolver)
+    if isinstance(effect, DomainExecution):
+        return _resolve_domain_execution(effect, resolver=resolver)
     return AcquireEffect(
         id=AcquireId(SymbolId(local_id=effect.id)),
         resource_port_id=effect.resource_port_id,
@@ -510,23 +394,6 @@ def _lower_module_effect(
             )
             for result in effect.results
         ),
-    )
-
-
-def _elaborate_instance(
-    instance: ModuleInstanceIR,
-    *,
-    resolver: _ModuleValueResolver,
-) -> _ModuleFragment:
-    local_inputs = {
-        binding.import_id: resolver.resolve(binding.source)
-        for binding in instance.input_bindings
-    }
-    fragment = _elaborate_program_ir(instance.module, inputs=local_inputs)
-    return _scope_instance_graph(
-        fragment,
-        instance=instance,
-        local_inputs=local_inputs,
     )
 
 
@@ -717,10 +584,10 @@ def _resolve_resource_port(
 
 
 def _resolve_binding(
-    binding: ExperimentBindingIntent,
+    binding: BindingIntent,
     *,
     resolver: _ModuleValueResolver,
-) -> ExperimentBindingIntent:
+) -> BindingIntent:
     return replace(
         binding,
         value=(
@@ -770,10 +637,10 @@ def _resolve_operation(
 
 
 def _resolve_domain_execution(
-    execution: LoweredDomainExecution,
+    execution: DomainExecution,
     *,
     resolver: _ModuleValueResolver,
-) -> LoweredDomainExecution:
+) -> DomainExecution:
     return replace(
         execution,
         input_bindings=tuple(
@@ -805,168 +672,204 @@ def _resolve_product(
     )
 
 
-def _require_closed_module_fragment(
-    fragment: _ModuleFragment,
+def _require_closed_logical_values(
+    inputs: Mapping[str, object],
     consumed_roots: Sequence[object],
 ) -> None:
-    for root in (*fragment.inputs.values(), *consumed_roots):
+    for root in (*inputs.values(), *consumed_roots):
         for value in _nested_value_refs(root):
-            internal_require_resolved_value_ref(value, context="semantic experiment")
+            internal_require_resolved_value_ref(value, context="logical program")
 
 
-def _module_fragment_value_roots(
-    fragment: _ModuleFragment,
-) -> _ModuleFragmentValueRoots:
-    """Summarize values that contribute to the fragment's two root sets.
+def _logical_value_roots(
+    *,
+    resource_ports: Sequence[ResourcePort],
+    operations: Sequence[ModuleOperationDecl],
+    product_declarations: Sequence[ModuleProductDecl],
+    effects: Sequence[_DefinitionEffect],
+) -> tuple[object, ...]:
+    """Return the values that contribute to the closed logical graph.
 
-    ``fragment.inputs`` is the environment available to those roots, not a set
-    of uses.  Rooting every supplied binding would turn an otherwise unused
-    child input into a dependency of the whole experiment.
+    Root inputs are an environment for these uses, not roots themselves.
+    Keeping them separate prevents an unused supplied input from becoming a
+    dependency of the whole program.
     """
 
-    consumed: list[object] = []
-    semantic: list[object] = []
+    roots: list[object] = []
 
-    def add_semantic_roots(values: Iterable[object]) -> None:
-        selected = tuple(values)
-        consumed.extend(selected)
-        semantic.extend(selected)
+    def add_roots(values: Iterable[object]) -> None:
+        roots.extend(values)
 
-    add_semantic_roots(
-        source
-        for port in fragment.resource_ports
-        for source in port.selector.entity_inputs
+    add_roots(
+        source for port in resource_ports for source in port.selector.entity_inputs
     )
-    add_semantic_roots(binding.value for binding in fragment.bindings)
-    add_semantic_roots(
+    add_roots(
+        binding.value
+        for effect in effects
+        for binding in (
+            (effect,)
+            if isinstance(effect, BindingIntent)
+            else effect.assignments
+            if isinstance(effect, EnsureStateIntent)
+            else ()
+        )
+    )
+    add_roots(
         argument.value
-        for effect in fragment.effects
+        for effect in effects
         if isinstance(effect, InvocationIntent)
         for argument in effect.arguments
     )
-    add_semantic_roots(
-        value for operation in fragment.operations for _name, value in operation.inputs
-    )
-    add_semantic_roots(
+    add_roots(value for operation in operations for _name, value in operation.inputs)
+    add_roots(
         value
-        for execution in fragment.effects
-        if isinstance(execution, LoweredDomainExecution)
+        for execution in effects
+        if isinstance(execution, DomainExecution)
         for _name, value in (
             *execution.input_bindings,
             *execution.compiler_input_bindings,
         )
     )
-    add_semantic_roots(
-        axis.size for product in fragment.product_declarations for axis in product.axes
+    add_roots(axis.size for product in product_declarations for axis in product.axes)
+    return tuple(roots)
+
+
+def _localize_value_ref(
+    value: ValueRef,
+    boundaries: Sequence[_InstanceBoundary],
+) -> ValueRef:
+    selected = value
+    for boundary in boundaries:
+        selected = _scope_value_ref(
+            selected,
+            boundary.inputs,
+            scope=boundary.scope,
+            origin=boundary.origin,
+        )
+    return selected
+
+
+def _localize_operation(
+    operation: ModuleOperationDecl,
+    boundaries: Sequence[_InstanceBoundary],
+) -> ModuleOperationDecl:
+    selected = operation
+    for boundary in boundaries:
+        selected = _scope_operation(
+            selected,
+            boundary.inputs,
+            scope=boundary.scope,
+            origin=boundary.origin,
+        )
+    return selected
+
+
+def _localize_measurement_postprocessor(
+    postprocessor: MeasurementPostprocessor,
+    boundaries: Sequence[_InstanceBoundary],
+) -> MeasurementPostprocessor:
+    selected = postprocessor
+    for boundary in boundaries:
+        selected = _scope_measurement_postprocessor(selected, scope=boundary.scope)
+    return selected
+
+
+def _localize_product_declaration(
+    product: ModuleProductDecl,
+    boundaries: Sequence[_InstanceBoundary],
+) -> ModuleProductDecl:
+    selected = product
+    for boundary in boundaries:
+        selected = _scope_product_declaration(
+            selected,
+            boundary.inputs,
+            scope=boundary.scope,
+            origin=boundary.origin,
+        )
+    return selected
+
+
+def _localize_resource_port(
+    port: ResourcePort,
+    boundaries: Sequence[_InstanceBoundary],
+) -> ResourcePort | None:
+    port_id = port.symbol_id
+    bound = False
+    for boundary in boundaries:
+        selected = boundary.resource_bindings.get(port_id)
+        if selected is not None:
+            port_id = selected
+            bound = True
+        else:
+            port_id = port_id.prefixed(*boundary.scope)
+    if bound:
+        return None
+    entity_inputs = tuple(
+        _localize_value_ref(source, boundaries)
+        for source in port.selector.entity_inputs
     )
-    return _ModuleFragmentValueRoots(
-        consumed=tuple(consumed),
-        semantic=tuple(semantic),
+    if any(isinstance(source.value_type, TableType) for source in entity_inputs):
+        msg = (
+            "resource entity source must be scalar-shaped; "
+            "declare the resource footprint explicitly"
+        )
+        raise TypeError(msg)
+    return replace(
+        port,
+        symbol_id=port_id,
+        selector=ResourceSelector(
+            interfaces=port.selector.interfaces,
+            entity_inputs=entity_inputs,
+        ),
     )
 
 
-def _scope_instance_graph(
-    fragment: _ModuleFragment,
-    *,
-    instance: ModuleInstanceIR,
-    local_inputs: Mapping[str, ValueRef],
-) -> _ModuleFragment:
-    scope = (instance.instance_id,)
-    origin = (instance.invocation_key,)
-    resource_ports, resource_ids = _scope_resource_ports(
-        fragment.resource_ports,
-        local_inputs,
-        scope=scope,
-        origin=origin,
-        bindings={
-            binding.import_id: binding.source_id
-            for binding in instance.resource_bindings
-        },
-    )
-    measurement_postprocessors = tuple(
-        _scope_measurement_postprocessor(postprocessor, scope=scope)
-        for postprocessor in fragment.measurement_postprocessors
-    )
-    effects = tuple(
-        _scope_fragment_effect(
-            effect,
-            local_inputs,
-            scope=scope,
-            origin=origin,
+def _localize_effect(
+    effect: _DefinitionEffect,
+    boundaries: Sequence[_InstanceBoundary],
+) -> _DefinitionEffect:
+    selected = effect
+    for boundary in boundaries:
+        resource_ids = {
+            port_id: boundary.resource_bindings.get(
+                port_id,
+                port_id.prefixed(*boundary.scope),
+            )
+            for port_id in _effect_resource_ids(selected)
+        }
+        selected = _scope_fragment_effect(
+            selected,
+            boundary.inputs,
+            scope=boundary.scope,
+            origin=boundary.origin,
             resource_ids=resource_ids,
         )
-        for effect in fragment.effects
-    )
-    scoped = replace(
-        fragment,
-        inputs={
-            key: value
-            for key, value in fragment.inputs.items()
-            if key not in local_inputs
-        },
-        input_ports=tuple(
-            port for port in fragment.input_ports if port.id not in local_inputs
-        ),
-        entity_inputs=tuple(
-            input_id
-            for input_id in fragment.entity_inputs
-            if input_id not in local_inputs
-        ),
-        resource_ports=resource_ports,
-        effects=effects,
-        operations=tuple(
-            _scope_operation(
-                operation,
-                local_inputs,
-                scope=scope,
-                origin=origin,
-            )
-            for operation in fragment.operations
-        ),
-        measurement_postprocessors=measurement_postprocessors,
-        python_implementations=tuple(
-            replace(
-                implementation,
-                operation_id=implementation.operation_id.prefixed(*scope),
-            )
-            for implementation in fragment.python_implementations
-        ),
-        product_declarations=tuple(
-            _scope_product_declaration(
-                product,
-                local_inputs,
-                scope=scope,
-                origin=origin,
-            )
-            for product in fragment.product_declarations
-        ),
-    )
-    value_roots = _module_fragment_value_roots(scoped)
-    value_dependencies = _summarize_value_ref_dependencies(
-        value for root in value_roots.consumed for value in _nested_value_refs(root)
-    )
-    return replace(
-        scoped,
-        point_dependencies=_merge_point_dependencies(
-            scoped.point_dependencies,
-            value_dependencies.point,
-        ),
-        parameter_contracts=merge_parameter_contracts(
-            scoped.parameter_contracts,
-            value_dependencies.parameters,
-        ),
-    )
+    return selected
+
+
+def _effect_resource_ids(
+    effect: _DefinitionEffect,
+) -> tuple[LogicalResourcePortId, ...]:
+    if isinstance(effect, BindingIntent):
+        return (effect.port_id,)
+    if isinstance(effect, EnsureStateIntent):
+        return tuple(assignment.port_id for assignment in effect.assignments)
+    if isinstance(effect, InvocationIntent):
+        return (effect.port_id,)
+    if isinstance(effect, AcquireEffect):
+        return (effect.resource_port_id,)
+    return ()
 
 
 def _scope_fragment_effect(
-    effect: _FragmentEffect,
+    effect: _DefinitionEffect,
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
     resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
-) -> _FragmentEffect:
-    if isinstance(effect, ExperimentBindingIntent):
+) -> _DefinitionEffect:
+    if isinstance(effect, BindingIntent):
         return _scope_binding(
             effect,
             inputs,
@@ -996,7 +899,7 @@ def _scope_fragment_effect(
             origin=origin,
             resource_ids=resource_ids,
         )
-    if isinstance(effect, LoweredDomainExecution):
+    if isinstance(effect, DomainExecution):
         return _scope_domain_execution(
             effect,
             inputs,
@@ -1021,12 +924,12 @@ def _scope_fragment_effect(
 
 
 def _scope_domain_execution(
-    execution: LoweredDomainExecution,
+    execution: DomainExecution,
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
-) -> LoweredDomainExecution:
+) -> DomainExecution:
     return replace(
         execution,
         id=_scope_domain_execution_id(execution.id, scope),
@@ -1049,8 +952,15 @@ def _scope_domain_execution(
             for name, value in execution.compiler_input_bindings
         ),
         result_bindings=tuple(
-            (name, product_id.prefixed(*scope))
-            for name, product_id in execution.result_bindings
+            (
+                name,
+                replace(
+                    product,
+                    product_id=product.product_id.prefixed(*scope),
+                    origin=(*origin, *product.origin),
+                ),
+            )
+            for name, product in execution.result_bindings
         ),
     )
 
@@ -1082,52 +992,6 @@ def _scope_product_declaration(
     return prefix_product_decl(localized, *scope, origin=origin)
 
 
-def _scope_resource_ports(
-    ports: Sequence[ResourcePort],
-    inputs: Mapping[str, object],
-    *,
-    scope: tuple[str, ...],
-    origin: tuple[object, ...],
-    bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId],
-) -> tuple[
-    tuple[ResourcePort, ...],
-    dict[LogicalResourcePortId, LogicalResourcePortId],
-]:
-    localized_ports: list[ResourcePort] = []
-    resource_ids: dict[LogicalResourcePortId, LogicalResourcePortId] = {}
-    for port in ports:
-        bound_resource = bindings.get(port.symbol_id)
-        if bound_resource is not None:
-            resource_ids[port.symbol_id] = bound_resource
-            continue
-        entity_inputs: list[ValueRef] = []
-        for source in port.selector.entity_inputs:
-            localized = _scope_value_ref(
-                source,
-                inputs,
-                scope=scope,
-                origin=origin,
-            )
-            if isinstance(localized.value_type, TableType):
-                msg = (
-                    "resource entity source must be scalar-shaped; "
-                    "declare the resource footprint explicitly"
-                )
-                raise TypeError(msg)
-            entity_inputs.append(localized)
-        localized = replace(
-            port,
-            selector=ResourceSelector(
-                interfaces=port.selector.interfaces,
-                entity_inputs=tuple(entity_inputs),
-            ),
-        )
-        selected = prefix_resource_port(localized, *scope)
-        localized_ports.append(selected)
-        resource_ids[port.symbol_id] = selected.symbol_id
-    return tuple(localized_ports), resource_ids
-
-
 def _scope_value_ref(
     value: ValueRef,
     inputs: Mapping[str, object],
@@ -1152,13 +1016,13 @@ def _scope_value_ref(
 
 
 def _scope_binding(
-    binding: ExperimentBindingIntent,
+    binding: BindingIntent,
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
     resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
-) -> ExperimentBindingIntent:
+) -> BindingIntent:
     port_id = resource_ids.get(binding.port_id, binding.port_id)
     if isinstance(binding.value, ValueRef):
         return replace(

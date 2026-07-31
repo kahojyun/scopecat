@@ -1,29 +1,24 @@
 from __future__ import annotations
 
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.relations.uses import RelationUse, relation_use
-from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
-from scopecat.compiler.semantic.value_expressions import (
-    TableValue,
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    RowType,
+    VerifiedRelationPlan,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    ComputeEdge,
-    CoreProgram,
+    BoundProgramFacts,
     TypedComputeNode,
     TypedDomainExecution,
-    ValueInput,
     set_state_property,
 )
 from scopecat.compiler.typed.specialization import (
-    specialize_core_program,
+    specialize_bound_facts,
 )
 from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.compiler.typed.values import TableValue
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
 from scopecat.graph.relations.model import (
     LiteralScalarExpr,
@@ -55,6 +50,10 @@ from scopecat.kernel.value_types import (
     Table,
     TableColumn,
 )
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
+)
 from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
     parameters,
@@ -64,7 +63,7 @@ from tests.testkit.relation_plans import (
 )
 
 
-def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
+def test_bound_fact_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     value_type = Scalar(Float())
     config_value = scalar_value_expr(
         param("gain"),
@@ -80,7 +79,7 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
             body=(),
             input_ports=(DomainInputPort("gain", value_type),),
         ),
-        inputs={"gain": ValueInput(config_value)},
+        inputs={"gain": config_value},
     )
     state = set_state_property(
         resource_port_id=logical_resource_port_id("drive"),
@@ -88,10 +87,8 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
         property_id="gain",
         value=config_value,
     )
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="specialized",
-            kind="test",
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             point_domain=PointDomain(axes=()),
             effects=(state, domain),
         ),
@@ -101,15 +98,15 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     specialized_state = specialized.effects[0]
     assert isinstance(specialized_state, SetStateSpec)
     state_value = specialized_state.value_use
-    assert isinstance(state_value, RelationUse)
-    assert isinstance(state_value.value.plan.root, LiteralScalarExpr)
+    assert isinstance(state_value, VerifiedRelationPlan)
+    assert isinstance(state_value.root, LiteralScalarExpr)
     specialized_domain = specialized.effects[1]
     assert isinstance(specialized_domain, TypedDomainExecution)
     domain_input = specialized_domain.inputs["gain"]
-    assert isinstance(domain_input.value.plan.root, LiteralScalarExpr)
+    assert isinstance(domain_input.root, LiteralScalarExpr)
 
 
-def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
+def test_bound_fact_specialization_preserves_direct_parameter_table_sources() -> None:
     integer = Scalar(Int())
     table_type = Table((TableColumn("x", integer),))
     source = ParameterTableSource("rows")
@@ -123,12 +120,10 @@ def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
             body=(),
             compiler_input_ports=(DomainInputPort("rows", table_type),),
         ),
-        compiler_inputs={"rows": ValueInput(value)},
+        compiler_inputs={"rows": value},
     )
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="table-source",
-            kind="test",
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             point_domain=PointDomain(axes=()),
             effects=(domain,),
         ),
@@ -137,13 +132,13 @@ def test_core_specialization_preserves_direct_parameter_table_sources() -> None:
 
     [specialized_domain] = specialized.effects
     assert isinstance(specialized_domain, TypedDomainExecution)
-    specialized_value = specialized_domain.compiler_inputs["rows"].value
+    specialized_value = specialized_domain.compiler_inputs["rows"]
     assert isinstance(specialized_value, TableValue)
     assert specialized_value.source is source
     assert specialized_value.value_type == table_type
 
 
-def test_core_specialization_prunes_dead_compute_nodes() -> None:
+def test_bound_fact_specialization_prunes_dead_compute_nodes() -> None:
     value_type = Scalar(Float())
 
     def compute(
@@ -163,12 +158,7 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
             inputs=(
                 {}
                 if upstream is None
-                else {
-                    "upstream": ComputeEdge(
-                        upstream.result.id,
-                        expected_type=value_type,
-                    )
-                }
+                else {"upstream": ComputeResultRef(upstream.result.id)}
             ),
         )
 
@@ -182,10 +172,8 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
         value=ComputeResultRef(live.result.id),
     )
 
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="dce",
-            kind="test",
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             point_domain=PointDomain(axes=()),
             compute_nodes=(upstream, live, dead),
             effects=(state,),
@@ -199,13 +187,11 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
     )
 
 
-def test_core_specialization_preserves_exact_empty_point_composition() -> None:
+def test_bound_fact_specialization_preserves_exact_empty_point_composition() -> None:
     integer = Scalar(Int())
 
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="empty-specialized",
-            kind="test",
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             point_domain=PointDomain(
                 axes=(
                     point_axis_values("x", integer, (1,)),
@@ -260,19 +246,17 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
             body=(),
             input_ports=(DomainInputPort("frequency", frequency),),
         ),
-        inputs={"frequency": ValueInput(overlaid_lookup)},
+        inputs={"frequency": overlaid_lookup},
     )
 
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="parameter-centered-axis",
-            kind="test",
+    specialized = specialize_bound_facts(
+        BoundProgramFacts(
             point_domain=PointDomain(
                 axes=(
                     point_axis_linear(
                         "frequency",
                         frequency,
-                        relation_use(center),
+                        center,
                         QuantityValue(value=0.2, unit="GHz"),
                         3,
                     ),
@@ -287,12 +271,12 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     [axis] = specialized.point_domain.axes
     assert isinstance(axis, PointAxis)
     assert isinstance(axis.source, PointAxisLinear)
-    center_root = axis.source.center.value.plan.root
+    center_root = axis.source.center.root
     assert isinstance(center_root, LiteralScalarExpr)
     assert center_root.value == QuantityValue(value=5.95, unit="GHz")
 
     [specialized_domain] = specialized.effects
     assert isinstance(specialized_domain, TypedDomainExecution)
-    input_root = specialized_domain.inputs["frequency"].value.plan.root
+    input_root = specialized_domain.inputs["frequency"].root
     assert isinstance(input_root, PointColumnScalarExpr)
     assert input_root.name == "frequency"

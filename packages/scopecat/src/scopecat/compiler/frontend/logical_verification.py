@@ -1,33 +1,40 @@
-"""Config-free verification for one fully composed authoring assembly.
+"""Config-free verification for one fully composed logical program.
 
 This pass owns invariants that depend only on the source graph.  Keeping it
-separate from linking prevents malformed dataflow from being hidden behind an
+separate from binding prevents malformed dataflow from being hidden behind an
 unrelated config or parameter-catalog error.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
+from typing import cast
 
-from scopecat.compiler.frontend.elaboration import ExperimentAssembly
-from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
-from scopecat.compiler.semantic.model import (
-    LocalPythonImplementation,
+from scopecat.compiler.frontend.logical_lowering import (
+    coerce_logical_inputs,
+    validate_consumed_inputs,
 )
-from scopecat.compiler.semantic.verification import (
-    VerifiedSemanticGraph,
-    verify_semantic_graph,
+from scopecat.compiler.frontend.value_binding import (
+    bind_scalar_input_refs,
+    bind_table_source,
+    literal_scalar_expr,
 )
+from scopecat.compiler.relations.verification import (
+    RelationPlanVerificationError,
+    RelationTypeBindings,
+    RowType,
+    VerifiedRelationPlan,
+    verify_relation_plan,
+)
+from scopecat.graph.relations.analysis import plan_point_refs
 from scopecat.graph.relations.model import ScalarExpr
 from scopecat.graph.relations.point_domain import (
     analyze_point_domain,
     is_point_coordinate_type,
 )
-from scopecat.graph.values import (
-    OperationId,
-)
+from scopecat.graph.values import ValueId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -41,8 +48,17 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Entity, Payload, Scalar
+from scopecat.kernel.value_types import Entity, Payload, Scalar, ValueType
 from scopecat.program.bindings import ResourcePort
+from scopecat.program.logical import (
+    LiteralValueSource,
+    LogicalComputeNode,
+    LogicalProgram,
+    PlanExpressionSource,
+    ValueDef,
+)
+from scopecat.program.logical_graph import verify_logical_graph
+from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.products import (
     ModuleProductDecl,
     ProductAxis,
@@ -57,71 +73,210 @@ from scopecat.program.value_refs import (
 
 
 @dataclass(frozen=True, slots=True)
-class VerifiedAssemblyGraph:
-    """Source graph facts safe for config-dependent lowering to consume."""
+class VerifiedLogicalProgram:
+    """The only config-free compiler artifact accepted by binding."""
 
-    semantic_graph: VerifiedSemanticGraph
-    implementations: Mapping[OperationId, LocalPythonImplementation]
+    program: LogicalProgram
     product_declarations: Mapping[ProductId, ModuleProductDecl]
+    scalar_values: Mapping[ValueId, VerifiedRelationPlan]
+    value_defs: Mapping[ValueId, ValueDef] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
+    operation_results: Mapping[ValueId, LogicalComputeNode] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
+    value_types: Mapping[ValueId, ValueType] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
 
-
-@dataclass(frozen=True, slots=True)
-class VerifiedAssembly:
-    """One source assembly paired with its config-free verification proof."""
-
-    source: ExperimentAssembly
-    graph: VerifiedAssemblyGraph
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "scalar_values",
+            MappingProxyType(dict(self.scalar_values)),
+        )
+        value_defs = {
+            definition.id: definition for definition in self.program.value_defs
+        }
+        operation_results = {
+            operation.result_id: operation for operation in self.program.compute_nodes
+        }
+        value_types = {
+            definition.id: definition.value_type
+            for definition in self.program.value_defs
+        }
+        value_types.update(
+            {
+                operation.result_id: operation.result_type
+                for operation in self.program.compute_nodes
+            }
+        )
+        object.__setattr__(self, "value_defs", MappingProxyType(value_defs))
+        object.__setattr__(
+            self,
+            "operation_results",
+            MappingProxyType(operation_results),
+        )
+        object.__setattr__(self, "value_types", MappingProxyType(value_types))
 
     @property
     def experiment_id(self) -> str:
-        """Return the entrypoint identity established by assembly verification."""
+        """Return the verified entrypoint identity."""
 
-        return self.source.experiment_id
+        return self.program.experiment_id
 
     @property
     def kind(self) -> str:
-        """Return the experiment kind established by assembly verification."""
+        """Return the verified experiment kind."""
 
-        return self.source.kind
+        return self.program.kind
 
 
-def verify_assembly_graph(
-    assembly: ExperimentAssembly,
-) -> VerifiedAssemblyGraph:
-    """Verify and order the config-independent portion of an assembly.
+def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
+    """Normalize and close every config-independent invariant once.
 
     The verifier deliberately has no authoring context or config argument.  A
-    successful result therefore proves that config-dependent linking will not
+    successful result therefore proves that config-dependent binding will not
     encounter a missing compute producer, a compute cycle, or a dangling
     logical-resource reference.
     """
 
+    inputs = coerce_logical_inputs(program.input_ports, program.inputs)
+    normalized = replace(
+        program,
+        inputs=inputs,
+        value_defs=tuple(
+            _bind_value_definition_inputs(definition, inputs)
+            for definition in program.value_defs
+        ),
+    )
     problems: list[Problem] = []
-    resource_ports = _resource_ports(assembly.resource_ports, problems)
-    product_declarations = _verify_product_schema(assembly, problems)
+    scalar_values = _verify_scalar_values(normalized, problems)
+    resource_ports = _resource_ports(normalized.resource_ports, problems)
+    product_declarations = _verify_product_schema(normalized, problems)
     try:
-        semantic_graph = verify_semantic_graph(
-            assembly.semantic_graph,
-            effects=assembly.semantic_effects,
+        verified_graph = verify_logical_graph(
+            normalized.value_defs,
+            normalized.compute_nodes,
+            normalized.measurement_postprocessors,
+            effects=normalized.product_effects,
         )
     except CheckFailed as error:
         problems.extend(error.problems)
-        semantic_graph = None
-    if semantic_graph is not None:
-        _verify_binding_compute_values(assembly, semantic_graph, problems)
-    _verify_property_resource_ports(assembly, resource_ports, problems)
-    _verify_final_state_dependencies(assembly, resource_ports, problems)
-    if semantic_graph is not None:
-        _verify_static_value_dependencies(assembly, problems)
+        verified_graph = None
+    if verified_graph is not None:
+        _value_defs, compute_nodes, _measurement_postprocessors = verified_graph
+        operation_results = {
+            operation.result_id: operation for operation in compute_nodes
+        }
+        _verify_binding_compute_values(
+            normalized,
+            {definition.id for definition in normalized.value_defs},
+            operation_results,
+            problems,
+        )
+    _verify_property_resource_ports(normalized, resource_ports, problems)
+    _verify_final_state_dependencies(normalized, resource_ports, problems)
+    if verified_graph is not None:
+        _verify_static_value_dependencies(normalized, problems)
     if problems:
         raise CheckFailed(problems)
-    if semantic_graph is None:
-        raise AssertionError("successful assembly verification requires graph proofs")
-    return VerifiedAssemblyGraph(
-        semantic_graph=semantic_graph,
-        implementations=assembly.implementations,
-        product_declarations=MappingProxyType(product_declarations),
+    if verified_graph is None:
+        raise AssertionError("successful logical verification requires graph proofs")
+    value_defs, compute_nodes, measurement_postprocessors = verified_graph
+    canonical = replace(
+        normalized,
+        value_defs=value_defs,
+        compute_nodes=compute_nodes,
+        measurement_postprocessors=measurement_postprocessors,
     )
+    validate_consumed_inputs(canonical, inputs)
+    return VerifiedLogicalProgram(
+        program=canonical,
+        product_declarations=MappingProxyType(product_declarations),
+        scalar_values=scalar_values,
+    )
+
+
+def _bind_value_definition_inputs(
+    definition: ValueDef,
+    inputs: Mapping[str, object],
+) -> ValueDef:
+    source = definition.source
+    if isinstance(source, PlanExpressionSource):
+        return replace(
+            definition,
+            source=PlanExpressionSource(
+                bind_scalar_input_refs(source.expression, inputs)
+            ),
+        )
+    if isinstance(source, LiteralValueSource):
+        return definition
+    return replace(definition, source=bind_table_source(source, inputs))
+
+
+def _verify_scalar_values(
+    program: LogicalProgram,
+    problems: list[Problem],
+) -> Mapping[ValueId, VerifiedRelationPlan]:
+    point_columns = analyze_point_domain(program.point_domain).columns
+    bindings = RelationTypeBindings(
+        inputs={
+            port.id: port.value_type
+            for port in program.input_ports
+            if isinstance(port.value_type, Scalar)
+        },
+        parameters={
+            contract.parameter_id: contract.value_type
+            for contract in program.parameter_contracts
+            if isinstance(contract, ParameterValueContract)
+            and isinstance(contract.value_type, Scalar)
+        },
+        point_row=RowType(point_columns) if point_columns else None,
+    )
+    verified: dict[ValueId, VerifiedRelationPlan] = {}
+    for definition in sorted(
+        program.value_defs,
+        key=lambda item: item.id.qualified_name,
+    ):
+        source = definition.source
+        if isinstance(source, PlanExpressionSource):
+            expression = source.expression
+        elif isinstance(source, LiteralValueSource):
+            expression = literal_scalar_expr(source.value)
+        else:
+            continue
+        try:
+            verified[definition.id] = verify_relation_plan(
+                expression,
+                bindings=bindings,
+                expected_type=cast("Scalar", definition.value_type),
+            )
+        except RelationPlanVerificationError as error:
+            problems.append(
+                problem(
+                    code=f"relation_plan_{error.code}",
+                    phase=ProblemPhase.AUTHORING,
+                    message=error.reason,
+                    location=model_location(
+                        "logical_program",
+                        "values",
+                        definition.id.qualified_name,
+                        *error.path,
+                    ),
+                    details={
+                        "relation_code": error.code,
+                        "plan_path": list(error.path),
+                    },
+                )
+            )
+    return MappingProxyType(verified)
 
 
 def _resource_ports(
@@ -148,11 +303,11 @@ def _resource_ports(
 
 
 def _verify_property_resource_ports(
-    assembly: ExperimentAssembly,
+    program: LogicalProgram,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    for index, binding in enumerate(assembly.bindings):
+    for index, binding in enumerate(program.bindings):
         _verify_interface_resource_port(
             binding.port_id,
             binding.interface_id,
@@ -161,7 +316,7 @@ def _verify_property_resource_ports(
             location=model_location("bindings", index, "resource"),
             problems=problems,
         )
-    for index, acquire in enumerate(assembly.acquisitions):
+    for index, acquire in enumerate(program.acquisitions):
         _verify_interface_resource_port(
             acquire.resource_port_id,
             acquire.interface_id,
@@ -170,7 +325,7 @@ def _verify_property_resource_ports(
             location=model_location("acquisitions", index, "resource_port"),
             problems=problems,
         )
-    for index, invocation in enumerate(assembly.invocations):
+    for index, invocation in enumerate(program.invocations):
         _verify_interface_resource_port(
             invocation.port_id,
             invocation.interface_id,
@@ -230,49 +385,35 @@ def _verify_resource_port_interface(
 
 
 def _verify_binding_compute_values(
-    assembly: ExperimentAssembly,
-    graph: VerifiedSemanticGraph,
+    program: LogicalProgram,
+    definition_ids: set[ValueId],
+    operation_results: Mapping[ValueId, LogicalComputeNode],
     problems: list[Problem],
 ) -> None:
     values = [
-        (model_location("bindings", index, "value"), binding.value)
-        for index, binding in enumerate(assembly.bindings)
+        (model_location("bindings", index, "value"), binding.value_id)
+        for index, binding in enumerate(program.bindings)
     ]
     values.extend(
         (
             model_location("invocations", invocation_index, "arguments", argument.id),
-            argument.value,
+            argument.value_id,
         )
-        for invocation_index, invocation in enumerate(assembly.invocations)
+        for invocation_index, invocation in enumerate(program.invocations)
         for argument in invocation.arguments
     )
-    for location, value in values:
-        if not isinstance(value, ValueRef) or not internal_value_ref_requires_execution(
-            value
-        ):
-            continue
-        value_id = semantic_value_id(value)
-        operation = graph.operation_results.get(value_id)
+    for location, value_id in values:
+        operation = operation_results.get(value_id)
         if operation is None:
-            problems.append(
-                _problem(
-                    "compute_payload_unknown_output",
-                    "state references unknown compute output "
-                    f"{value_id.qualified_name!r}",
-                    location,
+            if value_id not in definition_ids:
+                problems.append(
+                    _problem(
+                        "logical_effect_value_unknown",
+                        "logical effect references unknown value "
+                        f"{value_id.qualified_name!r}",
+                        location,
+                    )
                 )
-            )
-            continue
-        if operation.result_type != value.value_type:
-            problems.append(
-                _problem(
-                    "compute_edge_type_mismatch",
-                    f"state expects compute output {value.value_type!r}, but "
-                    f"output {operation.result_id.qualified_name!r} has type "
-                    f"{operation.result_type!r}",
-                    location,
-                )
-            )
             continue
         if not _is_payload_type(operation.result_type):
             problems.append(
@@ -290,10 +431,10 @@ def _is_payload_type(value_type: object) -> bool:
 
 
 def _verify_static_value_dependencies(
-    assembly: ExperimentAssembly,
+    program: LogicalProgram,
     problems: list[Problem],
 ) -> None:
-    for port in assembly.resource_ports:
+    for port in program.resource_ports:
         for index, value in enumerate(port.selector.entity_inputs):
             location = model_location(
                 "resources",
@@ -315,7 +456,7 @@ def _verify_static_value_dependencies(
                     problems=problems,
                 )
 
-    for product in assembly.product_declarations:
+    for product in program.product_declarations:
         for axis in product.axes:
             if not isinstance(axis.size, ValueRef):
                 continue
@@ -346,21 +487,20 @@ def _verify_static_value_dependencies(
 
 
 def _verify_final_state_dependencies(
-    assembly: ExperimentAssembly,
+    program: LogicalProgram,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    final_state = assembly.final_state
+    final_state = program.final_state
     if final_state is None:
         return
     selected_ports: set[LogicalResourcePortId] = set()
+    definitions = {definition.id: definition for definition in program.value_defs}
+    operation_result_ids = {operation.result_id for operation in program.compute_nodes}
     for index, assignment in enumerate(final_state.assignments):
         selected_ports.add(assignment.port_id)
-        value = assignment.value
-        if not isinstance(value, ValueRef):
-            continue
         location = model_location("final_state", index, "value")
-        if internal_value_ref_requires_execution(value):
+        if assignment.value_id in operation_result_ids:
             problems.append(
                 _problem(
                     "experiment_final_state_requires_execution",
@@ -368,7 +508,11 @@ def _verify_final_state_dependencies(
                     location,
                 )
             )
-        if internal_value_ref_point_dependencies(value):
+        definition = definitions.get(assignment.value_id)
+        source = None if definition is None else definition.source
+        if isinstance(source, PlanExpressionSource) and plan_point_refs(
+            source.expression
+        ):
             problems.append(
                 _problem(
                     "experiment_final_state_depends_on_point",
@@ -441,17 +585,17 @@ def _require_plan_value(
 
 
 def _verify_product_schema(
-    assembly: ExperimentAssembly,
+    program: LogicalProgram,
     problems: list[Problem],
 ) -> dict[ProductId, ModuleProductDecl]:
     product_by_id: dict[ProductId, ModuleProductDecl] = {}
     duplicate_products: set[ProductId] = set()
-    for product in assembly.product_declarations:
+    for product in program.product_declarations:
         if product.product_id in product_by_id:
             duplicate_products.add(product.product_id)
             continue
         product_by_id[product.product_id] = product
-    for acquire_index, acquire in enumerate(assembly.acquisitions):
+    for acquire_index, acquire in enumerate(program.acquisitions):
         for result_index, result in enumerate(acquire.results):
             if result.product_id in product_by_id:
                 continue
@@ -473,7 +617,7 @@ def _verify_product_schema(
         problems.append(
             _problem(
                 "module_product_duplicate",
-                "experiment assembly defines duplicate products: "
+                "logical program defines duplicate products: "
                 + ", ".join(sorted(item.qualified_name for item in duplicate_products)),
                 model_location("products"),
             )
@@ -481,7 +625,7 @@ def _verify_product_schema(
 
     product_uses: dict[ProductUseId, ProductUse] = {}
     conflicting_product_uses: dict[ProductUseId, tuple[ProductUse, ProductUse]] = {}
-    for selection in assembly.record_selections:
+    for selection in program.record_selections:
         use = selection.product_use
         existing_use = product_uses.get(use.id)
         if existing_use is None:
@@ -528,7 +672,7 @@ def _verify_product_schema(
 
     record_ids = [
         selection.record_id or selection.product_id.qualified_name
-        for selection in assembly.record_selections
+        for selection in program.record_selections
     ]
     duplicate_records = _duplicates(record_ids)
     if duplicate_records:
@@ -543,7 +687,7 @@ def _verify_product_schema(
 
     point_columns = {
         column.id
-        for column in analyze_point_domain(assembly.point_domain).value_type.columns
+        for column in analyze_point_domain(program.point_domain).value_type.columns
         if is_point_coordinate_type(column.value_type)
     }
     for record_id in sorted(set(record_ids) & point_columns):
@@ -555,7 +699,7 @@ def _verify_product_schema(
             )
         )
 
-    _verify_product_axes(assembly.product_declarations, problems)
+    _verify_product_axes(program.product_declarations, problems)
     return product_by_id
 
 

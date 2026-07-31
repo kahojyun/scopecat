@@ -1,8 +1,8 @@
-"""Compile linked experiment semantics into an executable run program."""
+"""Compile bound experiment semantics into an executable run program."""
 
 from __future__ import annotations
 
-from scopecat.compiler.linking.linked import LinkedPlan
+from scopecat.compiler.bind import BoundPlan
 from scopecat.execution.program import RunProgram
 from scopecat.kernel.errors import CheckFailed, ProblemFailure
 from scopecat.kernel.problems import ProblemPhase, model_location, problem
@@ -12,7 +12,7 @@ from scopecat.planning.system import ExperimentSystem
 def compile_run_program(
     system: ExperimentSystem | None,
     *,
-    linked: LinkedPlan,
+    bound: BoundPlan,
 ) -> RunProgram:
     """Compile with the selected experiment system."""
 
@@ -29,7 +29,7 @@ def compile_run_program(
         )
 
     try:
-        return system.compile(linked)
+        return system.compile(bound)
     except ProblemFailure as error:
         raise CheckFailed(
             tuple(

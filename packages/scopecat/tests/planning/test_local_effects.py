@@ -4,10 +4,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
@@ -37,6 +33,10 @@ from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Int, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
+)
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
@@ -96,8 +96,6 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="readout-frequency-calibration",
-        kind="readout.frequency_scan",
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -186,8 +184,6 @@ def test_separated_state_groups_have_distinct_operation_ids() -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="state-around-acquisition",
-        kind="problem",
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -220,8 +216,6 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     result_id = operation_result_id(operation_id)
     drive = logical_resource_port_id("drive")
     spec = typed_program(
-        id="preview-waveform-boundary",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         invocations=[
             instrument_invocation(
@@ -264,7 +258,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     assert step.payload_slot is not None
     assert (
         preview.points[0].ordinal,
-        step.semantic_operation_id,
+        step.logical_compute_node_id,
         step.payload_slot.schema_id,
     ) == (0, "build-waveform", "waveform_bundle")
     assert step.payload_slot.id == f"{step.operation_id}.payload"
@@ -294,8 +288,6 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
         return {"kind": "waveform"}
 
     spec = typed_program(
-        id="preview-shared-payload",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -389,8 +381,6 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="record-plan",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(

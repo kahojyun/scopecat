@@ -2,23 +2,17 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    verify_relation_plan,
-)
-from scopecat.compiler.semantic.model import (
-    LiteralValueSource,
-    PlanExpressionSource,
-    SemanticGraphIR,
-    SemanticOperation,
-    ValueUse,
-)
-from scopecat.compiler.semantic.verification import verify_semantic_graph
-from scopecat.graph.relations.model import input_ref
+from scopecat.graph.relations.model import as_scalar_expr, input_ref
 from scopecat.graph.values import OperationId, ValueId, operation_result_id
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
+from scopecat.program.logical import (
+    LiteralValueSource,
+    LogicalComputeNode,
+    PlanExpressionSource,
+)
+from scopecat.program.logical_graph import verify_logical_graph
 
 FLOAT = Scalar(Float())
 
@@ -30,12 +24,12 @@ def _operation_id(local_id: str) -> OperationId:
 def _opaque_operation(
     local_id: str,
     *,
-    inputs: tuple[tuple[str, ValueUse], ...] = (),
-) -> tuple[SemanticOperation, ValueId]:
+    inputs: tuple[tuple[str, ValueId], ...] = (),
+) -> tuple[LogicalComputeNode, ValueId]:
     operation_id = _operation_id(local_id)
     result_id = operation_result_id(operation_id)
     return (
-        SemanticOperation(
+        LogicalComputeNode(
             id=operation_id,
             inputs=inputs,
             result_id=result_id,
@@ -63,56 +57,58 @@ def test_topological_order_is_declaration_independent() -> None:
     independent, _ = _opaque_operation("independent")
     consumer, _ = _opaque_operation(
         "consumer",
-        inputs=(("value", ValueUse(producer_result_id)),),
+        inputs=(("value", producer_result_id),),
     )
 
-    verified = verify_semantic_graph(
-        SemanticGraphIR(operations=(consumer, independent, producer))
+    value_defs, compute_nodes, measurement_postprocessors = verify_logical_graph(
+        (),
+        (consumer, independent, producer),
     )
 
-    assert [operation.id.local_id for operation in verified.graph.operations] == [
+    assert value_defs == ()
+    assert [operation.id.local_id for operation in compute_nodes] == [
         "independent",
         "producer",
         "consumer",
     ]
+    assert measurement_postprocessors == ()
 
 
 def test_operation_cycles_are_reported_in_identity_order() -> None:
     left_id = _operation_id("left")
     right_id = _operation_id("right")
-    left = SemanticOperation(
+    left = LogicalComputeNode(
         id=left_id,
-        inputs=(("right", ValueUse(operation_result_id(right_id))),),
+        inputs=(("right", operation_result_id(right_id)),),
         result_id=operation_result_id(left_id),
         result_type=FLOAT,
     )
-    right = SemanticOperation(
+    right = LogicalComputeNode(
         id=right_id,
-        inputs=(("left", ValueUse(operation_result_id(left_id))),),
+        inputs=(("left", operation_result_id(left_id)),),
         result_id=operation_result_id(right_id),
         result_type=FLOAT,
     )
 
     with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(SemanticGraphIR(operations=(right, left)))
+        verify_logical_graph((), (right, left))
 
     assert [problem.code for problem in caught.value.problems] == [
-        "semantic_operation_cycle"
+        "logical_operation_cycle"
     ]
     assert caught.value.problems[0].message.endswith("left, right")
 
 
 def test_plan_expression_source_derives_input_dependencies() -> None:
-    source = PlanExpressionSource(
-        verify_relation_plan(
-            input_ref("gain"),
-            expected_type=FLOAT,
-            bindings=RelationTypeBindings(inputs={"gain": FLOAT}),
-        )
-    )
+    source = PlanExpressionSource(input_ref("gain"))
 
     assert source.source_inputs == ("gain",)
-    assert source.imports == source.verified_plan.imports
+
+
+def test_plan_expression_source_hashes_unhashable_literals() -> None:
+    source = PlanExpressionSource(as_scalar_expr({"nested": [1]}))
+
+    hash(source)
 
 
 def test_literal_source_captures_mutable_values() -> None:

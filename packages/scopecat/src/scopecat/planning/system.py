@@ -1,4 +1,4 @@
-"""Compile linked experiment semantics for one physical experiment system.
+"""Compile bound experiment semantics for one physical experiment system.
 
 This boundary coordinates local target selection, domain lowering, and bounded
 coverage so placement decisions share one view of effect order and resource
@@ -11,24 +11,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
-    MaterializedLinkedPoints,
-    materialize_linked_points,
-)
-from scopecat.compiler.measurement_projection import (
-    project_measurement_catalog_from_domain,
-    project_run_point_catalog_from_domain,
-)
+from scopecat.compiler.bind import BoundDomainTarget, BoundPlan
 from scopecat.compiler.typed.domain_results import (
     domain_result_closure,
 )
 from scopecat.compiler.typed.program import (
-    CoreEffect,
+    BoundEffect,
     TypedDomainExecution,
-    core_domain_executions,
-    core_invocations,
-    core_state,
+    bound_domain_executions,
+    bound_invocations,
+    bound_state,
 )
 from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import (
@@ -52,6 +44,10 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.domain_bridge import (
+    make_domain_batch_request,
+    make_domain_call_view,
+)
 from scopecat.planning.local_effects import (
     MaterializedLocalEffects,
     local_operation_resource_requirements,
@@ -61,16 +57,20 @@ from scopecat.planning.local_materialization import (
     materialize_local_final_state,
     prepare_local_target,
 )
+from scopecat.planning.measurement_projection import (
+    project_measurement_catalog_from_domain,
+    project_run_point_catalog_from_domain,
+)
+from scopecat.planning.point_materialization import (
+    MaterializedBoundPoints,
+    materialize_bound_points,
+)
 from scopecat.planning.provider_binding import (
     validate_run_host_binding,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
-)
-from scopecat.sdk.domain._bridge import (
-    make_domain_batch_request,
-    make_domain_call_view,
 )
 from scopecat.sdk.domain.compiler import (
     DomainCompiler,
@@ -99,11 +99,11 @@ class ExperimentSystem:
 
     def compile(
         self,
-        linked: LinkedPlan,
+        bound: BoundPlan,
     ) -> RunProgram:
         return _compile_system_program(
             system=self,
-            linked=linked,
+            bound=bound,
         )
 
 
@@ -133,9 +133,9 @@ def build_experiment_system(
 def _compile_system_program(
     *,
     system: ExperimentSystem,
-    linked: LinkedPlan,
+    bound: BoundPlan,
 ) -> RunProgram:
-    config = linked.environment.config
+    config = bound.environment.config
     catalog = system.instrument_catalog
     expected_config_hash = config_content_hash(config)
     if catalog.config_content_hash != expected_config_hash:
@@ -157,22 +157,22 @@ def _compile_system_program(
             )
         )
     domain_result_closures = {
-        execution.id: domain_result_closure(linked.program, execution.id)
-        for execution in core_domain_executions(linked.program)
+        execution.id: domain_result_closure(bound.bindings, execution.id)
+        for execution in bound_domain_executions(bound.bindings)
     }
     domain_calls = {
         execution_id: make_domain_call_view(
-            linked,
+            bound,
             execution_id,
             result_closure,
         )
         for execution_id, result_closure in domain_result_closures.items()
     }
-    domain_target_requirement = _domain_target_requirement(
-        system,
-        config=config,
-        has_domain_calls=bool(domain_calls),
+    _validate_domain_compiler(
+        system.domain_compiler,
+        target=bound.domain_target,
     )
+    domain_target_requirement = _domain_target_requirement(bound.domain_target)
     domain_footprint = _domain_target_footprint(domain_target_requirement)
     domain_owned_product_use_ids = frozenset(
         use_id
@@ -181,25 +181,25 @@ def _compile_system_program(
     )
     postprocessor_output_use_ids = frozenset(
         use_id
-        for postprocessor in linked.program.measurement_postprocessors
+        for postprocessor in bound.bindings.measurement_postprocessors
         for output in postprocessor.outputs
         for use_id in output.product_use_ids
     )
     local_product_use_ids = tuple(
         use.id
-        for use in linked.program.product_uses
+        for use in bound.bindings.product_uses
         if use.id not in domain_owned_product_use_ids
         and use.id not in postprocessor_output_use_ids
     )
     local_required = bool(
         local_product_use_ids
-        or linked.program.compute_nodes
-        or core_state(linked.program)
-        or core_invocations(linked.program)
+        or bound.bindings.compute_nodes
+        or bound_state(bound.bindings)
+        or bound_invocations(bound.bindings)
     )
     implementation_problems = list(
         _implementation_problems(
-            has_domain_call=bool(core_domain_executions(linked.program)),
+            has_domain_call=bool(bound_domain_executions(bound.bindings)),
             has_domain_compiler=system.domain_compiler is not None,
             local_required=local_required,
             has_local_instrument_catalog=catalog.provider_id is not None,
@@ -209,21 +209,21 @@ def _compile_system_program(
         raise CheckFailed(implementation_problems)
     if local_required and catalog.problems:
         raise ProviderContractError(catalog.problems)
-    linked_points = materialize_linked_points(linked)
-    point_domain = linked_points.point_domain
+    bound_points = materialize_bound_points(bound)
+    point_domain = bound_points.point_domain
     point_count = len(point_domain.points)
     measurement_catalog = project_measurement_catalog_from_domain(
-        linked,
+        bound,
         point_domain,
     )
-    point_catalog = project_run_point_catalog_from_domain(linked, point_domain)
+    point_catalog = project_run_point_catalog_from_domain(bound, point_domain)
     measurements = select_measurement_projection(
         measurement_catalog,
-        linked.program.record_uses,
+        bound.bindings.record_uses,
     )
     local_target = (
         prepare_local_target(
-            linked,
+            bound,
             product_use_ids=frozenset(local_product_use_ids),
             instrument_order=tuple(item.instrument_id for item in catalog.instruments),
         )
@@ -232,7 +232,7 @@ def _compile_system_program(
     )
     local_effects = (
         materialize_local_execution(
-            linked_points,
+            bound_points,
             target=local_target,
         )
         if local_target is not None
@@ -240,7 +240,7 @@ def _compile_system_program(
     )
     local_final_state = (
         materialize_local_final_state(
-            linked,
+            bound,
             target=local_target,
         )
         if local_target is not None
@@ -256,8 +256,8 @@ def _compile_system_program(
     )
     coverage = _compile_coverage(
         system=system,
-        linked=linked,
-        linked_points=linked_points,
+        bound=bound,
+        bound_points=bound_points,
         point_count=point_count,
         domain_calls=domain_calls,
         local_effects=local_effects,
@@ -300,7 +300,7 @@ def _compile_system_program(
         final_state=local_final_state,
         points=point_catalog,
         measurements=measurements,
-        measurement_postprocessors=linked.program.measurement_postprocessors,
+        measurement_postprocessors=bound.bindings.measurement_postprocessors,
         resource_requirements=resource_requirements,
         domain_target_requirement=domain_target_requirement,
     )
@@ -331,32 +331,19 @@ def _host_binding(
     )
 
 
-def _domain_target_requirement(
-    system: ExperimentSystem,
+def _validate_domain_compiler(
+    compiler: DomainCompiler | None,
     *,
-    config: ConfigProfileSnapshot,
-    has_domain_calls: bool,
-) -> DomainTargetRequirement | None:
-    if not has_domain_calls or system.domain_compiler is None:
-        return None
-    compiler = system.domain_compiler
-    target = config.domain_target
-    if target is None:
-        raise CheckFailed(
-            [
-                _planning_problem(
-                    "domain_target_missing",
-                    "the accepted system configuration has no domain target",
-                )
-            ]
-        )
+    target: BoundDomainTarget | None,
+) -> None:
+    if target is None or compiler is None:
+        return
     if compiler.target_id != target.id:
         raise CheckFailed(
             [
                 _planning_problem(
                     "domain_target_mismatch",
-                    "the domain compiler target does not match the accepted system "
-                    "configuration",
+                    "the domain compiler target does not match the bound target",
                     details={
                         "compiler_target_id": compiler.target_id,
                         "configured_target_id": target.id,
@@ -369,8 +356,7 @@ def _domain_target_requirement(
             [
                 _planning_problem(
                     "domain_target_kind_mismatch",
-                    "the domain compiler adapter does not match the accepted "
-                    "system configuration",
+                    "the domain compiler adapter does not match the bound target",
                     details={
                         "compiler_target_kind": compiler.target_kind,
                         "configured_target_kind": target.kind,
@@ -378,6 +364,13 @@ def _domain_target_requirement(
                 )
             ]
         )
+
+
+def _domain_target_requirement(
+    target: BoundDomainTarget | None,
+) -> DomainTargetRequirement | None:
+    if target is None:
+        return None
     return DomainTargetRequirement(
         id=target.id,
         kind=target.kind,
@@ -474,8 +467,8 @@ def _reject_local_domain_overlap(
 def _compile_coverage(
     *,
     system: ExperimentSystem,
-    linked: LinkedPlan,
-    linked_points: MaterializedLinkedPoints,
+    bound: BoundPlan,
+    bound_points: MaterializedBoundPoints,
     point_count: int,
     domain_calls: dict[str, DomainCallView],
     local_effects: MaterializedLocalEffects | None,
@@ -485,19 +478,19 @@ def _compile_coverage(
         return ()
     compiler = cast("DomainCompiler", system.domain_compiler)
     jobs_by_execution: dict[str, list[RunDomainJob]] = {}
-    for execution in linked.program.effects:
+    for execution in bound.bindings.effects:
         if not isinstance(execution, TypedDomainExecution):
             continue
         jobs_by_execution[execution.id] = list(
             _compile_domain_batches(
                 compiler,
                 domain_calls[execution.id],
-                linked_points,
+                bound_points,
                 region,
             )
         )
     return _coverage_operations(
-        effects=linked.program.effects,
+        effects=bound.bindings.effects,
         local_effects=local_effects,
         region=region,
         jobs_by_execution=jobs_by_execution,
@@ -506,7 +499,7 @@ def _compile_coverage(
 
 def _coverage_operations(
     *,
-    effects: tuple[CoreEffect, ...],
+    effects: tuple[BoundEffect, ...],
     local_effects: MaterializedLocalEffects | None,
     region: tuple[int, ...],
     jobs_by_execution: dict[str, list[RunDomainJob]],
@@ -567,7 +560,7 @@ def _local_schedule_regions(
 def _compile_domain_batches(
     compiler: DomainCompiler,
     call: DomainCallView,
-    linked_points: MaterializedLinkedPoints,
+    bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
 ) -> tuple[RunDomainJob, ...]:
     max_points = compiler.max_points_per_batch
@@ -578,7 +571,7 @@ def _compile_domain_batches(
         batch_points = point_ordinals[offset : offset + max_points]
         request = make_domain_batch_request(
             call,
-            linked_points,
+            bound_points,
             batch_points,
             batch_ordinal=batch_ordinal,
         )

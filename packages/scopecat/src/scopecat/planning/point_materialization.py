@@ -1,4 +1,4 @@
-"""Config-linked symbolic programs before any target materialization."""
+"""Materialize the bound symbolic point space for physical planning."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
@@ -16,35 +17,20 @@ from scopecat.compiler.relations.context import EvalContext, ParameterRelationDa
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
     evaluate_table_value,
-    normalize_relation_parameter_import,
 )
-from scopecat.compiler.relations.verification import (
-    PlanImportNamespace,
-)
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-)
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
     MaterializedPointDomain,
     PointDomainEvaluationError,
-    VerifiedPointDomain,
     materialize_point_domain,
 )
 from scopecat.compiler.typed.program import (
-    CoreProgram,
     TypedDomainExecution,
-    ValueInput,
-    core_domain_executions,
+    bound_domain_executions,
 )
-from scopecat.compiler.typed.specialization import specialize_core_program
-from scopecat.compiler.typed.verification import (
-    ProgramRelationConsumer,
-    VerifiedCoreProgram,
-    program_relation_consumers,
-    seal_typed_program,
-)
+from scopecat.compiler.typed.values import CompilerValue
 from scopecat.graph.relations.model import Row
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
@@ -58,33 +44,10 @@ from scopecat.kernel.value_validation import ValueValidationError, coerce_litera
 
 
 @dataclass(frozen=True, slots=True)
-class LinkedPlan:
-    """A successful config link retaining the complete symbolic point domain.
+class MaterializedBoundPoints:
+    """One bound plan with eagerly materialized points and parameter bindings."""
 
-    The plan binds a backend-neutral, sealed compiler program to one accepted
-    configuration environment. Both are trusted transient compiler artifacts;
-    the plan owns no materialized points or target artifact.
-    """
-
-    verified_program: VerifiedCoreProgram
-    environment: ConfigEnvironment
-
-    @property
-    def program(self) -> CoreProgram:
-        """Return the sealed compiler program bound to this plan."""
-
-        return self.verified_program.program
-
-    @property
-    def point_domain(self) -> VerifiedPointDomain:
-        return self.verified_program.point_domain
-
-
-@dataclass(frozen=True, slots=True)
-class MaterializedLinkedPoints:
-    """One linked plan with eagerly materialized points and parameter bindings."""
-
-    linked_plan: LinkedPlan
+    bound_plan: BoundPlan
     point_domain: MaterializedPointDomain
     point_parameters: tuple[ParameterRelationData, ...]
 
@@ -116,7 +79,7 @@ class MaterializedLinkedPoints:
             raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
-            for item in core_domain_executions(self.linked_plan.program)
+            for item in bound_domain_executions(self.bound_plan.bindings)
             if item.id == execution_id
         )
         available_inputs = (
@@ -156,38 +119,38 @@ class MaterializedLinkedPoints:
         )
 
 
-def materialize_linked_points(linked: LinkedPlan) -> MaterializedLinkedPoints:
-    """Eagerly close the linked point space before target compilation."""
+def materialize_bound_points(bound: BoundPlan) -> MaterializedBoundPoints:
+    """Eagerly close the bound point space before target compilation."""
 
-    point_domain = _materialize_linked_point_domain(linked)
+    point_domain = _materialize_bound_point_domain(bound)
     point_parameters = tuple(
         resolve_point_parameters(
-            linked.environment.parameters,
-            linked.program.parameter_overlays,
+            bound.environment.parameters,
+            bound.bindings.parameter_overlays,
             point_row=point.row,
         )
         for point in point_domain.points
     )
-    return MaterializedLinkedPoints(
-        linked_plan=linked,
+    return MaterializedBoundPoints(
+        bound_plan=bound,
         point_domain=point_domain,
         point_parameters=point_parameters,
     )
 
 
-def _materialize_linked_point_domain(
-    linked: LinkedPlan,
+def _materialize_bound_point_domain(
+    bound: BoundPlan,
 ) -> MaterializedPointDomain:
     problems: list[Problem] = []
-    entity_columns = linked.point_domain.entity_columns
+    entity_columns = bound.point_domain.entity_columns
     try:
         point_domain = materialize_point_domain(
-            linked.point_domain,
-            linked.environment.parameters,
+            bound.point_domain,
+            bound.environment.parameters,
             row_normalizer=lambda row: _normalize_point_domain_row(
                 row,
                 entity_columns=entity_columns,
-                environment=linked.environment,
+                environment=bound.environment,
                 problems=problems,
             ),
         )
@@ -301,14 +264,13 @@ def _materialize_domain_execution_input(
 
 
 def _evaluate_domain_input(
-    input_spec: ValueInput,
+    input_spec: CompilerValue,
     *,
     context: EvalContext,
 ) -> object:
-    value = input_spec.value
-    if isinstance(value, ScalarValueExpr):
-        return evaluate_scalar(value.plan, context)
-    return evaluate_table_value(value.source, value.value_type, context)
+    if isinstance(input_spec, VerifiedRelationPlan):
+        return evaluate_scalar(input_spec, context)
+    return evaluate_table_value(input_spec.source, input_spec.value_type, context)
 
 
 def _unwrap_domain_input(value: object) -> object:
@@ -325,106 +287,6 @@ def _unwrap_domain_input(value: object) -> object:
             for name, item in cast("Mapping[object, object]", value).items()
         }
     return value
-
-
-def link_program(
-    program: CoreProgram,
-    environment: ConfigEnvironment,
-) -> LinkedPlan:
-    """Specialize and seal one program against its sole accepted config."""
-
-    verified_program = seal_typed_program(
-        specialize_core_program(
-            program,
-            parameters=environment.parameters,
-        ),
-        phase=ProblemPhase.PLANNING,
-    )
-    problems = list(
-        _relation_import_problems(
-            verified_program,
-            environment.parameters,
-        )
-    )
-    if bool(problems):
-        raise CheckFailed(problems)
-    return LinkedPlan(
-        verified_program,
-        environment,
-    )
-
-
-def _relation_import_problems(
-    verified_program: VerifiedCoreProgram,
-    parameters: ParameterRelationData,
-) -> tuple[Problem, ...]:
-    problems: list[Problem] = []
-    for consumer in program_relation_consumers(verified_program):
-        plan = consumer.plan
-        for imported in plan.imports:
-            if imported.namespace is PlanImportNamespace.INPUT:
-                problems.append(_unresolved_input_problem(consumer, imported.id))
-                continue
-            try:
-                normalize_relation_parameter_import(
-                    plan,
-                    imported,
-                    parameters,
-                )
-            except ValueValidationError as error:
-                problems.append(_parameter_import_problem(consumer, error))
-    return tuple(problems)
-
-
-def _unresolved_input_problem(
-    consumer: ProgramRelationConsumer,
-    input_id: str,
-) -> Problem:
-    return compiler_problem(
-        "linked_input_unresolved",
-        f"linked relation still depends on unresolved input {input_id!r}",
-        model_location(
-            consumer.location.root,
-            *consumer.location.path,
-            "inputs",
-            input_id,
-        ),
-        phase=ProblemPhase.PLANNING,
-        details={
-            "consumer_kind": consumer.kind.value,
-            "input_id": input_id,
-        },
-    )
-
-
-def _parameter_import_problem(
-    consumer: ProgramRelationConsumer,
-    error: ValueValidationError,
-) -> Problem:
-    missing = error.code == "unknown_parameter"
-    parameter_id = (
-        error.path[1]
-        if len(error.path) > 1 and isinstance(error.path[1], str)
-        else None
-    )
-    return compiler_problem(
-        "linked_parameter_missing" if missing else "linked_parameter_contract_mismatch",
-        (
-            "accepted configuration cannot satisfy relation "
-            f"parameter import: {error.reason}"
-        ),
-        model_location(
-            consumer.location.root,
-            *consumer.location.path,
-            *error.path,
-        ),
-        phase=ProblemPhase.PLANNING,
-        details={
-            "consumer_kind": consumer.kind.value,
-            **({"parameter_id": parameter_id} if parameter_id is not None else {}),
-            "value_path": list(error.path),
-        },
-    )
 
 
 def _normalize_point_domain_row(

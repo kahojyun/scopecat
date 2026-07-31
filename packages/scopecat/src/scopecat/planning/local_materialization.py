@@ -1,4 +1,4 @@
-"""Specialize linked host semantics into point-local operations."""
+"""Specialize bound host semantics into point-local operations."""
 
 from __future__ import annotations
 
@@ -10,16 +10,12 @@ from typing import Protocol, cast
 
 from pydantic import JsonValue
 
+from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
-    MaterializedLinkedPoints,
-)
 from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.invocation import (
     InvokeEffect,
     evaluate_invoke_argument,
@@ -27,7 +23,7 @@ from scopecat.compiler.typed.invocation import (
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
-from scopecat.compiler.typed.program import CoreProgram, TypedDomainExecution
+from scopecat.compiler.typed.program import BoundProgramFacts, TypedDomainExecution
 from scopecat.compiler.typed.state import (
     EnsureStateSpec,
     SetStateSpec,
@@ -67,12 +63,14 @@ from scopecat.planning.local_effects import (
     MaterializedLocalEffects,
 )
 from scopecat.planning.local_values import evaluate_scalar_value
+from scopecat.planning.point_materialization import MaterializedBoundPoints
 from scopecat.planning.routing import (
     ResourceBinding,
     ResourceBindingError,
     ResourcePortManifest,
     RoutingView,
 )
+from scopecat.program.logical import AcquireEffect
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
@@ -136,16 +134,16 @@ class _InstrumentOperation(Protocol):
 
 
 def materialize_local_execution(
-    linked_points: MaterializedLinkedPoints,
+    bound_points: MaterializedBoundPoints,
     *,
     target: LocalTargetPlan,
 ) -> MaterializedLocalEffects:
     """Lower one bounded point coverage into final ordered local effects."""
 
-    program = target.program
+    program = target.bindings
     problems: list[Problem] = []
     selected_instrument_order = target.instrument_order
-    materialized_domain = linked_points.point_domain
+    materialized_domain = bound_points.point_domain
     planner_points = materialized_domain.points
     point_count = len(planner_points)
     point_by_ordinal = {point.logical_ordinal: point for point in planner_points}
@@ -153,7 +151,7 @@ def materialize_local_execution(
         point.logical_ordinal: params
         for point, params in zip(
             planner_points,
-            linked_points.point_parameters,
+            bound_points.point_parameters,
             strict=True,
         )
     }
@@ -325,20 +323,20 @@ def materialize_local_execution(
 
 
 def materialize_local_final_state(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     *,
     target: LocalTargetPlan,
 ) -> tuple[ApplyStateOperation, ...]:
     """Materialize the fixed desired state applied after normal completion."""
 
-    final_state = target.program.final_state
+    final_state = target.bindings.final_state
     if final_state is None:
         return ()
     problems: list[Problem] = []
     resources = _select_resources(
-        target.program,
+        target.bindings,
         target.resource_ports,
-        ctx=EvalContext(params=linked.environment.parameters),
+        ctx=EvalContext(params=bound.environment.parameters),
         context="normal completion",
         problems=problems,
         selected_port_ids=frozenset(
@@ -352,7 +350,7 @@ def materialize_local_final_state(
                 evaluate_state_spec(
                     assignment,
                     point_index=0,
-                    ctx=EvalContext(params=linked.environment.parameters),
+                    ctx=EvalContext(params=bound.environment.parameters),
                 )
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
@@ -365,8 +363,8 @@ def materialize_local_final_state(
             )
     desired = _bind_desired_state(
         records,
-        point_uid=f"{target.program.id}.final_state",
-        state_group_index=len(target.program.effects),
+        point_uid=f"{bound.program.experiment_id}.final_state",
+        state_group_index=len(target.bindings.effects),
         resources=resources,
         point_index=0,
         problems=problems,
@@ -382,7 +380,7 @@ def materialize_local_final_state(
 
 
 def prepare_local_target(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     *,
     product_use_ids: AbstractSet[ProductUseId],
     instrument_order: Sequence[str] = (),
@@ -395,31 +393,31 @@ def prepare_local_target(
     """
 
     requested = frozenset(product_use_ids)
-    available = {use.id for use in linked.program.product_uses}
+    available = {use.id for use in bound.bindings.product_uses}
     unknown = sorted(use_id.value for use_id in requested - available)
     if unknown:
         msg = "local product selection contains unknown uses: " + ", ".join(unknown)
         raise ValueError(msg)
     product_uses = tuple(
-        use for use in linked.program.product_uses if use.id in requested
+        use for use in bound.bindings.product_uses if use.id in requested
     )
     active_resource_ports = _active_resource_port_ids(
-        linked.program,
+        bound.bindings,
         product_uses=product_uses,
     )
     resource_ports: dict[LogicalResourcePortId, ResourcePortManifest] = {}
     if active_resource_ports:
-        physical_resources = RoutingView.from_config(linked.environment.config)
+        physical_resources = RoutingView.from_config(bound.environment.config)
         resource_ports = {
             requirement.port_id: physical_resources.bind_port(
                 port_id=requirement.port_id,
                 interfaces=requirement.interfaces,
             )
-            for requirement in linked.program.resource_requirements
+            for requirement in bound.bindings.resource_requirements
             if requirement.port_id in active_resource_ports
         }
     return LocalTargetPlan(
-        program=linked.program,
+        bindings=bound.bindings,
         product_uses=product_uses,
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,
@@ -490,7 +488,7 @@ def _order_instrument_operations[T: _InstrumentOperation](
 
 
 def _select_coverage_resources(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
     points: Sequence[MaterializedPoint],
     params_by_ordinal: Mapping[int, ParameterRelationData],
@@ -511,7 +509,7 @@ def _select_coverage_resources(
 
 
 def _select_point_resources(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
     point: MaterializedPoint,
     params: ParameterRelationData,
@@ -527,7 +525,7 @@ def _select_point_resources(
 
 
 def _select_resources(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
     *,
     ctx: EvalContext,
@@ -549,7 +547,7 @@ def _select_resources(
         failed = False
         for use in requirement.entity_uses:
             try:
-                entity_values.append(evaluate_scalar_value(use.value, ctx))
+                entity_values.append(evaluate_scalar_value(use, ctx))
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(
@@ -587,7 +585,7 @@ def _select_resources(
 
 
 def _active_resource_port_ids(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     *,
     product_uses: Sequence[ProductUse],
 ) -> frozenset[LogicalResourcePortId]:

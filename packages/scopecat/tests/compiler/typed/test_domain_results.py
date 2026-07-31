@@ -3,7 +3,7 @@ from __future__ import annotations
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     TypedDomainExecution,
     TypedDomainResultBinding,
 )
@@ -37,9 +37,7 @@ def test_domain_result_closure_contains_only_exact_direct_product_uses() -> None
             ),
         ),
     )
-    program = CoreProgram(
-        id="test.domain-results",
-        kind="test",
+    program = BoundProgramFacts(
         point_domain=PointDomain(axes=()),
         effects=(execution,),
         product_uses=(direct_use, foreign_use, output_use),

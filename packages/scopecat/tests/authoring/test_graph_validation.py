@@ -7,40 +7,39 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import ExperimentAssembly
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.frontend.resolution import (
-    compile_invocation,
-    resolve_compiled_invocation,
-)
-from scopecat.compiler.semantic.model import (
-    AcquireEffect,
-    SemanticDomainExecution,
-    SemanticGraphIR,
-)
-from scopecat.compiler.semantic.verification import (
-    VerifiedSemanticGraph,
-    verify_semantic_graph,
-)
-from scopecat.compiler.typed.program import CoreProgram
-from scopecat.compiler.typed.verification import (
-    VerifiedCoreProgram,
-    seal_typed_program,
-)
+from scopecat.compiler.bind import bind_program
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
+from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.compiler.typed.point_domain import VerifiedPointDomain
+from scopecat.compiler.typed.program import BoundProgramFacts
+from scopecat.compiler.typed.verification import verify_bound_facts
 from scopecat.config.environment import build_config_environment
+from scopecat.graph.relations.model import input_ref
 from scopecat.graph.relations.point_domain import point_axis_values
+from scopecat.graph.values import ValueId
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.program.bindings import requires, resource_port
 from scopecat.program.domain import domain_program
+from scopecat.program.logical import (
+    AcquireEffect,
+    LogicalComputeNode,
+    LogicalDomainExecution,
+    LogicalMeasurementPostprocessor,
+    LogicalProgram,
+    PlanExpressionSource,
+    ValueDef,
+)
+from scopecat.program.logical_graph import verify_logical_graph
 from scopecat.program.products import ModuleProductDecl, record_product
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
 _PLAY_WAVEFORMS = InterfaceRef("test.play_waveforms/v1")
@@ -55,7 +54,7 @@ def _resolve(module: sc.ExperimentModule[...]) -> None:
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module())
 
-    link_invocation(
+    bind_invocation(
         template(),
         config_profile=load_config(),
     )
@@ -204,7 +203,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(template(), config_profile=load_config())
+        bind_invocation(template(), config_profile=load_config())
 
     assert error.value.problems[0].code == ("product_axis_duplicate")
     assert error.value.problems[0].location == model_location(
@@ -313,7 +312,7 @@ def test_product_axis_rejects_point_dependent_value() -> None:
         experiment.scan(sc.axis(size, (2, 3)))
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             template(),
             config_profile=load_config(),
         )
@@ -349,8 +348,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
     compiled = compile_invocation(template())
 
     assert [
-        operation.id.local_id
-        for operation in compiled.assembly.graph.semantic_graph.graph.operations
+        operation.id.local_id for operation in compiled.program.program.compute_nodes
     ] == [
         "producer",
         "consumer",
@@ -368,11 +366,9 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
     compiled = compile_invocation(template(subject="q0"))
 
     assert compiled.request.inputs == {"subject": "q0"}
-    assert compiled.assembly.source.inputs == {"subject": EntityRef(id="q0")}
-    assert (
-        compiled.assembly.graph.semantic_graph.graph
-        == compiled.assembly.source.semantic_graph
-    )
+    assert compiled.program.program.inputs == {"subject": EntityRef(id="q0")}
+    assert compiled.program.program.value_defs == ()
+    assert compiled.program.program.compute_nodes == ()
 
 
 def test_compile_invocation_projects_request_metadata() -> None:
@@ -397,34 +393,50 @@ def test_compile_invocation_projects_request_metadata() -> None:
     assert compiled.request.operator == "alice"
 
 
-def test_compile_verifies_and_seals_the_final_program_once(
+def test_compile_verifies_the_final_program_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls = {"graph": 0, "seal": 0}
+    calls = {"graph": 0, "core": 0}
 
     def counted_graph(
-        graph: SemanticGraphIR,
+        value_defs: tuple[ValueDef, ...],
+        compute_nodes: tuple[LogicalComputeNode, ...],
+        measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...] = (),
         *,
-        effects: tuple[SemanticDomainExecution | AcquireEffect, ...] = (),
-    ) -> VerifiedSemanticGraph:
+        effects: tuple[LogicalDomainExecution | AcquireEffect, ...] = (),
+    ) -> tuple[
+        tuple[ValueDef, ...],
+        tuple[LogicalComputeNode, ...],
+        tuple[LogicalMeasurementPostprocessor, ...],
+    ]:
         calls["graph"] += 1
-        return verify_semantic_graph(graph, effects=effects)
+        return verify_logical_graph(
+            value_defs,
+            compute_nodes,
+            measurement_postprocessors,
+            effects=effects,
+        )
 
-    def counted_seal(
-        program: CoreProgram,
+    def counted_core(
+        program: BoundProgramFacts,
         *,
+        program_id: str,
         phase: ProblemPhase = ProblemPhase.AUTHORING,
-    ) -> VerifiedCoreProgram:
-        calls["seal"] += 1
-        return seal_typed_program(program, phase=phase)
+    ) -> VerifiedPointDomain:
+        calls["core"] += 1
+        return verify_bound_facts(
+            program,
+            program_id=program_id,
+            phase=phase,
+        )
 
     monkeypatch.setattr(
-        "scopecat.compiler.frontend.graph_validation.verify_semantic_graph",
+        "scopecat.compiler.frontend.logical_verification.verify_logical_graph",
         counted_graph,
     )
     monkeypatch.setattr(
-        "scopecat.compiler.linking.linked.seal_typed_program",
-        counted_seal,
+        "scopecat.compiler.bind.verify_bound_facts",
+        counted_core,
     )
 
     @sc.template(id="test.graph.single-proof", kind="graph")
@@ -432,13 +444,13 @@ def test_compile_verifies_and_seals_the_final_program_once(
         del experiment
 
     compiled = compile_invocation(template())
-    resolved = resolve_compiled_invocation(
-        compiled,
-        environment=build_config_environment(load_config()),
+    resolved = bind_program(
+        compiled.program,
+        build_config_environment(load_config()),
     )
 
-    assert calls == {"graph": 1, "seal": 1}
-    assert resolved.program.id == "test.graph.single-proof"
+    assert calls == {"graph": 1, "core": 1}
+    assert resolved.program.experiment_id == "test.graph.single-proof"
 
 
 def test_resource_selector_requires_a_scalar_entity_value() -> None:
@@ -449,8 +461,8 @@ def test_resource_selector_requires_a_scalar_entity_value() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(
-            ExperimentAssembly(
+        verify_logical_program(
+            LogicalProgram(
                 experiment_id="test.graph.resource-selector",
                 kind="graph",
                 resource_ports=(port,),
@@ -465,17 +477,30 @@ def test_resource_selector_requires_a_scalar_entity_value() -> None:
     )
 
 
-def test_compute_output_arithmetic_requires_an_explicit_compute() -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    child_value = program_input("value", value_type)
-    producer = program_compute(
-        "producer",
-        fn=lambda: 1.0,
-        output_type=value_type,
+def test_logical_verifier_owns_expression_proofs() -> None:
+    value_id = ValueId(SymbolId(local_id="missing-input"))
+    program = LogicalProgram(
+        experiment_id="test.graph.expression-proof",
+        kind="graph",
+        value_defs=(
+            ValueDef(
+                id=value_id,
+                value_type=Scalar(Float()),
+                source=PlanExpressionSource(input_ref("missing")),
+            ),
+        ),
     )
 
-    with pytest.raises(TypeError, match=r"ModuleContext\.compute"):
-        _ = producer.output + child_value
+    with pytest.raises(CheckFailed) as error:
+        verify_logical_program(program)
+
+    [problem] = error.value.problems
+    assert problem.code == "relation_plan_unknown_input"
+    assert problem.location == model_location(
+        "logical_program",
+        "values",
+        value_id.qualified_name,
+    )
 
 
 def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
@@ -485,8 +510,8 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
         (PayloadValue(schema_id="point-payload", payload={}),),
     )
 
-    verify_assembly_graph(
-        ExperimentAssembly(
+    verify_logical_program(
+        LogicalProgram(
             experiment_id="test.graph.payload-collision",
             kind="graph",
             point_domain=(point_source,),
@@ -504,8 +529,8 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(
-            ExperimentAssembly(
+        verify_logical_program(
+            LogicalProgram(
                 experiment_id="test.graph.coordinate-collision",
                 kind="graph",
                 point_domain=(point_source,),

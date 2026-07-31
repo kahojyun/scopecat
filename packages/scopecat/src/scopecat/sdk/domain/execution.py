@@ -1,6 +1,6 @@
 """Runtime boundary for one prepared domain-program execution.
 
-Domain compilers consume the target-neutral linked program and close target,
+Domain compilers consume the target-neutral bound program and close target,
 result, and value decisions before a run is durably accepted. Scopecat retains
 ownership of runtime submission, correlation, journalling, recording, and
 terminal run evidence.
@@ -28,7 +28,7 @@ type ErasedDomainRealizer = Callable[
 
 @dataclass(frozen=True, slots=True)
 class PreparedDomainExecution:
-    """A pure proof that one linked program is ready for domain effects.
+    """A pure proof that one bound program is ready for domain effects.
 
     The type-erased runtime fields form an existential adapter boundary: an
     adapter constructs all three from one concrete address/payload/result type

@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.typed.program import core_acquisitions
+from scopecat.compiler.typed.program import bound_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.instrument_members import AcquisitionResultRef
 from scopecat.kernel.problems import ProblemPhase
@@ -27,7 +27,7 @@ from scopecat.program.products import (
     product_axis_dimension_id,
 )
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SAMPLE = _SCALAR_SIGNAL.acquisition("sample")
@@ -75,16 +75,16 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
         experiment.run(call)
         experiment.record(call.products.signal)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    assert resolved.program.product_defs[0].metadata == {"schema_owner": "analysis"}
-    assert core_acquisitions(resolved.program)[0].results[0].metadata == {
+    assert resolved.bindings.product_defs[0].metadata == {"schema_owner": "analysis"}
+    assert bound_acquisitions(resolved.bindings)[0].results[0].metadata == {
         "adapter_mode": "fast"
     }
-    assert [record.id for record in resolved.program.record_uses] == ["signal"]
+    assert [record.id for record in resolved.bindings.record_uses] == ["signal"]
 
 
 def test_product_axes_use_product_local_dimensions_by_default() -> None:
@@ -111,13 +111,13 @@ def test_product_axes_use_product_local_dimensions_by_default() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
     dimensions = [
-        product.axes[0].dimension_id for product in resolved.program.product_defs
+        product.axes[0].dimension_id for product in resolved.bindings.product_defs
     ]
     assert len(set(dimensions)) == 2
     assert all(dimension.startswith("product/") for dimension in dimensions)
@@ -155,13 +155,13 @@ def test_product_axes_share_dimensions_only_when_explicit() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
     dimensions = [
-        product.axes[0].dimension_id for product in resolved.program.product_defs
+        product.axes[0].dimension_id for product in resolved.bindings.product_defs
     ]
     assert len(set(dimensions)) == 1
     assert dimensions[0].startswith("shared/")
@@ -231,7 +231,7 @@ def test_acquire_is_an_ordered_effect() -> None:
             results={_SAMPLE.result("signal"): signal},
         )
 
-    assembly = elaborate_module(module.ir)
+    assembly = compose_module(module.ir)
 
     acquire = assembly.acquisitions[0]
     assert assembly.effects == (acquire,)
@@ -258,7 +258,7 @@ def test_component_scoped_members_lower_complete_targets() -> None:
             results={channel.acquisition("sample").result("signal"): signal},
         )
 
-    assembly = elaborate_module(module.ir)
+    assembly = compose_module(module.ir)
     [binding] = assembly.bindings
     [invocation] = assembly.invocations
     [acquisition] = assembly.acquisitions
@@ -305,12 +305,12 @@ def test_multi_product_result_mapping_lowers_from_public_authoring_api(
             call.products.default,
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    [acquisition] = core_acquisitions(resolved.program)
+    [acquisition] = bound_acquisitions(resolved.bindings)
     assert acquisition.interface_id == "test.scalar_signal/v1"
     assert [
         (result.product_id.local_id, result.result_id) for result in acquisition.results
@@ -404,7 +404,7 @@ def test_explicit_instances_select_same_named_products_independently(
     assert left.products.signal.id == "left/signal"
     assert right.products["signal"].id == "right/signal"
 
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "left/signal",
         "right/signal",
@@ -427,24 +427,24 @@ def test_explicit_instances_select_same_named_products_independently(
             record_id="right_signal",
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    assert [record.id for record in resolved.program.record_uses] == [
+    assert [record.id for record in resolved.bindings.record_uses] == [
         "left_signal",
         "right_signal",
     ]
-    uses_by_id = {use.id: use for use in resolved.program.product_uses}
-    products_by_id = {product.id: product for product in resolved.program.product_defs}
+    uses_by_id = {use.id: use for use in resolved.bindings.product_uses}
+    products_by_id = {product.id: product for product in resolved.bindings.product_defs}
     selected_products = [
         products_by_id[uses_by_id[record.product_use_id].product_id]
-        for record in resolved.program.record_uses
+        for record in resolved.bindings.record_uses
     ]
     acquisitions_by_product = {
         result.product_id: (acquisition, result)
-        for acquisition in core_acquisitions(resolved.program)
+        for acquisition in bound_acquisitions(resolved.bindings)
         for result in acquisition.results
     }
     selected_acquisitions = [
@@ -498,7 +498,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     assert set(outer.products) == {"inner/signal"}
     nested_product = outer.products["inner/signal"]
     assert nested_product.id == "outer/inner/signal"
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "outer/inner/signal"
     ]
@@ -513,21 +513,21 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
             record_id="nested_signal",
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    record = resolved.program.record_uses[0]
+    record = resolved.bindings.record_uses[0]
     use = next(
-        use for use in resolved.program.product_uses if use.id == record.product_use_id
+        use for use in resolved.bindings.product_uses if use.id == record.product_use_id
     )
     assert record.id == "nested_signal"
     expected_product_id = ProductId(
         SymbolId(scope=("nested-root", "outer", "inner"), local_id="signal")
     )
     assert use.product_id == expected_product_id
-    [acquisition] = core_acquisitions(resolved.program)
+    [acquisition] = bound_acquisitions(resolved.bindings)
     [acquired_result] = acquisition.results
     assert acquired_result.product_id == expected_product_id
     assert acquisition.resource_port_id == logical_resource_port_id(
@@ -599,14 +599,14 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
             record_id="second",
         )
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    assert len(resolved.program.product_uses) == 2
-    assert len({use.id for use in resolved.program.product_uses}) == 2
-    assert {use.product_id for use in resolved.program.product_uses} == {
+    assert len(resolved.bindings.product_uses) == 2
+    assert len({use.id for use in resolved.bindings.product_uses}) == 2
+    assert {use.product_id for use in resolved.bindings.product_uses} == {
         ProductId(SymbolId(scope=("repeated-use", "selected"), local_id="signal"))
     }
 
@@ -635,24 +635,24 @@ def test_record_coordinate_aliases_share_one_public_product_use(tmp_path: Path) 
         experiment.run(call)
         experiment.records(primary, secondary)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    assert len(resolved.program.product_uses) == 1
-    assert [record.id for record in resolved.program.record_uses] == [
+    assert len(resolved.bindings.product_uses) == 1
+    assert [record.id for record in resolved.bindings.record_uses] == [
         "primary",
         "secondary",
     ]
-    assert {record.product_use_id for record in resolved.program.record_uses} == {
-        resolved.program.product_uses[0].id
+    assert {record.product_use_id for record in resolved.bindings.record_uses} == {
+        resolved.bindings.product_uses[0].id
     }
-    assert [record.role for record in resolved.program.record_uses] == [
+    assert [record.role for record in resolved.bindings.record_uses] == [
         "coordinate",
         "coordinate",
     ]
-    assert resolved.program.record_uses[1].metadata == {"projection": "secondary"}
+    assert resolved.bindings.record_uses[1].metadata == {"projection": "secondary"}
 
 
 def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:

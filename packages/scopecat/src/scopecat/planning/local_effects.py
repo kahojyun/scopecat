@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
@@ -22,14 +22,14 @@ from scopecat.planning.routing import ResourcePortManifest
 class LocalTargetPlan:
     """One closed local target selection reused by every coverage block.
 
-    ``program`` is the authoritative linked program; ``product_uses`` is the
+    ``bindings`` are the authoritative bound facts; ``product_uses`` is the
     local side of the local/domain demand cut.
     Physical manifests are selected once so bounded coverage evaluates only
     point-local values and entity selections, never the accepted configuration
     or provider inventory again.
     """
 
-    program: CoreProgram
+    bindings: BoundProgramFacts
     product_uses: tuple[ProductUse, ...]
     instrument_order: tuple[str, ...]
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest]
@@ -37,7 +37,7 @@ class LocalTargetPlan:
 
 @dataclass(frozen=True, slots=True)
 class MaterializedLocalEffects:
-    """Final local effects aligned with the ordered Core effect sequence."""
+    """Final local effects aligned with the ordered bound effect sequence."""
 
     compute_operations: tuple[RunCoverageEffect, ...]
     effect_operations: tuple[tuple[RunCoverageEffect, ...], ...]

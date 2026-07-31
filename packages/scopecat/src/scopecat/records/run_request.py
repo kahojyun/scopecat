@@ -1,6 +1,6 @@
 """Durable operator intent for structured experiment runs.
 
-These records are deliberately smaller than the compiler's linked program. They
+These records are deliberately smaller than the compiler's bound plan. They
 capture what the operator requested and are safe to persist without treating
 compiler or runtime internals as a stable wire format.
 """

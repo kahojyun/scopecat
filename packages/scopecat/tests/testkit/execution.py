@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.planning.service import plan_scratch_experiment
@@ -33,7 +33,7 @@ from tests.testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
 )
-from tests.testkit.typed_program import link_program
+from tests.testkit.typed_program import bind_program_facts
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +68,7 @@ class _ExplicitDriverProvider:
 def execute_bound_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: CoreProgram,
+    experiment: BoundProgramFacts,
     instruments: Sequence[InstrumentDriver],
     project_root: str | Path,
     payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
@@ -133,7 +133,7 @@ def execute_invocation_run(
 def execute_program_run(
     *,
     config: ConfigProfileSnapshot,
-    experiment: CoreProgram,
+    experiment: BoundProgramFacts,
     instrument_provider: InstrumentProvider,
     project_root: str | Path,
     request: RunRequest | None = None,
@@ -143,13 +143,13 @@ def execute_program_run(
     """Execute a typed test program through the unified production boundary."""
 
     environment = build_config_environment(config)
-    linked = link_program(experiment, environment)
+    bound = bind_program_facts(experiment, environment)
     composition = compose_test_instruments(
         config=config,
         provider=instrument_provider,
         payload_codecs=payload_codecs,
     )
-    program = composition.system.compile(linked)
+    program = composition.system.compile(bound)
     repository = sqlite_run_repository(project_root)
     accepted = admit_test_run(
         config=config,

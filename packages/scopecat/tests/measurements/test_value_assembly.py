@@ -70,7 +70,7 @@ def test_sealing_canonicalizes_candidate_order() -> None:
         use.id for use in scenario.uses
     ]
     retained = values.value_for_output(
-        scenario.linked_points.point_domain.points[0].logical_id,
+        scenario.bound_points.point_domain.points[0].logical_id,
         scenario.uses[0].id,
     ).value
     assert isinstance(retained, MeasurementScalar)
@@ -79,7 +79,7 @@ def test_sealing_canonicalizes_candidate_order() -> None:
     assert retained.value == 0.0
     assert (
         values.value_for_output(
-            scenario.linked_points.point_domain.points[0].logical_id,
+            scenario.bound_points.point_domain.points[0].logical_id,
             scenario.uses[0].id,
         ).evidence
         == evidence

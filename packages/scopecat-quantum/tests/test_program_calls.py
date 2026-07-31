@@ -6,10 +6,8 @@ from typing import Annotated, assert_type, cast
 
 import pytest
 import scopecat as sc
-from scopecat.compiler.frontend.resolution import (
-    compile_invocation,
-    resolve_compiled_invocation,
-)
+from scopecat.compiler.bind import bind_program
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 
@@ -333,9 +331,10 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
             call.results.second_iq,
         )
 
-    linked = resolve_compiled_invocation(
-        compile_invocation(experiment()),
-        environment=build_config_environment(
+    compiled = compile_invocation(experiment())
+    bound = bind_program(
+        compiled.program,
+        build_config_environment(
             load_config_snapshot_document(
                 _REPO_ROOT
                 / "fixtures"
@@ -347,12 +346,12 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
     )
 
     dimensions = [
-        product.axes[0].dimension_id for product in linked.program.product_defs
+        product.axes[0].dimension_id for product in bound.bindings.product_defs
     ]
     assert len(set(dimensions)) == 1
     assert all(
         product.axes[0].dimension_label == "shot"
-        for product in linked.program.product_defs
+        for product in bound.bindings.product_defs
     )
 
 

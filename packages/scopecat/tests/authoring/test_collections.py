@@ -7,34 +7,31 @@ import pytest
 import scopecat.authoring as authoring
 from scopecat.authoring.scans import axis
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
+from scopecat.compiler.bind import _lower_logical_program
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import (
-    ComputeEdge,
-    CoreProgram,
+    BoundProgramFacts,
 )
 from scopecat.config.environment import build_config_environment
-from scopecat.graph.values import (
-    OperationId,
-)
+from scopecat.graph.values import ComputeResultRef, OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.local_materialization import materialize_local_execution
 
 
 def _bind_program(
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot,
-) -> CoreProgram:
+) -> BoundProgramFacts:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return lower_verified_assembly(compiled.assembly, environment)
+    return _lower_logical_program(compiled.program, environment)
 
 
 def _echo_program(*, program: object) -> dict[str, object]:
@@ -77,7 +74,7 @@ def test_nested_module_requires_explicit_input_forwarding() -> None:
     ) -> None:
         experiment.run(root(outer_value))
 
-    link_invocation(
+    bind_invocation(
         template(outer_value=1),
         config_profile=load_config(),
     )
@@ -93,7 +90,7 @@ def test_scan_points_are_coerced_by_their_target_type() -> None:
     def template(experiment: authoring.ExperimentContext) -> None:
         experiment.scan(axis(point, (1,)))
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template(),
         config_profile=load_config(),
     )
@@ -206,19 +203,19 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         )
         context.call(middle.instantiate("compute-middle", program=produce))
 
-    assembly = elaborate_module(
+    assembly = compose_module(
         parent.ir,
     )
     consumer = next(
         operation
-        for operation in assembly.semantic_graph.operations
+        for operation in assembly.compute_nodes
         if operation.id.local_id == "consume"
     )
     program_use = dict(consumer.inputs)["program"]
     producer = next(
         operation
-        for operation in assembly.semantic_graph.operations
-        if operation.result_id == program_use.value_id
+        for operation in assembly.compute_nodes
+        if operation.result_id == program_use
     )
     assert producer.id == OperationId(SymbolId(local_id="produce"))
 
@@ -234,12 +231,11 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         node for node in program.compute_nodes if node.id.local_id == "produce"
     )
     program_edge = bound_consumer.inputs["program"]
-    assert isinstance(program_edge, ComputeEdge)
+    assert isinstance(program_edge, ComputeResultRef)
     assert bound_producer.result.id.local_id == producer.result_id.local_id
     assert bound_producer.result.id.scope == ("parent", *producer.result_id.scope)
     assert bound_producer.result.value_type == pulse
     assert program_edge.value_id == bound_producer.result.id
-    assert program_edge.expected_type == bound_producer.result.value_type
 
     @authoring.module(id="test.compute_edge.incompatible")
     def incompatible_child(
@@ -272,7 +268,7 @@ def test_explicit_null_is_rejected_as_a_bound_value() -> None:
         del experiment, label
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             required.bind(label=None),
             config_profile=load_config(),
         )

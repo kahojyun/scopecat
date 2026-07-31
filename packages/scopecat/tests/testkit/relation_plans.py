@@ -8,11 +8,8 @@ from scopecat.compiler.relations.evaluation import (
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
+    VerifiedRelationPlan,
     verify_relation_plan,
-)
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-    verify_scalar_value_expr,
 )
 from scopecat.compiler.typed.program import set_state_property
 from scopecat.compiler.typed.state import SetStateSpec
@@ -34,8 +31,8 @@ def scalar_value_expr(
     *,
     bindings: RelationTypeBindings | None = None,
     expected_type: Scalar | None = None,
-) -> ScalarValueExpr:
-    return verify_scalar_value_expr(
+) -> VerifiedRelationPlan:
+    return verify_relation_plan(
         (
             expression
             if isinstance(expression, ScalarExpr)

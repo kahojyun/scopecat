@@ -1,12 +1,6 @@
 from dataclasses import replace
 from typing import Never, cast
 
-from scopecat.compiler.linking.linked import (
-    link_program as link_core_program,
-)
-from scopecat.compiler.linking.linked import (
-    materialize_linked_points,
-)
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.specialization import (
     ResidualScalar,
@@ -16,7 +10,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.value_expressions import TableValue
 from scopecat.compiler.typed.parameter_overlays import (
     parameter_cell_bindings,
 )
@@ -24,8 +17,8 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedDomainExecution,
-    ValueInput,
 )
+from scopecat.compiler.typed.values import TableValue
 from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
 from scopecat.graph.relations.model import (
@@ -43,6 +36,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
+from scopecat.planning.point_materialization import materialize_bound_points
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
@@ -55,7 +49,7 @@ from tests.testkit.parameter_fixtures import (
 )
 from tests.testkit.relation_plans import state_property
 from tests.testkit.typed_program import (
-    link_program,
+    bind_program_facts,
     overlay_parameter_cell,
     typed_program,
 )
@@ -113,8 +107,6 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     )
     point_bindings = _point_bindings(points)
     spec = typed_program(
-        id="readout-frequency-overlay",
-        kind="readout.frequency_scan",
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -146,9 +138,9 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     base_frequencies = [
         row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ]
-    plan = materialize_local_execution(link_program(spec, environment))
+    plan = materialize_local_execution(bind_program_facts(spec, environment))
     without_overlay = materialize_local_execution(
-        link_program(replace(spec, parameter_overlays=()), environment)
+        bind_program_facts(replace(spec, parameter_overlays=()), environment)
     )
 
     assert [
@@ -185,17 +177,13 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
             compiler_input_ports=(DomainInputPort("rows", table_type),),
         ),
         compiler_inputs={
-            "rows": ValueInput(
-                TableValue(
-                    source=ParameterTableSource("readout_devices"),
-                    value_type=table_type,
-                )
+            "rows": TableValue(
+                source=ParameterTableSource("readout_devices"),
+                value_type=table_type,
             )
         },
     )
     spec = typed_program(
-        id="whole-table-parameter-overlay",
-        kind="readout.frequency_scan",
         point_domain=points,
         parameter_overlays=[_frequency_overlay(axis_id="frequency")],
         domain_execution=execution,
@@ -205,8 +193,8 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
         build_config_environment(config_with_physical_resources({})),
         parameters=parameters(),
     )
-    linked_points = materialize_linked_points(link_core_program(spec, environment))
-    [(input_id, bound_values)] = linked_points.bind_domain_inputs(
+    bound_points = materialize_bound_points(bind_program_facts(spec, environment))
+    [(input_id, bound_values)] = bound_points.bind_domain_inputs(
         execution.id,
         "compiler",
         ("rows",),

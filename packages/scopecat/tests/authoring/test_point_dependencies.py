@@ -8,7 +8,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 
 _FREQUENCY_TYPE = sc.ScalarType(sc.QuantityType(unit="GHz"))
 
@@ -50,7 +50,7 @@ def _resolve(
         if scan is not None:
             experiment.scan(scan)
 
-    link_invocation(
+    bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -120,7 +120,7 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
         experiment.run(parent(parent_frequency))
         experiment.scan(sc.axis(parent_frequency, (5.0,), unit="GHz"))
 
-    assembly = compile_invocation(template()).assembly.source
+    assembly = compile_invocation(template()).program.program
     assert tuple(
         (dependency.id, dependency.value_type)
         for dependency in assembly.point_dependencies

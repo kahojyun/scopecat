@@ -6,7 +6,7 @@ from typing import override
 
 import pytest
 
-from scopecat.compiler.typed.program import core_acquisitions, core_state
+from scopecat.compiler.typed.program import bound_acquisitions, bound_state
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
 from scopecat.records.measurement import MeasurementScalar
@@ -114,10 +114,10 @@ def test_planning_rejects_missing_instrument(tmp_path: Path) -> None:
 
 def test_planning_rejects_unsupported_property(tmp_path: Path) -> None:
     experiment = load_experiment()
-    selected_state = core_state(experiment)[0]
+    selected_state = bound_state(experiment)[0]
     assert isinstance(selected_state, SetStateSpec)
     state = replace(selected_state, property_id="amplitude")
-    experiment = replace(experiment, effects=(state, *core_acquisitions(experiment)))
+    experiment = replace(experiment, effects=(state, *bound_acquisitions(experiment)))
 
     with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
@@ -134,7 +134,7 @@ def test_planning_rejects_unsupported_property(tmp_path: Path) -> None:
 
 def test_planning_rejects_unsupported_acquisition_result(tmp_path: Path) -> None:
     experiment = load_experiment()
-    acquisition = core_acquisitions(experiment)[0]
+    acquisition = bound_acquisitions(experiment)[0]
     unsupported_acquisition = replace(
         acquisition,
         results=(replace(acquisition.results[0], result_id="missing"),),

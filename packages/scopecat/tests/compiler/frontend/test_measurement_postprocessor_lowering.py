@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.typed.program import core_acquisitions
+from scopecat.compiler.typed.program import bound_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
-from tests.testkit.typed_program import link_program
+from tests.testkit.authoring import bind_invocation, load_config
+from tests.testkit.typed_program import bind_program_facts
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_SAMPLE_RAW = _SCALAR_SIGNAL.acquisition("sample").result("raw")
@@ -61,8 +61,8 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         experiment.record(call.products.derived, record_id="first")
         experiment.record(call.products.derived, record_id="second")
 
-    resolved = link_invocation(template(), config_profile=load_config())
-    program = resolved.program
+    resolved = bind_invocation(template(), config_profile=load_config())
+    program = resolved.bindings
 
     [postprocessor] = program.measurement_postprocessors
     assert postprocessor.id.qualified_name == "lowering/derive"
@@ -79,13 +79,13 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     }
     assert {
         result.product_id.qualified_name
-        for acquisition in core_acquisitions(program)
+        for acquisition in bound_acquisitions(program)
         for result in acquisition.results
     } == {"lowering/raw"}
     assert postprocessor.kernel is _kernel
 
-    linked = link_program(program, resolved.environment)
-    assert linked.program.measurement_postprocessors == (postprocessor,)
+    bound = bind_program_facts(program, resolved.environment)
+    assert bound.bindings.measurement_postprocessors == (postprocessor,)
 
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
@@ -118,10 +118,10 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
         experiment.record(call.products["right/derived"], record_id="right")
 
     def compile_input_use_ids() -> dict[str, str]:
-        program = link_invocation(
+        program = bind_invocation(
             template(),
             config_profile=load_config(),
-        ).program
+        ).bindings
         return {
             postprocessor.id.qualified_name: (postprocessor.input_product_use_id.value)
             for postprocessor in program.measurement_postprocessors
@@ -152,7 +152,7 @@ def test_recorded_product_requires_a_producer() -> None:
         experiment.record(call.products.orphan)
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(template(), config_profile=load_config())
+        bind_invocation(template(), config_profile=load_config())
 
     assert [problem.code for problem in error.value.problems] == [
         "product_acquire_missing"

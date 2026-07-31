@@ -5,6 +5,8 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
+from scopecat.compiler.typed.program import TypedDomainExecution
+from scopecat.graph.relations.model import PointColumnScalarExpr
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.program.domain import domain_program
@@ -13,7 +15,7 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     TableParameterValue,
 )
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 from tests.testkit.materialized_effects import materialized_effects_contract
 
@@ -57,7 +59,7 @@ def _resolve_root_domain_dependency(
             )
         )
 
-    link_invocation(template(), config_profile=config)
+    bind_invocation(template(), config_profile=config)
 
 
 def _empty_module(id: str) -> sc.ExperimentModule[...]:
@@ -244,7 +246,7 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
         experiment.run(parent(frequency=parameter))
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(template(), config_profile=load_config())
+        bind_invocation(template(), config_profile=load_config())
 
     assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
 
@@ -267,7 +269,7 @@ def test_parameter_contract_survives_scan_lowering() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             invocation,
             config_profile=load_config(),
         )
@@ -311,7 +313,7 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
     invocation = _scan_invocation("test.parameter-contract-scan-target", scan)
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             invocation,
             config_profile=_config_with_parameter_table(),
         )
@@ -342,7 +344,7 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
     invocation = _scan_invocation("test.parameter-contract-scan-key", scan)
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(
+        bind_invocation(
             invocation,
             config_profile=_config_with_parameter_table(),
         )
@@ -371,9 +373,9 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
         ),
     )
 
-    resolved = link_invocation(invocation, config_profile=config)
+    resolved = bind_invocation(invocation, config_profile=config)
     materialized = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -384,10 +386,51 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
         sc.Quantity(5.0, "GHz"),
         sc.Quantity(5.1, "GHz"),
     ]
-    assert len(resolved.program.parameter_overlays) == 1
+    assert len(resolved.bindings.parameter_overlays) == 1
     stored = config.parameter_snapshot.get("device_parameters")
     assert isinstance(stored, TableParameterValue)
     assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")
+
+
+def test_parameter_scan_specializes_consumers_against_its_point_column() -> None:
+    frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
+    frequency = sc.coordinate("scanned_frequency", frequency_type)
+    lookup = sc.parameter_lookup(
+        "device_parameters",
+        key={"device": "q0"},
+        column="frequency",
+        value_type=frequency_type,
+    )
+    program = domain_program(
+        "consume-scanned-parameter",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        inputs={"frequency": frequency_type},
+    )
+
+    @sc.template(id="test.parameter-scan-consumer", kind="parameter_contract")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(domain_call(program, inputs={"frequency": lookup}))
+        experiment.scan(
+            sc.param_axis(
+                frequency,
+                lookup,
+                span="200 MHz",
+                points=3,
+            )
+        )
+
+    resolved = bind_invocation(
+        template(),
+        config_profile=_config_with_parameter_table(),
+    )
+
+    [execution] = resolved.bindings.effects
+    assert isinstance(execution, TypedDomainExecution)
+    root = execution.inputs["frequency"].root
+    assert isinstance(root, PointColumnScalarExpr)
+    assert root.name == "scanned_frequency"
 
 
 def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
@@ -410,7 +453,7 @@ def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:
     invocation = _scan_invocation("test.parameter-scan-write-type", scan)
 
     with pytest.raises(CheckFailed) as error:
-        link_invocation(invocation, config_profile=config)
+        bind_invocation(invocation, config_profile=config)
 
     assert error.value.problems[0].code == "authoring_parameter_scan_type_mismatch"
 
@@ -490,7 +533,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             )
         )
 
-    link_invocation(
+    bind_invocation(
         template(device="q0"),
         config_profile=config,
     )
@@ -541,7 +584,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
                 )
             )
 
-        link_invocation(wrong_template(device="q0"), config_profile=config)
+        bind_invocation(wrong_template(device="q0"), config_profile=config)
 
     assert wrong_key_shape.value.problems[0].code == (
         "authoring_parameter_lookup_key_mismatch"

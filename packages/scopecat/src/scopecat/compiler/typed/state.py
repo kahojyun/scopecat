@@ -6,10 +6,7 @@ from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
 )
-from scopecat.compiler.relations.uses import RelationUse
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-)
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.graph.relations.model import (
     CellValue,
 )
@@ -19,7 +16,7 @@ from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
 
-type StateValueUse = RelationUse[ScalarValueExpr] | ComputeResultRef
+type StateValueUse = VerifiedRelationPlan | ComputeResultRef
 type EvaluatedStateValue = ComputeResultRef | CellValue
 
 
@@ -96,7 +93,7 @@ def evaluate_state_spec(
             value=(
                 value_use
                 if isinstance(value_use, ComputeResultRef)
-                else evaluate_scalar(value_use.value.plan, ctx)
+                else evaluate_scalar(value_use, ctx)
             ),
         )
     ]

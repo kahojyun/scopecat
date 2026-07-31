@@ -207,7 +207,7 @@ def capture(
 A module may reference global constants, interfaces, functions, and other
 module definitions. Symbolic `ValueRef` objects are different: pass them
 through typed module parameters so every external dependency appears in the
-Python signature and `ModuleIR`; `@module` rejects captured global symbolic
+Python signature and `ModuleDef`; `@module` rejects captured global symbolic
 values.
 
 A target is a coherent state intention, not an instruction to write every

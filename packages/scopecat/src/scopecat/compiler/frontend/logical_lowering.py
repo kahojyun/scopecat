@@ -1,15 +1,14 @@
-"""Validate and lower a composed authoring assembly into compiler values."""
+"""Lower verified logical-program values into config-bound compiler values."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import cast
+from typing import Protocol, cast
 
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.elaboration import ExperimentAssembly
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
     raise_frontend_problem,
@@ -19,37 +18,24 @@ from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
     bind_table_source,
     input_cell,
-    literal_scalar_expr,
     scalar_input_refs,
 )
-from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
+    VerifiedRelationPlan,
+    verify_relation_plan,
 )
-from scopecat.compiler.semantic.model import (
-    LiteralValueSource,
-    LocalPythonImplementation,
-    PlanExpressionSource,
-    SemanticDomainExecution,
-    SemanticOperation,
-    ValueDef,
-)
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-    TableValue,
-    verify_scalar_value_expr,
-)
-from scopecat.compiler.semantic.verification import VerifiedSemanticGraph
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    ComputeEdge,
     ComputeInput,
-    ScalarValueInput,
     TypedComputeNode,
     TypedDomainExecution,
     TypedDomainResultBinding,
-    ValueInput,
+)
+from scopecat.compiler.typed.values import (
+    CompilerValue,
+    TableValue,
 )
 from scopecat.graph.relations.model import CellValue, ScalarExpr, as_scalar_expr
 from scopecat.graph.relations.point_domain import (
@@ -60,11 +46,11 @@ from scopecat.graph.relations.point_domain import (
 )
 from scopecat.graph.table_values import (
     InputTableSource,
+    TableSource,
 )
 from scopecat.graph.values import (
     ComputeOutput,
     ComputeResultRef,
-    OperationId,
     ValueId,
 )
 from scopecat.kernel.entity import EntityRef
@@ -75,6 +61,14 @@ from scopecat.kernel.product_identity import (
     ProductUseId,
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
+from scopecat.program.logical import (
+    LocalPythonImplementation,
+    LogicalComputeNode,
+    LogicalDomainExecution,
+    LogicalProgram,
+    PlanExpressionSource,
+    ValueDef,
+)
 from scopecat.program.operations import ModuleInputPort
 from scopecat.program.scans import (
     AxisSpec,
@@ -86,7 +80,6 @@ from scopecat.program.value_refs import (
     internal_lower_value_ref,
 )
 from scopecat.program.value_types import (
-    Scalar,
     Table,
     ValueType,
     ValueValidationError,
@@ -95,6 +88,25 @@ from scopecat.program.value_types import (
 from scopecat.program.value_types import Table as TableType
 from scopecat.records.config import Topology
 from scopecat.records.parameter import ParameterCatalog
+
+
+class _LogicalProgramProof(Protocol):
+    """Facts exposed by the config-free logical verifier."""
+
+    @property
+    def program(self) -> LogicalProgram: ...
+
+    @property
+    def value_defs(self) -> Mapping[ValueId, ValueDef]: ...
+
+    @property
+    def operation_results(self) -> Mapping[ValueId, LogicalComputeNode]: ...
+
+    @property
+    def value_types(self) -> Mapping[ValueId, ValueType]: ...
+
+    @property
+    def scalar_values(self) -> Mapping[ValueId, VerifiedRelationPlan]: ...
 
 
 def lower_parameter_overlay_intent(
@@ -191,36 +203,26 @@ def validate_entity_inputs(
         )
 
 
-def lower_semantic_compute_graph(
-    graph: VerifiedSemanticGraph,
-    implementations: Mapping[OperationId, LocalPythonImplementation],
-    inputs: Mapping[str, object],
-    *,
-    type_bindings: RelationTypeBindings,
+def lower_compute_graph(
+    program: _LogicalProgramProof,
 ) -> tuple[TypedComputeNode, ...]:
     """Lower implementation-defined operations to the local residual artifact."""
 
     nodes = tuple(
-        _lower_semantic_operation(
+        _lower_compute_node(
+            program,
             operation,
-            implementation=implementations[operation.id],
-            definitions=graph.value_defs,
-            operation_results=graph.operation_results,
-            value_types=graph.value_types,
-            inputs=inputs,
-            type_bindings=type_bindings,
+            implementation=program.program.implementations[operation.id],
         )
-        for operation in graph.graph.operations
+        for operation in program.program.compute_nodes
     )
     return nodes
 
 
-def lower_semantic_domain_graph(
-    graph: VerifiedSemanticGraph,
-    executions: Sequence[SemanticDomainExecution],
-    inputs: Mapping[str, object],
+def lower_domain_graph(
+    program: _LogicalProgramProof,
+    executions: Sequence[LogicalDomainExecution],
     *,
-    type_bindings: RelationTypeBindings,
     product_uses: Sequence[ProductUse],
 ) -> tuple[TypedDomainExecution, ...]:
     """Lower ordered prepare-stage domain effects and their product uses."""
@@ -230,31 +232,23 @@ def lower_semantic_domain_graph(
         uses_by_product.setdefault(use.product_id, []).append(use.id)
     typed_executions: list[TypedDomainExecution] = []
     for execution in executions:
-        lowered_inputs: dict[str, ScalarValueInput] = {}
-        for name, use in execution.inputs:
+        lowered_inputs: dict[str, VerifiedRelationPlan] = {}
+        for name, value_id in execution.inputs:
             lowered = cast(
-                "ValueInput",
-                _lower_semantic_input(
-                    use.value_id,
-                    definitions=graph.value_defs,
-                    operation_results=graph.operation_results,
-                    value_types=graph.value_types,
-                    inputs=inputs,
-                    type_bindings=type_bindings,
+                "VerifiedRelationPlan",
+                lower_logical_value(
+                    program,
+                    value_id,
                 ),
             )
-            lowered_inputs[name] = cast("ScalarValueInput", lowered)
-        lowered_compiler_inputs: dict[str, ValueInput] = {}
-        for name, use in execution.compiler_inputs:
+            lowered_inputs[name] = lowered
+        lowered_compiler_inputs: dict[str, CompilerValue] = {}
+        for name, value_id in execution.compiler_inputs:
             lowered = cast(
-                "ValueInput",
-                _lower_semantic_input(
-                    use.value_id,
-                    definitions=graph.value_defs,
-                    operation_results=graph.operation_results,
-                    value_types=graph.value_types,
-                    inputs=inputs,
-                    type_bindings=type_bindings,
+                "CompilerValue",
+                lower_logical_value(
+                    program,
+                    value_id,
                 ),
             )
             lowered_compiler_inputs[name] = lowered
@@ -279,30 +273,22 @@ def lower_semantic_domain_graph(
     return tuple(typed_executions)
 
 
-def _lower_semantic_operation(
-    operation: SemanticOperation,
+def _lower_compute_node(
+    program: _LogicalProgramProof,
+    operation: LogicalComputeNode,
     *,
     implementation: LocalPythonImplementation,
-    definitions: Mapping[ValueId, ValueDef],
-    operation_results: Mapping[ValueId, SemanticOperation],
-    value_types: Mapping[ValueId, ValueType],
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
 ) -> TypedComputeNode:
     lowered_inputs: dict[str, ComputeInput] = {}
-    for name, use in operation.inputs:
-        lowered = _lower_semantic_input(
-            use.value_id,
-            definitions=definitions,
-            operation_results=operation_results,
-            value_types=value_types,
-            inputs=inputs,
-            type_bindings=type_bindings,
+    for name, value_id in operation.inputs:
+        lowered = lower_logical_value(
+            program,
+            value_id,
         )
-        if isinstance(lowered, ValueInput):
-            lowered_inputs[name] = cast("ScalarValueInput", lowered)
-        else:
+        if isinstance(lowered, VerifiedRelationPlan):
             lowered_inputs[name] = lowered
+        else:
+            lowered_inputs[name] = cast("ComputeResultRef", lowered)
     return TypedComputeNode(
         id=operation.id,
         implementation=implementation,
@@ -314,48 +300,24 @@ def _lower_semantic_operation(
     )
 
 
-def _lower_semantic_input(
+def lower_logical_value(
+    program: _LogicalProgramProof,
     value_id: ValueId,
-    *,
-    definitions: Mapping[ValueId, ValueDef],
-    operation_results: Mapping[ValueId, SemanticOperation],
-    value_types: Mapping[ValueId, ValueType],
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
-) -> ValueInput | ComputeEdge:
-    if value_id in operation_results:
-        return ComputeEdge(
-            value_id=value_id,
-            expected_type=operation_results[value_id].result_type,
-        )
-    definition = definitions[value_id]
-    source = definition.source
-    value_type = value_types[value_id]
-    if isinstance(source, PlanExpressionSource):
-        return ValueInput(
-            value=verify_scalar_value_expr(
-                bind_scalar_input_refs(source.expression, inputs),
-                bindings=type_bindings,
-                expected_type=cast("Scalar", value_type),
-            )
-        )
-    if isinstance(source, LiteralValueSource):
-        return ValueInput(
-            value=verify_scalar_value_expr(
-                literal_scalar_expr(source.value),
-                bindings=type_bindings,
-                expected_type=cast("Scalar", value_type),
-            )
-        )
-    return ValueInput(
-        value=TableValue(
-            source=bind_table_source(source, inputs),
-            value_type=cast("Table", value_type),
-        )
+) -> CompilerValue | ComputeResultRef:
+    if value_id in program.operation_results:
+        return ComputeResultRef(value_id)
+    scalar = program.scalar_values.get(value_id)
+    if scalar is not None:
+        return scalar
+    source = program.value_defs[value_id].source
+    value_type = program.value_types[value_id]
+    return TableValue(
+        source=cast("TableSource", source),
+        value_type=cast("Table", value_type),
     )
 
 
-def coerce_assembly_inputs(
+def coerce_logical_inputs(
     ports: Sequence[ModuleInputPort],
     inputs: Mapping[str, object],
 ) -> dict[str, object]:
@@ -410,31 +372,30 @@ def coerce_assembly_inputs(
 
 
 def validate_consumed_inputs(
-    assembly: ExperimentAssembly,
+    program: LogicalProgram,
     inputs: Mapping[str, object],
 ) -> None:
-    """Reject only free module inputs that the assembled program actually uses."""
+    """Reject only free module inputs that the logical program actually uses."""
 
     consumed_dependencies: set[str] = set()
     values: list[object] = []
     values.extend(
         source
-        for port in assembly.resource_ports
+        for port in program.resource_ports
         for source in port.selector.entity_inputs
     )
-    values.extend(binding.value for binding in assembly.bindings)
     values.extend(
         value
-        for overlay in assembly.parameter_overlays
+        for overlay in program.parameter_overlays
         for _name, value in parameter_cell_lookup(overlay)[1]
     )
     consumed_dependencies.update(
         input_id
-        for definition in assembly.semantic_graph.value_defs
-        for input_id in _semantic_source_dependencies(definition.source)
+        for definition in program.value_defs
+        for input_id in _value_source_dependencies(definition.source)
     )
     values.extend(
-        axis.size for product in assembly.product_declarations for axis in product.axes
+        axis.size for product in program.product_declarations for axis in product.axes
     )
     for value in values:
         consumed_dependencies.update(_nested_input_dependencies(value, inputs=inputs))
@@ -444,7 +405,7 @@ def validate_consumed_inputs(
     if missing:
         raise_frontend_problem(
             "module_input_binding_missing",
-            "experiment assembly consumes module inputs without bindings: "
+            "logical program consumes module inputs without bindings: "
             + ", ".join(missing),
             "inputs",
             phase=ProblemPhase.AUTHORING,
@@ -508,7 +469,7 @@ def _nested_input_dependencies(
     return set()
 
 
-def _semantic_source_dependencies(source: object) -> tuple[str, ...]:
+def _value_source_dependencies(source: object) -> tuple[str, ...]:
     if isinstance(source, PlanExpressionSource):
         return source.source_inputs
     if isinstance(source, InputTableSource):
@@ -541,7 +502,7 @@ def _lower_point_axis(
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> PointAxis[RelationUse[ScalarValueExpr]]:
+) -> PointAxis[VerifiedRelationPlan]:
     source = axis.source
     if isinstance(source, PointAxisValues):
         return PointAxis(
@@ -549,15 +510,13 @@ def _lower_point_axis(
             value_type=axis.value_type,
             source=PointAxisValues(values=tuple(source.values)),
         )
-    center = relation_use(
-        verify_scalar_value_expr(
-            bind_scalar_input_refs(
-                internal_lower_scalar_value_ref(source.center),
-                inputs,
-            ),
-            bindings=type_bindings,
-            expected_type=axis.value_type,
-        )
+    center = verify_relation_plan(
+        bind_scalar_input_refs(
+            internal_lower_scalar_value_ref(source.center),
+            inputs,
+        ),
+        bindings=type_bindings,
+        expected_type=axis.value_type,
     )
     return PointAxis(
         id=axis.id,

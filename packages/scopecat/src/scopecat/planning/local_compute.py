@@ -7,7 +7,8 @@ from collections.abc import Set as AbstractSet
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.typed.program import TypedComputeNode, ValueInput
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
+from scopecat.compiler.typed.program import TypedComputeNode
 from scopecat.execution.local.program import (
     BoundInput,
     ComputeOperation,
@@ -41,11 +42,11 @@ def bind_compute_operations(
         failed = False
         for name, input_spec in node.inputs.items():
             try:
-                if isinstance(input_spec, ValueInput):
+                if isinstance(input_spec, VerifiedRelationPlan):
                     value = unwrap_payload_values(
                         coerce_literal(
                             input_spec.value_type,
-                            evaluate_scalar_value(input_spec.value, ctx),
+                            evaluate_scalar_value(input_spec, ctx),
                             path=("compute", *node.id.scope, node.id.local_id, name),
                         )
                     )
@@ -87,7 +88,7 @@ def bind_compute_operations(
         operations.append(
             ComputeOperation(
                 operation_id=operation_id,
-                semantic_operation_id=node.id.qualified_name,
+                logical_compute_node_id=node.id.qualified_name,
                 implementation_id=implementation.id.value,
                 kernel=implementation.kernel,
                 inputs=inputs,

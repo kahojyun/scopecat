@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from scopecat.compiler.linking.linked import link_program, materialize_linked_points
-from scopecat.compiler.measurement_projection import project_measurement_catalog
+from scopecat.compiler.bind import BoundPlan, _bind_program_facts
+from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.relations.context import ParameterRelationData
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -16,6 +16,8 @@ from scopecat.measurements.projection import (
     MeasurementProjection,
     select_measurement_projection,
 )
+from scopecat.planning.measurement_projection import project_measurement_catalog
+from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
@@ -25,6 +27,18 @@ from tests.testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
 )
+from tests.testkit.typed_program import verified_logical_program_for
+
+
+def bind_program_facts(
+    bindings: BoundProgramFacts,
+    environment: ConfigEnvironment,
+) -> BoundPlan:
+    return _bind_program_facts(
+        verified_logical_program_for(bindings),
+        bindings,
+        environment,
+    )
 
 
 def config_with_physical_resources(
@@ -74,7 +88,7 @@ def config_with_physical_resources(
 
 
 def materialized_effects_contract(
-    experiment: CoreProgram,
+    experiment: BoundProgramFacts,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
@@ -83,11 +97,11 @@ def materialized_effects_contract(
         build_config_environment(config or load_config()),
         parameters=parameters,
     )
-    return materialize_local_execution(link_program(experiment, environment))
+    return materialize_local_execution(bind_program_facts(experiment, environment))
 
 
 def measurement_projection_contract(
-    experiment: CoreProgram,
+    experiment: BoundProgramFacts,
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
@@ -96,10 +110,10 @@ def measurement_projection_contract(
         build_config_environment(config or load_config()),
         parameters=parameters,
     )
-    linked_points = materialize_linked_points(link_program(experiment, environment))
+    bound_points = materialize_bound_points(bind_program_facts(experiment, environment))
     return select_measurement_projection(
-        project_measurement_catalog(linked_points),
-        linked_points.linked_plan.program.record_uses,
+        project_measurement_catalog(bound_points),
+        bound_points.bound_plan.bindings.record_uses,
     )
 
 

@@ -5,14 +5,13 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat.compiler.linking.linked import (
-    link_program,
-    materialize_linked_points,
-)
+from scopecat.compiler.bind import BoundPlan, _bind_program_facts
+from scopecat.compiler.environment import ConfigEnvironment
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     TypedDomainExecution,
     TypedDomainResultBinding,
     record_product,
@@ -24,13 +23,15 @@ from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.product_identity import product_id
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.measurements.products import ProductDef
+from scopecat.planning.domain_bridge import (
+    make_domain_batch_request,
+    make_domain_call_view,
+)
+from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.program.logical import LogicalProgram
 from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultMapping,
-)
-from scopecat.sdk.domain._bridge import (
-    make_domain_batch_request,
-    make_domain_call_view,
 )
 
 from scopecat_quantum._ids import (
@@ -79,6 +80,19 @@ from scopecat_quantum.targets import (
     TargetCompileRequest,
 )
 
+
+def bind_program_facts(
+    bindings: BoundProgramFacts,
+    environment: ConfigEnvironment,
+    *,
+    experiment_id: str,
+) -> BoundPlan:
+    program = verify_logical_program(
+        LogicalProgram(experiment_id=experiment_id, kind="quantum_test")
+    )
+    return _bind_program_facts(program, bindings, environment)
+
+
 Q0 = QubitId("q0")
 _REPO_ROOT = Path(__file__).parents[3]
 
@@ -97,9 +111,7 @@ def _preparation(
     )
     product = ProductDef(id=product_id("result"), dtype="complex128")
     product_use, record_use = record_product(product, record_id="record")
-    program = CoreProgram(
-        id=program_id,
-        kind="mixed_quantum_mapping_test",
+    program = BoundProgramFacts(
         point_domain=point_domain,
         product_defs=(product,),
         effects=(
@@ -129,17 +141,23 @@ def _preparation(
             _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
         )
     )
-    linked_points = materialize_linked_points(link_program(program, environment))
-    closure = domain_result_closure(linked_points.linked_plan.program, "domain")
+    bound_points = materialize_bound_points(
+        bind_program_facts(
+            program,
+            environment,
+            experiment_id=program_id,
+        )
+    )
+    closure = domain_result_closure(bound_points.bound_plan.bindings, "domain")
     point_ordinals = (0, 1)
     call = make_domain_call_view(
-        linked_points.linked_plan,
+        bound_points.bound_plan,
         "domain",
         closure,
     )
     request = make_domain_batch_request(
         call,
-        linked_points,
+        bound_points,
         point_ordinals,
         batch_ordinal=0,
     )

@@ -1,35 +1,28 @@
-"""Compile authoring invocations into canonical core programs."""
+"""Compose and verify authoring invocations as canonical logical programs."""
 
 from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import cast
 
-from scopecat.authoring.scans import Scan
-from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
-    ExperimentAssembly,
-    elaborate_experiment_program,
+    compose_experiment,
 )
-from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
+from scopecat.compiler.frontend.logical_verification import (
+    VerifiedLogicalProgram,
+    verify_logical_program,
+)
 from scopecat.compiler.frontend.problems import frontend_problem as _problem
-from scopecat.compiler.frontend.program_lowering import link_verified_assembly
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
-from scopecat.compiler.frontend.scan_lowering import (
-    lower_scans_point_domain,
-    project_scan_record,
-)
+from scopecat.compiler.frontend.scan_lowering import project_scan_record
 from scopecat.compiler.frontend.scan_validation import (
     ScanValidationError,
     verify_scans,
 )
-from scopecat.compiler.linking.linked import LinkedPlan
 from scopecat.graph.relations.point_domain import analyze_point_domain
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
@@ -37,16 +30,12 @@ from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
 )
-from scopecat.program.parameters import merge_parameter_contracts
+from scopecat.program.definitions import ExperimentInvocation
+from scopecat.program.logical import LogicalProgram
 from scopecat.program.scans import (
     AxisSpec,
-    scan_parameter_contracts,
+    Scan,
 )
-from scopecat.program.value_refs import (
-    ValueRef,
-    internal_value_ref_parameter_contracts,
-)
-from scopecat.program.values import ModuleInput
 from scopecat.records.run_request import RunRequest
 
 
@@ -54,16 +43,8 @@ from scopecat.records.run_request import RunRequest
 class CompiledInvocation:
     """Config-free result of compiling one DSL invocation."""
 
-    assembly: VerifiedAssembly
+    program: VerifiedLogicalProgram
     request: RunRequest
-
-
-def resolve_compiled_invocation(
-    compiled: CompiledInvocation,
-    *,
-    environment: ConfigEnvironment,
-) -> LinkedPlan:
-    return link_verified_assembly(compiled.assembly, environment)
 
 
 def compile_invocation(
@@ -74,7 +55,6 @@ def compile_invocation(
 ) -> CompiledInvocation:
     scans = _effective_scans(invocation)
     inputs = _merged_inputs(invocation)
-    compiled = _compile_invocation_definition(invocation, inputs)
     scan_axes = _verified_scans(
         scans,
         inputs=inputs,
@@ -90,58 +70,15 @@ def compile_invocation(
         metadata=metadata,
         operator=operator,
     )
-    merged_inputs = {**compiled.inputs, **inputs}
-    assembly = replace(
-        compiled,
-        inputs=merged_inputs,
-    )
-    _validate_point_dependencies(assembly, scan_axes)
-    assembly = _apply_scans(
-        assembly,
-        scan_axes,
+    logical = compose_experiment(
+        invocation.definition,
         inputs=inputs,
+        scans=scan_axes,
     )
+    _validate_point_dependencies(logical, scan_axes)
     return CompiledInvocation(
-        assembly=verify_assembly(assembly),
+        program=verify_logical_program(logical),
         request=request,
-    )
-
-
-def _compile_invocation_definition(
-    invocation: ExperimentInvocation,
-    inputs: Mapping[str, object],
-) -> ExperimentAssembly:
-    definition = invocation.definition
-    program_input_ids = {port.id for port in definition.program.interface.imports}
-    program_inputs: dict[str, ModuleInput] = {}
-    for input_id, value in inputs.items():
-        if input_id not in program_input_ids:
-            continue
-        program_inputs[input_id] = cast("ModuleInput", value)
-    assembly = elaborate_experiment_program(
-        definition.program,
-        experiment_id=definition.id,
-        kind=definition.kind,
-        inputs=program_inputs,
-    )
-    final_state = definition.final_state
-    final_state_contracts = tuple(
-        contract
-        for assignment in (() if final_state is None else final_state.assignments)
-        if isinstance((value := assignment.value), ValueRef)
-        for contract in internal_value_ref_parameter_contracts(value)
-    )
-    return replace(
-        assembly,
-        record_selections=(
-            *assembly.record_selections,
-            *definition.record_selections,
-        ),
-        parameter_contracts=merge_parameter_contracts(
-            assembly.parameter_contracts,
-            final_state_contracts,
-        ),
-        final_state=final_state,
     )
 
 
@@ -251,41 +188,17 @@ def _verified_scans(
         ) from error
 
 
-def _apply_scans(
-    assembly: ExperimentAssembly,
-    scan_axes: Sequence[AxisSpec],
-    *,
-    inputs: Mapping[str, object],
-) -> ExperimentAssembly:
-    point_domain = lower_scans_point_domain(
-        scan_axes,
-        inputs=inputs,
-    )
-    return replace(
-        assembly,
-        point_domain=point_domain,
-        parameter_contracts=merge_parameter_contracts(
-            assembly.parameter_contracts,
-            *(scan_parameter_contracts(axis) for axis in scan_axes),
-        ),
-        parameter_overlays=(
-            *assembly.parameter_overlays,
-            *(axis for axis in scan_axes if axis.parameter_lookup is not None),
-        ),
-    )
-
-
 def _validate_point_dependencies(
-    assembly: ExperimentAssembly,
+    program: LogicalProgram,
     scan_axes: Sequence[AxisSpec],
 ) -> None:
-    domain_type = analyze_point_domain(assembly.point_domain).value_type
+    domain_type = analyze_point_domain(program.point_domain).value_type
     point_types = {
         **{column.id: column.value_type for column in domain_type.columns},
         **{axis.id: axis.value_type for axis in scan_axes},
     }
     problems: list[Problem] = []
-    for dependency in assembly.point_dependencies:
+    for dependency in program.point_dependencies:
         actual = point_types.get(dependency.id)
         if actual is None:
             problems.append(

@@ -1,26 +1,23 @@
-"""Seal the invariants introduced while lowering a verified assembly."""
+"""Verify invariants introduced while lowering a logical program."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from dataclasses import field as dc_field
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
     verify_point_domain,
 )
 from scopecat.compiler.typed.program import (
-    CoreProgram,
-    ValueInput,
-    core_acquisitions,
-    core_domain_executions,
-    core_invocations,
-    core_state,
+    BoundProgramFacts,
+    bound_acquisitions,
+    bound_domain_executions,
+    bound_invocations,
+    bound_state,
 )
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
 from scopecat.graph.relations.point_domain import iter_point_axis_linear
@@ -35,8 +32,10 @@ from scopecat.kernel.problems import (
 from scopecat.measurements.records import plan_records, validate_record_axes
 
 
-def _seal_core_program(
-    program: CoreProgram,
+def _verify_bound_facts(
+    program: BoundProgramFacts,
+    *,
+    program_id: str,
 ) -> VerifiedPointDomain:
     """Build final proofs without rechecking facts owned by earlier stages."""
 
@@ -44,7 +43,7 @@ def _seal_core_program(
     try:
         point_domain = verify_point_domain(
             program.point_domain,
-            program_id=program.id,
+            program_id=program_id,
         )
     except PointDomainVerificationError as error:
         problems.extend(
@@ -76,17 +75,17 @@ def _seal_core_program(
     return point_domain
 
 
-def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
+def _product_demand_problems(program: BoundProgramFacts) -> tuple[Problem, ...]:
     """Close ownership after record demand has introduced exact product uses."""
 
     owned_products = {
         result.product_id
-        for acquisition in core_acquisitions(program)
+        for acquisition in bound_acquisitions(program)
         for result in acquisition.results
     }
     owned_products.update(
         result.product_id
-        for execution in core_domain_executions(program)
+        for execution in bound_domain_executions(program)
         for result in execution.results
     )
     owned_products.update(
@@ -117,27 +116,16 @@ class ProgramRelationConsumer:
     location: ModelLocation
 
 
-@dataclass(frozen=True, slots=True)
-class VerifiedCoreProgram:
-    """A trusted lowered program paired with its final derived proofs."""
-
-    program: CoreProgram
-    point_domain: VerifiedPointDomain = dc_field(init=False)
-
-    def __post_init__(self) -> None:
-        point_domain = _seal_core_program(self.program)
-        object.__setattr__(self, "point_domain", point_domain)
-
-
-def seal_typed_program(
-    program: CoreProgram,
+def verify_bound_facts(
+    program: BoundProgramFacts,
     *,
+    program_id: str,
     phase: ProblemPhase = ProblemPhase.AUTHORING,
-) -> VerifiedCoreProgram:
-    """Seal lowering-owned facts on one trusted transient program."""
+) -> VerifiedPointDomain:
+    """Verify one residual program and return its derived point-domain proof."""
 
     try:
-        return VerifiedCoreProgram(program)
+        return _verify_bound_facts(program, program_id=program_id)
     except CheckFailed as error:
         if phase is ProblemPhase.AUTHORING:
             raise
@@ -151,12 +139,12 @@ def seal_typed_program(
 
 def _consumer(
     kind: ProgramRelationConsumerKind,
-    value: ScalarValueExpr,
+    value: VerifiedRelationPlan,
     location: ModelLocation,
 ) -> ProgramRelationConsumer:
     return ProgramRelationConsumer(
         kind=kind,
-        plan=value.plan,
+        plan=value,
         location=location,
     )
 
@@ -168,22 +156,23 @@ def _point_axis_center_consumers(
         center = source.center
         yield _consumer(
             ProgramRelationConsumerKind.POINT_AXIS_CENTER,
-            center.value,
+            center,
             model_location("point_domain", *path, "source", "center"),
         )
 
 
-def program_relation_consumers(
-    verified: VerifiedCoreProgram,
+def bound_relation_consumers(
+    program: BoundProgramFacts,
+    point_domain: VerifiedPointDomain,
 ) -> Iterator[ProgramRelationConsumer]:
     """Iterate relation plans with paths only when diagnostics need them."""
 
-    yield from _point_axis_center_consumers(verified.point_domain)
-    yield from _program_relation_consumers(verified.program)
+    yield from _point_axis_center_consumers(point_domain)
+    yield from _program_relation_consumers(program)
 
 
 def _program_relation_consumers(
-    program: CoreProgram,
+    program: BoundProgramFacts,
 ) -> Iterator[ProgramRelationConsumer]:
     """Index relation proofs already built with their exact lowering bindings."""
 
@@ -191,7 +180,7 @@ def _program_relation_consumers(
         for expression_index, use in enumerate(requirement.entity_uses):
             yield _consumer(
                 ProgramRelationConsumerKind.RESOURCE_ENTITY,
-                use.value,
+                use,
                 model_location(
                     "resource_requirements",
                     requirement_index,
@@ -202,12 +191,11 @@ def _program_relation_consumers(
 
     for node in program.compute_nodes:
         for input_name, input_value in node.inputs.items():
-            if not isinstance(input_value, ValueInput):
+            if isinstance(input_value, ComputeResultRef):
                 continue
-            value = input_value.value
             yield _consumer(
                 ProgramRelationConsumerKind.COMPUTE_INPUT,
-                value,
+                input_value,
                 model_location(
                     "compute_nodes",
                     *node.id.scope,
@@ -217,12 +205,11 @@ def _program_relation_consumers(
                 ),
             )
 
-    for execution_index, execution in enumerate(core_domain_executions(program)):
+    for execution_index, execution in enumerate(bound_domain_executions(program)):
         for input_name, input_value in execution.inputs.items():
-            value = input_value.value
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
-                value,
+                input_value,
                 model_location(
                     "domain_executions",
                     execution_index,
@@ -231,12 +218,11 @@ def _program_relation_consumers(
                 ),
             )
         for input_name, input_value in execution.compiler_inputs.items():
-            value = input_value.value
-            if not isinstance(value, ScalarValueExpr):
+            if not isinstance(input_value, VerifiedRelationPlan):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_COMPILER_INPUT,
-                value,
+                input_value,
                 model_location(
                     "domain_executions",
                     execution_index,
@@ -245,21 +231,21 @@ def _program_relation_consumers(
                 ),
             )
 
-    for state_index, state in enumerate(core_state(program)):
+    for state_index, state in enumerate(bound_state(program)):
         if not isinstance(state.value_use, ComputeResultRef):
             yield _consumer(
                 ProgramRelationConsumerKind.STATE_VALUE,
-                state.value_use.value,
+                state.value_use,
                 model_location("state", state_index, "value"),
             )
 
-    for invocation_index, invocation in enumerate(core_invocations(program)):
+    for invocation_index, invocation in enumerate(bound_invocations(program)):
         for argument in invocation.arguments:
             if isinstance(argument.value_use, ComputeResultRef):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.INVOCATION_ARGUMENT,
-                argument.value_use.value,
+                argument.value_use,
                 model_location(
                     "invocations",
                     invocation_index,
@@ -281,6 +267,5 @@ def _problem(code: str, message: str, location: ModelLocation) -> Problem:
 __all__ = [
     "ProgramRelationConsumer",
     "ProgramRelationConsumerKind",
-    "VerifiedCoreProgram",
-    "seal_typed_program",
+    "verify_bound_facts",
 ]

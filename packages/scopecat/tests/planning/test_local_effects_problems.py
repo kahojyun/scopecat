@@ -1,6 +1,5 @@
 import pytest
 
-from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -73,8 +72,6 @@ def test_materialized_effects_allows_result_id_reuse_across_acquisitions() -> No
     )
     uses_and_records = tuple(record_product(product) for product in products)
     spec = typed_program(
-        id="bad-record-products",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=products,
@@ -97,8 +94,6 @@ def test_materialized_effects_reports_demanded_product_without_a_local_producer(
     product = observable_product("signal", unit="ratio")
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="unsupported-record-source",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         product_defs=[product],
         product_uses=[product_use],
@@ -173,8 +168,6 @@ def test_materialized_effects_rejects_conflicting_shared_record_axes(
     acquisitions = instrument_acquisitions(*products, interface="test.scalar_signal/v1")
     uses_and_records = tuple(record_product(product) for product in products)
     spec = typed_program(
-        id="conflicting-record-axis",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=products,
@@ -197,16 +190,12 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
     None
 ):
     center_type = Scalar(QuantityType(unit="GHz"))
-    center = relation_use(
-        scalar_value_expr(
-            param("missing_center"),
-            bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
-            expected_type=center_type,
-        )
+    center = scalar_value_expr(
+        param("missing_center"),
+        bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+        expected_type=center_type,
     )
     spec = typed_program(
-        id="missing-points",
-        kind="problem",
         point_domain=PointDomain(
             axes=(
                 point_axis_linear(
@@ -224,14 +213,12 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
         materialized_effects_contract(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
-        "linked_parameter_missing"
+        "bound_parameter_missing"
     ]
 
 
 def test_materialized_effects_reports_state_evaluation_and_conflict_problems() -> None:
     conflict = typed_program(
-        id="conflict-state",
-        kind="problem",
         point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(

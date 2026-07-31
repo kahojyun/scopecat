@@ -1,13 +1,12 @@
 import pytest
 
-from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
     record_product,
 )
@@ -44,7 +43,7 @@ from tests.testkit.typed_program import (
 from tests.testkit.workflow_fixtures import load_experiment
 
 
-def _materialized_effects_spec(spec: CoreProgram, config: ConfigProfileSnapshot):
+def _materialized_effects_spec(spec: BoundProgramFacts, config: ConfigProfileSnapshot):
     return materialized_effects_contract(
         spec, build_config_environment(config).parameters, config=config
     )
@@ -98,8 +97,6 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="float-range-scan",
-        kind="simple_scan",
         point_domain=points,
         resource_requirements=(
             LogicalResourceRequirement(
@@ -140,8 +137,6 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     value = Quantity(value=5.0, unit="GHz")
     spec = typed_program(
-        id="duplicate-coordinate-scan",
-        kind="simple_scan",
         point_domain=_point_domain((value, value)),
     )
 
@@ -150,19 +145,15 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     assert len({point.logical_id.value for point in preview.points}) == 2
 
 
-def test_materialized_effects_rejects_link_problems_without_duplicates() -> None:
+def test_materialized_effects_rejects_bind_problems_without_duplicates() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     center_type = Scalar(QuantityType(unit="GHz"))
-    center = relation_use(
-        scalar_value_expr(
-            param("missing_center"),
-            bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
-            expected_type=center_type,
-        )
+    center = scalar_value_expr(
+        param("missing_center"),
+        bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+        expected_type=center_type,
     )
     spec = typed_program(
-        id="bad-preview-points",
-        kind="problem",
         point_domain=PointDomain(
             axes=(
                 point_axis_linear(
@@ -182,5 +173,5 @@ def test_materialized_effects_rejects_link_problems_without_duplicates() -> None
     assert [
         problem.code
         for problem in failure.value.problems
-        if problem.code == "linked_parameter_missing"
-    ] == ["linked_parameter_missing"]
+        if problem.code == "bound_parameter_missing"
+    ] == ["bound_parameter_missing"]

@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.compiler.typed.program import (
-    CoreProgram,
-    core_domain_executions,
+    BoundProgramFacts,
+    bound_domain_executions,
 )
 from scopecat.kernel.product_identity import ProductUseId
 
@@ -19,13 +19,13 @@ class DomainResultClosure:
 
 
 def domain_result_closure(
-    program: CoreProgram,
+    program: BoundProgramFacts,
     execution_id: str,
 ) -> DomainResultClosure:
     """Select exact product-use edges from one domain execution's results."""
 
     execution = next(
-        item for item in core_domain_executions(program) if item.id == execution_id
+        item for item in bound_domain_executions(program) if item.id == execution_id
     )
     direct_ids = {
         use_id for result in execution.results for use_id in result.product_use_ids

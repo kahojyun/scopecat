@@ -10,19 +10,17 @@ import pytest
 import scopecat as sc
 from scopecat.authoring import ValueValidationError
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.program_lowering import lower_verified_assembly
+from scopecat.compiler.bind import _lower_logical_program
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.semantic.model import PlanExpressionSource
-from scopecat.compiler.typed.program import ComputeEdge, CoreProgram
+from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import ScalarExpr
-from scopecat.graph.values import (
-    OperationId,
-)
+from scopecat.graph.values import ComputeResultRef, OperationId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.logical import PlanExpressionSource
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
@@ -33,10 +31,10 @@ from tests.testkit.relation_plans import evaluate_scalar
 def _bind_program(
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot,
-) -> CoreProgram:
+) -> BoundProgramFacts:
     environment = build_config_environment(config)
     compiled = compile_invocation(invocation)
-    return lower_verified_assembly(compiled.assembly, environment)
+    return _lower_logical_program(compiled.program, environment)
 
 
 def _payload_type() -> sc.ScalarType:
@@ -116,14 +114,9 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         context.call(first_consumer)
         context.call(second_consumer)
 
-    assembly = elaborate_module(root.ir)
-    nodes = {
-        operation.id: operation for operation in assembly.semantic_graph.operations
-    }
-    results = {
-        operation.result_id: operation
-        for operation in assembly.semantic_graph.operations
-    }
+    assembly = compose_module(root.ir)
+    nodes = {operation.id: operation for operation in assembly.compute_nodes}
+    results = {operation.result_id: operation for operation in assembly.compute_nodes}
 
     first_input = dict(
         nodes[
@@ -135,10 +128,10 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
             OperationId(SymbolId(scope=("second-consumer",), local_id="consume"))
         ].inputs
     )["payload"]
-    assert results[first_input.value_id].id == OperationId(
+    assert results[first_input].id == OperationId(
         SymbolId(scope=("first-producer",), local_id="produce")
     )
-    assert results[second_input.value_id].id == OperationId(
+    assert results[second_input].id == OperationId(
         SymbolId(scope=("second-producer",), local_id="produce")
     )
 
@@ -159,8 +152,8 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
     second_edge = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "second-consumer"), local_id="consume"))
     ].inputs["payload"]
-    assert isinstance(first_edge, ComputeEdge)
-    assert isinstance(second_edge, ComputeEdge)
+    assert isinstance(first_edge, ComputeResultRef)
+    assert isinstance(second_edge, ComputeResultRef)
     first_producer = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "first-producer"), local_id="produce"))
     ]
@@ -168,9 +161,7 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         OperationId(SymbolId(scope=("siblings", "second-producer"), local_id="produce"))
     ]
     assert first_edge.value_id == first_producer.result.id
-    assert first_edge.expected_type == first_producer.result.value_type
     assert second_edge.value_id == second_producer.result.id
-    assert second_edge.expected_type == second_producer.result.value_type
 
 
 def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
@@ -190,18 +181,15 @@ def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
         context.call(outer)
         context.call(sink)
 
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
     sink_node = next(
         operation
-        for operation in assembly.semantic_graph.operations
+        for operation in assembly.compute_nodes
         if operation.id.local_id == "consume"
     )
     sink_input = dict(sink_node.inputs)["payload"]
-    results = {
-        operation.result_id: operation
-        for operation in assembly.semantic_graph.operations
-    }
-    assert results[sink_input.value_id].id == OperationId(
+    results = {operation.result_id: operation for operation in assembly.compute_nodes}
+    assert results[sink_input].id == OperationId(
         SymbolId(scope=("outer", "child"), local_id="produce")
     )
 
@@ -269,7 +257,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
             )
         ]
         edge = sink_node.inputs["payload"]
-        assert isinstance(edge, ComputeEdge)
+        assert isinstance(edge, ComputeResultRef)
         assert producer_node.result.value_type == expected_type
         assert producer_node.result.id.scope == (
             "typed-result-root",
@@ -280,7 +268,6 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         )
         assert producer_node.result.id.local_id == "result"
         assert edge.value_id == producer_node.result.id
-        assert edge.expected_type == producer_node.result.value_type
 
 
 def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
@@ -315,35 +302,31 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         context.call(invocation)
         context.call(consumer)
 
-    flattened = elaborate_module(root.ir)
+    flattened = compose_module(root.ir)
     capture_node = next(
         operation
-        for operation in flattened.semantic_graph.operations
+        for operation in flattened.compute_nodes
         if operation.id.local_id == "capture"
     )
     capture_inputs = dict(capture_node.inputs)
-    definitions = {
-        definition.id: definition for definition in flattened.semantic_graph.value_defs
-    }
-    passthrough = definitions[capture_inputs["passthrough"].value_id]
+    definitions = {definition.id: definition for definition in flattened.value_defs}
+    passthrough = definitions[capture_inputs["passthrough"]]
     assert isinstance(passthrough.source, PlanExpressionSource)
     assert isinstance(passthrough.source.expression, ScalarExpr)
     assert (
         evaluate_scalar(
             passthrough.source.expression,
             EvalContext(),
-            bindings=passthrough.source.verified_plan.bindings,
         )
         == 1.25
     )
-    shifted = definitions[capture_inputs["shifted"].value_id]
+    shifted = definitions[capture_inputs["shifted"]]
     assert isinstance(shifted.source, PlanExpressionSource)
     assert isinstance(shifted.source.expression, ScalarExpr)
     assert (
         evaluate_scalar(
             shifted.source.expression,
             EvalContext(),
-            bindings=shifted.source.verified_plan.bindings,
         )
         == 1.75
     )
@@ -413,24 +396,21 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
         context.call(source_instance)
         context.call(consumer)
 
-    flattened = elaborate_module(root.ir)
+    flattened = compose_module(root.ir)
     capture_node = next(
         semantic_operation
-        for semantic_operation in flattened.semantic_graph.operations
+        for semantic_operation in flattened.compute_nodes
         if semantic_operation.id.local_id == "capture"
     )
     captured = dict(capture_node.inputs)["consumed"]
-    definitions = {
-        definition.id: definition for definition in flattened.semantic_graph.value_defs
-    }
-    shifted_definition = definitions[captured.value_id]
+    definitions = {definition.id: definition for definition in flattened.value_defs}
+    shifted_definition = definitions[captured]
     assert isinstance(shifted_definition.source, PlanExpressionSource)
     assert isinstance(shifted_definition.source.expression, ScalarExpr)
     assert (
         evaluate_scalar(
             shifted_definition.source.expression,
             EvalContext(),
-            bindings=shifted_definition.source.verified_plan.bindings,
         )
         == 2.0
     )
@@ -510,7 +490,7 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
         )
         experiment.scan(sc.axis(point, (1.0,)))
 
-    assembly = compile_invocation(template(value=1.0)).assembly.source
+    assembly = compile_invocation(template(value=1.0)).program.program
 
     assert [(port.id, port.value_type) for port in wrapper.ir.interface.imports] == [
         ("value", value_type)

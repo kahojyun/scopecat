@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.compiler.semantic.model import (
-    MeasurementPostprocessorId,
-    SemanticGraphIR,
-    SemanticMeasurementPostprocessor,
-)
-from scopecat.compiler.semantic.verification import verify_semantic_graph
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import product_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import MeasurementValue
+from scopecat.program.logical import (
+    LogicalMeasurementPostprocessor,
+    MeasurementPostprocessorId,
+)
+from scopecat.program.logical_graph import verify_logical_graph
 
 
 def _kernel(value: MeasurementValue) -> dict[str, MeasurementValue]:
@@ -23,8 +22,8 @@ def _postprocessor(
     *,
     source: str = "raw",
     output: str = "derived",
-) -> SemanticMeasurementPostprocessor:
-    return SemanticMeasurementPostprocessor(
+) -> LogicalMeasurementPostprocessor:
+    return LogicalMeasurementPostprocessor(
         id=MeasurementPostprocessorId(SymbolId(local_id=local_id)),
         input=product_id(source),
         outputs=(("result", product_id(output)),),
@@ -41,12 +40,10 @@ def test_duplicate_measurement_postprocessor_id_is_rejected() -> None:
     second = _postprocessor("duplicate", output="second")
 
     with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(measurement_postprocessors=(second, first)),
-        )
+        verify_logical_graph((), (), (second, first))
 
     assert _problem_codes(caught.value) == [
-        "semantic_measurement_postprocessor_duplicate"
+        "logical_measurement_postprocessor_duplicate"
     ]
 
 
@@ -55,11 +52,9 @@ def test_postprocessor_output_owner_conflict_is_rejected() -> None:
     second = _postprocessor("second", output="derived")
 
     with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(measurement_postprocessors=(second, first)),
-        )
+        verify_logical_graph((), (), (second, first))
 
-    assert _problem_codes(caught.value) == ["semantic_product_producer_duplicate"]
+    assert _problem_codes(caught.value) == ["logical_product_producer_duplicate"]
 
 
 def test_postprocessor_input_cannot_be_another_postprocessor_output() -> None:
@@ -67,10 +62,8 @@ def test_postprocessor_input_cannot_be_another_postprocessor_output() -> None:
     second = _postprocessor("second", source="middle", output="derived")
 
     with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(measurement_postprocessors=(second, first)),
-        )
+        verify_logical_graph((), (), (second, first))
 
     assert _problem_codes(caught.value) == [
-        "semantic_measurement_postprocessor_chaining_unsupported"
+        "logical_measurement_postprocessor_chaining_unsupported"
     ]

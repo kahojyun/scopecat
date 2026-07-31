@@ -12,16 +12,11 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
-    ValueInput,
-    core_acquisitions,
+    bound_acquisitions,
     record_product,
     set_state_property,
 )
@@ -58,6 +53,10 @@ from scopecat.kernel.value_types import Table as TableType
 from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
     validate_run_host_binding,
+)
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
@@ -110,10 +109,10 @@ from tests.testkit.signal_instruments import (
     TestSignalInstrument,
 )
 from tests.testkit.typed_program import (
+    bind_program_facts,
     compute_result,
     instrument_acquisition,
     instrument_invocation,
-    link_program,
     observable_product,
     typed_program,
 )
@@ -545,7 +544,7 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
     provider = _OrderedAbiProblemProvider()
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
     plan = _first_point_plan(plan)
     planning_problems = (
@@ -582,7 +581,7 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
     provider = _PartialDescriptionProvider()
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
 
     with pytest.raises(ProviderContractError) as captured:
@@ -603,7 +602,7 @@ def test_provider_description_exception_fails_at_preflight_boundary(
     provider = _FailingDescriptionProvider(failure)
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
     with pytest.raises(ProviderContractError) as captured:
         _lower_test_host_binding(plan, config, provider)
@@ -624,7 +623,7 @@ def test_provider_acquisition_result_unit_mismatch_is_rejected_before_run(
     provider = _UnitAbiProvider(result_unit=advertised_unit)
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
     plan = _first_point_plan(plan)
 
@@ -659,7 +658,7 @@ def test_provider_acquisition_axis_unit_mismatch_is_rejected_before_run(
     config = load_config()
     environment = build_config_environment(config)
     experiment = load_experiment()
-    plan = materialize_local_execution(link_program(experiment, environment))
+    plan = materialize_local_execution(bind_program_facts(experiment, environment))
     plan = _first_point_plan(plan)
     collect = operations_of_type(plan, CollectOperation, point_index=0)[0]
     request = collect.command.requests[0].model_copy(
@@ -717,7 +716,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
     provider = _FailingDescriptionProvider(KeyboardInterrupt("description cancelled"))
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
 
     with pytest.raises(KeyboardInterrupt, match="description cancelled"):
@@ -754,8 +753,6 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
-        id="per-point-compute-run",
-        kind="per_point_compute",
         point_domain=PointDomain(
             axes=(
                 point_axis_values(
@@ -804,13 +801,11 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                     value_type=Scalar(Payload("pulse_program")),
                 ),
                 inputs={
-                    "value": ValueInput(
-                        value=scalar_value_expr(
-                            point_col("frequency"),
-                            expected_type=Scalar(QuantityType()),
-                            bindings=RelationTypeBindings(
-                                point_row=RowType.from_table(point_type)
-                            ),
+                    "value": scalar_value_expr(
+                        point_col("frequency"),
+                        expected_type=Scalar(QuantityType()),
+                        bindings=RelationTypeBindings(
+                            point_row=RowType.from_table(point_type)
                         ),
                     )
                 },
@@ -878,7 +873,7 @@ def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
                     expected_type=Scalar(QuantityType(unit="GHz")),
                 ),
             ),
-            *core_acquisitions(base_experiment),
+            *bound_acquisitions(base_experiment),
         ),
     )
     manifest = execute_bound_run(

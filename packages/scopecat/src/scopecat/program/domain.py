@@ -17,7 +17,6 @@ from scopecat.domain.program import (
     DomainResultPort,
 )
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.product_identity import ProductId
 from scopecat.program.identities import DomainCallKey
 from scopecat.program.operations import ComputeNodeInputValue
 from scopecat.program.products import (
@@ -50,32 +49,6 @@ class DomainCall:
     execution: DomainExecution
     product_declarations: tuple[ModuleProductDecl, ...]
     results: ProductOutputs
-
-
-@dataclass(frozen=True, slots=True)
-class LoweredDomainExecution:
-    """Internal product-resolved form of an owned domain execution."""
-
-    id: str
-    program: DomainProgramDef
-    input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
-    compiler_input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
-    result_bindings: tuple[tuple[str, ProductId], ...] = ()
-
-
-def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution:
-    """Lower a module call after its product ownership has been validated."""
-
-    return LoweredDomainExecution(
-        id=execution.id,
-        program=execution.program,
-        input_bindings=execution.input_bindings,
-        compiler_input_bindings=execution.compiler_input_bindings,
-        result_bindings=tuple(
-            (result_id, product.product_id)
-            for result_id, product in execution.result_bindings
-        ),
-    )
 
 
 def domain_program(

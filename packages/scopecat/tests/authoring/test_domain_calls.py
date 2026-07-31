@@ -7,27 +7,24 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.linking.linked import materialize_linked_points
-from scopecat.compiler.semantic.value_expressions import TableValue
+from scopecat.compiler.frontend.elaboration import compose_module
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
+from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.domain_results import domain_result_closure
-from scopecat.compiler.typed.program import (
-    ValueInput,
-    core_acquisitions,
-    core_domain_executions,
-)
+from scopecat.compiler.typed.program import bound_acquisitions, bound_domain_executions
+from scopecat.compiler.typed.values import TableValue
 from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.table_values import LiteralTableSource
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.program.domain import domain_execution, domain_program
-from scopecat.program.products import ModuleProductDecl
-from scopecat.sdk.domain._bridge import (
+from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
-from tests.testkit.authoring import link_invocation, load_config
+from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.program.domain import domain_execution, domain_program
+from scopecat.program.products import ModuleProductDecl
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 
 
@@ -126,7 +123,7 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
             )
         )
 
-    semantic = elaborate_module(module.ir).domain_executions[0]
+    semantic = compose_module(module.ir).domain_executions[0]
 
     assert tuple(port.id for port in semantic.program.input_ports) == ("value",)
     assert tuple(port.id for port in semantic.program.compiler_input_ports) == (
@@ -182,21 +179,21 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     ) -> None:
         experiment.run(root(rows))
 
-    linked = link_invocation(
+    bound = bind_invocation(
         template(rows=[{"id": 1, "gain": 0.5}, {"id": 2, "gain": 0.75}]),
         config_profile=load_config(),
     )
 
-    [execution] = core_domain_executions(linked.program)
-    table_value = execution.compiler_inputs["rows"].value
+    [execution] = bound_domain_executions(bound.bindings)
+    table_value = execution.compiler_inputs["rows"]
     assert isinstance(table_value, TableValue)
     assert isinstance(table_value.source, LiteralTableSource)
 
-    points = materialize_linked_points(linked)
+    points = materialize_bound_points(bound)
     call = make_domain_call_view(
-        linked,
+        bound,
         execution.id,
-        domain_result_closure(linked.program, execution.id),
+        domain_result_closure(bound.bindings, execution.id),
     )
     request = make_domain_batch_request(
         call,
@@ -312,7 +309,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
         context.call(right)
         context.call(left)
 
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
 
     assert tuple(execution.id for execution in assembly.domain_executions) == (
         "right/call/program",
@@ -350,8 +347,8 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module.ir))
-    assert "semantic_domain_execution_input_stage_unavailable" in {
+        verify_logical_program(compose_module(module.ir))
+    assert "logical_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }
 
@@ -381,7 +378,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         outer = wrapper.instantiate("outer", x_count=x_count)
         context.call(outer)
 
-    assembly = elaborate_module(root_module.ir, x_count=point_x_count)
+    assembly = compose_module(root_module.ir, x_count=point_x_count)
     assert len(assembly.domain_executions) == 1
     assert (
         assembly.domain_executions[0].program.symbol_id.qualified_name
@@ -399,16 +396,16 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         experiment.record(selected_product, record_id="counts_first")
         experiment.record(selected_product, record_id="counts_second")
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template(),
         config_profile=load_config(),
     )
-    typed = resolved.program
+    typed = resolved.bindings
 
-    assert core_acquisitions(typed) == ()
-    typed_execution = core_domain_executions(typed)[0]
+    assert bound_acquisitions(typed) == ()
+    typed_execution = bound_domain_executions(typed)[0]
     assert typed_execution.program.body is body
-    assert isinstance(typed_execution.inputs["x_count"], ValueInput)
+    assert isinstance(typed_execution.inputs["x_count"], VerifiedRelationPlan)
     result = typed_execution.results[0]
     assert result.product_id.qualified_name == "root/outer/inner/call/counts"
     assert result.product_use_ids == tuple(use.id for use in typed.product_uses)
@@ -441,8 +438,10 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
             )
         )
 
-    graph = elaborate_module(module.ir).semantic_graph
-    value_ids = {definition.id.qualified_name for definition in graph.value_defs}
+    logical_program = compose_module(module.ir)
+    value_ids = {
+        definition.id.qualified_name for definition in logical_program.value_defs
+    }
     assert "domain/inputs/value" in value_ids
     assert "domain_execution/call%2Fprogram/inputs/value" in value_ids
 

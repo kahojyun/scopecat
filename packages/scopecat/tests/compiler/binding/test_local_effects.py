@@ -10,16 +10,10 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    ComputeEdge,
     LogicalResourceRequirement,
     TypedComputeNode,
-    ValueInput,
     set_state_property,
 )
 from scopecat.config.environment import build_config_environment
@@ -38,6 +32,7 @@ from scopecat.graph.relations.model import (
 from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.graph.values import (
     ComputeOutput,
+    ComputeResultRef,
     OperationId,
     ValueId,
     operation_result_id,
@@ -62,6 +57,10 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.program.logical import (
+    ImplementationId,
+    LocalPythonImplementation,
+)
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
@@ -70,9 +69,9 @@ from tests.testkit.local_materialization import (
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import (
+    bind_program_facts,
     compute_result,
     instrument_invocation,
-    link_program,
     typed_program,
 )
 
@@ -178,8 +177,6 @@ def test_bound_state_preserves_primitive_field_types(
     value_type: Scalar,
 ) -> None:
     program = typed_program(
-        id="primitive-state",
-        kind="compiler_test",
         point_domain=_point_domain(
             ((),),
             Table(columns=()),
@@ -203,7 +200,7 @@ def test_bound_state_preserves_primitive_field_types(
         config_with_physical_resources({"source-0": ("test.configure/v1",)})
     )
 
-    plan = materialize_local_execution(link_program(program, environment))
+    plan = materialize_local_execution(bind_program_facts(program, environment))
 
     assert (
         operations_of_type(plan, ApplyStateOperation, point_index=0)[0]
@@ -226,8 +223,6 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
     consumer_output_id = operation_result_id(consumer_id)
     point_type = Table(columns=(TableColumn("value", Scalar(Float())),))
     program = typed_program(
-        id="bound-identity",
-        kind="compiler_test",
         point_domain=_point_domain(
             ((1.0,), (1.0,), (2.0,)),
             point_type,
@@ -245,12 +240,10 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 id=producer_id,
                 implementation=_implementation(producer_id, _identity_value),
                 inputs={
-                    "value": ValueInput(
-                        value=scalar_value_expr(
-                            point_col("value"),
-                            expected_type=Scalar(Float()),
-                            bindings=_point_bindings(point_type),
-                        ),
+                    "value": scalar_value_expr(
+                        point_col("value"),
+                        expected_type=Scalar(Float()),
+                        bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(producer_id, Scalar(Float())),
@@ -258,12 +251,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
             TypedComputeNode(
                 id=consumer_id,
                 implementation=_implementation(consumer_id, _wrap_value),
-                inputs={
-                    "value": ComputeEdge(
-                        value_id=producer_output_id,
-                        expected_type=Scalar(Float()),
-                    )
-                },
+                inputs={"value": ComputeResultRef(producer_output_id)},
                 result=_output(consumer_id, Scalar(Payload("pulse_program"))),
             ),
         ),
@@ -287,8 +275,20 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         config_with_physical_resources({"source-0": ("test.play_program/v1",)})
     )
 
-    plan = materialize_local_execution(link_program(program, environment))
-    repeated = materialize_local_execution(link_program(program, environment))
+    plan = materialize_local_execution(
+        bind_program_facts(
+            program,
+            environment,
+            experiment_id="bound-identity",
+        )
+    )
+    repeated = materialize_local_execution(
+        bind_program_facts(
+            program,
+            environment,
+            experiment_id="bound-identity",
+        )
+    )
 
     assert [point.logical_id.logical_ordinal for point in plan.points] == [0, 1, 2]
     assert {
@@ -304,12 +304,12 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
     [unused] = [
         call
         for call in operations_of_type(plan, ComputeOperation, point_index=0)
-        if call.semantic_operation_id == unused_id.qualified_name
+        if call.logical_compute_node_id == unused_id.qualified_name
     ]
     assert unused.payload_slot is None
     for point in plan.points:
         node_ids = [
-            call.semantic_operation_id
+            call.logical_compute_node_id
             for call in operations_of_type(
                 plan, ComputeOperation, point_index=point.ordinal
             )
@@ -322,7 +322,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
             for call in operations_of_type(
                 plan, ComputeOperation, point_index=point.ordinal
             )
-            if call.semantic_operation_id == consumer_id.qualified_name
+            if call.logical_compute_node_id == consumer_id.qualified_name
         )
         assert consumer.inputs["value"] == OutputInput(producer_output_id)
         assert consumer.payload_slot is not None
@@ -347,7 +347,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 ComputeOperation,
                 point_index=point.ordinal,
             )
-            if call.semantic_operation_id == consumer_id.qualified_name
+            if call.logical_compute_node_id == consumer_id.qualified_name
         )
         assert repeated_consumer.payload_slot is not None
         repeated_payload_ids.append(repeated_consumer.payload_slot.id)
@@ -365,8 +365,6 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
         ),
     )
     program = typed_program(
-        id="normalized-compute-input",
-        kind="compiler_test",
         point_domain=_point_domain(
             (
                 (Quantity(value=5000.0, unit="MHz"),),
@@ -379,12 +377,10 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
                 id=node_id,
                 implementation=_implementation(node_id, _quantity_value),
                 inputs={
-                    "frequency": ValueInput(
-                        value=scalar_value_expr(
-                            point_col("frequency"),
-                            expected_type=Scalar(QuantityType(unit="GHz")),
-                            bindings=_point_bindings(point_type),
-                        ),
+                    "frequency": scalar_value_expr(
+                        point_col("frequency"),
+                        expected_type=Scalar(QuantityType(unit="GHz")),
+                        bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(node_id, Scalar(Float())),
@@ -393,7 +389,7 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
     )
 
     plan = materialize_local_execution(
-        link_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
 
     calls = [
@@ -427,8 +423,6 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
         columns=(TableColumn("payload", Scalar(Payload("mapping"))),),
     )
     program = typed_program(
-        id="mapping-fingerprint",
-        kind="compiler_test",
         point_domain=_point_domain(
             (
                 (
@@ -451,12 +445,10 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
                 id=node_id,
                 implementation=_implementation(node_id, _mapping_size),
                 inputs={
-                    "payload": ValueInput(
-                        value=scalar_value_expr(
-                            point_col("payload"),
-                            expected_type=Scalar(Payload("mapping")),
-                            bindings=_point_bindings(point_type),
-                        ),
+                    "payload": scalar_value_expr(
+                        point_col("payload"),
+                        expected_type=Scalar(Payload("mapping")),
+                        bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(node_id, Scalar(Float())),
@@ -465,7 +457,7 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
     )
 
     plan = materialize_local_execution(
-        link_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
 
     assert (
@@ -476,8 +468,6 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
 
 def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
     program = typed_program(
-        id="opaque-point",
-        kind="compiler_test",
         point_domain=_point_domain(
             (
                 (
@@ -494,7 +484,7 @@ def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
     )
 
     plan = materialize_local_execution(
-        link_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
 
     assert len(plan.points) == 1

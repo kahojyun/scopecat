@@ -4,12 +4,11 @@ from typing import cast
 
 import pytest
 
-from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
-    core_acquisitions,
+    bound_acquisitions,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
@@ -32,13 +31,14 @@ from scopecat.measurements.records import (
     validate_record_plan,
 )
 from scopecat.measurements.results import MeasurementDType
+from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import RoutingGraph
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.typed_program import instrument_acquisition, link_program
+from tests.testkit.typed_program import bind_program_facts, instrument_acquisition
 
 
 def _product(name: str = "signal") -> ProductDef:
@@ -116,7 +116,7 @@ def _program(
     acquisitions: tuple[AcquireEffect, ...] = (),
     uses: tuple[ProductUse, ...] = (),
     records: tuple[RecordUse, ...] = (),
-) -> CoreProgram:
+) -> BoundProgramFacts:
     interfaces_by_port: dict[LogicalResourcePortId, set[str]] = {}
     for acquisition in acquisitions:
         interfaces = interfaces_by_port.setdefault(
@@ -124,9 +124,7 @@ def _program(
             set(),
         )
         interfaces.add(acquisition.interface_id)
-    return CoreProgram(
-        id="product-ir",
-        kind="compiler_test",
+    return BoundProgramFacts(
         point_domain=PointDomain(axes=()),
         resource_requirements=tuple(
             LogicalResourceRequirement(
@@ -276,7 +274,7 @@ def test_record_aliases_share_one_product_realization() -> None:
     )
 
     plan = materialize_local_execution(
-        link_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
 
     operation = operations_of_type(plan, CollectOperation, point_index=0)[0]
@@ -306,7 +304,7 @@ def test_one_provider_result_fans_out_to_every_use_of_the_product() -> None:
     )
 
     plan = materialize_local_execution(
-        link_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
 
     [operation] = operations_of_type(plan, CollectOperation, point_index=0)
@@ -343,7 +341,7 @@ def test_multi_product_acquisition_lowers_to_one_instrument_command() -> None:
     second_use = product_use(second.id)
 
     plan = materialize_local_execution(
-        link_program(
+        bind_program_facts(
             _program(
                 products=(first, second),
                 acquisitions=(acquisition,),
@@ -371,7 +369,7 @@ def test_ordered_acquisitions_on_one_instrument_have_distinct_operation_ids() ->
     second_use = product_use(second.id)
 
     plan = materialize_local_execution(
-        link_program(
+        bind_program_facts(
             _program(
                 products=(first, second),
                 acquisitions=(
@@ -423,32 +421,32 @@ def test_record_policy_does_not_change_collection_request() -> None:
     )
     environment = build_config_environment(load_config())
 
-    first_plan = materialize_local_execution(link_program(first, environment))
-    second_plan = materialize_local_execution(link_program(second, environment))
+    first_plan = materialize_local_execution(bind_program_facts(first, environment))
+    second_plan = materialize_local_execution(bind_program_facts(second, environment))
 
     assert operations_of_type(
         first_plan, CollectOperation, point_index=0
     ) == operations_of_type(second_plan, CollectOperation, point_index=0)
 
 
-def test_unused_product_acquisition_is_linked_without_collection() -> None:
+def test_unused_product_acquisition_is_bound_without_collection() -> None:
     product = _product()
     acquisition = instrument_acquisition(product, interface="test.scalar_signal/v1")
     config = load_config()
     config = config.model_copy(
         update={"system": config.system.model_copy(update={"routing": RoutingGraph()})}
     )
-    linked = link_program(
+    bound = bind_program_facts(
         _program(products=(product,), acquisitions=(acquisition,)),
         build_config_environment(config),
     )
 
-    assert linked.program.product_defs == (product,)
-    assert core_acquisitions(linked.program) == (acquisition,)
-    assert linked.program.product_uses == ()
-    assert linked.program.record_uses == ()
+    assert bound.bindings.product_defs == (product,)
+    assert bound_acquisitions(bound.bindings) == (acquisition,)
+    assert bound.bindings.product_uses == ()
+    assert bound.bindings.record_uses == ()
 
-    plan = materialize_local_execution(linked)
+    plan = materialize_local_execution(bound)
 
     assert operations_of_type(plan, CollectOperation, point_index=0) == ()
 
@@ -459,7 +457,7 @@ def test_unrecorded_product_use_is_still_realized_once() -> None:
     use = product_use(product.id)
 
     plan = materialize_local_execution(
-        link_program(
+        bind_program_facts(
             _program(
                 products=(product,),
                 acquisitions=(acquisition,),

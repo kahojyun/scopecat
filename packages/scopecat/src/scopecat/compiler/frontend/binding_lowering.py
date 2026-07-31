@@ -10,17 +10,18 @@ from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
+from scopecat.compiler.frontend.logical_lowering import lower_logical_value
+from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
 )
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
 )
-from scopecat.compiler.relations.uses import relation_use
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-    verify_scalar_value_expr,
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    VerifiedRelationPlan,
+    verify_relation_plan,
 )
 from scopecat.compiler.typed.invocation import (
     InvokeArgument,
@@ -32,20 +33,16 @@ from scopecat.compiler.typed.program import (
     set_state_property,
 )
 from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
-from scopecat.graph.relations.model import (
-    LiteralScalarExpr,
-    ScalarExpr,
-    as_scalar_expr,
-)
-from scopecat.graph.values import ComputeResultRef
+from scopecat.graph.relations.model import LiteralScalarExpr, ScalarExpr
+from scopecat.graph.values import ComputeResultRef, ValueId
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Entity, Scalar
-from scopecat.program.bindings import (
-    BindingIntent,
-    EnsureStateIntent,
-    InvocationIntent,
-    ResourcePort,
+from scopecat.program.bindings import ResourcePort
+from scopecat.program.logical import (
+    LogicalEnsureState,
+    LogicalInvocation,
+    LogicalStateAssignment,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -55,102 +52,85 @@ from scopecat.records.config import Topology
 
 
 def lower_state_binding(
-    intent: BindingIntent,
+    assignment: LogicalStateAssignment,
     *,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
+    program: VerifiedLogicalProgram,
 ) -> SetStateSpec:
-    """Lower one verified authoring binding into typed desired state."""
+    """Bind one closed logical state edge to its typed value."""
 
-    value_type: Scalar | None
-    value = intent.value
-    if isinstance(value, ValueRef):
-        value_type = cast("Scalar", value.value_type)
-        lowered = internal_lower_value_ref(value)
-    else:
-        value_type = None
-        lowered = as_scalar_expr(value)
+    value = _lower_effect_value(
+        assignment.value_id,
+        program=program,
+    )
     return set_state_property(
-        resource_port_id=intent.port_id,
-        interface_id=intent.interface_id,
-        component_path=intent.component_path,
-        property_id=intent.property_id,
-        value=(
-            lowered
-            if isinstance(lowered, ComputeResultRef)
-            else verify_scalar_value_expr(
-                bind_scalar_input_refs(cast("ScalarExpr", lowered), inputs),
-                bindings=type_bindings,
-                expected_type=value_type,
-            )
-        ),
+        resource_port_id=assignment.port_id,
+        interface_id=assignment.interface_id,
+        component_path=assignment.component_path,
+        property_id=assignment.property_id,
+        value=value,
     )
 
 
 def lower_ensure_state(
-    intent: EnsureStateIntent,
+    effect: LogicalEnsureState,
     *,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
+    program: VerifiedLogicalProgram,
 ) -> EnsureStateSpec:
-    """Lower one coherent authoring target into typed desired state."""
+    """Bind one coherent logical target into typed desired state."""
 
     return EnsureStateSpec(
         tuple(
             lower_state_binding(
                 assignment,
-                inputs=inputs,
-                type_bindings=type_bindings,
+                program=program,
             )
-            for assignment in intent.assignments
+            for assignment in effect.assignments
         )
     )
 
 
 def lower_invocation(
-    intent: InvocationIntent,
+    invocation: LogicalInvocation,
     *,
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
+    program: VerifiedLogicalProgram,
 ) -> InvokeEffect:
-    """Lower one verified atomic operation invocation."""
+    """Bind one verified logical operation invocation."""
 
     arguments: list[InvokeArgument] = []
-    for argument in intent.arguments:
-        value_type: Scalar | None
-        if isinstance(argument.value, ValueRef):
-            value_type = cast("Scalar", argument.value.value_type)
-            lowered = internal_lower_value_ref(argument.value)
-        else:
-            value_type = None
-            lowered = as_scalar_expr(argument.value)
+    for argument in invocation.arguments:
         arguments.append(
             InvokeArgument(
                 id=argument.id,
-                value_use=(
-                    lowered
-                    if isinstance(lowered, ComputeResultRef)
-                    else relation_use(
-                        verify_scalar_value_expr(
-                            bind_scalar_input_refs(
-                                cast("ScalarExpr", lowered),
-                                inputs,
-                            ),
-                            bindings=type_bindings,
-                            expected_type=value_type,
-                        )
-                    )
+                value_use=_lower_effect_value(
+                    argument.value_id,
+                    program=program,
                 ),
             )
         )
     return InvokeEffect(
-        id=InvokeId(SymbolId(scope=intent.scope, local_id=intent.id)),
-        resource_port_id=intent.port_id,
-        interface_id=intent.interface_id,
-        component_path=intent.component_path,
-        operation_id=intent.operation_id,
+        id=InvokeId(SymbolId(scope=invocation.scope, local_id=invocation.id)),
+        resource_port_id=invocation.port_id,
+        interface_id=invocation.interface_id,
+        component_path=invocation.component_path,
+        operation_id=invocation.operation_id,
         arguments=tuple(arguments),
     )
+
+
+def _lower_effect_value(
+    value_id: ValueId,
+    *,
+    program: VerifiedLogicalProgram,
+) -> VerifiedRelationPlan | ComputeResultRef:
+    lowered = lower_logical_value(
+        program,
+        value_id,
+    )
+    if isinstance(lowered, ComputeResultRef):
+        return lowered
+    if not isinstance(lowered, VerifiedRelationPlan):
+        raise AssertionError("verified logical effect values must be scalar")
+    return lowered
 
 
 def build_resource_requirements(
@@ -167,13 +147,11 @@ def build_resource_requirements(
                 port_id=port.symbol_id,
                 interfaces=tuple(port.selector.interfaces),
                 entity_uses=tuple(
-                    relation_use(
-                        _resource_entity_expr(
-                            topology,
-                            input_id,
-                            inputs,
-                            type_bindings=type_bindings,
-                        )
+                    _resource_entity_expr(
+                        topology,
+                        input_id,
+                        inputs,
+                        type_bindings=type_bindings,
                     )
                     for input_id in port.selector.entity_inputs
                 ),
@@ -188,7 +166,7 @@ def _resource_entity_expr(
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
-) -> ScalarValueExpr:
+) -> VerifiedRelationPlan:
     value_type = source.value_type
     lowered = internal_lower_value_ref(source)
     if not (
@@ -206,7 +184,7 @@ def _resource_entity_expr(
                 cast("EntityRef | str", bound.value),
             ),
         )
-    return verify_scalar_value_expr(
+    return verify_relation_plan(
         bound,
         bindings=type_bindings,
         expected_type=value_type,

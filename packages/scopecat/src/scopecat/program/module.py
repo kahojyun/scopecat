@@ -1,6 +1,6 @@
 """Explicit hierarchical IR for reusable modules.
 
-The public contexts and invocation objects are authoring handles. ``ModuleIR``
+The public contexts and invocation objects are authoring handles. ``ModuleDef``
 is the immutable definition they elaborate into: its interface declares the
 values and logical resources visible at the boundary, while its body retains
 child instances and local intents until the dedicated elaboration pass lowers
@@ -31,8 +31,8 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
 )
@@ -177,7 +177,7 @@ class ModuleInterfaceIR:
 @dataclass(frozen=True, slots=True)
 class ModuleInstanceIR:
     lookup: ModuleInstanceLookup
-    module: ModuleIR
+    module: ModuleDef
     input_bindings: tuple[ModuleImportBinding, ...]
     resource_bindings: tuple[ModuleResourceBinding, ...] = ()
 
@@ -201,34 +201,6 @@ class ModulePythonImplementation:
         if not callable(self.fn):
             msg = "module Python implementation must be callable"
             raise TypeError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class ModuleBindingEffect:
-    """Apply one desired-state binding at this position."""
-
-    intent: ExperimentBindingIntent
-
-
-@dataclass(frozen=True, slots=True)
-class ModuleEnsureEffect:
-    """Ensure one coherent desired state at this effect position."""
-
-    intent: EnsureStateIntent
-
-
-@dataclass(frozen=True, slots=True)
-class ModuleInvokeEffect:
-    """Invoke one atomic hardware operation at this effect position."""
-
-    intent: InvocationIntent
-
-
-@dataclass(frozen=True, slots=True)
-class ModuleDomainEffect:
-    """Invoke one opaque domain program at this position."""
-
-    execution: DomainExecution
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,10 +250,10 @@ class ModuleAcquireEffect:
 
 type ModuleEffectIR = (
     ModuleInstanceIR
-    | ModuleBindingEffect
-    | ModuleEnsureEffect
-    | ModuleInvokeEffect
-    | ModuleDomainEffect
+    | BindingIntent
+    | EnsureStateIntent
+    | InvocationIntent
+    | DomainExecution
     | ModuleAcquireEffect
 )
 
@@ -390,15 +362,15 @@ class ModuleBodyIR:
         )
 
     @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
+    def bindings(self) -> tuple[BindingIntent, ...]:
         return tuple(
             binding
             for effect in self.effects
             for binding in (
-                (effect.intent,)
-                if isinstance(effect, ModuleBindingEffect)
-                else effect.intent.assignments
-                if isinstance(effect, ModuleEnsureEffect)
+                (effect,)
+                if isinstance(effect, BindingIntent)
+                else effect.assignments
+                if isinstance(effect, EnsureStateIntent)
                 else ()
             )
         )
@@ -406,17 +378,13 @@ class ModuleBodyIR:
     @property
     def domain_executions(self) -> tuple[DomainExecution, ...]:
         return tuple(
-            effect.execution
-            for effect in self.effects
-            if isinstance(effect, ModuleDomainEffect)
+            effect for effect in self.effects if isinstance(effect, DomainExecution)
         )
 
     @property
     def invocations(self) -> tuple[InvocationIntent, ...]:
         return tuple(
-            effect.intent
-            for effect in self.effects
-            if isinstance(effect, ModuleInvokeEffect)
+            effect for effect in self.effects if isinstance(effect, InvocationIntent)
         )
 
     @property
@@ -427,7 +395,7 @@ class ModuleBodyIR:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleIR:
+class ModuleDef:
     id: str
     interface: ModuleInterfaceIR
     body: ModuleBodyIR
@@ -461,7 +429,7 @@ class _ModuleProblemAdder(Protocol):
     ) -> None: ...
 
 
-def _module_closure_problems(module: ModuleIR) -> list[Problem]:
+def _module_closure_problems(module: ModuleDef) -> list[Problem]:
     """Check lexical closure while every declaration boundary is still visible."""
 
     problems: list[Problem] = []
@@ -595,7 +563,7 @@ def _module_closure_problems(module: ModuleIR) -> list[Problem]:
 
 
 def _check_module_resources(
-    module: ModuleIR,
+    module: ModuleDef,
     add_problem: _ModuleProblemAdder,
 ) -> None:
     declared = {port.symbol_id for port in module.interface.resources}
@@ -645,7 +613,7 @@ def _check_module_resources(
 
 
 def _check_module_products(
-    module: ModuleIR,
+    module: ModuleDef,
     add_problem: _ModuleProblemAdder,
 ) -> None:
     expected_products = {export.symbol_id: export for export in module.products}
@@ -689,7 +657,7 @@ def _check_module_products(
                 )
 
 
-def _module_lexical_value_refs(module: ModuleIR) -> tuple[ValueRef, ...]:
+def _module_lexical_value_refs(module: ModuleDef) -> tuple[ValueRef, ...]:
     roots: list[object] = []
     roots.extend(export.source for export in module.interface.exports)
     roots.extend(
@@ -759,7 +727,7 @@ def _nested_value_refs(
     return ()
 
 
-def _module_resource_uses(module: ModuleIR) -> tuple[LogicalResourcePortId, ...]:
+def _module_resource_uses(module: ModuleDef) -> tuple[LogicalResourcePortId, ...]:
     selected: list[LogicalResourcePortId] = []
     selected.extend(binding.port_id for binding in module.body.bindings)
     selected.extend(invocation.port_id for invocation in module.body.invocations)

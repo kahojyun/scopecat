@@ -6,32 +6,24 @@ from typing import Literal, Never, cast
 
 import pytest
 
-import scopecat.compiler.linking.linked as linking
+import scopecat.planning.point_materialization as point_materialization
 import scopecat.planning.system as planning_system
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
-    MaterializedLinkedPoints,
-    materialize_linked_points,
-)
+from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
-)
-from scopecat.compiler.semantic.model import (
-    MeasurementPostprocessorId,
+    VerifiedRelationPlan,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    CoreProgram,
+    BoundProgramFacts,
     LogicalResourceRequirement,
-    ScalarValueInput,
     TypedDomainExecution,
     TypedDomainResultBinding,
     TypedMeasurementPostprocessor,
     TypedMeasurementPostprocessorOutput,
-    ValueInput,
     record_product,
     set_state_property,
 )
@@ -68,15 +60,24 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, Table, TableColumn
 from scopecat.measurements.results import MeasurementValue
 from scopecat.planning.catalog import InstrumentContractCatalog
+from scopecat.planning.point_materialization import (
+    MaterializedBoundPoints,
+    materialize_bound_points,
+)
 from scopecat.planning.provider_binding import (
     resolve_instrument_contract_catalog,
 )
 from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem, build_experiment_system
+from scopecat.program.logical import (
+    MeasurementPostprocessorId,
+)
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
     DomainTargetInstrumentMember,
+    DomainTargetPrivateEndpoint,
+    VirtualInstrumentConnection,
     config_content_hash,
 )
 from scopecat.sdk.domain import (
@@ -114,8 +115,8 @@ from tests.testkit.parameter_fixtures import (
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.typed_program import (
+    bind_program_facts,
     instrument_acquisition,
-    link_program,
     observable_product,
     overlay_parameter_cell,
 )
@@ -257,7 +258,7 @@ def _reject_realization(
     raise AssertionError("planning must not realize domain results")
 
 
-def _linked_program(
+def _bound_program(
     *,
     product_count: int = 1,
     domain_product_count: int | None = None,
@@ -267,11 +268,11 @@ def _linked_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: Literal[0, 2] = 2,
-    domain_input: ScalarValueInput | None = None,
+    domain_input: VerifiedRelationPlan | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
     config: ConfigProfileSnapshot | None = None,
-) -> LinkedPlan:
+) -> BoundPlan:
     point_type = Table(
         columns=(
             TableColumn(
@@ -429,9 +430,7 @@ def _linked_program(
         if record_instrument_products
         else selections[:selected_domain_product_count]
     )
-    program = CoreProgram(
-        id="unified-system-contract",
-        kind="compiler_test",
+    program = BoundProgramFacts(
         point_domain=points,
         resource_requirements=(
             *(
@@ -458,20 +457,18 @@ def _linked_program(
     environment = build_config_environment(load_config() if config is None else config)
     if parameter_data is not None:
         environment = replace(environment, parameters=parameter_data)
-    return link_program(program, environment)
+    return bind_program_facts(program, environment)
 
 
-def _point_frequency_domain_input() -> ScalarValueInput:
+def _point_frequency_domain_input() -> VerifiedRelationPlan:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),
     )
-    return ValueInput(
-        value=scalar_value_expr(
-            point_col("frequency"),
-            bindings=RelationTypeBindings(point_row=RowType.from_table(point_type)),
-            expected_type=frequency_type,
-        )
+    return scalar_value_expr(
+        point_col("frequency"),
+        bindings=RelationTypeBindings(point_row=RowType.from_table(point_type)),
+        expected_type=frequency_type,
     )
 
 
@@ -481,7 +478,7 @@ def _postprocess_identity(
     return {"result": value}
 
 
-def _linked_instrument_fed_postprocessor_program() -> LinkedPlan:
+def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
     source = observable_product("source", unit="ratio")
     derived = observable_product("derived", unit="ratio")
     source_use = product_use(source.id)
@@ -500,9 +497,7 @@ def _linked_instrument_fed_postprocessor_program() -> LinkedPlan:
         ),
         kernel=_postprocess_identity,
     )
-    program = CoreProgram(
-        id="instrument-postprocessor",
-        kind="compiler_test",
+    program = BoundProgramFacts(
         point_domain=PointDomain(axes=()),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -522,7 +517,7 @@ def _linked_instrument_fed_postprocessor_program() -> LinkedPlan:
         product_uses=(source_use, derived_use),
         record_uses=(derived_record,),
     )
-    return link_program(
+    return bind_program_facts(
         program,
         build_config_environment(load_config()),
     )
@@ -537,18 +532,32 @@ def _config_with_domain_resources(
 ) -> ConfigProfileSnapshot:
     config = load_config()
     selected = set(instrument_ids)
+    known_ids = {instrument.id for instrument in config.instrument_registry.instruments}
+    seed = config.instrument_registry.instruments[0]
     registry = config.instrument_registry.model_copy(
         update={
             "instruments": [
-                instrument.model_copy(
-                    update={
-                        "exclusivity_key": f"physical:{instrument.id}",
-                    }
-                )
-                if instrument.id in selected
-                else instrument
-                for instrument in config.instrument_registry.instruments
-            ]
+                *(
+                    instrument.model_copy(
+                        update={
+                            "exclusivity_key": f"physical:{instrument.id}",
+                        }
+                    )
+                    if instrument.id in selected
+                    else instrument
+                    for instrument in config.instrument_registry.instruments
+                ),
+                *(
+                    seed.model_copy(
+                        update={
+                            "id": instrument_id,
+                            "exclusivity_key": f"physical:{instrument_id}",
+                        }
+                    )
+                    for instrument_id in instrument_ids
+                    if instrument_id not in known_ids
+                ),
+            ],
         }
     )
     system = config.system.model_copy(
@@ -556,14 +565,20 @@ def _config_with_domain_resources(
             "instrument_registry": registry,
             "domain_target": DomainTargetBinding(
                 id="tests.domain.target",
-                exclusivity_key="tests.domain.target",
+                exclusivity_key="physical:tests.domain.target",
                 kind="tests.domain",
                 members=[
-                    DomainTargetInstrumentMember(
-                        role=instrument_id,
-                        instrument_id=instrument_id,
-                    )
-                    for instrument_id in instrument_ids
+                    *(
+                        DomainTargetInstrumentMember(
+                            role=instrument_id,
+                            instrument_id=instrument_id,
+                        )
+                        for instrument_id in instrument_ids
+                    ),
+                    DomainTargetPrivateEndpoint(
+                        role="controller",
+                        connection=VirtualInstrumentConnection(),
+                    ),
                 ],
             ),
         }
@@ -600,10 +615,10 @@ def _assert_no_domain_effects(*compilers: _DomainCompiler) -> None:
 
 
 def _catalog(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     provider: InstrumentProvider | None = None,
 ) -> InstrumentContractCatalog:
-    config = linked.environment.config
+    config = bound.environment.config
     if provider is None:
         return InstrumentContractCatalog(
             config_content_hash=config_content_hash(config),
@@ -616,14 +631,14 @@ def _catalog(
 
 
 def test_unified_planning_rejects_missing_local_catalog_before_effects() -> None:
-    linked = _linked_program(state_mode="varying")
+    bound = _bound_program(state_mode="varying")
     compiler = _DomainCompiler("tests.missing-claim")
 
     with pytest.raises(CheckFailed) as captured:
         ExperimentSystem(
-            instrument_catalog=_catalog(linked),
+            instrument_catalog=_catalog(bound),
             domain_compiler=compiler,
-        ).compile(linked)
+        ).compile(bound)
 
     assert _problem_codes(captured.value) == {"local_instrument_catalog_missing"}
     assert captured.value.problems[0].details == {}
@@ -635,8 +650,8 @@ def test_unified_planning_rejects_missing_local_catalog_before_effects() -> None
 
 
 def test_planning_rejects_catalog_for_another_config() -> None:
-    linked = _linked_program()
-    catalog = _catalog(linked).model_copy(
+    bound = _bound_program()
+    catalog = _catalog(bound).model_copy(
         update={"config_content_hash": "sha256:" + ("f" * 64)}
     )
 
@@ -644,20 +659,20 @@ def test_planning_rejects_catalog_for_another_config() -> None:
         ExperimentSystem(
             instrument_catalog=catalog,
             domain_compiler=_DomainCompiler("tests.catalog-config"),
-        ).compile(linked)
+        ).compile(bound)
 
     [issue] = captured.value.problems
     assert issue.code == "instrument_catalog_config_mismatch"
     assert issue.phase is ProblemPhase.PROVIDER_PREFLIGHT
     assert issue.details == {
-        "expected": config_content_hash(linked.environment.config),
+        "expected": config_content_hash(bound.environment.config),
         "actual": catalog.config_content_hash,
     }
 
 
 def test_domain_only_planning_ignores_unrelated_catalog_problems() -> None:
-    linked = _linked_program()
-    catalog = _catalog(linked).model_copy(
+    bound = _bound_program()
+    catalog = _catalog(bound).model_copy(
         update={
             "problems": (
                 problem(
@@ -672,14 +687,14 @@ def test_domain_only_planning_ignores_unrelated_catalog_problems() -> None:
     plan = ExperimentSystem(
         instrument_catalog=catalog,
         domain_compiler=_DomainCompiler("tests.catalog-problems"),
-    ).compile(linked)
+    ).compile(bound)
 
     assert plan.host is None
 
 
 def test_local_planning_rejects_catalog_problems() -> None:
-    linked = _linked_program(state_mode="constant")
-    catalog = _catalog(linked, TestSignalInstrumentProvider()).model_copy(
+    bound = _bound_program(state_mode="constant")
+    catalog = _catalog(bound, TestSignalInstrumentProvider()).model_copy(
         update={
             "problems": (
                 problem(
@@ -695,7 +710,7 @@ def test_local_planning_rejects_catalog_problems() -> None:
         ExperimentSystem(
             instrument_catalog=catalog,
             domain_compiler=_DomainCompiler("tests.catalog-problems"),
-        ).compile(linked)
+        ).compile(bound)
 
     assert {issue.code for issue in captured.value.problems} == {
         "tests.instrument_unavailable"
@@ -750,11 +765,11 @@ def test_system_builder_cannot_replace_daemon_catalog() -> None:
 
 
 def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None:
-    linked = _linked_instrument_fed_postprocessor_program()
+    bound = _bound_instrument_fed_postprocessor_program()
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked, TestSignalInstrumentProvider())
-    ).compile(linked)
+        instrument_catalog=_catalog(bound, TestSignalInstrumentProvider())
+    ).compile(bound)
 
     [postprocessor] = plan.measurement_postprocessors
     assert postprocessor.id.qualified_name == "normalize"
@@ -762,16 +777,16 @@ def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None
 
 
 def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
-    linked = _linked_program(point_count=2)
+    bound = _bound_program(point_count=2)
     compiler = _DomainCompiler(
         "tests.target-capacity",
         max_points_per_batch=1,
     )
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked),
+        instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
 
     assert len(plan.points.points) == 2
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
@@ -790,11 +805,11 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
 def test_local_resource_manifest_is_selected_once_for_complete_point_space(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    linked = _linked_program(domain_product_count=0, point_count=2)
+    bound = _bound_program(domain_product_count=0, point_count=2)
     calls = _track_bound_resource_ports(monkeypatch)
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked, TestSignalInstrumentProvider())
-    ).compile(linked)
+        instrument_catalog=_catalog(bound, TestSignalInstrumentProvider())
+    ).compile(bound)
 
     assert calls == [logical_resource_port_id("source")]
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
@@ -828,11 +843,9 @@ def test_run_requirements_and_host_order_include_only_used_local_instruments() -
         }
     )
     provider = _TrackingProvider()
-    linked = _linked_program(domain_product_count=0, config=config)
+    bound = _bound_program(domain_product_count=0, config=config)
 
-    plan = ExperimentSystem(instrument_catalog=_catalog(linked, provider)).compile(
-        linked
-    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound, provider)).compile(bound)
 
     assert plan.resource_requirements == (ResourceRequirement("source-0"),)
     assert plan.host is not None
@@ -843,14 +856,14 @@ def test_run_requirements_and_host_order_include_only_used_local_instruments() -
 def test_domain_target_instrument_does_not_require_a_local_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    linked = _linked_program(config=_config_with_domain_resources("source-0"))
+    bound = _bound_program(config=_config_with_domain_resources("source-0"))
     compiler = _DomainCompiler("tests.domain-target-instrument")
     calls = _track_bound_resource_ports(monkeypatch)
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked),
+        instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
 
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert calls == []
@@ -866,19 +879,41 @@ def test_domain_target_instrument_does_not_require_a_local_manifest(
     }
 
 
+def test_domain_target_footprint_contains_every_instrument_member() -> None:
+    bound = _bound_program(
+        config=_config_with_domain_resources("source-0", "target-member-1")
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=_DomainCompiler("tests.complete-target-footprint"),
+    ).compile(bound)
+
+    assert plan.domain_target_requirement == DomainTargetRequirement(
+        id="tests.domain.target",
+        kind="tests.domain",
+        instrument_ids=("source-0", "target-member-1"),
+    )
+    assert set(plan.resource_requirements) == {
+        ResourceRequirement("source-0"),
+        ResourceRequirement("target-member-1"),
+        ResourceRequirement("tests.domain.target", "target"),
+    }
+
+
 def test_mixed_target_builds_manifests_only_for_local_resources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    linked = _linked_program(
+    bound = _bound_program(
         state_mode="constant",
     )
     compiler = _DomainCompiler("tests.mixed-resource-target")
     calls = _track_bound_resource_ports(monkeypatch)
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked, TestSignalInstrumentProvider()),
+        instrument_catalog=_catalog(bound, TestSignalInstrumentProvider()),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
 
     assert calls == [logical_resource_port_id("source")]
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
@@ -893,15 +928,13 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     bindings = RelationTypeBindings(
         point_row=RowType.from_table(point_type),
     )
-    domain_input = ValueInput(
-        value=scalar_value_expr(
-            parameter_lookup(
-                READOUT_FREQUENCY_LOOKUP,
-                key={"device_id": "r0"},
-            ),
-            bindings=bindings,
-            expected_type=frequency_type,
-        )
+    domain_input = scalar_value_expr(
+        parameter_lookup(
+            READOUT_FREQUENCY_LOOKUP,
+            key={"device_id": "r0"},
+        ),
+        bindings=bindings,
+        expected_type=frequency_type,
     )
     overlay = overlay_parameter_cell(
         "readout_devices",
@@ -910,7 +943,7 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
         column_id="frequency",
         axis_id="frequency",
     )
-    linked = _linked_program(
+    bound = _bound_program(
         domain_input=domain_input,
         parameter_overlays=(overlay,),
         parameter_data=parameter_fixture_data(),
@@ -918,9 +951,9 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     compiler = _DomainCompiler("tests.parameter-binding")
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked),
+        instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
 
     assert plan.host is None
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
@@ -938,15 +971,15 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
 
 
 def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
-    linked = _linked_program(state_mode="varying")
+    bound = _bound_program(state_mode="varying")
     compiler = _DomainCompiler("tests.effect-regions")
     provider = _TrackingProvider()
     system = ExperimentSystem(
-        instrument_catalog=_catalog(linked, provider),
+        instrument_catalog=_catalog(bound, provider),
         domain_compiler=compiler,
     )
 
-    plan = system.compile(linked)
+    plan = system.compile(bound)
 
     assert tuple(point.ordinal for point in plan.points.points) == (0, 1)
     assert [
@@ -971,15 +1004,15 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
 
 
 def test_domain_and_local_state_retain_declared_effect_order() -> None:
-    linked = _linked_program(
+    bound = _bound_program(
         state_mode="constant",
         domain_before_state=True,
     )
     provider = _TrackingProvider()
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked, provider),
+        instrument_catalog=_catalog(bound, provider),
         domain_compiler=_DomainCompiler("tests.declared-effect-order"),
-    ).compile(linked)
+    ).compile(bound)
 
     consequential = tuple(
         operation
@@ -994,7 +1027,7 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
 
 def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
     config = _config_with_domain_resources("source-0")
-    linked = _linked_program(
+    bound = _bound_program(
         product_count=2,
         domain_product_count=1,
         config=config,
@@ -1004,9 +1037,9 @@ def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
     with pytest.raises(CheckFailed) as captured:
         provider = _TrackingProvider()
         ExperimentSystem(
-            instrument_catalog=_catalog(linked, provider),
+            instrument_catalog=_catalog(bound, provider),
             domain_compiler=compiler,
-        ).compile(linked)
+        ).compile(bound)
 
     assert _problem_codes(captured.value) == {"domain_target_local_instrument_overlap"}
     assert captured.value.problems[0].details == {"instrument_ids": ("source-0",)}
@@ -1014,16 +1047,16 @@ def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
 
 
 def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
-    linked = _linked_program(
+    bound = _bound_program(
         product_count=2,
         domain_product_count=1,
         record_instrument_products=False,
     )
     compiler = _DomainCompiler("tests.unused-acquisition")
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked),
+        instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
 
     [domain] = (
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
@@ -1035,20 +1068,20 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
 
 
 def test_domain_compiler_batches_complete_point_domain() -> None:
-    linked = _linked_program(state_mode="constant")
+    bound = _bound_program(state_mode="constant")
     compiler = _DomainCompiler("tests.constant-peripheral")
     provider = _TrackingProvider()
     system = ExperimentSystem(
-        instrument_catalog=_catalog(linked, provider),
+        instrument_catalog=_catalog(bound, provider),
         domain_compiler=compiler,
     )
 
-    plan = system.compile(linked)
+    plan = system.compile(bound)
     local_effects = plan.host
     assert local_effects is not None
     point_catalog = plan.points
-    assert point_catalog.experiment_id == linked.program.id
-    assert point_catalog.experiment_kind == linked.program.kind
+    assert point_catalog.experiment_id == bound.program.experiment_id
+    assert point_catalog.experiment_kind == bound.program.kind
     assert point_catalog.coordinate_ids == ("frequency",)
     assert tuple(point.ordinal for point in point_catalog.points) == (0, 1)
     assert [point.coordinates for point in point_catalog.points] == [
@@ -1069,7 +1102,7 @@ def test_domain_compiler_batches_complete_point_domain() -> None:
 
 
 def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() -> None:
-    linked = _linked_program(
+    bound = _bound_program(
         product_count=2,
         domain_product_count=2,
         domain_call_count=2,
@@ -1077,9 +1110,9 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
     compiler = _DomainCompiler("tests.multi-call")
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked),
+        instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
 
     jobs = tuple(
         operation for operation in plan.coverage if isinstance(operation, RunDomainJob)
@@ -1105,7 +1138,7 @@ def test_system_rejects_a_compiler_for_a_different_target() -> None:
             "system": config.system.model_copy(update={"domain_target": mismatched})
         }
     )
-    linked = _linked_program(
+    bound = _bound_program(
         product_count=2,
         domain_product_count=2,
         domain_call_count=2,
@@ -1114,9 +1147,9 @@ def test_system_rejects_a_compiler_for_a_different_target() -> None:
 
     with pytest.raises(CheckFailed) as captured:
         ExperimentSystem(
-            instrument_catalog=_catalog(linked),
+            instrument_catalog=_catalog(bound),
             domain_compiler=compiler,
-        ).compile(linked)
+        ).compile(bound)
 
     assert _problem_codes(captured.value) == {"domain_target_mismatch"}
 
@@ -1134,7 +1167,7 @@ def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
             "system": config.system.model_copy(update={"domain_target": mismatched})
         }
     )
-    linked = _linked_program(
+    bound = _bound_program(
         product_count=2,
         domain_product_count=2,
         domain_call_count=2,
@@ -1143,9 +1176,9 @@ def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
 
     with pytest.raises(CheckFailed) as captured:
         ExperimentSystem(
-            instrument_catalog=_catalog(linked),
+            instrument_catalog=_catalog(bound),
             domain_compiler=compiler,
-        ).compile(linked)
+        ).compile(bound)
 
     assert _problem_codes(captured.value) == {"domain_target_kind_mismatch"}
 
@@ -1153,30 +1186,30 @@ def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
 def test_point_inventory_and_domain_compilation_close_before_program_returns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    linked = _linked_program(domain_input=_point_frequency_domain_input())
+    bound = _bound_program(domain_input=_point_frequency_domain_input())
     events: list[str] = []
     compiler = _DomainCompiler("tests.symbolic-first", events=events)
     original_materialize = cast(
-        "Callable[[LinkedPlan], MaterializedLinkedPoints]",
-        planning_system.__dict__["materialize_linked_points"],
+        "Callable[[BoundPlan], MaterializedBoundPoints]",
+        planning_system.__dict__["materialize_bound_points"],
     )
 
     def track_materialization(
-        selected: LinkedPlan,
-    ) -> MaterializedLinkedPoints:
+        selected: BoundPlan,
+    ) -> MaterializedBoundPoints:
         events.append("materialize")
         return original_materialize(selected)
 
     monkeypatch.setattr(
         planning_system,
-        "materialize_linked_points",
+        "materialize_bound_points",
         track_materialization,
     )
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked),
+        instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
 
     assert events == ["materialize", "compile"]
     assert isinstance(plan.coverage, tuple)
@@ -1193,25 +1226,25 @@ def test_complete_point_materialization_does_not_evaluate_domain_inputs(
         raise AssertionError("point materialization must not evaluate domain inputs")
 
     monkeypatch.setattr(
-        linking,
+        point_materialization,
         "_materialize_domain_execution_input",
         reject_domain_inputs,
     )
-    linked_points = materialize_linked_points(
-        _linked_program(domain_input=_point_frequency_domain_input())
+    bound_points = materialize_bound_points(
+        _bound_program(domain_input=_point_frequency_domain_input())
     )
 
-    assert len(linked_points.point_domain.points) == 2
+    assert len(bound_points.point_domain.points) == 2
 
 
 def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None:
-    linked = _linked_program(state_mode="constant")
+    bound = _bound_program(state_mode="constant")
     compiler = _DomainCompiler("tests.preview-domain")
     provider = _TrackingProvider()
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked, provider),
+        instrument_catalog=_catalog(bound, provider),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
 
     assert [record.id for record in plan.measurements.records] == ["record-0"]
     local_effects = plan.host
@@ -1226,16 +1259,16 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
 
 
 def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
-    linked = _linked_program(point_count=0)
+    bound = _bound_program(point_count=0)
     compiler = _DomainCompiler("tests.zero-point")
 
     plan = ExperimentSystem(
-        instrument_catalog=_catalog(linked),
+        instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
-    ).compile(linked)
+    ).compile(bound)
     assert tuple(plan.coverage) == ()
     assert plan.measurements.catalog.product_use_ids == tuple(
-        use.id for use in linked.program.product_uses
+        use.id for use in bound.bindings.product_uses
     )
     assert compiler.compile_calls == 0
     assert plan.points.points == ()

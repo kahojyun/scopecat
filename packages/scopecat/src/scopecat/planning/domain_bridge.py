@@ -1,26 +1,24 @@
-"""Core-only projection bridge between compiler plans and the domain SDK."""
+"""Project bound plans into the public domain compiler SDK."""
 
 from __future__ import annotations
 
 from typing import cast
 
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
-    MaterializedLinkedPoints,
-)
-from scopecat.compiler.measurement_projection import (
-    project_measurement_catalog,
-)
+from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.typed.domain_results import (
     DomainResultClosure,
 )
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
-    core_domain_executions,
+    bound_domain_executions,
 )
 from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.measurements.products import ProductDef
+from scopecat.planning.measurement_projection import (
+    project_measurement_catalog,
+)
+from scopecat.planning.point_materialization import MaterializedBoundPoints
 from scopecat.sdk.domain._identities import product_use_id
 from scopecat.sdk.domain.batch import (
     DomainBatchInputs,
@@ -40,7 +38,7 @@ from scopecat.sdk.domain.view import (
 
 
 def make_domain_call_view(
-    linked: LinkedPlan,
+    bound: BoundPlan,
     execution_id: str,
     result_closure: DomainResultClosure,
 ) -> DomainCallView:
@@ -48,14 +46,14 @@ def make_domain_call_view(
 
     typed_execution = next(
         item
-        for item in core_domain_executions(linked.program)
+        for item in bound_domain_executions(bound.bindings)
         if item.id == execution_id
     )
     (
         product_contracts,
         product_use_refs,
         product_use_refs_by_id,
-    ) = _project_domain_assets(linked)
+    ) = _project_domain_assets(bound)
     owned_use_ids = set(result_closure.product_use_ids)
     return DomainCallView(
         id=typed_execution.id,
@@ -75,7 +73,7 @@ def make_domain_call_view(
 
 def make_domain_batch_request(
     call: DomainCallView,
-    linked_points: MaterializedLinkedPoints,
+    bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
     *,
     batch_ordinal: int,
@@ -85,13 +83,13 @@ def make_domain_batch_request(
     program_input_ids = tuple(port.id for port in call.program.inputs)
     compiler_input_ids = tuple(port.id for port in call.program.compiler_inputs)
     inputs = DomainBatchInputs(
-        program=linked_points.bind_domain_inputs(
+        program=bound_points.bind_domain_inputs(
             call.id,
             "program",
             program_input_ids,
             point_ordinals,
         ),
-        compiler=linked_points.bind_domain_inputs(
+        compiler=bound_points.bind_domain_inputs(
             call.id,
             "compiler",
             compiler_input_ids,
@@ -99,7 +97,7 @@ def make_domain_batch_request(
         ),
     )
     points_by_ordinal = {
-        point.logical_ordinal: point for point in linked_points.point_domain.points
+        point.logical_ordinal: point for point in bound_points.point_domain.points
     }
     selected_points = tuple(points_by_ordinal[ordinal] for ordinal in point_ordinals)
     point_refs = tuple(
@@ -116,7 +114,7 @@ def make_domain_batch_request(
         inputs=inputs,
         points=point_refs,
         measurement_catalog=project_measurement_catalog(
-            linked_points,
+            bound_points,
             point_ordinals,
         ),
     )
@@ -187,7 +185,7 @@ def _domain_result_views(
 
 
 def _project_domain_assets(
-    linked: LinkedPlan,
+    bound: BoundPlan,
 ) -> tuple[
     dict[ProductId, DomainProductContractView],
     tuple[DomainProductUseRef, ...],
@@ -195,7 +193,7 @@ def _project_domain_assets(
 ]:
     product_contracts = {
         product.id: _product_contract_view(product)
-        for product in linked.program.product_defs
+        for product in bound.bindings.product_defs
     }
     product_use_refs = tuple(
         DomainProductUseRef(
@@ -203,7 +201,7 @@ def _project_domain_assets(
             product=product_contracts[use.product_id],
             native=use.id,
         )
-        for use in linked.program.product_uses
+        for use in bound.bindings.product_uses
     )
     product_use_refs_by_id = {
         cast("ProductUseId", ref.native): ref for ref in product_use_refs

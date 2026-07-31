@@ -5,7 +5,7 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.elaboration import compose_module
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.kernel.value_types import Float, Scalar, String
 from scopecat.program.identities import InvocationKey
@@ -107,4 +107,4 @@ def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
         del module
 
     with pytest.raises(ValueError, match="unresolved module export 'value'"):
-        elaborate_module(root.ir, hidden=producer.outputs.value)
+        compose_module(root.ir, hidden=producer.outputs.value)

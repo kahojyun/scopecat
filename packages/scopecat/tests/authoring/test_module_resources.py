@@ -3,27 +3,27 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.semantic.model import AcquireEffect
+from scopecat.compiler.frontend.elaboration import compose_module
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
-    core_state,
+    bound_state,
 )
 from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.program.bindings import (
-    BindingIntent,
-    EnsureStateIntent,
-    InvocationIntent,
-)
 from scopecat.program.domain import domain_program
+from scopecat.program.logical import (
+    AcquireEffect,
+    LogicalEnsureState,
+    LogicalInvocation,
+    LogicalStateAssignment,
+)
 from scopecat.sdk.instruments import InterfaceRef
-from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
 from tests.testkit.materialized_effects import config_with_physical_resources
 
@@ -81,16 +81,6 @@ def _resource_module() -> sc.ExperimentModule[...]:
     return module
 
 
-def test_graph_proof_indexes_verified_product_declarations() -> None:
-    assembly = elaborate_module(_resource_module().ir)
-
-    verified = verify_assembly_graph(assembly)
-
-    assert tuple(verified.product_declarations) == tuple(
-        product.product_id for product in assembly.product_declarations
-    )
-
-
 def test_explicit_instances_own_independent_resource_ports() -> None:
     child = _resource_module()
     left = child.instantiate("left.arm")
@@ -101,8 +91,8 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
         context.call(left)
         context.call(right)
 
-    assembly = elaborate_module(root.ir)
-    verify_assembly_graph(assembly)
+    assembly = compose_module(root.ir)
+    verify_logical_program(assembly)
 
     assert tuple(port.symbol_id for port in assembly.resource_ports) == (
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
@@ -126,13 +116,13 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=load_config(),
     )
     assert [
         state.interface_id
-        for state in core_state(resolved.program)
+        for state in bound_state(resolved.bindings)
         if isinstance(state, SetStateSpec)
     ] == [
         "test.set_frequency/v1",
@@ -140,7 +130,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     ]
     assert [
         state.property_id
-        for state in core_state(resolved.program)
+        for state in bound_state(resolved.bindings)
         if isinstance(state, SetStateSpec)
     ] == [
         "value.path",
@@ -159,7 +149,7 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
         context.resource("shared", requires=(_SET_FREQUENCY,))
         context.call(child)
 
-    assembly = elaborate_module(root.ir)
+    assembly = compose_module(root.ir)
 
     assert tuple(port.qualified_id for port in assembly.resource_ports) == ("shared",)
     assert tuple(binding.port_id.qualified_name for binding in assembly.bindings) == (
@@ -183,8 +173,8 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     def root(context: sc.ModuleContext) -> None:
         context.call(outer)
 
-    assembly = elaborate_module(root.ir)
-    verify_assembly_graph(assembly)
+    assembly = compose_module(root.ir)
+    verify_logical_program(assembly)
 
     expected_port_id = logical_resource_port_id(
         SymbolId(
@@ -250,17 +240,17 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             results={_SET_FREQUENCY_SAMPLE_SIGNAL: root_signal},
         )
 
-    assembly = elaborate_module(module.ir)
+    assembly = compose_module(module.ir)
 
     assert [
         ("binding", effect.port_id.qualified_name)
-        if isinstance(effect, BindingIntent)
+        if isinstance(effect, LogicalStateAssignment)
         else ("acquire", effect.id.qualified_name)
         if isinstance(effect, AcquireEffect)
         else ("ensure", str(len(effect.assignments)))
-        if isinstance(effect, EnsureStateIntent)
+        if isinstance(effect, LogicalEnsureState)
         else ("invoke", effect.id)
-        if isinstance(effect, InvocationIntent)
+        if isinstance(effect, LogicalInvocation)
         else ("domain", effect.id)
         for effect in assembly.effects
     ] == [
@@ -277,7 +267,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     def template(experiment: sc.ExperimentContext) -> None:
         experiment.run(module.instantiate("root"))
 
-    linked = link_invocation(template(), config_profile=load_config())
+    bound = bind_invocation(template(), config_profile=load_config())
     assert [
         "binding"
         if isinstance(effect, SetStateSpec)
@@ -288,7 +278,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         else f"invoke:{effect.id.qualified_name}"
         if isinstance(effect, InvokeEffect)
         else f"domain:{effect.id}"
-        for effect in linked.program.effects
+        for effect in bound.bindings.effects
     ] == [
         "binding",
         "binding",
@@ -299,12 +289,12 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         "acquire:root/root-read",
     ]
     assert (
-        sum(isinstance(effect, SetStateSpec) for effect in linked.program.effects) == 3
+        sum(isinstance(effect, SetStateSpec) for effect in bound.bindings.effects) == 3
     )
     assert (
         sum(
             isinstance(effect, TypedDomainExecution)
-            for effect in linked.program.effects
+            for effect in bound.bindings.effects
         )
         == 2
     )
@@ -326,8 +316,8 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
         context.call(direct)
         context.call(nested)
 
-    assembly = elaborate_module(root.ir)
-    verify_assembly_graph(assembly)
+    assembly = compose_module(root.ir)
+    verify_logical_program(assembly)
 
     direct_id = logical_resource_port_id(
         SymbolId(scope=("outer/inner",), local_id="drive.v1")
@@ -346,7 +336,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     }
 
 
-def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
+def test_acquire_resource_interfaces_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-record-interface")
     def module(context: sc.ModuleContext) -> None:
         readout = context.resource("readout", requires=(_MEASURE_IQ,))
@@ -364,7 +354,7 @@ def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module.ir))
+        verify_logical_program(compose_module(module.ir))
 
     assert [problem.code for problem in error.value.problems] == [
         "module_resource_port_interface_missing",
@@ -376,7 +366,7 @@ def test_acquire_resource_interfaces_are_checked_before_linking() -> None:
     ]
 
 
-def test_state_resource_interfaces_are_checked_before_linking() -> None:
+def test_state_resource_interfaces_are_checked_before_binding() -> None:
     @sc.module(id="test.resources.missing-state-interface")
     def module(context: sc.ModuleContext) -> None:
         drive = context.resource("drive", requires=(_SET_FREQUENCY,))
@@ -387,7 +377,7 @@ def test_state_resource_interfaces_are_checked_before_linking() -> None:
         )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module.ir))
+        verify_logical_program(compose_module(module.ir))
 
     assert [problem.code for problem in error.value.problems] == [
         "module_resource_port_interface_missing",
@@ -416,14 +406,14 @@ def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
     def template_definition(experiment: sc.ExperimentContext) -> None:
         experiment.run(call)
 
-    resolved = link_invocation(
+    resolved = bind_invocation(
         template_definition(),
         config_profile=config_with_physical_resources(
             {"source-0": ("test.set_offset/v1",)}
         ),
     )
 
-    state = core_state(resolved.program)[0]
+    state = bound_state(resolved.bindings)[0]
     assert isinstance(state, SetStateSpec)
     assert state.interface_id == "test.set_offset/v1"
     assert state.property_id == "value.path"
