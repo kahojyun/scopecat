@@ -332,7 +332,6 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         evaluate_scalar(
             passthrough.source.expression,
             EvalContext(),
-            bindings=passthrough.source.verified_plan.bindings,
         )
         == 1.25
     )
@@ -343,7 +342,6 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         evaluate_scalar(
             shifted.source.expression,
             EvalContext(),
-            bindings=shifted.source.verified_plan.bindings,
         )
         == 1.75
     )
@@ -430,7 +428,6 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
         evaluate_scalar(
             shifted_definition.source.expression,
             EvalContext(),
-            bindings=shifted_definition.source.verified_plan.bindings,
         )
         == 2.0
     )

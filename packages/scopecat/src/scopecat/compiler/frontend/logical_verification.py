@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
+from typing import cast
 
 from scopecat.compiler.frontend.assembly_lowering import (
     coerce_assembly_inputs,
@@ -17,7 +18,14 @@ from scopecat.compiler.frontend.assembly_lowering import (
 )
 from scopecat.compiler.frontend.elaboration import LogicalProgram
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
+from scopecat.compiler.relations.verification import (
+    RelationPlanVerificationError,
+    RelationTypeBindings,
+    RowType,
+    verify_relation_plan,
+)
 from scopecat.compiler.semantic.model import (
+    PlanExpressionSource,
     SemanticOperation,
     ValueDef,
 )
@@ -41,8 +49,9 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Entity, Payload, Scalar, ValueType
+from scopecat.kernel.value_types import Entity, Payload, Scalar, TableColumn, ValueType
 from scopecat.program.bindings import ResourcePort
+from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.products import (
     ModuleProductDecl,
     ProductAxis,
@@ -126,6 +135,7 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
     inputs = coerce_assembly_inputs(program.input_ports, program.inputs)
     normalized = replace(program, inputs=inputs)
     problems: list[Problem] = []
+    _verify_plan_expression_sources(normalized, problems)
     resource_ports = _resource_ports(normalized.resource_ports, problems)
     product_declarations = _verify_product_schema(normalized, problems)
     try:
@@ -155,6 +165,61 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
         program=canonical,
         product_declarations=MappingProxyType(product_declarations),
     )
+
+
+def _verify_plan_expression_sources(
+    program: LogicalProgram,
+    problems: list[Problem],
+) -> None:
+    point_columns = tuple(
+        TableColumn(dependency.id, dependency.value_type)
+        for dependency in program.point_dependencies
+    )
+    bindings = RelationTypeBindings(
+        inputs={
+            port.id: port.value_type
+            for port in program.input_ports
+            if isinstance(port.value_type, Scalar)
+        },
+        parameters={
+            contract.parameter_id: contract.value_type
+            for contract in program.parameter_contracts
+            if isinstance(contract, ParameterValueContract)
+            and isinstance(contract.value_type, Scalar)
+        },
+        point_row=RowType(point_columns) if point_columns else None,
+    )
+    for definition in sorted(
+        program.semantic_graph.value_defs,
+        key=lambda item: item.id.qualified_name,
+    ):
+        source = definition.source
+        if not isinstance(source, PlanExpressionSource):
+            continue
+        try:
+            verify_relation_plan(
+                source.expression,
+                bindings=bindings,
+                expected_type=cast("Scalar", definition.value_type),
+            )
+        except RelationPlanVerificationError as error:
+            problems.append(
+                problem(
+                    code=f"relation_plan_{error.code}",
+                    phase=ProblemPhase.AUTHORING,
+                    message=error.reason,
+                    location=model_location(
+                        "semantic_graph",
+                        "values",
+                        definition.id.qualified_name,
+                        *error.path,
+                    ),
+                    details={
+                        "relation_code": error.code,
+                        "plan_path": list(error.path),
+                    },
+                )
+            )
 
 
 def _resource_ports(

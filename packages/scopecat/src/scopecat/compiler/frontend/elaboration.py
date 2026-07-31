@@ -357,9 +357,6 @@ def _elaborate_hierarchy(
         measurement_postprocessors=fragment.measurement_postprocessors,
         effects=fragment.effects,
         value_roots=value_roots.semantic,
-        input_types={port.id: port.value_type for port in fragment.input_ports},
-        point_dependencies=fragment.point_dependencies,
-        parameter_contracts=fragment.parameter_contracts,
     )
     return LogicalProgram(
         experiment_id=experiment_id,

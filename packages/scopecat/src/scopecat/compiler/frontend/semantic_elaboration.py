@@ -5,15 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import cast
 
 from scopecat.compiler.frontend.value_binding import input_cell
-from scopecat.compiler.relations.verification import (
-    RelationPlanVerificationError,
-    RelationTypeBindings,
-    RowType,
-    verify_relation_plan,
-)
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     ImplementationId,
@@ -38,15 +31,8 @@ from scopecat.graph.values import (
     ValueId,
     operation_result_id,
 )
-from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import (
-    ProblemPhase,
-    model_location,
-    problem,
-)
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
-from scopecat.kernel.value_types import Scalar, TableColumn, ValueType
 from scopecat.program.bindings import (
     EnsureStateIntent,
     ExperimentBindingIntent,
@@ -59,12 +45,7 @@ from scopecat.program.operations import (
     ComputeNodeInputValue,
     ModuleOperationDecl,
 )
-from scopecat.program.parameters import (
-    ParameterContract,
-    ParameterValueContract,
-)
 from scopecat.program.value_refs import (
-    PointValueDependency,
     ValueRef,
     internal_lower_value_ref,
     internal_value_ref_operation_id,
@@ -108,18 +89,10 @@ def elaborate_semantic_graph(
         | AcquireEffect
     ] = (),
     value_roots: Sequence[object] = (),
-    input_types: Mapping[str, ValueType] | None = None,
-    point_dependencies: Sequence[PointValueDependency] = (),
-    parameter_contracts: Sequence[ParameterContract] = (),
 ) -> SemanticElaboration:
     """Assemble one semantic graph and its sidecars from flattened module data."""
 
-    builder = _SemanticGraphBuilder(
-        implementations,
-        input_types=input_types or {},
-        point_dependencies=point_dependencies,
-        parameter_contracts=parameter_contracts,
-    )
+    builder = _SemanticGraphBuilder(implementations)
     for postprocessor in measurement_postprocessors:
         builder.add_measurement_postprocessor(postprocessor)
     for operation in operations:
@@ -160,10 +133,6 @@ class _SemanticGraphBuilder:
     def __init__(
         self,
         implementations: Sequence[ScopedPythonImplementation],
-        *,
-        input_types: Mapping[str, ValueType],
-        point_dependencies: Sequence[PointValueDependency],
-        parameter_contracts: Sequence[ParameterContract],
     ) -> None:
         self._module_implementations = {
             implementation.operation_id: implementation
@@ -173,22 +142,6 @@ class _SemanticGraphBuilder:
         self._operations: dict[OperationId, SemanticOperation] = {}
         self._measurement_postprocessors: list[SemanticMeasurementPostprocessor] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
-        self._input_types = {
-            input_id: value_type
-            for input_id, value_type in input_types.items()
-            if isinstance(value_type, Scalar)
-        }
-        self._parameter_types = {
-            contract.parameter_id: contract.value_type
-            for contract in parameter_contracts
-            if isinstance(contract, ParameterValueContract)
-            and isinstance(contract.value_type, Scalar)
-        }
-        point_columns = tuple(
-            TableColumn(dependency.id, dependency.value_type)
-            for dependency in point_dependencies
-        )
-        self._point_row = RowType(point_columns) if point_columns else None
 
     def add_authored_operation(self, declaration: ModuleOperationDecl) -> None:
         operation_id = semantic_operation_id(declaration.operation_id)
@@ -342,10 +295,7 @@ class _SemanticGraphBuilder:
             raise TypeError(msg)
         source: ValueSource
         if isinstance(lowered, ScalarExpr):
-            source = self._plan_source(
-                lowered,
-                expected_type=cast("Scalar", value.value_type),
-            )
+            source = PlanExpressionSource(lowered)
         else:
             source = lowered
         self._add_definition(
@@ -377,44 +327,6 @@ class _SemanticGraphBuilder:
             msg = f"semantic value {definition.id.qualified_name!r} is redefined"
             raise ValueError(msg)
         self._definitions[definition.id] = definition
-
-    def _plan_source(
-        self,
-        expression: ScalarExpr,
-        *,
-        expected_type: Scalar,
-    ) -> PlanExpressionSource:
-        bindings = RelationTypeBindings(
-            inputs=self._input_types,
-            parameters=self._parameter_types,
-            point_row=self._point_row,
-        )
-        try:
-            verified = verify_relation_plan(
-                expression,
-                bindings=bindings,
-                expected_type=expected_type,
-            )
-        except RelationPlanVerificationError as error:
-            raise CheckFailed(
-                [
-                    problem(
-                        code=f"relation_plan_{error.code}",
-                        phase=ProblemPhase.AUTHORING,
-                        message=error.reason,
-                        location=model_location(
-                            "semantic_graph",
-                            "values",
-                            *error.path,
-                        ),
-                        details={
-                            "relation_code": error.code,
-                            "plan_path": list(error.path),
-                        },
-                    )
-                ]
-            ) from error
-        return PlanExpressionSource(verified)
 
     def _add_operation(self, operation: SemanticOperation) -> None:
         existing = self._operations.get(operation.id)

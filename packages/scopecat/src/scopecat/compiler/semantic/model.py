@@ -11,13 +11,8 @@ from dataclasses import dataclass, field
 from typing import cast, override
 
 import scopecat.graph.values as graph_values
-from scopecat.compiler.relations.verification import (
-    PlanImportNamespace,
-    PointRequirement,
-    TypedPlanImport,
-    VerifiedRelationPlan,
-)
 from scopecat.domain.program import DomainProgramDef
+from scopecat.graph.relations.analysis import plan_input_refs
 from scopecat.graph.relations.model import (
     ScalarExpr,
 )
@@ -35,13 +30,6 @@ from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
-
-type _PlanExpressionSemanticKey = tuple[
-    ScalarExpr,
-    Scalar,
-    tuple[TypedPlanImport, ...],
-    PointRequirement | None,
-]
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:
@@ -86,49 +74,26 @@ class MeasurementPostprocessorId:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class PlanExpressionSource:
-    _verified_plan: VerifiedRelationPlan = field(repr=False)
+    """A symbolic expression whose proof belongs to the whole logical program."""
 
-    @property
-    def expression(self) -> ScalarExpr:
-        return self._verified_plan.root
+    expression: ScalarExpr = field(repr=False)
 
     @property
     def source_inputs(self) -> tuple[str, ...]:
         """Return input dependencies derived from the retained expression."""
 
-        return self._verified_plan.import_ids(PlanImportNamespace.INPUT)
-
-    @property
-    def certified_type(self) -> Scalar:
-        return self._verified_plan.certified_type
-
-    @property
-    def imports(self) -> tuple[TypedPlanImport, ...]:
-        return self._verified_plan.imports
-
-    @property
-    def verified_plan(self) -> VerifiedRelationPlan:
-        return self._verified_plan
-
-    def _semantic_key(self) -> _PlanExpressionSemanticKey:
-        plan = self._verified_plan
-        return (
-            plan.root,
-            plan.certified_type,
-            plan.imports,
-            plan.external_point_requirement,
-        )
+        return plan_input_refs(self.expression)
 
     @override
     def __eq__(self, other: object) -> bool:
         return isinstance(other, PlanExpressionSource) and (
-            self._semantic_key() == other._semantic_key()
+            self.expression == other.expression
         )
 
     @override
     def __hash__(self) -> int:
         # Scalar literals may contain unhashable record cells.
-        return hash(self.certified_type)
+        return hash((PlanExpressionSource, type(self.expression)))
 
 
 @dataclass(frozen=True, slots=True, init=False)

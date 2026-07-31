@@ -13,8 +13,10 @@ from scopecat.compiler.frontend.logical_verification import verify_logical_progr
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
+    PlanExpressionSource,
     SemanticDomainExecution,
     SemanticGraphIR,
+    ValueDef,
 )
 from scopecat.compiler.semantic.verification import verify_semantic_graph
 from scopecat.compiler.typed.program import CoreProgram
@@ -23,11 +25,14 @@ from scopecat.compiler.typed.verification import (
     seal_typed_program,
 )
 from scopecat.config.environment import build_config_environment
+from scopecat.graph.relations.model import input_ref
 from scopecat.graph.relations.point_domain import point_axis_values
+from scopecat.graph.values import ValueId
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.program.bindings import requires, resource_port
 from scopecat.program.domain import domain_program
@@ -457,6 +462,34 @@ def test_resource_selector_requires_a_scalar_entity_value() -> None:
     assert problem.phase is ProblemPhase.AUTHORING
     assert problem.location == model_location(
         "resources", "drive", "selector", "entity_inputs", 0
+    )
+
+
+def test_logical_verifier_owns_expression_proofs() -> None:
+    value_id = ValueId(SymbolId(local_id="missing-input"))
+    program = LogicalProgram(
+        experiment_id="test.graph.expression-proof",
+        kind="graph",
+        semantic_graph=SemanticGraphIR(
+            value_defs=(
+                ValueDef(
+                    id=value_id,
+                    value_type=Scalar(Float()),
+                    source=PlanExpressionSource(input_ref("missing")),
+                ),
+            )
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        verify_logical_program(program)
+
+    [problem] = error.value.problems
+    assert problem.code == "relation_plan_unknown_input"
+    assert problem.location == model_location(
+        "semantic_graph",
+        "values",
+        value_id.qualified_name,
     )
 
 

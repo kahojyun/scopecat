@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    verify_relation_plan,
-)
 from scopecat.compiler.semantic.model import (
     LiteralValueSource,
     PlanExpressionSource,
@@ -14,7 +10,7 @@ from scopecat.compiler.semantic.model import (
     ValueUse,
 )
 from scopecat.compiler.semantic.verification import verify_semantic_graph
-from scopecat.graph.relations.model import input_ref
+from scopecat.graph.relations.model import as_scalar_expr, input_ref
 from scopecat.graph.values import OperationId, ValueId, operation_result_id
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
@@ -103,16 +99,15 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
 
 
 def test_plan_expression_source_derives_input_dependencies() -> None:
-    source = PlanExpressionSource(
-        verify_relation_plan(
-            input_ref("gain"),
-            expected_type=FLOAT,
-            bindings=RelationTypeBindings(inputs={"gain": FLOAT}),
-        )
-    )
+    source = PlanExpressionSource(input_ref("gain"))
 
     assert source.source_inputs == ("gain",)
-    assert source.imports == source.verified_plan.imports
+
+
+def test_plan_expression_source_hashes_unhashable_literals() -> None:
+    source = PlanExpressionSource(as_scalar_expr({"nested": [1]}))
+
+    hash(source)
 
 
 def test_literal_source_captures_mutable_values() -> None:
