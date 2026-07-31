@@ -36,7 +36,7 @@ def load_experiment() -> BoundProgramFacts:
     return bind_invocation(
         load_invocation(),
         config_profile=load_config(),
-    ).program
+    ).bindings
 
 
 def load_invocation() -> ExperimentInvocation:

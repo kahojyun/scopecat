@@ -157,8 +157,8 @@ def _compile_system_program(
             )
         )
     domain_result_closures = {
-        execution.id: domain_result_closure(bound.program, execution.id)
-        for execution in bound_domain_executions(bound.program)
+        execution.id: domain_result_closure(bound.bindings, execution.id)
+        for execution in bound_domain_executions(bound.bindings)
     }
     domain_calls = {
         execution_id: make_domain_call_view(
@@ -181,25 +181,25 @@ def _compile_system_program(
     )
     postprocessor_output_use_ids = frozenset(
         use_id
-        for postprocessor in bound.program.measurement_postprocessors
+        for postprocessor in bound.bindings.measurement_postprocessors
         for output in postprocessor.outputs
         for use_id in output.product_use_ids
     )
     local_product_use_ids = tuple(
         use.id
-        for use in bound.program.product_uses
+        for use in bound.bindings.product_uses
         if use.id not in domain_owned_product_use_ids
         and use.id not in postprocessor_output_use_ids
     )
     local_required = bool(
         local_product_use_ids
-        or bound.program.compute_nodes
-        or bound_state(bound.program)
-        or bound_invocations(bound.program)
+        or bound.bindings.compute_nodes
+        or bound_state(bound.bindings)
+        or bound_invocations(bound.bindings)
     )
     implementation_problems = list(
         _implementation_problems(
-            has_domain_call=bool(bound_domain_executions(bound.program)),
+            has_domain_call=bool(bound_domain_executions(bound.bindings)),
             has_domain_compiler=system.domain_compiler is not None,
             local_required=local_required,
             has_local_instrument_catalog=catalog.provider_id is not None,
@@ -219,7 +219,7 @@ def _compile_system_program(
     point_catalog = project_run_point_catalog_from_domain(bound, point_domain)
     measurements = select_measurement_projection(
         measurement_catalog,
-        bound.program.record_uses,
+        bound.bindings.record_uses,
     )
     local_target = (
         prepare_local_target(
@@ -300,7 +300,7 @@ def _compile_system_program(
         final_state=local_final_state,
         points=point_catalog,
         measurements=measurements,
-        measurement_postprocessors=bound.program.measurement_postprocessors,
+        measurement_postprocessors=bound.bindings.measurement_postprocessors,
         resource_requirements=resource_requirements,
         domain_target_requirement=domain_target_requirement,
     )
@@ -478,7 +478,7 @@ def _compile_coverage(
         return ()
     compiler = cast("DomainCompiler", system.domain_compiler)
     jobs_by_execution: dict[str, list[RunDomainJob]] = {}
-    for execution in bound.program.effects:
+    for execution in bound.bindings.effects:
         if not isinstance(execution, TypedDomainExecution):
             continue
         jobs_by_execution[execution.id] = list(
@@ -490,7 +490,7 @@ def _compile_coverage(
             )
         )
     return _coverage_operations(
-        effects=bound.program.effects,
+        effects=bound.bindings.effects,
         local_effects=local_effects,
         region=region,
         jobs_by_execution=jobs_by_execution,

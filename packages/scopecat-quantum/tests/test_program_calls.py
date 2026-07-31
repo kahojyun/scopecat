@@ -346,12 +346,12 @@ def test_program_results_share_one_explicit_shot_dimension() -> None:
     )
 
     dimensions = [
-        product.axes[0].dimension_id for product in bound.program.product_defs
+        product.axes[0].dimension_id for product in bound.bindings.product_defs
     ]
     assert len(set(dimensions)) == 1
     assert all(
         product.axes[0].dimension_label == "shot"
-        for product in bound.program.product_defs
+        for product in bound.bindings.product_defs
     )
 
 

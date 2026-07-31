@@ -59,7 +59,7 @@ def materialize_local_execution(
 
     bound_points = materialize_bound_points(bound)
     selected_product_use_ids = (
-        frozenset(use.id for use in bound.program.product_uses)
+        frozenset(use.id for use in bound.bindings.product_uses)
         if product_use_ids is None
         else frozenset(product_use_ids)
     )

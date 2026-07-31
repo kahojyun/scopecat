@@ -46,7 +46,7 @@ def make_domain_call_view(
 
     typed_execution = next(
         item
-        for item in bound_domain_executions(bound.program)
+        for item in bound_domain_executions(bound.bindings)
         if item.id == execution_id
     )
     (
@@ -193,7 +193,7 @@ def _project_domain_assets(
 ]:
     product_contracts = {
         product.id: _product_contract_view(product)
-        for product in bound.program.product_defs
+        for product in bound.bindings.product_defs
     }
     product_use_refs = tuple(
         DomainProductUseRef(
@@ -201,7 +201,7 @@ def _project_domain_assets(
             product=product_contracts[use.product_id],
             native=use.id,
         )
-        for use in bound.program.product_uses
+        for use in bound.bindings.product_uses
     )
     product_use_refs_by_id = {
         cast("ProductUseId", ref.native): ref for ref in product_use_refs

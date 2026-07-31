@@ -73,8 +73,8 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     bound = resolved
     bound_points = materialize_bound_points(bound)
 
-    execution_id = bound_domain_executions(bound.program)[0].id
-    closure = domain_result_closure(bound.program, execution_id)
+    execution_id = bound_domain_executions(bound.bindings)[0].id
+    closure = domain_result_closure(bound.bindings, execution_id)
     call_view = make_domain_call_view(
         bound,
         execution_id,
@@ -103,7 +103,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     assert result.product.axes[0].dimension_label == "shot"
     product_use = result.require_one_product_use()
     assert isinstance(product_use, DomainProductUseRef)
-    assert product_use.id == bound.program.product_uses[0].id.value
+    assert product_use.id == bound.bindings.product_uses[0].id.value
     assert product_use.product is result.product
     assert product_use is full.product_uses[0]
 

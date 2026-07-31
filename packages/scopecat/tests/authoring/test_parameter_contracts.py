@@ -373,7 +373,7 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
 
     resolved = bind_invocation(invocation, config_profile=config)
     materialized = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -384,7 +384,7 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
         sc.Quantity(5.0, "GHz"),
         sc.Quantity(5.1, "GHz"),
     ]
-    assert len(resolved.program.parameter_overlays) == 1
+    assert len(resolved.bindings.parameter_overlays) == 1
     stored = config.parameter_snapshot.get("device_parameters")
     assert isinstance(stored, TableParameterValue)
     assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")

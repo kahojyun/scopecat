@@ -115,8 +115,8 @@ def _preparation_context(
     )
     bound = resolved
     bound_points = materialize_bound_points(bound)
-    execution_id = bound_domain_executions(bound.program)[0].id
-    closure = domain_result_closure(bound.program, execution_id)
+    execution_id = bound_domain_executions(bound.bindings)[0].id
+    closure = domain_result_closure(bound.bindings, execution_id)
     call_view = make_domain_call_view(
         bound,
         execution_id,

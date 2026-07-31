@@ -110,7 +110,7 @@ from tests.testkit.signal_instruments import (
     TestSignalInstrument,
 )
 from tests.testkit.typed_program import (
-    bind_core_program,
+    bind_program_facts,
     compute_result,
     instrument_acquisition,
     instrument_invocation,
@@ -545,7 +545,7 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
     provider = _OrderedAbiProblemProvider()
     config = load_config()
     plan = materialize_local_execution(
-        bind_core_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
     plan = _first_point_plan(plan)
     planning_problems = (
@@ -582,7 +582,7 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
     provider = _PartialDescriptionProvider()
     config = load_config()
     plan = materialize_local_execution(
-        bind_core_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
 
     with pytest.raises(ProviderContractError) as captured:
@@ -603,7 +603,7 @@ def test_provider_description_exception_fails_at_preflight_boundary(
     provider = _FailingDescriptionProvider(failure)
     config = load_config()
     plan = materialize_local_execution(
-        bind_core_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
     with pytest.raises(ProviderContractError) as captured:
         _lower_test_host_binding(plan, config, provider)
@@ -624,7 +624,7 @@ def test_provider_acquisition_result_unit_mismatch_is_rejected_before_run(
     provider = _UnitAbiProvider(result_unit=advertised_unit)
     config = load_config()
     plan = materialize_local_execution(
-        bind_core_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
     plan = _first_point_plan(plan)
 
@@ -659,7 +659,7 @@ def test_provider_acquisition_axis_unit_mismatch_is_rejected_before_run(
     config = load_config()
     environment = build_config_environment(config)
     experiment = load_experiment()
-    plan = materialize_local_execution(bind_core_program(experiment, environment))
+    plan = materialize_local_execution(bind_program_facts(experiment, environment))
     plan = _first_point_plan(plan)
     collect = operations_of_type(plan, CollectOperation, point_index=0)[0]
     request = collect.command.requests[0].model_copy(
@@ -717,7 +717,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
     provider = _FailingDescriptionProvider(KeyboardInterrupt("description cancelled"))
     config = load_config()
     plan = materialize_local_execution(
-        bind_core_program(load_experiment(), build_config_environment(config))
+        bind_program_facts(load_experiment(), build_config_environment(config))
     )
 
     with pytest.raises(KeyboardInterrupt, match="description cancelled"):

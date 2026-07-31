@@ -108,7 +108,7 @@ def _batch_context(
     *,
     batch_ordinal: int = 0,
 ) -> DomainBatchRequest:
-    program = bound_points.bound_plan.program
+    program = bound_points.bound_plan.bindings
     execution = bound_domain_executions(program)[0]
     call = make_domain_call_view(
         bound_points.bound_plan,
@@ -131,7 +131,7 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
         namespace="hidden-input",
         record_raw=False,
     )
-    program = bound_points.bound_plan.program
+    program = bound_points.bound_plan.bindings
     call = bound_domain_executions(program)[0]
     [postprocessor] = program.measurement_postprocessors
     [direct_result] = call.results

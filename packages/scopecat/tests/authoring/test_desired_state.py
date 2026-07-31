@@ -99,7 +99,7 @@ def test_ensure_remains_one_coherent_effect_through_local_planning() -> None:
         ),
     )
 
-    [effect] = bound.program.effects
+    [effect] = bound.bindings.effects
     assert isinstance(effect, EnsureStateSpec)
     assert [assignment.property_id for assignment in effect.assignments] == [
         "level",
@@ -137,7 +137,7 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
         ),
     )
 
-    assert all(isinstance(effect, EnsureStateSpec) for effect in bound.program.effects)
+    assert all(isinstance(effect, EnsureStateSpec) for effect in bound.bindings.effects)
     plan = materialize_local_execution(bound)
     operations = tuple(
         effect.operation
@@ -171,8 +171,8 @@ def test_root_final_state_is_materialized_outside_point_effects() -> None:
         ),
     )
 
-    assert bound.program.effects == ()
-    final_state = bound.program.final_state
+    assert bound.bindings.effects == ()
+    final_state = bound.bindings.final_state
     assert isinstance(final_state, EnsureStateSpec)
     assert [assignment.property_id for assignment in final_state.assignments] == [
         "level",

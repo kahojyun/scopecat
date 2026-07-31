@@ -91,7 +91,8 @@ class BoundDomainTarget:
 class BoundPlan:
     """One verified logical program bound to its accepted configuration."""
 
-    program: BoundProgramFacts
+    program: VerifiedLogicalProgram
+    bindings: BoundProgramFacts
     point_domain: VerifiedPointDomain
     environment: ConfigEnvironment
     domain_target: BoundDomainTarget | None
@@ -120,6 +121,7 @@ def bind_program(
             },
         )
     return _bind_program_facts(
+        program,
         lowered,
         environment,
     )
@@ -274,13 +276,14 @@ def _relation_type_bindings(
 
 
 def _bind_program_facts(
-    program: BoundProgramFacts,
+    program: VerifiedLogicalProgram,
+    bindings: BoundProgramFacts,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
     """Specialize and verify facts introduced by configuration binding."""
 
     specialized = specialize_bound_facts(
-        program,
+        bindings,
         parameters=environment.parameters,
     )
     point_domain = verify_bound_facts(
@@ -297,6 +300,7 @@ def _bind_program_facts(
     if problems:
         raise CheckFailed(problems)
     return _make_bound_plan(
+        program,
         specialized,
         point_domain,
         environment,
@@ -304,7 +308,8 @@ def _bind_program_facts(
 
 
 def _make_bound_plan(
-    program: BoundProgramFacts,
+    program: VerifiedLogicalProgram,
+    bindings: BoundProgramFacts,
     point_domain: VerifiedPointDomain,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
@@ -312,10 +317,11 @@ def _make_bound_plan(
 
     return BoundPlan(
         program=program,
+        bindings=bindings,
         point_domain=point_domain,
         environment=environment,
         domain_target=_bind_domain_target(
-            program,
+            bindings,
             environment.config,
         ),
     )

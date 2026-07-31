@@ -42,12 +42,12 @@ def project_measurement_catalog_from_domain(
     coordinate_ids = tuple(point_coordinate_ids(points))
     return MeasurementValueCatalog(
         RunPointContract(
-            experiment_id=bound.program.id,
+            experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
             coordinate_ids=coordinate_ids,
         ),
-        bound.program.product_uses,
-        bound.program.product_defs,
+        bound.bindings.product_uses,
+        bound.bindings.product_defs,
     )
 
 
@@ -79,7 +79,7 @@ def project_run_point_catalog_from_domain(
     coordinate_ids = tuple(point_coordinate_ids(points))
     return RunPointCatalog(
         contract=RunPointContract(
-            experiment_id=bound.program.id,
+            experiment_id=bound.program.experiment_id,
             experiment_kind=bound.program.kind,
             coordinate_ids=coordinate_ids,
         ),

@@ -186,7 +186,7 @@ def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
         config_profile=load_config(),
     )
 
-    experiment = resolved.program
+    experiment = resolved.bindings
     assert experiment.id == "test.simple_scan"
     assert experiment.kind == "simple_scan"
     preview = materialized_effects_contract(
@@ -254,14 +254,14 @@ def test_template_selects_module_products_as_records() -> None:
         config_profile=load_config(),
     )
 
-    assert unselected.program.record_uses == ()
+    assert unselected.bindings.record_uses == ()
     assert [
-        product.id.qualified_name for product in unselected.program.product_defs
+        product.id.qualified_name for product in unselected.bindings.product_defs
     ] == ["product_module/signal"]
-    assert [record.id for record in selected.program.record_uses] == ["signal"]
-    assert selected.program.record_uses[0].metadata == {}
+    assert [record.id for record in selected.bindings.record_uses] == ["signal"]
+    assert selected.bindings.record_uses[0].metadata == {}
     assert (
-        selected.program.product_uses[0].product_id.qualified_name
+        selected.bindings.product_uses[0].product_id.qualified_name
         == "product_module/signal"
     )
 
@@ -520,7 +520,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         config_profile=config,
     )
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -640,7 +640,7 @@ def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -688,10 +688,10 @@ def test_literal_string_values_define_categorical_product_axis() -> None:
         config_profile=load_config(),
     )
 
-    axis = resolved.program.product_defs[0].axes[0]
+    axis = resolved.bindings.product_defs[0].axes[0]
     assert axis.size == 2
     assert axis.metadata == {}
-    role_axis = resolved.program.product_defs[0].axes[1]
+    role_axis = resolved.bindings.product_defs[0].axes[1]
     assert role_axis.kind == "entity"
     assert role_axis.size == 2
     assert role_axis.metadata == {}
@@ -764,10 +764,10 @@ def test_link_resolves_config_dependent_assembly_fragments() -> None:
     environment = build_config_environment(load_config())
     resolved = bind_program(verify_logical_program(assembly), environment)
 
-    assert resolved.program.id == "authored-simple-scan"
+    assert resolved.program.experiment_id == "authored-simple-scan"
     assert resolved.environment.config.id == load_config().id
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
     )
     assert materialized_state_properties(preview)[0][1].instrument_id == "source-0"
@@ -1201,11 +1201,11 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         config_profile=load_config(),
     )
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
     )
 
-    assert resolved.program.id == "test.scripted_scan"
+    assert resolved.program.experiment_id == "test.scripted_scan"
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
@@ -1260,8 +1260,8 @@ def test_product_declaration_uses_axes() -> None:
         config_profile=load_config(),
     )
 
-    assert len(resolved.program.record_uses) == 1
-    product = resolved.program.product_defs[0]
+    assert len(resolved.bindings.record_uses) == 1
+    product = resolved.bindings.product_defs[0]
     assert product.id.local_id == "signal"
     assert [axis.id for axis in product.axes] == ["shot", "repetition"]
     assert [axis.size for axis in product.axes] == [2, 3]
@@ -1355,7 +1355,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     )
 
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -1383,7 +1383,7 @@ def test_explicit_config_links_experiment() -> None:
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )

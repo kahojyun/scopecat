@@ -81,7 +81,7 @@ class MaterializedBoundPoints:
             raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
-            for item in bound_domain_executions(self.bound_plan.program)
+            for item in bound_domain_executions(self.bound_plan.bindings)
             if item.id == execution_id
         )
         available_inputs = (
@@ -128,7 +128,7 @@ def materialize_bound_points(bound: BoundPlan) -> MaterializedBoundPoints:
     point_parameters = tuple(
         resolve_point_parameters(
             bound.environment.parameters,
-            bound.program.parameter_overlays,
+            bound.bindings.parameter_overlays,
             point_row=point.row,
         )
         for point in point_domain.points

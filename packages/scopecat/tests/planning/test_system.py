@@ -116,7 +116,7 @@ from tests.testkit.parameter_fixtures import (
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.typed_program import (
-    bind_core_program,
+    bind_program_facts,
     instrument_acquisition,
     observable_product,
     overlay_parameter_cell,
@@ -460,7 +460,7 @@ def _bound_program(
     environment = build_config_environment(load_config() if config is None else config)
     if parameter_data is not None:
         environment = replace(environment, parameters=parameter_data)
-    return bind_core_program(program, environment)
+    return bind_program_facts(program, environment)
 
 
 def _point_frequency_domain_input() -> ScalarValueInput:
@@ -524,7 +524,7 @@ def _bound_instrument_fed_postprocessor_program() -> BoundPlan:
         product_uses=(source_use, derived_use),
         record_uses=(derived_record,),
     )
-    return bind_core_program(
+    return bind_program_facts(
         program,
         build_config_environment(load_config()),
     )
@@ -1089,7 +1089,7 @@ def test_domain_compiler_batches_complete_point_domain() -> None:
     local_effects = plan.host
     assert local_effects is not None
     point_catalog = plan.points
-    assert point_catalog.experiment_id == bound.program.id
+    assert point_catalog.experiment_id == bound.program.experiment_id
     assert point_catalog.experiment_kind == bound.program.kind
     assert point_catalog.coordinate_ids == ("frequency",)
     assert tuple(point.ordinal for point in point_catalog.points) == (0, 1)
@@ -1277,7 +1277,7 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
     ).compile(bound)
     assert tuple(plan.coverage) == ()
     assert plan.measurements.catalog.product_use_ids == tuple(
-        use.id for use in bound.program.product_uses
+        use.id for use in bound.bindings.product_uses
     )
     assert compiler.compile_calls == 0
     assert plan.points.points == ()

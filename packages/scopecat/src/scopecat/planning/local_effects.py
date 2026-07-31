@@ -22,14 +22,14 @@ from scopecat.planning.routing import ResourcePortManifest
 class LocalTargetPlan:
     """One closed local target selection reused by every coverage block.
 
-    ``program`` is the authoritative bound program; ``product_uses`` is the
+    ``bindings`` are the authoritative bound facts; ``product_uses`` is the
     local side of the local/domain demand cut.
     Physical manifests are selected once so bounded coverage evaluates only
     point-local values and entity selections, never the accepted configuration
     or provider inventory again.
     """
 
-    program: BoundProgramFacts
+    bindings: BoundProgramFacts
     product_uses: tuple[ProductUse, ...]
     instrument_order: tuple[str, ...]
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest]

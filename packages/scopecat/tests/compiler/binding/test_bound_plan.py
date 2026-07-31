@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 
-from scopecat.compiler.bind import _bind_program_facts as bind_core_program
+from scopecat.compiler.bind import BoundPlan, _bind_program_facts
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.relations.context import (
     ParameterRelationData,
@@ -72,12 +72,27 @@ from tests.testkit.local_materialization import (
 from tests.testkit.relation_plans import (
     scalar_value_expr,
 )
-from tests.testkit.typed_program import instrument_acquisition, observable_product
+from tests.testkit.typed_program import (
+    instrument_acquisition,
+    observable_product,
+    verified_logical_program_for,
+)
 
 _FLOAT = Scalar(Float())
 _FREQUENCY = Scalar(QuantityType(unit="GHz"))
 _DRIVE_FREQUENCY = Scalar(QuantityType(unit="GHz", minimum=4.0, maximum=6.0))
 _SPAN = Quantity(value=2.0, unit="GHz")
+
+
+def bind_program_facts(
+    bindings: BoundProgramFacts,
+    environment: ConfigEnvironment,
+) -> BoundPlan:
+    return _bind_program_facts(
+        verified_logical_program_for(bindings),
+        bindings,
+        environment,
+    )
 
 
 def _lookup_use(table_id: str) -> ParameterLookupUse:
@@ -199,9 +214,9 @@ def _environment() -> ConfigEnvironment:
 def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> None:
     program = _symbolic_program()
 
-    bound = bind_core_program(program, _environment())
+    bound = bind_program_facts(program, _environment())
 
-    assert bound.program != program
+    assert bound.bindings != program
     assert bound.point_domain.axes != program.point_domain.axes
     assert bound.point_domain.cardinality == 4
     assert tuple(column.id for column in bound.point_domain.coordinate_columns) == (
@@ -213,7 +228,7 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
     assert tuple(
         consumer.location.path
         for consumer in bound_relation_consumers(
-            bound.program,
+            bound.bindings,
             bound.point_domain,
         )
         if consumer.kind is ProgramRelationConsumerKind.POINT_AXIS_CENTER
@@ -227,14 +242,14 @@ def test_link_retains_unit_domain() -> None:
         point_domain=PointDomain(axes=()),
     )
 
-    bound = bind_core_program(program, _environment())
+    bound = bind_program_facts(program, _environment())
 
     assert bound.point_domain.axes == ()
     assert bound.point_domain.cardinality == 1
     assert all(
         consumer.kind is not ProgramRelationConsumerKind.POINT_AXIS_CENTER
         for consumer in bound_relation_consumers(
-            bound.program,
+            bound.bindings,
             bound.point_domain,
         )
     )
@@ -285,7 +300,7 @@ def test_bind_selects_and_snapshots_the_complete_domain_target() -> None:
         ),
     )
 
-    bound = bind_core_program(program, build_config_environment(config))
+    bound = bind_program_facts(program, build_config_environment(config))
 
     target = bound.domain_target
     assert target is not None
@@ -331,7 +346,7 @@ def test_bind_rejects_a_domain_program_without_a_configured_target() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        bind_core_program(program, build_config_environment(config))
+        bind_program_facts(program, build_config_environment(config))
 
     [issue] = caught.value.problems
     assert issue.code == "domain_target_missing"
@@ -342,7 +357,7 @@ def test_bind_rejects_a_domain_program_without_a_configured_target() -> None:
 def test_raw_link_retains_product_metadata_and_accepted_environment() -> None:
     program = _symbolic_program()
     environment = _environment()
-    bound = bind_core_program(program, environment)
+    bound = bind_program_facts(program, environment)
     acquisition = next(
         effect for effect in program.effects if isinstance(effect, AcquireEffect)
     )
@@ -357,29 +372,31 @@ def test_raw_link_retains_product_metadata_and_accepted_environment() -> None:
         with pytest.raises(TypeError, match="frozen mapping is immutable"):
             cast("dict[str, object]", metadata)["mutated-source"] = True
 
-    assert bound.program.product_defs[0].metadata == {"owner": "selected"}
+    assert bound.bindings.product_defs[0].metadata == {"owner": "selected"}
     assert acquisition.results[0].metadata == {"owner": "selected-producer"}
-    assert bound.program.record_uses[0].metadata == {"owner": "record"}
+    assert bound.bindings.record_uses[0].metadata == {"owner": "record"}
 
 
 def test_unselected_product_definition_survives_link_without_collection() -> None:
     program = _symbolic_program()
 
-    bound = bind_core_program(program, _environment())
+    bound = bind_program_facts(program, _environment())
     plan = materialize_local_execution(bound)
 
-    selected_id, unselected_id = (product.id for product in bound.program.product_defs)
-    assert bound.program.product_defs == program.product_defs
-    assert tuple(use.product_id for use in bound.program.product_uses) == (selected_id,)
-    assert tuple(record.product_use_id for record in bound.program.record_uses) == (
-        bound.program.product_uses[0].id,
+    selected_id, unselected_id = (product.id for product in bound.bindings.product_defs)
+    assert bound.bindings.product_defs == program.product_defs
+    assert tuple(use.product_id for use in bound.bindings.product_uses) == (
+        selected_id,
+    )
+    assert tuple(record.product_use_id for record in bound.bindings.record_uses) == (
+        bound.bindings.product_uses[0].id,
     )
     assert {
         product_use_id
         for operation in operations_of_type(plan, CollectOperation)
         for binding in operation.result_bindings
         for product_use_id in binding.product_use_ids
-    } == {bound.program.product_uses[0].id}
+    } == {bound.bindings.product_uses[0].id}
     assert unselected_id != selected_id
 
 
@@ -431,7 +448,7 @@ def test_link_closes_every_used_axis_center_parameter_import(
     )
 
     with pytest.raises(CheckFailed) as caught:
-        bind_core_program(program, _environment())
+        bind_program_facts(program, _environment())
 
     assert tuple(problem.code for problem in caught.value.problems) == (
         "bound_parameter_missing",
@@ -467,7 +484,7 @@ def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        bind_core_program(program, environment)
+        bind_program_facts(program, environment)
 
     assert tuple(problem.code for problem in caught.value.problems) == (
         "bound_parameter_contract_mismatch",
@@ -503,7 +520,7 @@ def test_link_rejects_remaining_relation_input_imports() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        bind_core_program(program, _environment())
+        bind_program_facts(program, _environment())
 
     assert tuple(problem.code for problem in caught.value.problems) == (
         "bound_input_unresolved",
@@ -533,7 +550,7 @@ def test_link_reports_every_missing_import_in_one_axis_center() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        bind_core_program(program, _environment())
+        bind_program_facts(program, _environment())
 
     assert tuple(problem.code for problem in caught.value.problems) == (
         "bound_parameter_missing",
@@ -548,7 +565,7 @@ def test_link_reports_every_missing_import_in_one_axis_center() -> None:
 
 
 def test_bound_points_retain_exact_proofs_when_materialized() -> None:
-    bound = bind_core_program(_symbolic_program(), _environment())
+    bound = bind_program_facts(_symbolic_program(), _environment())
     materialized = materialize_bound_points(bound)
 
     assert materialized.bound_plan is bound
@@ -568,7 +585,7 @@ def test_bound_points_normalize_entities_before_point_identity_is_sealed() -> No
         point_domain=PointDomain(axes=(_entity_rows(("q0",)),)),
     )
 
-    bound = bind_core_program(program, _environment())
+    bound = bind_program_facts(program, _environment())
     assert bound.point_domain.entity_columns == ("subject",)
     materialized = materialize_bound_points(bound)
 
@@ -586,7 +603,7 @@ def test_bound_points_reject_unknown_entities_at_the_planning_boundary() -> None
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_bound_points(bind_core_program(program, _environment()))
+        materialize_bound_points(bind_program_facts(program, _environment()))
 
     assert len(caught.value.problems) == 1
     problem = caught.value.problems[0]
@@ -606,7 +623,7 @@ def test_bound_points_preserve_entity_kind_mismatch_problem() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_bound_points(bind_core_program(program, _environment()))
+        materialize_bound_points(bind_program_facts(program, _environment()))
 
     assert len(caught.value.problems) == 1
     problem = caught.value.problems[0]
@@ -635,7 +652,7 @@ def test_bound_points_report_unknown_normalized_entities() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_bound_points(bind_core_program(program, _environment()))
+        materialize_bound_points(bind_program_facts(program, _environment()))
 
     assert [problem.code for problem in caught.value.problems] == [
         "unknown_authoring_entity"

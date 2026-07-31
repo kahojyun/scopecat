@@ -126,7 +126,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -218,7 +218,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
 
     resolved = bind_invocation(template(), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )
@@ -317,7 +317,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
 
     resolved = bind_invocation(template(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.program,
+        resolved.bindings,
         resolved.environment.parameters,
         config=config,
     )

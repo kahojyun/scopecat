@@ -9,6 +9,10 @@ from scopecat.compiler.bind import (
     _make_bound_plan,
 )
 from scopecat.compiler.environment import ConfigEnvironment
+from scopecat.compiler.frontend.logical_verification import (
+    VerifiedLogicalProgram,
+    verify_logical_program,
+)
 from scopecat.compiler.typed.invocation import (
     InvocationValueUse,
     InvokeArgument,
@@ -55,6 +59,7 @@ from scopecat.program.logical import (
     AcquireEffect,
     AcquireId,
     AcquireResult,
+    LogicalProgram,
 )
 
 
@@ -241,17 +246,31 @@ def typed_program(
     )
 
 
-def bind_core_program(
-    program: BoundProgramFacts,
+def bind_program_facts(
+    bindings: BoundProgramFacts,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
-    """Bind a trusted low-level program for focused compiler tests."""
+    """Bind trusted low-level facts to a minimal verified source for tests."""
 
     return _make_bound_plan(
-        program,
+        verified_logical_program_for(bindings),
+        bindings,
         verify_bound_facts(
-            program,
+            bindings,
             phase=ProblemPhase.PLANNING,
         ),
         environment,
+    )
+
+
+def verified_logical_program_for(
+    bindings: BoundProgramFacts,
+) -> VerifiedLogicalProgram:
+    """Build the minimal canonical source needed by a low-level fact fixture."""
+
+    return verify_logical_program(
+        LogicalProgram(
+            experiment_id=bindings.id,
+            kind=bindings.kind,
+        )
     )

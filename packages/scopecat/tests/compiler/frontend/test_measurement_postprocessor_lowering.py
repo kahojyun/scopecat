@@ -10,7 +10,7 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
-from tests.testkit.typed_program import bind_core_program
+from tests.testkit.typed_program import bind_program_facts
 
 _SCALAR_SIGNAL = InterfaceRef("test.scalar_signal/v1")
 _SCALAR_SIGNAL_SAMPLE_RAW = _SCALAR_SIGNAL.acquisition("sample").result("raw")
@@ -62,7 +62,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
         experiment.record(call.products.derived, record_id="second")
 
     resolved = bind_invocation(template(), config_profile=load_config())
-    program = resolved.program
+    program = resolved.bindings
 
     [postprocessor] = program.measurement_postprocessors
     assert postprocessor.id.qualified_name == "lowering/derive"
@@ -84,8 +84,8 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     } == {"lowering/raw"}
     assert postprocessor.kernel is _kernel
 
-    bound = bind_core_program(program, resolved.environment)
-    assert bound.program.measurement_postprocessors == (postprocessor,)
+    bound = bind_program_facts(program, resolved.environment)
+    assert bound.bindings.measurement_postprocessors == (postprocessor,)
 
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
@@ -121,7 +121,7 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
         program = bind_invocation(
             template(),
             config_profile=load_config(),
-        ).program
+        ).bindings
         return {
             postprocessor.id.qualified_name: (postprocessor.input_product_use_id.value)
             for postprocessor in program.measurement_postprocessors

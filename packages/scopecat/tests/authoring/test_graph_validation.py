@@ -445,7 +445,7 @@ def test_compile_verifies_the_final_program_once(
     )
 
     assert calls == {"graph": 1, "core": 1}
-    assert resolved.program.id == "test.graph.single-proof"
+    assert resolved.program.experiment_id == "test.graph.single-proof"
 
 
 def test_resource_selector_requires_a_scalar_entity_value() -> None:

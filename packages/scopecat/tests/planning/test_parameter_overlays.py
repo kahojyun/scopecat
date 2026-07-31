@@ -50,7 +50,7 @@ from tests.testkit.parameter_fixtures import (
 )
 from tests.testkit.relation_plans import state_property
 from tests.testkit.typed_program import (
-    bind_core_program,
+    bind_program_facts,
     overlay_parameter_cell,
     typed_program,
 )
@@ -141,9 +141,9 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     base_frequencies = [
         row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ]
-    plan = materialize_local_execution(bind_core_program(spec, environment))
+    plan = materialize_local_execution(bind_program_facts(spec, environment))
     without_overlay = materialize_local_execution(
-        bind_core_program(replace(spec, parameter_overlays=()), environment)
+        bind_program_facts(replace(spec, parameter_overlays=()), environment)
     )
 
     assert [
@@ -200,7 +200,7 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
         build_config_environment(config_with_physical_resources({})),
         parameters=parameters(),
     )
-    bound_points = materialize_bound_points(bind_core_program(spec, environment))
+    bound_points = materialize_bound_points(bind_program_facts(spec, environment))
     [(input_id, bound_values)] = bound_points.bind_domain_inputs(
         execution.id,
         "compiler",

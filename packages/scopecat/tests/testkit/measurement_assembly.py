@@ -32,7 +32,7 @@ from scopecat.planning.point_materialization import (
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.typed_program import (
-    bind_core_program,
+    bind_program_facts,
     instrument_acquisitions,
     observable_product,
 )
@@ -139,7 +139,7 @@ def measurement_assembly_scenario(
         record_uses=tuple(records),
     )
     bound_points = materialize_bound_points(
-        bind_core_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
     return MeasurementAssemblyScenario(
         bound_points=bound_points,

@@ -187,7 +187,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         config_profile=load_config(),
     )
 
-    [execution] = bound_domain_executions(bound.program)
+    [execution] = bound_domain_executions(bound.bindings)
     table_value = execution.compiler_inputs["rows"].value
     assert isinstance(table_value, TableValue)
     assert isinstance(table_value.source, LiteralTableSource)
@@ -196,7 +196,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
     call = make_domain_call_view(
         bound,
         execution.id,
-        domain_result_closure(bound.program, execution.id),
+        domain_result_closure(bound.bindings, execution.id),
     )
     request = make_domain_batch_request(
         call,
@@ -403,7 +403,7 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         template(),
         config_profile=load_config(),
     )
-    typed = resolved.program
+    typed = resolved.bindings
 
     assert bound_acquisitions(typed) == ()
     typed_execution = bound_domain_executions(typed)[0]

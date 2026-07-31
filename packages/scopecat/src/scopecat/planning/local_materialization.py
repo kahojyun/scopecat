@@ -140,7 +140,7 @@ def materialize_local_execution(
 ) -> MaterializedLocalEffects:
     """Lower one bounded point coverage into final ordered local effects."""
 
-    program = target.program
+    program = target.bindings
     problems: list[Problem] = []
     selected_instrument_order = target.instrument_order
     materialized_domain = bound_points.point_domain
@@ -329,12 +329,12 @@ def materialize_local_final_state(
 ) -> tuple[ApplyStateOperation, ...]:
     """Materialize the fixed desired state applied after normal completion."""
 
-    final_state = target.program.final_state
+    final_state = target.bindings.final_state
     if final_state is None:
         return ()
     problems: list[Problem] = []
     resources = _select_resources(
-        target.program,
+        target.bindings,
         target.resource_ports,
         ctx=EvalContext(params=bound.environment.parameters),
         context="normal completion",
@@ -363,8 +363,8 @@ def materialize_local_final_state(
             )
     desired = _bind_desired_state(
         records,
-        point_uid=f"{target.program.id}.final_state",
-        state_group_index=len(target.program.effects),
+        point_uid=f"{bound.program.experiment_id}.final_state",
+        state_group_index=len(target.bindings.effects),
         resources=resources,
         point_index=0,
         problems=problems,
@@ -393,16 +393,16 @@ def prepare_local_target(
     """
 
     requested = frozenset(product_use_ids)
-    available = {use.id for use in bound.program.product_uses}
+    available = {use.id for use in bound.bindings.product_uses}
     unknown = sorted(use_id.value for use_id in requested - available)
     if unknown:
         msg = "local product selection contains unknown uses: " + ", ".join(unknown)
         raise ValueError(msg)
     product_uses = tuple(
-        use for use in bound.program.product_uses if use.id in requested
+        use for use in bound.bindings.product_uses if use.id in requested
     )
     active_resource_ports = _active_resource_port_ids(
-        bound.program,
+        bound.bindings,
         product_uses=product_uses,
     )
     resource_ports: dict[LogicalResourcePortId, ResourcePortManifest] = {}
@@ -413,11 +413,11 @@ def prepare_local_target(
                 port_id=requirement.port_id,
                 interfaces=requirement.interfaces,
             )
-            for requirement in bound.program.resource_requirements
+            for requirement in bound.bindings.resource_requirements
             if requirement.port_id in active_resource_ports
         }
     return LocalTargetPlan(
-        program=bound.program,
+        bindings=bound.bindings,
         product_uses=product_uses,
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,

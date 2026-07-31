@@ -70,7 +70,7 @@ from tests.testkit.local_materialization import (
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import (
-    bind_core_program,
+    bind_program_facts,
     compute_result,
     instrument_invocation,
     typed_program,
@@ -203,7 +203,7 @@ def test_bound_state_preserves_primitive_field_types(
         config_with_physical_resources({"source-0": ("test.configure/v1",)})
     )
 
-    plan = materialize_local_execution(bind_core_program(program, environment))
+    plan = materialize_local_execution(bind_program_facts(program, environment))
 
     assert (
         operations_of_type(plan, ApplyStateOperation, point_index=0)[0]
@@ -287,8 +287,8 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         config_with_physical_resources({"source-0": ("test.play_program/v1",)})
     )
 
-    plan = materialize_local_execution(bind_core_program(program, environment))
-    repeated = materialize_local_execution(bind_core_program(program, environment))
+    plan = materialize_local_execution(bind_program_facts(program, environment))
+    repeated = materialize_local_execution(bind_program_facts(program, environment))
 
     assert [point.logical_id.logical_ordinal for point in plan.points] == [0, 1, 2]
     assert {
@@ -393,7 +393,7 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
     )
 
     plan = materialize_local_execution(
-        bind_core_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
 
     calls = [
@@ -465,7 +465,7 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
     )
 
     plan = materialize_local_execution(
-        bind_core_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
 
     assert (
@@ -494,7 +494,7 @@ def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
     )
 
     plan = materialize_local_execution(
-        bind_core_program(program, build_config_environment(load_config()))
+        bind_program_facts(program, build_config_environment(load_config()))
     )
 
     assert len(plan.points) == 1

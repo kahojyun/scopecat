@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat.compiler.bind import _bind_program_facts as bind_core_program
+from scopecat.compiler.bind import BoundPlan, _bind_program_facts
+from scopecat.compiler.environment import ConfigEnvironment
+from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -26,6 +28,7 @@ from scopecat.planning.domain_bridge import (
     make_domain_call_view,
 )
 from scopecat.planning.point_materialization import materialize_bound_points
+from scopecat.program.logical import LogicalProgram
 from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultMapping,
@@ -77,6 +80,17 @@ from scopecat_quantum.targets import (
     TargetCompileRequest,
 )
 
+
+def bind_program_facts(
+    bindings: BoundProgramFacts,
+    environment: ConfigEnvironment,
+) -> BoundPlan:
+    program = verify_logical_program(
+        LogicalProgram(experiment_id=bindings.id, kind=bindings.kind)
+    )
+    return _bind_program_facts(program, bindings, environment)
+
+
 Q0 = QubitId("q0")
 _REPO_ROOT = Path(__file__).parents[3]
 
@@ -127,8 +141,8 @@ def _preparation(
             _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
         )
     )
-    bound_points = materialize_bound_points(bind_core_program(program, environment))
-    closure = domain_result_closure(bound_points.bound_plan.program, "domain")
+    bound_points = materialize_bound_points(bind_program_facts(program, environment))
+    closure = domain_result_closure(bound_points.bound_plan.bindings, "domain")
     point_ordinals = (0, 1)
     call = make_domain_call_view(
         bound_points.bound_plan,

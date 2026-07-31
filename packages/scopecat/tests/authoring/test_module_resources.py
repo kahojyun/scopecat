@@ -132,7 +132,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     )
     assert [
         state.interface_id
-        for state in bound_state(resolved.program)
+        for state in bound_state(resolved.bindings)
         if isinstance(state, SetStateSpec)
     ] == [
         "test.set_frequency/v1",
@@ -140,7 +140,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     ]
     assert [
         state.property_id
-        for state in bound_state(resolved.program)
+        for state in bound_state(resolved.bindings)
         if isinstance(state, SetStateSpec)
     ] == [
         "value.path",
@@ -288,7 +288,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         else f"invoke:{effect.id.qualified_name}"
         if isinstance(effect, InvokeEffect)
         else f"domain:{effect.id}"
-        for effect in bound.program.effects
+        for effect in bound.bindings.effects
     ] == [
         "binding",
         "binding",
@@ -299,11 +299,12 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
         "acquire:root/root-read",
     ]
     assert (
-        sum(isinstance(effect, SetStateSpec) for effect in bound.program.effects) == 3
+        sum(isinstance(effect, SetStateSpec) for effect in bound.bindings.effects) == 3
     )
     assert (
         sum(
-            isinstance(effect, TypedDomainExecution) for effect in bound.program.effects
+            isinstance(effect, TypedDomainExecution)
+            for effect in bound.bindings.effects
         )
         == 2
     )
@@ -422,7 +423,7 @@ def test_state_binding_keeps_interface_and_property_ids_structured() -> None:
         ),
     )
 
-    state = bound_state(resolved.program)[0]
+    state = bound_state(resolved.bindings)[0]
     assert isinstance(state, SetStateSpec)
     assert state.interface_id == "test.set_offset/v1"
     assert state.property_id == "value.path"
