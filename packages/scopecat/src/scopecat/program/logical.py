@@ -29,9 +29,6 @@ from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
 from scopecat.program.bindings import (
-    BindingIntent,
-    EnsureStateIntent,
-    InvocationIntent,
     ResourcePort,
 )
 from scopecat.program.operations import ModuleInputPort
@@ -198,6 +195,43 @@ class AcquireEffect:
 
 
 @dataclass(frozen=True, slots=True)
+class LogicalStateAssignment:
+    """One closed desired-state edge in the logical value graph."""
+
+    port_id: LogicalResourcePortId
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    property_id: str
+    value_id: graph_values.ValueId
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalEnsureState:
+    """One coherent group of logical desired-state assignments."""
+
+    assignments: tuple[LogicalStateAssignment, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalInvocationArgument:
+    id: str
+    value_id: graph_values.ValueId
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalInvocation:
+    """One closed operation invocation over logical resources and values."""
+
+    id: str
+    port_id: LogicalResourcePortId
+    interface_id: InterfaceId
+    component_path: tuple[str, ...]
+    operation_id: str
+    arguments: tuple[LogicalInvocationArgument, ...]
+    scope: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ImplementationId:
     value: str
 
@@ -209,9 +243,9 @@ class LocalPythonImplementation:
 
 
 type LogicalEffect = (
-    BindingIntent
-    | EnsureStateIntent
-    | InvocationIntent
+    LogicalStateAssignment
+    | LogicalEnsureState
+    | LogicalInvocation
     | LogicalDomainExecution
     | AcquireEffect
 )
@@ -247,7 +281,7 @@ class LogicalProgram:
         )
     )
     effects: tuple[LogicalEffect, ...] = ()
-    final_state: EnsureStateIntent | None = None
+    final_state: LogicalEnsureState | None = None
 
     def __post_init__(self) -> None:
         if not self.experiment_id or not self.kind:
@@ -259,15 +293,15 @@ class LogicalProgram:
         )
 
     @property
-    def bindings(self) -> tuple[BindingIntent, ...]:
+    def bindings(self) -> tuple[LogicalStateAssignment, ...]:
         effect_bindings = tuple(
             binding
             for effect in self.effects
             for binding in (
                 (effect,)
-                if isinstance(effect, BindingIntent)
+                if isinstance(effect, LogicalStateAssignment)
                 else effect.assignments
-                if isinstance(effect, EnsureStateIntent)
+                if isinstance(effect, LogicalEnsureState)
                 else ()
             )
         )
@@ -287,9 +321,9 @@ class LogicalProgram:
         )
 
     @property
-    def invocations(self) -> tuple[InvocationIntent, ...]:
+    def invocations(self) -> tuple[LogicalInvocation, ...]:
         return tuple(
-            effect for effect in self.effects if isinstance(effect, InvocationIntent)
+            effect for effect in self.effects if isinstance(effect, LogicalInvocation)
         )
 
     @property

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 from scopecat.compiler.frontend.value_binding import input_cell
@@ -32,7 +32,12 @@ from scopecat.program.logical import (
     LocalPythonImplementation,
     LogicalComputeNode,
     LogicalDomainExecution,
+    LogicalEnsureState,
+    LogicalInvocation,
+    LogicalInvocationArgument,
     LogicalMeasurementPostprocessor,
+    LogicalProgram,
+    LogicalStateAssignment,
     MeasurementPostprocessorId,
     PlanExpressionSource,
     ValueDef,
@@ -60,23 +65,8 @@ class ScopedPythonImplementation:
     fn: ComputeFunction
 
 
-@dataclass(frozen=True, slots=True)
-class _ElaboratedSemantics:
-    value_defs: tuple[ValueDef, ...]
-    compute_nodes: tuple[LogicalComputeNode, ...]
-    measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...]
-    implementations: Mapping[OperationId, LocalPythonImplementation]
-    effects: tuple[
-        BindingIntent
-        | EnsureStateIntent
-        | InvocationIntent
-        | LogicalDomainExecution
-        | AcquireEffect,
-        ...,
-    ]
-
-
-def elaborate_logical_semantics(
+def close_logical_program(
+    program: LogicalProgram,
     operations: Sequence[ModuleOperationDecl],
     implementations: Sequence[ScopedPythonImplementation],
     *,
@@ -88,9 +78,10 @@ def elaborate_logical_semantics(
         | LoweredDomainExecution
         | AcquireEffect
     ] = (),
+    final_state: EnsureStateIntent | None = None,
     value_roots: Sequence[object] = (),
-) -> _ElaboratedSemantics:
-    """Assemble canonical logical fields from flattened module data."""
+) -> LogicalProgram:
+    """Close flattened definition data directly into its logical program."""
 
     builder = _LogicalSemanticsBuilder(implementations)
     for postprocessor in measurement_postprocessors:
@@ -98,15 +89,21 @@ def elaborate_logical_semantics(
     for operation in operations:
         builder.add_authored_operation(operation)
     semantic_effects = tuple(
-        builder.add_domain_execution(effect)
-        if isinstance(effect, LoweredDomainExecution)
-        else effect
-        for effect in effects
+        builder.add_effect(effect, effect_index=effect_index)
+        for effect_index, effect in enumerate(effects)
     )
     for root in value_roots:
         if isinstance(root, ValueRef):
             builder.add_value_root(root)
-    return builder.finish(effects=semantic_effects)
+    return builder.finish(
+        program,
+        effects=semantic_effects,
+        final_state=(
+            None
+            if final_state is None
+            else builder.add_ensure_state(final_state, scope=("final_state",))
+        ),
+    )
 
 
 def logical_compute_node_id(symbol: SymbolId) -> OperationId:
@@ -211,6 +208,100 @@ class _LogicalSemanticsBuilder:
             results=execution.result_bindings,
         )
 
+    def add_effect(
+        self,
+        effect: (
+            BindingIntent
+            | EnsureStateIntent
+            | InvocationIntent
+            | LoweredDomainExecution
+            | AcquireEffect
+        ),
+        *,
+        effect_index: int,
+    ) -> (
+        LogicalStateAssignment
+        | LogicalEnsureState
+        | LogicalInvocation
+        | LogicalDomainExecution
+        | AcquireEffect
+    ):
+        scope = ("effects", str(effect_index))
+        if isinstance(effect, BindingIntent):
+            return self._add_state_assignment(effect, scope=scope)
+        if isinstance(effect, EnsureStateIntent):
+            return self.add_ensure_state(effect, scope=scope)
+        if isinstance(effect, InvocationIntent):
+            return LogicalInvocation(
+                id=effect.id,
+                port_id=effect.port_id,
+                interface_id=effect.interface_id,
+                component_path=effect.component_path,
+                operation_id=effect.operation_id,
+                arguments=tuple(
+                    LogicalInvocationArgument(
+                        id=argument.id,
+                        value_id=self._add_effect_value(
+                            argument.value,
+                            scope=(*scope, "invocation", effect.id, "arguments"),
+                            local_id=argument.id,
+                        ),
+                    )
+                    for argument in effect.arguments
+                ),
+                scope=effect.scope,
+            )
+        if isinstance(effect, LoweredDomainExecution):
+            return self.add_domain_execution(effect)
+        return effect
+
+    def add_ensure_state(
+        self,
+        effect: EnsureStateIntent,
+        *,
+        scope: tuple[str, ...],
+    ) -> LogicalEnsureState:
+        return LogicalEnsureState(
+            tuple(
+                self._add_state_assignment(
+                    assignment,
+                    scope=(*scope, "assignments", str(index)),
+                )
+                for index, assignment in enumerate(effect.assignments)
+            )
+        )
+
+    def _add_state_assignment(
+        self,
+        assignment: BindingIntent,
+        *,
+        scope: tuple[str, ...],
+    ) -> LogicalStateAssignment:
+        return LogicalStateAssignment(
+            port_id=assignment.port_id,
+            interface_id=assignment.interface_id,
+            component_path=assignment.component_path,
+            property_id=assignment.property_id,
+            value_id=self._add_effect_value(
+                assignment.value,
+                scope=scope,
+                local_id="value",
+            ),
+        )
+
+    def _add_effect_value(
+        self,
+        value: object,
+        *,
+        scope: tuple[str, ...],
+        local_id: str,
+    ) -> ValueId:
+        if isinstance(value, ValueRef):
+            return self._add_value(value)
+        value_id = ValueId(SymbolId(scope=scope, local_id=local_id))
+        self._add_literal(value_id, value)
+        return value_id
+
     def add_measurement_postprocessor(
         self,
         declaration: MeasurementPostprocessor,
@@ -229,22 +320,26 @@ class _LogicalSemanticsBuilder:
 
     def finish(
         self,
+        program: LogicalProgram,
         *,
         effects: tuple[
-            BindingIntent
-            | EnsureStateIntent
-            | InvocationIntent
+            LogicalStateAssignment
+            | LogicalEnsureState
+            | LogicalInvocation
             | LogicalDomainExecution
             | AcquireEffect,
             ...,
         ],
-    ) -> _ElaboratedSemantics:
-        return _ElaboratedSemantics(
+        final_state: LogicalEnsureState | None,
+    ) -> LogicalProgram:
+        return replace(
+            program,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
             measurement_postprocessors=tuple(self._measurement_postprocessors),
             implementations=MappingProxyType(dict(self._implementations)),
             effects=effects,
+            final_state=final_state,
         )
 
     def _add_compute_input(

@@ -8,7 +8,7 @@ from typing import Protocol, cast
 
 from scopecat.compiler.frontend.semantic_elaboration import (
     ScopedPythonImplementation,
-    elaborate_logical_semantics,
+    close_logical_program,
     logical_compute_node_id,
 )
 from scopecat.kernel.errors import CheckFailed
@@ -230,6 +230,7 @@ def compose_module(
         experiment_id=module.id,
         kind=module.id,
         inputs=inputs,
+        final_state=None,
     )
 
 
@@ -245,6 +246,7 @@ def compose_experiment(
         experiment_id=definition.id,
         kind=definition.kind,
         inputs=inputs,
+        final_state=definition.final_state,
     )
 
 
@@ -254,21 +256,36 @@ def _elaborate_hierarchy(
     experiment_id: str,
     kind: str,
     inputs: Mapping[str, object],
+    final_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     fragment = _elaborate_program_ir(
         root,
         inputs=inputs,
     )
     value_roots = _module_fragment_value_roots(fragment)
-    _require_closed_module_fragment(fragment, value_roots.consumed)
-    semantics = elaborate_logical_semantics(
-        fragment.operations,
-        fragment.python_implementations,
-        measurement_postprocessors=fragment.measurement_postprocessors,
-        effects=fragment.effects,
-        value_roots=value_roots.semantic,
+    final_state_values = tuple(
+        assignment.value
+        for assignment in (() if final_state is None else final_state.assignments)
     )
-    return LogicalProgram(
+    _require_closed_module_fragment(
+        fragment,
+        (*value_roots.consumed, *final_state_values),
+    )
+    final_state_dependencies = _summarize_value_ref_dependencies(
+        value for root in final_state_values for value in _nested_value_refs(root)
+    )
+    fragment = replace(
+        fragment,
+        point_dependencies=_merge_point_dependencies(
+            fragment.point_dependencies,
+            final_state_dependencies.point,
+        ),
+        parameter_contracts=merge_parameter_contracts(
+            fragment.parameter_contracts,
+            final_state_dependencies.parameters,
+        ),
+    )
+    program = LogicalProgram(
         experiment_id=experiment_id,
         kind=kind,
         inputs=fragment.inputs,
@@ -277,14 +294,18 @@ def _elaborate_hierarchy(
         resource_ports=fragment.resource_ports,
         point_dependencies=fragment.point_dependencies,
         parameter_overlays=fragment.parameter_overlays,
-        value_defs=semantics.value_defs,
-        compute_nodes=semantics.compute_nodes,
-        measurement_postprocessors=semantics.measurement_postprocessors,
-        implementations=semantics.implementations,
         product_declarations=fragment.product_declarations,
         record_selections=fragment.record_selections,
         parameter_contracts=fragment.parameter_contracts,
-        effects=semantics.effects,
+    )
+    return close_logical_program(
+        program,
+        fragment.operations,
+        fragment.python_implementations,
+        measurement_postprocessors=fragment.measurement_postprocessors,
+        effects=fragment.effects,
+        final_state=final_state,
+        value_roots=(*value_roots.semantic, *final_state_values),
     )
 
 

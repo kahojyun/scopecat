@@ -210,7 +210,7 @@ def _normalized_signature(
                 resources[binding.port_id],
                 binding.interface_id,
                 binding.property_id,
-                binding.value,
+                input_signature(binding.value_id),
             )
             for binding in assembly.bindings
         ),

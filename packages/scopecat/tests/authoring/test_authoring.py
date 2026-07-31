@@ -25,6 +25,7 @@ from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import (
     InputScalarExpr,
     LiteralScalarExpr,
+    ScalarExpr,
     as_scalar_expr,
     input_ref,
     param,
@@ -41,6 +42,7 @@ from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.logical import (
+    LiteralValueSource,
     LogicalProgram,
     PlanExpressionSource,
 )
@@ -52,7 +54,6 @@ from scopecat.program.value_refs import (
     ValueRef,
     internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
-    internal_lower_value_ref,
     internal_value_ref_from_expression,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
@@ -90,6 +91,19 @@ def _identity_value(*, value: object) -> object:
 
 def _collect_values(**values: object) -> dict[str, object]:
     return values
+
+
+def _logical_binding_expression(
+    program: LogicalProgram,
+    index: int,
+) -> ScalarExpr:
+    value_id = program.bindings[index].value_id
+    definition = next(item for item in program.value_defs if item.id == value_id)
+    source = definition.source
+    if isinstance(source, PlanExpressionSource):
+        return source.expression
+    assert isinstance(source, LiteralValueSource)
+    return as_scalar_expr(source.value)
 
 
 def _table_definition(
@@ -829,8 +843,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
 
     assert "drive_frequency" not in assembly.inputs
     assert all(port.id != "drive_frequency" for port in assembly.input_ports)
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    first_value = _logical_binding_expression(assembly, 0)
     assert isinstance(first_value, LiteralScalarExpr)
     assert first_value.value == Quantity(value=5.0, unit="GHz")
 
@@ -874,10 +887,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
     assembly = compile_invocation(template()).program.program
 
     assert "drive_frequency" not in assembly.inputs
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    assert internal_lower_value_ref(assembly.bindings[0].value) == param(
-        "drive_frequency"
-    )
+    assert _logical_binding_expression(assembly, 0) == param("drive_frequency")
 
 
 def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
@@ -931,11 +941,8 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
 
     assembly = compile_invocation(template()).program.program
 
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    expression = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    expression = _logical_binding_expression(assembly, 0)
     assert evaluate_scalar(expression, EvalContext()) == 1.75
-    assert internal_value_ref_parameter_contracts(assembly.bindings[0].value) == ()
-    assert internal_value_ref_point_dependencies(assembly.bindings[0].value) == ()
     assert assembly.parameter_contracts == ()
     assert assembly.point_dependencies == ()
 
@@ -1053,8 +1060,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
     )
 
     assert "drive_frequency" not in assembly.inputs
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    localized = internal_lower_scalar_value_ref(assembly.bindings[0].value)
+    localized = _logical_binding_expression(assembly, 0)
     assert isinstance(localized, InputScalarExpr)
     assert localized.name == "outer_frequency"
 
@@ -1104,10 +1110,8 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     )
 
     assert "drive_frequency" not in assembly.inputs
-    assert isinstance(assembly.bindings[0].value, ValueRef)
-    assert isinstance(assembly.bindings[1].value, ValueRef)
-    first_value = internal_lower_scalar_value_ref(assembly.bindings[0].value)
-    second_value = internal_lower_scalar_value_ref(assembly.bindings[1].value)
+    first_value = _logical_binding_expression(assembly, 0)
+    second_value = _logical_binding_expression(assembly, 1)
     assert isinstance(first_value, LiteralScalarExpr)
     assert isinstance(second_value, LiteralScalarExpr)
     assert first_value.value == Quantity(value=5.0, unit="GHz")

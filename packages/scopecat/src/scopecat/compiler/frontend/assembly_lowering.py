@@ -214,11 +214,9 @@ def lower_semantic_compute_graph(
 
     nodes = tuple(
         _lower_semantic_operation(
+            program,
             operation,
             implementation=program.program.implementations[operation.id],
-            definitions=program.value_defs,
-            operation_results=program.operation_results,
-            value_types=program.value_types,
             inputs=inputs,
             type_bindings=type_bindings,
         )
@@ -246,11 +244,9 @@ def lower_semantic_domain_graph(
         for name, value_id in execution.inputs:
             lowered = cast(
                 "ScalarValueExpr",
-                _lower_semantic_input(
+                lower_logical_value(
+                    program,
                     value_id,
-                    definitions=program.value_defs,
-                    operation_results=program.operation_results,
-                    value_types=program.value_types,
                     inputs=inputs,
                     type_bindings=type_bindings,
                 ),
@@ -260,11 +256,9 @@ def lower_semantic_domain_graph(
         for name, value_id in execution.compiler_inputs:
             lowered = cast(
                 "CompilerValue",
-                _lower_semantic_input(
+                lower_logical_value(
+                    program,
                     value_id,
-                    definitions=program.value_defs,
-                    operation_results=program.operation_results,
-                    value_types=program.value_types,
                     inputs=inputs,
                     type_bindings=type_bindings,
                 ),
@@ -292,22 +286,18 @@ def lower_semantic_domain_graph(
 
 
 def _lower_semantic_operation(
+    program: _LogicalProgramProof,
     operation: LogicalComputeNode,
     *,
     implementation: LocalPythonImplementation,
-    definitions: Mapping[ValueId, ValueDef],
-    operation_results: Mapping[ValueId, LogicalComputeNode],
-    value_types: Mapping[ValueId, ValueType],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> TypedComputeNode:
     lowered_inputs: dict[str, ComputeInput] = {}
     for name, value_id in operation.inputs:
-        lowered = _lower_semantic_input(
+        lowered = lower_logical_value(
+            program,
             value_id,
-            definitions=definitions,
-            operation_results=operation_results,
-            value_types=value_types,
             inputs=inputs,
             type_bindings=type_bindings,
         )
@@ -326,23 +316,21 @@ def _lower_semantic_operation(
     )
 
 
-def _lower_semantic_input(
+def lower_logical_value(
+    program: _LogicalProgramProof,
     value_id: ValueId,
     *,
-    definitions: Mapping[ValueId, ValueDef],
-    operation_results: Mapping[ValueId, LogicalComputeNode],
-    value_types: Mapping[ValueId, ValueType],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> CompilerValue | ComputeEdge:
-    if value_id in operation_results:
+    if value_id in program.operation_results:
         return ComputeEdge(
             value_id=value_id,
-            expected_type=operation_results[value_id].result_type,
+            expected_type=program.operation_results[value_id].result_type,
         )
-    definition = definitions[value_id]
+    definition = program.value_defs[value_id]
     source = definition.source
-    value_type = value_types[value_id]
+    value_type = program.value_types[value_id]
     if isinstance(source, PlanExpressionSource):
         return verify_scalar_value_expr(
             bind_scalar_input_refs(source.expression, inputs),
@@ -428,7 +416,6 @@ def validate_consumed_inputs(
         for port in assembly.resource_ports
         for source in port.selector.entity_inputs
     )
-    values.extend(binding.value for binding in assembly.bindings)
     values.extend(
         value
         for overlay in assembly.parameter_overlays

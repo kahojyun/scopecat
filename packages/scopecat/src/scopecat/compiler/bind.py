@@ -52,12 +52,13 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError
-from scopecat.program.bindings import (
-    BindingIntent,
-    EnsureStateIntent,
-    InvocationIntent,
+from scopecat.program.logical import (
+    AcquireEffect,
+    LogicalEnsureState,
+    LogicalInvocation,
+    LogicalProgram,
+    LogicalStateAssignment,
 )
-from scopecat.program.logical import AcquireEffect, LogicalProgram
 from scopecat.program.parameters import (
     ParameterValueContract,
 )
@@ -194,22 +195,25 @@ def _lower_logical_program(
     ordered_effects = tuple(
         lower_state_binding(
             effect,
+            program=verified,
             inputs=inputs,
             type_bindings=type_bindings,
         )
-        if isinstance(effect, BindingIntent)
+        if isinstance(effect, LogicalStateAssignment)
         else lower_ensure_state(
             effect,
+            program=verified,
             inputs=inputs,
             type_bindings=type_bindings,
         )
-        if isinstance(effect, EnsureStateIntent)
+        if isinstance(effect, LogicalEnsureState)
         else lower_invocation(
             effect,
+            program=verified,
             inputs=inputs,
             type_bindings=type_bindings,
         )
-        if isinstance(effect, InvocationIntent)
+        if isinstance(effect, LogicalInvocation)
         else effect
         if isinstance(effect, AcquireEffect)
         else domain_effects[effect.id]
@@ -220,6 +224,7 @@ def _lower_logical_program(
         if assembly.final_state is None
         else lower_ensure_state(
             assembly.final_state,
+            program=verified,
             inputs=inputs,
             type_bindings=type_bindings,
         )

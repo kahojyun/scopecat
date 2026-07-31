@@ -41,10 +41,6 @@ from scopecat.program.scans import (
     Scan,
     scan_parameter_contracts,
 )
-from scopecat.program.value_refs import (
-    ValueRef,
-    internal_value_ref_parameter_contracts,
-)
 from scopecat.program.values import ModuleInput
 from scopecat.records.run_request import RunRequest
 
@@ -113,24 +109,12 @@ def _compile_invocation_definition(
         definition,
         inputs=program_inputs,
     )
-    final_state = definition.final_state
-    final_state_contracts = tuple(
-        contract
-        for assignment in (() if final_state is None else final_state.assignments)
-        if isinstance((value := assignment.value), ValueRef)
-        for contract in internal_value_ref_parameter_contracts(value)
-    )
     return replace(
         assembly,
         record_selections=(
             *assembly.record_selections,
             *definition.record_selections,
         ),
-        parameter_contracts=merge_parameter_contracts(
-            assembly.parameter_contracts,
-            final_state_contracts,
-        ),
-        final_state=final_state,
     )
 
 

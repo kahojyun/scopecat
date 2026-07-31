@@ -15,13 +15,13 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.program.bindings import (
-    BindingIntent,
-    EnsureStateIntent,
-    InvocationIntent,
-)
 from scopecat.program.domain import domain_program
-from scopecat.program.logical import AcquireEffect
+from scopecat.program.logical import (
+    AcquireEffect,
+    LogicalEnsureState,
+    LogicalInvocation,
+    LogicalStateAssignment,
+)
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.domain import domain_call
@@ -254,13 +254,13 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
 
     assert [
         ("binding", effect.port_id.qualified_name)
-        if isinstance(effect, BindingIntent)
+        if isinstance(effect, LogicalStateAssignment)
         else ("acquire", effect.id.qualified_name)
         if isinstance(effect, AcquireEffect)
         else ("ensure", str(len(effect.assignments)))
-        if isinstance(effect, EnsureStateIntent)
+        if isinstance(effect, LogicalEnsureState)
         else ("invoke", effect.id)
-        if isinstance(effect, InvocationIntent)
+        if isinstance(effect, LogicalInvocation)
         else ("domain", effect.id)
         for effect in assembly.effects
     ] == [

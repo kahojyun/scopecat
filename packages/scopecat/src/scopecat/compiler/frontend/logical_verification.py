@@ -16,7 +16,6 @@ from scopecat.compiler.frontend.assembly_lowering import (
     coerce_assembly_inputs,
     validate_consumed_inputs,
 )
-from scopecat.compiler.frontend.semantic_elaboration import logical_value_id
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -24,6 +23,7 @@ from scopecat.compiler.relations.verification import (
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.verification import verify_logical_graph
+from scopecat.graph.relations.analysis import plan_point_refs
 from scopecat.graph.relations.model import ScalarExpr
 from scopecat.graph.relations.point_domain import (
     analyze_point_domain,
@@ -155,7 +155,12 @@ def verify_logical_program(program: LogicalProgram) -> VerifiedLogicalProgram:
         operation_results = {
             operation.result_id: operation for operation in compute_nodes
         }
-        _verify_binding_compute_values(normalized, operation_results, problems)
+        _verify_binding_compute_values(
+            normalized,
+            {definition.id for definition in normalized.value_defs},
+            operation_results,
+            problems,
+        )
     _verify_property_resource_ports(normalized, resource_ports, problems)
     _verify_final_state_dependencies(normalized, resource_ports, problems)
     if verified_graph is not None:
@@ -340,48 +345,34 @@ def _verify_resource_port_interface(
 
 def _verify_binding_compute_values(
     assembly: LogicalProgram,
+    definition_ids: set[ValueId],
     operation_results: Mapping[ValueId, LogicalComputeNode],
     problems: list[Problem],
 ) -> None:
     values = [
-        (model_location("bindings", index, "value"), binding.value)
+        (model_location("bindings", index, "value"), binding.value_id)
         for index, binding in enumerate(assembly.bindings)
     ]
     values.extend(
         (
             model_location("invocations", invocation_index, "arguments", argument.id),
-            argument.value,
+            argument.value_id,
         )
         for invocation_index, invocation in enumerate(assembly.invocations)
         for argument in invocation.arguments
     )
-    for location, value in values:
-        if not isinstance(value, ValueRef) or not internal_value_ref_requires_execution(
-            value
-        ):
-            continue
-        value_id = logical_value_id(value)
+    for location, value_id in values:
         operation = operation_results.get(value_id)
         if operation is None:
-            problems.append(
-                _problem(
-                    "compute_payload_unknown_output",
-                    "state references unknown compute output "
-                    f"{value_id.qualified_name!r}",
-                    location,
+            if value_id not in definition_ids:
+                problems.append(
+                    _problem(
+                        "logical_effect_value_unknown",
+                        "logical effect references unknown value "
+                        f"{value_id.qualified_name!r}",
+                        location,
+                    )
                 )
-            )
-            continue
-        if operation.result_type != value.value_type:
-            problems.append(
-                _problem(
-                    "compute_edge_type_mismatch",
-                    f"state expects compute output {value.value_type!r}, but "
-                    f"output {operation.result_id.qualified_name!r} has type "
-                    f"{operation.result_type!r}",
-                    location,
-                )
-            )
             continue
         if not _is_payload_type(operation.result_type):
             problems.append(
@@ -463,13 +454,12 @@ def _verify_final_state_dependencies(
     if final_state is None:
         return
     selected_ports: set[LogicalResourcePortId] = set()
+    definitions = {definition.id: definition for definition in assembly.value_defs}
+    operation_result_ids = {operation.result_id for operation in assembly.compute_nodes}
     for index, assignment in enumerate(final_state.assignments):
         selected_ports.add(assignment.port_id)
-        value = assignment.value
-        if not isinstance(value, ValueRef):
-            continue
         location = model_location("final_state", index, "value")
-        if internal_value_ref_requires_execution(value):
+        if assignment.value_id in operation_result_ids:
             problems.append(
                 _problem(
                     "experiment_final_state_requires_execution",
@@ -477,7 +467,11 @@ def _verify_final_state_dependencies(
                     location,
                 )
             )
-        if internal_value_ref_point_dependencies(value):
+        definition = definitions.get(assignment.value_id)
+        source = None if definition is None else definition.source
+        if isinstance(source, PlanExpressionSource) and plan_point_refs(
+            source.expression
+        ):
             problems.append(
                 _problem(
                     "experiment_final_state_depends_on_point",
