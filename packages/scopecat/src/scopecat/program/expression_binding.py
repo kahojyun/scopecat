@@ -15,7 +15,6 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_type_compatibility import is_assignable
-from scopecat.program.expression_analysis import plan_input_refs
 from scopecat.program.expressions import (
     BinaryScalarExpr,
     InputScalarExpr,
@@ -147,10 +146,6 @@ def input_cell(value: object) -> CellValue:
         return cast("dict[str, object]", dict(mapping))
     msg = f"input value is not available as a scalar expression value: {value!r}"
     raise TypeError(msg)
-
-
-def scalar_input_refs(expression: ScalarExpr) -> tuple[str, ...]:
-    return plan_input_refs(expression)
 
 
 def _descend_input_resolution(

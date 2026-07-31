@@ -15,7 +15,7 @@ from scopecat.program.expressions import (
 from scopecat.program.identities import InvocationKey
 
 
-def plan_input_refs(root: ScalarExpr) -> tuple[str, ...]:
+def expression_input_refs(root: ScalarExpr) -> tuple[str, ...]:
     """Return free scalar input ids."""
 
     input_ids: set[str] = set()
@@ -25,7 +25,7 @@ def plan_input_refs(root: ScalarExpr) -> tuple[str, ...]:
     return tuple(sorted(input_ids))
 
 
-def plan_point_refs(root: ScalarExpr) -> tuple[str, ...]:
+def expression_point_refs(root: ScalarExpr) -> tuple[str, ...]:
     """Return point-column ids read by one scalar expression."""
 
     point_ids = {
@@ -36,7 +36,7 @@ def plan_point_refs(root: ScalarExpr) -> tuple[str, ...]:
     return tuple(sorted(point_ids))
 
 
-def plan_parameter_refs(root: ScalarExpr) -> tuple[str, ...]:
+def expression_parameter_refs(root: ScalarExpr) -> tuple[str, ...]:
     """Return scalar and table parameter ids read by one expression."""
 
     parameter_ids = {
@@ -52,7 +52,7 @@ def plan_parameter_refs(root: ScalarExpr) -> tuple[str, ...]:
     return tuple(sorted(parameter_ids))
 
 
-def plan_module_exports(
+def expression_module_exports(
     root: ScalarExpr,
 ) -> tuple[tuple[InvocationKey, str], ...]:
     """Return unresolved module projections in deterministic tree order."""
@@ -64,7 +64,7 @@ def plan_module_exports(
     )
 
 
-def plan_requires_execution(root: ScalarExpr) -> bool:
+def expression_requires_execution(root: ScalarExpr) -> bool:
     """Return whether an expression is an opaque point-local compute result."""
 
     return any(

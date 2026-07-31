@@ -17,8 +17,8 @@ from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
     bind_table_source,
+    expression_input_refs,
     input_cell,
-    scalar_input_refs,
 )
 from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
@@ -316,7 +316,7 @@ def _nested_input_dependencies(
             return set()
         if isinstance(lowered, ScalarExpr):
             return set(
-                scalar_input_refs(
+                expression_input_refs(
                     bind_scalar_input_refs(
                         lowered,
                         inputs,
@@ -360,7 +360,7 @@ def _nested_input_dependencies(
 
 def _value_source_dependencies(source: object) -> tuple[str, ...]:
     if isinstance(source, ScalarExpr):
-        return scalar_input_refs(source)
+        return expression_input_refs(source)
     if isinstance(source, InputTableSource):
         return (source.input_id,)
     return ()

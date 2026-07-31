@@ -22,7 +22,7 @@ from scopecat.compiler.relations.verification import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
-from scopecat.program.expression_analysis import plan_input_refs
+from scopecat.program.expression_analysis import expression_input_refs
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     InputScalarExpr,
@@ -334,7 +334,7 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
     assert isinstance(length_source, ScalarExpr)
     assert isinstance(frequency_source, ScalarExpr)
     assert all(
-        plan_input_refs(compiled.program.scalar_values[value_id]) == ()
+        expression_input_refs(compiled.program.scalar_values[value_id]) == ()
         for value_id in uses.values()
     )
     assert operation.result_type == authoring.ScalarType(authoring.PayloadType("pulse"))

@@ -41,7 +41,7 @@ from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
 from scopecat.kernel.value_types import Entity, Payload, Scalar, ValueType
 from scopecat.program.bindings import ResourcePort
-from scopecat.program.expression_analysis import plan_point_refs
+from scopecat.program.expression_analysis import expression_point_refs
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     LogicalComputeNode,
@@ -498,7 +498,7 @@ def _verify_final_state_dependencies(
             )
         definition = definitions.get(assignment.value_id)
         source = None if definition is None else definition.source
-        if isinstance(source, ScalarExpr) and plan_point_refs(source):
+        if isinstance(source, ScalarExpr) and expression_point_refs(source):
             problems.append(
                 _problem(
                     "experiment_final_state_depends_on_point",

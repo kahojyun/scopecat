@@ -7,6 +7,7 @@ from typing import cast, override
 
 from scopecat.kernel.value_data import CellValue
 from scopecat.program import expression_binding
+from scopecat.program.expression_analysis import expression_input_refs as input_refs
 from scopecat.program.expressions import ScalarExpr
 from scopecat.program.table_values import (
     InputTableSource,
@@ -72,8 +73,8 @@ def input_cell(value: object) -> CellValue:
     return expression_binding.input_cell(value)
 
 
-def scalar_input_refs(expression: ScalarExpr) -> tuple[str, ...]:
-    return expression_binding.scalar_input_refs(expression)
+def expression_input_refs(expression: ScalarExpr) -> tuple[str, ...]:
+    return input_refs(expression)
 
 
 def _lower_authoring_value(value: object) -> object:

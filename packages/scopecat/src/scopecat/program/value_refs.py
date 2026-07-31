@@ -21,9 +21,9 @@ from scopecat.kernel.value_validation import (
     coerce_literal,
 )
 from scopecat.program.expression_analysis import (
-    plan_input_refs,
-    plan_module_exports,
-    plan_requires_execution,
+    expression_input_refs,
+    expression_module_exports,
+    expression_requires_execution,
     scalar_nodes,
 )
 from scopecat.program.expression_binding import substitute_scalar_input_refs
@@ -365,7 +365,7 @@ def _first_module_export(
     source = value.source
     if not isinstance(source, ScalarExpr):
         return None
-    exports = plan_module_exports(source)
+    exports = expression_module_exports(source)
     return exports[0] if exports else None
 
 
@@ -473,7 +473,7 @@ def internal_value_ref_scalar_input_ids(value: ValueRef) -> frozenset[str]:
     source = value.source
     if not isinstance(source, ScalarExpr):
         return frozenset()
-    return frozenset(plan_input_refs(source))
+    return frozenset(expression_input_refs(source))
 
 
 def internal_value_ref_requires_execution(value: ValueRef) -> bool:
@@ -485,7 +485,7 @@ def internal_value_ref_requires_execution(value: ValueRef) -> bool:
         msg = f"cannot determine dependencies of unresolved module export {export_id!r}"
         raise ValueError(msg)
     source = value.source
-    return isinstance(source, ScalarExpr) and plan_requires_execution(source)
+    return isinstance(source, ScalarExpr) and expression_requires_execution(source)
 
 
 def internal_lower_value_ref(
@@ -589,7 +589,7 @@ def internal_bind_value_ref_inputs(
         return value if selected is None else _preserve_bound_value_use(value, selected)
     if not isinstance(source, ScalarExpr) or not inputs:
         return value
-    reachable = frozenset(plan_input_refs(source)) & inputs.keys()
+    reachable = frozenset(expression_input_refs(source)) & inputs.keys()
     if not reachable:
         return value
     selected = {
@@ -617,7 +617,7 @@ def _value_ref_unbound_input_ids(value: ValueRef) -> frozenset[str]:
     source = value.source
     if not isinstance(source, ScalarExpr):
         return frozenset()
-    return frozenset(plan_input_refs(source))
+    return frozenset(expression_input_refs(source))
 
 
 def _binary_value(left: object, right: object, operator: str) -> ValueRef:

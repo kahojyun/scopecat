@@ -70,7 +70,7 @@ def test_compute_output_arithmetic_requires_explicit_compute() -> None:
         _ = compute.output + 1.0
 
 
-def test_relation_arithmetic_lowers_to_a_binary_expression() -> None:
+def test_scalar_arithmetic_builds_a_binary_expression() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     expression = program_input("value", scalar) + 1.0
 
@@ -85,7 +85,7 @@ def test_relation_arithmetic_lowers_to_a_binary_expression() -> None:
     assert lowered.value_type == expression.value_type
 
 
-def test_arithmetic_stores_parameter_and_point_dependencies() -> None:
+def test_arithmetic_derives_parameter_and_point_dependencies() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     parameter = sc.parameter("frequency", scalar)
     point = sc.coordinate("detuning", scalar)
