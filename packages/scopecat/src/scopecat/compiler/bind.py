@@ -8,10 +8,10 @@ from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_lowering import (
     input_row,
+    lower_compute_graph,
+    lower_domain_graph,
     lower_parameter_overlay_intent,
     lower_point_domain,
-    lower_semantic_compute_graph,
-    lower_semantic_domain_graph,
     validate_entity_inputs,
 )
 from scopecat.compiler.frontend.binding_lowering import (
@@ -22,7 +22,7 @@ from scopecat.compiler.frontend.binding_lowering import (
 )
 from scopecat.compiler.frontend.logical_verification import VerifiedLogicalProgram
 from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
-    lower_semantic_measurement_postprocessor_graph,
+    lower_measurement_postprocessor_graph,
 )
 from scopecat.compiler.frontend.parameter_contract_validation import (
     validate_parameter_contracts,
@@ -170,11 +170,11 @@ def _lower_logical_program(
         type_bindings=type_bindings,
         input_row=input_row,
     )
-    compute_nodes = lower_semantic_compute_graph(
+    compute_nodes = lower_compute_graph(
         verified,
     )
     record_product_uses = products.product_uses
-    measurement_postprocessors = lower_semantic_measurement_postprocessor_graph(
+    measurement_postprocessors = lower_measurement_postprocessor_graph(
         verified,
         record_product_uses,
     )
@@ -182,7 +182,7 @@ def _lower_logical_program(
         *record_product_uses,
         *measurement_postprocessors.input_product_uses,
     )
-    domain_executions = lower_semantic_domain_graph(
+    domain_executions = lower_domain_graph(
         verified,
         assembly.domain_executions,
         product_uses=product_uses,

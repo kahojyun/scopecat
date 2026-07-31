@@ -126,7 +126,7 @@ def _measurement_postprocessors_by_id(
     for transform_id in sorted(ambiguous, key=lambda item: item.qualified_name):
         problems.append(
             _problem(
-                "semantic_measurement_postprocessor_duplicate",
+                "logical_measurement_postprocessor_duplicate",
                 "measurement postprocessor "
                 f"{transform_id.qualified_name!r} is declared more than once",
                 "measurement_postprocessors",
@@ -150,7 +150,7 @@ def _verify_product_owners(
                 owner, owner_port = existing
                 problems.append(
                     _problem(
-                        "semantic_product_producer_duplicate",
+                        "logical_product_producer_duplicate",
                         f"logical product {result.product_id.qualified_name!r} is "
                         f"produced by both {owner}/{owner_port!r} and acquisition "
                         f"{acquire.id.qualified_name!r}/{result.result_id!r}",
@@ -172,7 +172,7 @@ def _verify_product_owners(
                 owner, owner_port = existing
                 problems.append(
                     _problem(
-                        "semantic_product_producer_duplicate",
+                        "logical_product_producer_duplicate",
                         f"logical product {product_id.qualified_name!r} is produced "
                         f"by both {owner}/{owner_port!r} and domain execution "
                         f"{execution.id!r}/{result_id!r}",
@@ -191,7 +191,7 @@ def _verify_product_owners(
                 owner, owner_port = existing
                 problems.append(
                     _problem(
-                        "semantic_product_producer_duplicate",
+                        "logical_product_producer_duplicate",
                         f"logical product {product_id.qualified_name!r} is "
                         f"produced by both {owner}/{owner_port!r} and measurement "
                         "postprocessor "
@@ -224,7 +224,7 @@ def _verify_measurement_postprocessor_sources(
             continue
         problems.append(
             _problem(
-                "semantic_measurement_postprocessor_chaining_unsupported",
+                "logical_measurement_postprocessor_chaining_unsupported",
                 f"measurement postprocessor "
                 f"{postprocessor.id.qualified_name!r} consumes output from "
                 f"{source_owner.qualified_name!r}; postprocessor chaining is "
@@ -257,7 +257,7 @@ def _verify_domain_execution(
         ):
             problems.append(
                 _problem(
-                    "semantic_domain_execution_input_type_mismatch",
+                    "logical_domain_execution_input_type_mismatch",
                     f"domain execution input {name!r} is not assignable to its "
                     "declared port type",
                     *location,
@@ -268,7 +268,7 @@ def _verify_domain_execution(
         if value_id in operation_results:
             problems.append(
                 _problem(
-                    "semantic_domain_execution_input_stage_unavailable",
+                    "logical_domain_execution_input_stage_unavailable",
                     f"domain execution input {name!r} must be available at plan stage",
                     *location,
                     "inputs",
@@ -285,7 +285,7 @@ def _verify_domain_execution(
         ):
             problems.append(
                 _problem(
-                    "semantic_domain_compiler_input_type_mismatch",
+                    "logical_domain_compiler_input_type_mismatch",
                     f"domain compiler input {name!r} is not assignable to its "
                     "declared port type",
                     *location,
@@ -296,7 +296,7 @@ def _verify_domain_execution(
         if value_id in operation_results:
             problems.append(
                 _problem(
-                    "semantic_domain_compiler_input_stage_unavailable",
+                    "logical_domain_compiler_input_stage_unavailable",
                     f"domain compiler input {name!r} must be available at plan stage",
                     *location,
                     "compiler_inputs",
@@ -352,7 +352,7 @@ def _topological_operations(
         first = cyclic[0]
         problems.append(
             _problem(
-                "semantic_operation_cycle",
+                "logical_operation_cycle",
                 "semantic operation graph contains a cycle involving: "
                 + ", ".join(item.qualified_name for item in cyclic),
                 "operations",

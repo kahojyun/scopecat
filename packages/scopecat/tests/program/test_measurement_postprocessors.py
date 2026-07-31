@@ -43,7 +43,7 @@ def test_duplicate_measurement_postprocessor_id_is_rejected() -> None:
         verify_logical_graph((), (), (second, first))
 
     assert _problem_codes(caught.value) == [
-        "semantic_measurement_postprocessor_duplicate"
+        "logical_measurement_postprocessor_duplicate"
     ]
 
 
@@ -54,7 +54,7 @@ def test_postprocessor_output_owner_conflict_is_rejected() -> None:
     with pytest.raises(CheckFailed) as caught:
         verify_logical_graph((), (), (second, first))
 
-    assert _problem_codes(caught.value) == ["semantic_product_producer_duplicate"]
+    assert _problem_codes(caught.value) == ["logical_product_producer_duplicate"]
 
 
 def test_postprocessor_input_cannot_be_another_postprocessor_output() -> None:
@@ -65,5 +65,5 @@ def test_postprocessor_input_cannot_be_another_postprocessor_output() -> None:
         verify_logical_graph((), (), (second, first))
 
     assert _problem_codes(caught.value) == [
-        "semantic_measurement_postprocessor_chaining_unsupported"
+        "logical_measurement_postprocessor_chaining_unsupported"
     ]

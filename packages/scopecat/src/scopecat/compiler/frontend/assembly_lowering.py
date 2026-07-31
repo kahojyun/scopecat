@@ -203,13 +203,13 @@ def validate_entity_inputs(
         )
 
 
-def lower_semantic_compute_graph(
+def lower_compute_graph(
     program: _LogicalProgramProof,
 ) -> tuple[TypedComputeNode, ...]:
     """Lower implementation-defined operations to the local residual artifact."""
 
     nodes = tuple(
-        _lower_semantic_operation(
+        _lower_compute_node(
             program,
             operation,
             implementation=program.program.implementations[operation.id],
@@ -219,7 +219,7 @@ def lower_semantic_compute_graph(
     return nodes
 
 
-def lower_semantic_domain_graph(
+def lower_domain_graph(
     program: _LogicalProgramProof,
     executions: Sequence[LogicalDomainExecution],
     *,
@@ -273,7 +273,7 @@ def lower_semantic_domain_graph(
     return tuple(typed_executions)
 
 
-def _lower_semantic_operation(
+def _lower_compute_node(
     program: _LogicalProgramProof,
     operation: LogicalComputeNode,
     *,
@@ -392,7 +392,7 @@ def validate_consumed_inputs(
     consumed_dependencies.update(
         input_id
         for definition in assembly.value_defs
-        for input_id in _semantic_source_dependencies(definition.source)
+        for input_id in _value_source_dependencies(definition.source)
     )
     values.extend(
         axis.size for product in assembly.product_declarations for axis in product.axes
@@ -469,7 +469,7 @@ def _nested_input_dependencies(
     return set()
 
 
-def _semantic_source_dependencies(source: object) -> tuple[str, ...]:
+def _value_source_dependencies(source: object) -> tuple[str, ...]:
     if isinstance(source, PlanExpressionSource):
         return source.source_inputs
     if isinstance(source, InputTableSource):

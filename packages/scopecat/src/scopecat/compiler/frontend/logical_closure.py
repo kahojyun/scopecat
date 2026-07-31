@@ -73,12 +73,12 @@ def close_logical_program(
 ) -> LogicalProgram:
     """Close flattened definition data directly into its logical program."""
 
-    builder = _LogicalSemanticsBuilder(implementations)
+    builder = _LogicalProgramBuilder(implementations)
     for postprocessor in measurement_postprocessors:
         builder.add_measurement_postprocessor(postprocessor)
     for operation in operations:
         builder.add_authored_operation(operation)
-    semantic_effects = tuple(
+    logical_effects = tuple(
         builder.add_effect(effect, effect_index=effect_index)
         for effect_index, effect in enumerate(effects)
     )
@@ -87,7 +87,7 @@ def close_logical_program(
             builder.add_value_root(root)
     return builder.finish(
         program,
-        effects=semantic_effects,
+        effects=logical_effects,
         final_state=(
             None
             if final_state is None
@@ -116,7 +116,7 @@ def logical_value_id(value: ValueRef) -> ValueId:
     )
 
 
-class _LogicalSemanticsBuilder:
+class _LogicalProgramBuilder:
     def __init__(
         self,
         implementations: Mapping[OperationId, ComputeFunction],
@@ -367,7 +367,7 @@ class _LogicalSemanticsBuilder:
             return value_id
         lowered = internal_lower_value_ref(value)
         if isinstance(lowered, ComputeResultRef):
-            msg = "non-compute semantic values must lower to a plan expression"
+            msg = "non-compute logical values must lower to a plan expression"
             raise TypeError(msg)
         source: ValueSource
         if isinstance(lowered, ScalarExpr):
@@ -400,7 +400,7 @@ class _LogicalSemanticsBuilder:
     def _add_definition(self, definition: ValueDef) -> None:
         existing = self._definitions.get(definition.id)
         if existing is not None and existing != definition:
-            msg = f"semantic value {definition.id.qualified_name!r} is redefined"
+            msg = f"logical value {definition.id.qualified_name!r} is redefined"
             raise ValueError(msg)
         self._definitions[definition.id] = definition
 

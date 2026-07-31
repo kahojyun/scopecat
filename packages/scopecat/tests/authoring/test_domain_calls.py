@@ -348,7 +348,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
 
     with pytest.raises(CheckFailed) as error:
         verify_logical_program(compose_module(module.ir))
-    assert "semantic_domain_execution_input_stage_unavailable" in {
+    assert "logical_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }
 

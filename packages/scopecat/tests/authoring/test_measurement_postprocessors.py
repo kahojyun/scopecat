@@ -151,7 +151,7 @@ def test_postprocessor_chaining_is_rejected() -> None:
     with pytest.raises(CheckFailed) as error:
         verify_logical_program(compose_module(module.ir))
     assert {problem.code for problem in error.value.problems} == {
-        "semantic_measurement_postprocessor_chaining_unsupported"
+        "logical_measurement_postprocessor_chaining_unsupported"
     }
 
 
@@ -175,6 +175,6 @@ def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
 
     with pytest.raises(CheckFailed) as error:
         verify_logical_program(compose_module(module.ir))
-    assert "semantic_product_producer_duplicate" in {
+    assert "logical_product_producer_duplicate" in {
         problem.code for problem in error.value.problems
     }

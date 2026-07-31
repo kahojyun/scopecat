@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Protocol, cast
 
-from scopecat.compiler.frontend.semantic_elaboration import (
+from scopecat.compiler.frontend.logical_closure import (
     close_logical_program,
     logical_compute_node_id,
 )
@@ -727,7 +727,7 @@ def _require_closed_module_fragment(
 ) -> None:
     for root in (*fragment.inputs.values(), *consumed_roots):
         for value in _nested_value_refs(root):
-            internal_require_resolved_value_ref(value, context="semantic experiment")
+            internal_require_resolved_value_ref(value, context="logical program")
 
 
 def _module_fragment_value_roots(

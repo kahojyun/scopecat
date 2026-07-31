@@ -94,7 +94,7 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
         verify_logical_graph((), (right, left))
 
     assert [problem.code for problem in caught.value.problems] == [
-        "semantic_operation_cycle"
+        "logical_operation_cycle"
     ]
     assert caught.value.problems[0].message.endswith("left, right")
 

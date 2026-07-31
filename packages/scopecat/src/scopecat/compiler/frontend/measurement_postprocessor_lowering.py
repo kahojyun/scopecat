@@ -28,7 +28,7 @@ class LoweredMeasurementPostprocessorGraph:
     input_product_uses: tuple[ProductUse, ...]
 
 
-def lower_semantic_measurement_postprocessor_graph(
+def lower_measurement_postprocessor_graph(
     program: VerifiedLogicalProgram,
     record_product_uses: Sequence[ProductUse],
 ) -> LoweredMeasurementPostprocessorGraph:
