@@ -3,11 +3,17 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.program.expressions import BinaryScalarExpr
+from scopecat.program.expressions import (
+    BinaryScalarExpr,
+    ComputeResultScalarExpr,
+    InputScalarExpr,
+    LiteralScalarExpr,
+)
 from scopecat.program.parameters import ParameterValueContract
 from scopecat.program.value_refs import (
     internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
+    internal_lower_value_ref,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
@@ -22,10 +28,13 @@ def test_value_structure_identifies_external_execution_and_point_dependencies() 
     run_input = program_input("run-input", scalar)
     point = sc.coordinate("point-value", scalar)
     compute = program_compute("execute-value", fn=lambda: 1.0, output_type=scalar)
+    compute_output = compute.output
 
     assert not internal_value_ref_requires_execution(run_input)
     assert not internal_value_ref_requires_execution(point)
-    assert internal_value_ref_requires_execution(compute.output)
+    assert internal_value_ref_requires_execution(compute_output)
+    assert isinstance(compute_output.source, ComputeResultScalarExpr)
+    assert internal_lower_value_ref(compute_output) is compute_output.source
     assert not internal_value_ref_point_dependencies(run_input)
     assert [item.id for item in internal_value_ref_point_dependencies(point)] == [
         "point-value"
@@ -78,6 +87,12 @@ def test_relation_arithmetic_lowers_to_a_binary_expression() -> None:
     lowered = internal_lower_scalar_value_ref(expression)
     assert isinstance(lowered, BinaryScalarExpr)
     assert lowered.op == "+"
+    assert isinstance(lowered.left, InputScalarExpr)
+    assert lowered.left.name == "value"
+    assert lowered.left.value_type == scalar
+    assert isinstance(lowered.right, LiteralScalarExpr)
+    assert lowered.right.value == 1.0
+    assert lowered.value_type == expression.value_type
 
 
 def test_arithmetic_stores_parameter_and_point_dependencies() -> None:

@@ -13,7 +13,6 @@ from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
-    VerifiedRelationPlan,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -64,6 +63,7 @@ from scopecat.planning.provider_binding import (
 from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem, build_experiment_system
 from scopecat.program.expressions import (
+    ScalarExpression,
     lit,
     parameter_lookup,
     point_col,
@@ -268,7 +268,7 @@ def _bound_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: Literal[0, 2] = 2,
-    domain_input: VerifiedRelationPlan | None = None,
+    domain_input: ScalarExpression | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
     config: ConfigProfileSnapshot | None = None,
@@ -398,7 +398,7 @@ def _bound_program(
             expected_type=Scalar(QuantityType(unit="GHz")),
         ),
         "varying": scalar_value_expr(
-            point_col("frequency"),
+            point_col("frequency", Scalar(QuantityType(unit="GHz"))),
             bindings=bindings,
             expected_type=Scalar(QuantityType(unit="GHz")),
         ),
@@ -460,13 +460,13 @@ def _bound_program(
     return bind_program_facts(program, environment)
 
 
-def _point_frequency_domain_input() -> VerifiedRelationPlan:
+def _point_frequency_domain_input() -> ScalarExpression:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),
     )
     return scalar_value_expr(
-        point_col("frequency"),
+        point_col("frequency", frequency_type),
         bindings=RelationTypeBindings(point_row=RowType.from_table(point_type)),
         expected_type=frequency_type,
     )
@@ -942,6 +942,7 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
         key={"device_id": "r0"},
         column_id="frequency",
         axis_id="frequency",
+        value_type=frequency_type,
     )
     bound = _bound_program(
         domain_input=domain_input,

@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.scalar_eval import cell_matches, eval_binary, read_path
+from scopecat.compiler.relations.verification import (
+    RelationPlanVerificationError,
+    verify_relation_plan,
+)
 from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_validation import coerce_literal
 from scopecat.program.expressions import (
     BinaryScalarExpr,
+    ComputeResultScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
+    ModuleExportScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     PointColumnScalarExpr,
@@ -23,23 +30,6 @@ from scopecat.program.expressions import (
 )
 
 _KNOWN_EVALUATION_ERRORS = (ArithmeticError, KeyError, TypeError, ValueError)
-
-
-@dataclass(frozen=True, slots=True)
-class KnownScalar:
-    """A scalar value completely determined by the supplied bindings."""
-
-    value: CellValue
-
-
-@dataclass(frozen=True, slots=True)
-class ResidualScalar:
-    """A pure scalar expression retained with its remaining dependencies."""
-
-    expression: ScalarExpression
-
-
-type ScalarSpecialization = KnownScalar | ResidualScalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,22 +51,23 @@ class ParameterCellBinding:
             raise ValueError(msg)
 
 
-def specialize_scalar(
+def specialize_scalar_expression(
     expression: ScalarExpr,
     *,
     known: EvalContext,
     parameter_cells: Sequence[ParameterCellBinding] = (),
-) -> ScalarSpecialization:
+) -> ScalarExpression:
     """Partially evaluate one pure scalar expression.
 
-    Missing bindings and operations that fail for known operands remain
-    residual. No external effect can be represented or executed here.
+    Missing bindings remain canonical expressions. Fully known operations
+    either become typed literals or fail verification deterministically. No
+    external effect can be represented or executed here.
     """
 
     scalar = cast("ScalarExpression", expression)
     match scalar:
         case LiteralScalarExpr():
-            return KnownScalar(deepcopy(scalar.value))
+            return lit(scalar.value, scalar.value_type)
         case PointColumnScalarExpr():
             return _known_leaf(
                 scalar,
@@ -89,6 +80,8 @@ def specialize_scalar(
             )
         case ParameterScalarExpr():
             return _known_leaf(scalar, lambda: known.params.scalar(scalar.name))
+        case ComputeResultScalarExpr() | ModuleExportScalarExpr():
+            return scalar
         case ParameterLookupScalarExpr():
             return _specialize_parameter_lookup(
                 scalar,
@@ -106,12 +99,17 @@ def specialize_scalar(
 def _known_leaf(
     expression: ScalarExpression,
     resolve: Callable[[], object],
-) -> ScalarSpecialization:
+) -> ScalarExpression:
     try:
         value = resolve()
+        return _typed_literal(value, expression.value_type)
     except _KNOWN_EVALUATION_ERRORS:
-        return _residual(deepcopy(expression))
-    return KnownScalar(deepcopy(cast("CellValue", value)))
+        return expression
+
+
+def _typed_literal(value: object, value_type: Scalar) -> LiteralScalarExpr:
+    normalized = coerce_literal(value_type, value)
+    return lit(cast("CellValue", normalized), value_type)
 
 
 def _specialize_parameter_lookup(
@@ -119,18 +117,18 @@ def _specialize_parameter_lookup(
     *,
     known: EvalContext,
     parameter_cells: Sequence[ParameterCellBinding],
-) -> ScalarSpecialization:
+) -> ScalarExpression:
     key_results = {
-        name: specialize_scalar(
+        name: specialize_scalar_expression(
             value,
             known=known,
             parameter_cells=parameter_cells,
         )
         for name, value in expression.key.items()
     }
-    if all(isinstance(result, KnownScalar) for result in key_results.values()):
+    if all(isinstance(result, LiteralScalarExpr) for result in key_results.values()):
         key = {
-            name: cast("KnownScalar", result).value
+            name: cast("LiteralScalarExpr", result).value
             for name, result in key_results.items()
         }
         matched = _matching_parameter_cell(
@@ -140,19 +138,26 @@ def _specialize_parameter_lookup(
             column_id=expression.use.column_id,
         )
         if matched is not None:
-            return specialize_scalar(matched.replacement, known=known)
+            return specialize_scalar_expression(matched.replacement, known=known)
         try:
             row = known.params.lookup_row(expression.use.table_id, key)
-            value = read_path(row, expression.use.column_id)
-        except _KNOWN_EVALUATION_ERRORS:
+        except ValueError as error:
+            raise RelationPlanVerificationError(
+                "parameter_lookup_failed",
+                (),
+                str(error),
+            ) from error
+        except KeyError, TypeError:
             pass
         else:
-            return KnownScalar(deepcopy(value))
-    return _residual(
-        ParameterLookupScalarExpr(
-            use=expression.use,
-            key={name: _expression(result) for name, result in key_results.items()},
-        )
+            try:
+                value = read_path(row, expression.use.column_id)
+                return _typed_literal(value, expression.value_type)
+            except _KNOWN_EVALUATION_ERRORS:
+                pass
+    return ParameterLookupScalarExpr(
+        use=expression.use,
+        key=key_results,
     )
 
 
@@ -161,46 +166,43 @@ def _specialize_binary(
     *,
     known: EvalContext,
     parameter_cells: Sequence[ParameterCellBinding],
-) -> ScalarSpecialization:
-    left = specialize_scalar(
+) -> ScalarExpression:
+    left = specialize_scalar_expression(
         expression.left,
         known=known,
         parameter_cells=parameter_cells,
     )
-    right = specialize_scalar(
+    right = specialize_scalar_expression(
         expression.right,
         known=known,
         parameter_cells=parameter_cells,
     )
-    if isinstance(left, KnownScalar) and isinstance(right, KnownScalar):
+    residual = BinaryScalarExpr(
+        op=expression.op,
+        left=left,
+        right=right,
+    )
+    if isinstance(left, LiteralScalarExpr) and isinstance(right, LiteralScalarExpr):
         try:
             value = eval_binary(expression.op, left.value, right.value)
-        except _KNOWN_EVALUATION_ERRORS:
-            pass
+        except ZeroDivisionError:
+            return verify_relation_plan(residual)
+        except _KNOWN_EVALUATION_ERRORS as error:
+            raise RelationPlanVerificationError(
+                "scalar_evaluation_failed",
+                (),
+                str(error),
+            ) from error
         else:
-            return KnownScalar(deepcopy(value))
-    return _residual(
-        BinaryScalarExpr(
-            op=expression.op,
-            left=_expression(left),
-            right=_expression(right),
-        )
-    )
-
-
-def residual_scalar_expression(result: ScalarSpecialization) -> ScalarExpression:
-    """Return one specialization result as a pure scalar expression."""
-
-    if isinstance(result, KnownScalar):
-        return lit(deepcopy(result.value))
-    return deepcopy(result.expression)
-
-
-_expression = residual_scalar_expression
-
-
-def _residual(expression: ScalarExpression) -> ResidualScalar:
-    return ResidualScalar(expression)
+            try:
+                return _typed_literal(value, expression.value_type)
+            except _KNOWN_EVALUATION_ERRORS as error:
+                raise RelationPlanVerificationError(
+                    "specialized_result_invalid",
+                    (),
+                    str(error),
+                ) from error
+    return residual
 
 
 def _matching_parameter_cell(
@@ -230,10 +232,6 @@ def _keys_equal(
 
 
 __all__ = [
-    "KnownScalar",
     "ParameterCellBinding",
-    "ResidualScalar",
-    "ScalarSpecialization",
-    "residual_scalar_expression",
-    "specialize_scalar",
+    "specialize_scalar_expression",
 ]

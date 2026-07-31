@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.specialization import ParameterCellBinding
 from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_types import Scalar
 from scopecat.program.expressions import point_col
 
 
@@ -20,6 +21,7 @@ class PointParameterOverlay:
     key: dict[str, CellValue]
     column_id: str
     axis_id: str
+    value_type: Scalar
 
 
 def resolve_point_parameters(
@@ -51,7 +53,7 @@ def parameter_cell_bindings(
             table_id=overlay.table_id,
             key=tuple(sorted(overlay.key.items())),
             column_id=overlay.column_id,
-            replacement=point_col(overlay.axis_id),
+            replacement=point_col(overlay.axis_id, overlay.value_type),
         )
         for overlay in overlays
     )

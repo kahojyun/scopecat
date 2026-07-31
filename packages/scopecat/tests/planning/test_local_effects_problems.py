@@ -191,7 +191,7 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
 ):
     center_type = Scalar(QuantityType(unit="GHz"))
     center = scalar_value_expr(
-        param("missing_center"),
+        param("missing_center", center_type),
         bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
         expected_type=center_type,
     )

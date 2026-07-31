@@ -4,7 +4,6 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.point_domain import (
     PointDomain,
 )
@@ -28,7 +27,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.measurements.products import ProductDef
-from scopecat.program.expressions import lit
+from scopecat.program.expressions import ScalarExpression, lit
 from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -54,12 +53,13 @@ def _port(value: str) -> LogicalResourcePortId:
     return logical_resource_port_id(value)
 
 
-def _number(value: float) -> VerifiedRelationPlan:
+def _number(value: float) -> ScalarExpression:
     return scalar_value_expr(lit(value), expected_type=Scalar(Float()))
 
 
-def _entity(value: str) -> VerifiedRelationPlan:
-    return scalar_value_expr(lit(value), expected_type=Scalar(Entity()))
+def _entity(value: str) -> ScalarExpression:
+    value_type = Scalar(Entity())
+    return scalar_value_expr(lit(value, value_type), expected_type=value_type)
 
 
 def _unit_program(

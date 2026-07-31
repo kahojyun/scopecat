@@ -18,10 +18,9 @@ from scopecat.compiler.typed.program import BoundProgramFacts
 from scopecat.config.environment import build_config_environment
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
-from scopecat.program.expressions import ScalarExpr
-from scopecat.program.logical import PlanExpressionSource
+from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.parameters import ParameterValueContract
-from scopecat.program.value_graph import ComputeResultRef, OperationId
+from scopecat.program.value_graph import OperationId
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import load_config
@@ -47,6 +46,32 @@ type _PayloadInput = Annotated[
 ]
 type _FloatInput = Annotated[sc.Input[float], sc.FloatType()]
 type _PositiveIntInput = Annotated[sc.Input[int], sc.IntType(minimum=1)]
+type _GhzQuantityInput = Annotated[sc.Input[sc.Quantity], sc.QuantityType(unit="GHz")]
+type _MhzQuantityInput = Annotated[sc.Input[sc.Quantity], sc.QuantityType(unit="MHz")]
+_GHZ_FREQUENCY_TABLE = sc.TableType(
+    columns=(
+        sc.TableColumn(
+            "frequency",
+            sc.ScalarType(sc.QuantityType(unit="GHz")),
+        ),
+    )
+)
+_MHZ_FREQUENCY_TABLE = sc.TableType(
+    columns=(
+        sc.TableColumn(
+            "frequency",
+            sc.ScalarType(sc.QuantityType(unit="MHz")),
+        ),
+    )
+)
+type _GhzFrequencyTableInput = Annotated[
+    sc.Input[list[dict[str, object]]],
+    _GHZ_FREQUENCY_TABLE,
+]
+type _MhzFrequencyTableInput = Annotated[
+    sc.Input[list[dict[str, object]]],
+    _MHZ_FREQUENCY_TABLE,
+]
 
 
 def _identity_payload(*, payload: object) -> object:
@@ -152,8 +177,8 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
     second_edge = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "second-consumer"), local_id="consume"))
     ].inputs["payload"]
-    assert isinstance(first_edge, ComputeResultRef)
-    assert isinstance(second_edge, ComputeResultRef)
+    assert isinstance(first_edge, ComputeResultScalarExpr)
+    assert isinstance(second_edge, ComputeResultScalarExpr)
     first_producer = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "first-producer"), local_id="produce"))
     ]
@@ -162,6 +187,8 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
     ]
     assert first_edge.value_id == first_producer.result.id
     assert second_edge.value_id == second_producer.result.id
+    assert first_edge.value_type == _payload_type()
+    assert second_edge.value_type == _payload_type()
 
 
 def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
@@ -257,7 +284,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
             )
         ]
         edge = sink_node.inputs["payload"]
-        assert isinstance(edge, ComputeResultRef)
+        assert isinstance(edge, ComputeResultScalarExpr)
         assert producer_node.result.value_type == expected_type
         assert producer_node.result.id.scope == (
             "typed-result-root",
@@ -268,6 +295,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         )
         assert producer_node.result.id.local_id == "result"
         assert edge.value_id == producer_node.result.id
+        assert edge.value_type == expected_type
 
 
 def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
@@ -311,26 +339,73 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
     capture_inputs = dict(capture_node.inputs)
     definitions = {definition.id: definition for definition in flattened.value_defs}
     passthrough = definitions[capture_inputs["passthrough"]]
-    assert isinstance(passthrough.source, PlanExpressionSource)
-    assert isinstance(passthrough.source.expression, ScalarExpr)
+    assert isinstance(passthrough.source, ScalarExpr)
     assert (
         evaluate_scalar(
-            passthrough.source.expression,
+            passthrough.source,
             EvalContext(),
         )
         == 1.25
     )
     shifted = definitions[capture_inputs["shifted"]]
-    assert isinstance(shifted.source, PlanExpressionSource)
-    assert isinstance(shifted.source.expression, ScalarExpr)
+    assert isinstance(shifted.source, ScalarExpr)
     assert (
         evaluate_scalar(
-            shifted.source.expression,
+            shifted.source,
             EvalContext(),
         )
         == 1.75
     )
     assert set(invocation.outputs) == {"passthrough", "shifted"}
+
+
+def test_direct_export_preserves_its_declared_assignable_input_type() -> None:
+    ghz_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
+
+    @sc.module(id="test.outputs.assignable-direct-export")
+    def source(context: sc.ModuleContext, value: _GhzQuantityInput) -> None:
+        context.export(value=sc.input_ref(value))
+
+    @sc.module(id="test.outputs.assignable-direct-export-root")
+    def root(context: sc.ModuleContext, value: _MhzQuantityInput) -> None:
+        instance = context.call(source.instantiate("source", value=sc.input_ref(value)))
+        context.compute(
+            "capture",
+            fn=_identity_consumed,
+            inputs={"consumed": instance.outputs.value},
+            output_type=ghz_type,
+        )
+
+    flattened = compose_module(root.ir)
+    capture = next(
+        node for node in flattened.compute_nodes if node.id.local_id == "capture"
+    )
+    captured_id = dict(capture.inputs)["consumed"]
+    captured = next(
+        definition
+        for definition in flattened.value_defs
+        if definition.id == captured_id
+    )
+
+    assert dict(capture.input_types) == {"consumed": ghz_type}
+    assert captured.value_type == ghz_type
+
+
+def test_direct_table_export_preserves_its_declared_assignable_input_type() -> None:
+    @sc.module(id="test.outputs.assignable-direct-table-export")
+    def source(context: sc.ModuleContext, rows: _GhzFrequencyTableInput) -> None:
+        context.export(rows=sc.input_ref(rows))
+
+    @sc.module(id="test.outputs.assignable-direct-table-export-root")
+    def root(context: sc.ModuleContext, rows: _MhzFrequencyTableInput) -> None:
+        instance = context.call(source.instantiate("source", rows=sc.input_ref(rows)))
+        context.export(rows=instance.outputs.rows)
+
+    flattened = compose_module(root.ir)
+
+    assert [(port.id, port.value_type) for port in flattened.input_ports] == [
+        ("rows", _MHZ_FREQUENCY_TABLE)
+    ]
 
 
 def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
@@ -405,11 +480,10 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
     captured = dict(capture_node.inputs)["consumed"]
     definitions = {definition.id: definition for definition in flattened.value_defs}
     shifted_definition = definitions[captured]
-    assert isinstance(shifted_definition.source, PlanExpressionSource)
-    assert isinstance(shifted_definition.source.expression, ScalarExpr)
+    assert isinstance(shifted_definition.source, ScalarExpr)
     assert (
         evaluate_scalar(
-            shifted_definition.source.expression,
+            shifted_definition.source,
             EvalContext(),
         )
         == 2.0

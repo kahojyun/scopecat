@@ -91,7 +91,10 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
                 "drive",
                 interface_id="test.drive/v1",
                 property_id="carrier_frequency",
-                value=point_col("frequency"),
+                value=point_col(
+                    "frequency",
+                    Scalar(QuantityType(unit="GHz")),
+                ),
                 bindings=_point_bindings(swept_points),
             )
         ],

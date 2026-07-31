@@ -13,13 +13,15 @@ from scopecat.compiler.relations.evaluation import (
 )
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
-    VerifiedRelationPlan,
+    relation_plan_imports,
+    relation_plan_point_requirement,
 )
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import Entity, Table, TableColumn
 from scopecat.kernel.value_validation import coerce_literal
+from scopecat.program.expressions import ScalarExpression
 from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
@@ -34,7 +36,7 @@ from scopecat.program.point_domain import (
 )
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
-type CompilerPointAxes = PointAxes[VerifiedRelationPlan]
+type CompilerPointAxes = PointAxes[ScalarExpression]
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +212,7 @@ def _materialize_axes(
 
 
 def _axis_values(
-    axis: PointAxis[VerifiedRelationPlan],
+    axis: PointAxis[ScalarExpression],
     *,
     params: ParameterRelationData,
     path: PointDomainPath,
@@ -222,6 +224,7 @@ def _axis_values(
         center = evaluate_scalar(
             source.center,
             EvalContext(params=params),
+            expected_type=axis.value_type,
         )
         if not isinstance(center, QuantityValue):
             msg = "linear point axis center must materialize as a quantity"
@@ -238,13 +241,12 @@ def _axis_values(
 
 
 def _verify_center_role(
-    value: VerifiedRelationPlan,
+    value: ScalarExpression,
     *,
     path: PointDomainPath,
     issues: list[PointDomainVerificationIssue],
 ) -> None:
-    plan = value
-    open_interface = plan.external_point_requirement is not None
+    open_interface = relation_plan_point_requirement(value) is not None
     if open_interface:
         issues.append(
             PointDomainVerificationIssue(
@@ -254,7 +256,8 @@ def _verify_center_role(
             )
         )
     if any(
-        imported.namespace is PlanImportNamespace.INPUT for imported in plan.imports
+        imported.namespace is PlanImportNamespace.INPUT
+        for imported in relation_plan_imports(value)
     ):
         issues.append(
             PointDomainVerificationIssue(

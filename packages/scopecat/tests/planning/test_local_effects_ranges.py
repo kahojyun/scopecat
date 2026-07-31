@@ -109,7 +109,10 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
                 "source",
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
-                value=point_col("drive_frequency"),
+                value=point_col(
+                    "drive_frequency",
+                    Scalar(QuantityType(unit="GHz")),
+                ),
                 bindings=bindings,
             )
         ],
@@ -149,7 +152,7 @@ def test_materialized_effects_rejects_bind_problems_without_duplicates() -> None
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     center_type = Scalar(QuantityType(unit="GHz"))
     center = scalar_value_expr(
-        param("missing_center"),
+        param("missing_center", center_type),
         bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
         expected_type=center_type,
     )

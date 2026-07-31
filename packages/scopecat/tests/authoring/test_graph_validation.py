@@ -29,7 +29,6 @@ from scopecat.program.logical import (
     LogicalDomainExecution,
     LogicalMeasurementPostprocessor,
     LogicalProgram,
-    PlanExpressionSource,
     ValueDef,
 )
 from scopecat.program.logical_graph import verify_logical_graph
@@ -486,7 +485,7 @@ def test_logical_verifier_owns_expression_proofs() -> None:
             ValueDef(
                 id=value_id,
                 value_type=Scalar(Float()),
-                source=PlanExpressionSource(input_ref("missing")),
+                source=input_ref("missing", Scalar(Float())),
             ),
         ),
     )

@@ -41,12 +41,15 @@ class StaticRelationEvaluator:
         inputs: Mapping[str, object],
         expected_type: Scalar | None = None,
     ) -> CellValue:
+        selected_bindings = _static_bindings(bindings)
         verified = verify_relation_plan(
             expression,
-            bindings=_static_bindings(bindings),
+            bindings=selected_bindings,
             expected_type=expected_type,
         )
         return evaluate_scalar(
             verified,
             EvalContext(params=self.parameters, inputs=dict(inputs)),
+            bindings=selected_bindings,
+            expected_type=expected_type,
         )

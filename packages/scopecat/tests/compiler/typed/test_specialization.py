@@ -4,7 +4,6 @@ from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
-    VerifiedRelationPlan,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -32,6 +31,7 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
     LiteralScalarExpr,
     PointColumnScalarExpr,
     param,
@@ -50,7 +50,6 @@ from scopecat.program.point_domain import (
 from scopecat.program.table_values import ParameterTableSource
 from scopecat.program.value_graph import (
     ComputeOutput,
-    ComputeResultRef,
     OperationId,
     operation_result_id,
 )
@@ -66,7 +65,7 @@ from tests.testkit.relation_plans import (
 def test_bound_fact_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     value_type = Scalar(Float())
     config_value = scalar_value_expr(
-        param("gain"),
+        param("gain", value_type),
         bindings=RelationTypeBindings(parameters={"gain": value_type}),
         expected_type=value_type,
     )
@@ -98,12 +97,15 @@ def test_bound_fact_specialization_folds_scalar_inputs_across_effect_kinds() -> 
     specialized_state = specialized.effects[0]
     assert isinstance(specialized_state, SetStateSpec)
     state_value = specialized_state.value_use
-    assert isinstance(state_value, VerifiedRelationPlan)
-    assert isinstance(state_value.root, LiteralScalarExpr)
+    assert isinstance(state_value, LiteralScalarExpr)
+    assert state_value.value == 2.5
+    assert state_value.value_type == value_type
     specialized_domain = specialized.effects[1]
     assert isinstance(specialized_domain, TypedDomainExecution)
     domain_input = specialized_domain.inputs["gain"]
-    assert isinstance(domain_input.root, LiteralScalarExpr)
+    assert isinstance(domain_input, LiteralScalarExpr)
+    assert domain_input.value == 2.5
+    assert domain_input.value_type == value_type
 
 
 def test_bound_fact_specialization_preserves_direct_parameter_table_sources() -> None:
@@ -155,10 +157,16 @@ def test_bound_fact_specialization_prunes_dead_compute_nodes() -> None:
                 id=operation_result_id(operation_id),
                 value_type=value_type,
             ),
+            input_types=({} if upstream is None else {"upstream": value_type}),
             inputs=(
                 {}
                 if upstream is None
-                else {"upstream": ComputeResultRef(upstream.result.id)}
+                else {
+                    "upstream": ComputeResultScalarExpr(
+                        value_id=upstream.result.id,
+                        value_type=value_type,
+                    )
+                }
             ),
         )
 
@@ -169,7 +177,10 @@ def test_bound_fact_specialization_prunes_dead_compute_nodes() -> None:
         resource_port_id=logical_resource_port_id("drive"),
         interface_id="drive",
         property_id="payload",
-        value=ComputeResultRef(live.result.id),
+        value=ComputeResultScalarExpr(
+            value_id=live.result.id,
+            value_type=value_type,
+        ),
     )
 
     specialized = specialize_bound_facts(
@@ -236,6 +247,7 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
         key={"device_id": "r0"},
         column_id="frequency",
         axis_id="frequency",
+        value_type=frequency,
     )
     domain = TypedDomainExecution(
         id="domain",
@@ -271,12 +283,14 @@ def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None
     [axis] = specialized.point_domain.axes
     assert isinstance(axis, PointAxis)
     assert isinstance(axis.source, PointAxisLinear)
-    center_root = axis.source.center.root
-    assert isinstance(center_root, LiteralScalarExpr)
-    assert center_root.value == QuantityValue(value=5.95, unit="GHz")
+    center_expression = axis.source.center
+    assert isinstance(center_expression, LiteralScalarExpr)
+    assert center_expression.value == QuantityValue(value=5.95, unit="GHz")
+    assert center_expression.value_type == frequency
 
     [specialized_domain] = specialized.effects
     assert isinstance(specialized_domain, TypedDomainExecution)
-    input_root = specialized_domain.inputs["frequency"].root
-    assert isinstance(input_root, PointColumnScalarExpr)
-    assert input_root.name == "frequency"
+    input_expression = specialized_domain.inputs["frequency"]
+    assert isinstance(input_expression, PointColumnScalarExpr)
+    assert input_expression.name == "frequency"
+    assert input_expression.value_type == frequency

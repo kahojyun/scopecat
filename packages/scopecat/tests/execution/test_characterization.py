@@ -281,7 +281,12 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
                 logical_compute_node_id="consumer",
                 implementation_id="python.consumer.v1",
                 kernel=consume,
-                inputs={"value": OutputInput(producer_result_id)},
+                inputs={
+                    "value": OutputInput(
+                        producer_result_id,
+                        Scalar(QuantityType(unit="GHz")),
+                    )
+                },
                 result=ComputeOutput(
                     id=consumer_result_id,
                     value_type=Scalar(Float()),

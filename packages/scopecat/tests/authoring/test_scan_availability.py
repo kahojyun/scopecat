@@ -104,7 +104,7 @@ def test_parameter_lookup_key_rejects_external_operation() -> None:
 
     with pytest.raises(
         TypeError,
-        match="compute outputs must be connected as standalone values",
+        match="compute outputs cannot be bound inside scalar expressions",
     ):
         sc.parameter_lookup(
             "device-parameters",

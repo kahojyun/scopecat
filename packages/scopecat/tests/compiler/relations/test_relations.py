@@ -3,8 +3,11 @@ import pytest
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.value_types import Int, Scalar
 from scopecat.program.expression_binding import bind_scalar_input_refs
 from scopecat.program.expressions import input_ref
+
+_INT = Scalar(Int())
 
 
 def test_quantity_converts_and_combines_compatible_units() -> None:
@@ -71,7 +74,7 @@ def test_parameter_lookup_matches_compatible_quantity_units() -> None:
 
 
 def test_input_binding_preserves_same_named_unresolved_references() -> None:
-    scalar = input_ref("value")
+    scalar = input_ref("value", _INT)
 
     assert bind_scalar_input_refs(scalar, {"value": scalar}) is scalar
 
@@ -79,6 +82,6 @@ def test_input_binding_preserves_same_named_unresolved_references() -> None:
 def test_input_binding_rejects_indirect_cycles() -> None:
     with pytest.raises(ValueError, match="cyclic module input reference"):
         bind_scalar_input_refs(
-            input_ref("a"),
-            {"a": input_ref("b"), "b": input_ref("a")},
+            input_ref("a", _INT),
+            {"a": input_ref("b", _INT), "b": input_ref("a", _INT)},
         )

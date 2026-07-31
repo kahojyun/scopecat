@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Never, cast
+from typing import Annotated, Never, cast
 
 import pytest
 from pydantic import JsonValue
 
+import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -69,7 +70,7 @@ from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.sdk.instruments import DriverPayload
+from scopecat.sdk.instruments import DriverPayload, InterfaceRef
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
     InstrumentStateAssignment,
@@ -88,6 +89,7 @@ from scopecat.sdk.instruments.provider import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
+from tests.testkit.authoring import bind_invocation
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.local_materialization import (
@@ -782,7 +784,12 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                 resource_port_id=logical_resource_port_id("source"),
                 interface="test.play_program/v1",
                 operation="play",
-                arguments={"program": compute_result("build-program")},
+                arguments={
+                    "program": compute_result(
+                        "build-program",
+                        value_type=Scalar(Payload("pulse_program")),
+                    )
+                },
             )
         ],
         product_defs=[product],
@@ -800,9 +807,10 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                     id=result_id,
                     value_type=Scalar(Payload("pulse_program")),
                 ),
+                input_types={"value": Scalar(QuantityType())},
                 inputs={
                     "value": scalar_value_expr(
-                        point_col("frequency"),
+                        point_col("frequency", Scalar(QuantityType())),
                         expected_type=Scalar(QuantityType()),
                         bindings=RelationTypeBindings(
                             point_row=RowType.from_table(point_type)
@@ -856,6 +864,73 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         {"value": {"value": 5.1, "unit": "GHz"}},
         {"value": {"value": 5.1, "unit": "GHz"}},
     ]
+
+
+def test_downstream_compute_receives_result_in_its_declared_type(
+    tmp_path: Path,
+) -> None:
+    received: list[Quantity] = []
+
+    def produce_frequency() -> Quantity:
+        return Quantity(value=5_000.0, unit="MHz")
+
+    def consume_frequency(*, frequency: Quantity) -> dict[str, object]:
+        received.append(frequency)
+        return {"frequency": frequency}
+
+    play_interface = InterfaceRef("test.play_program/v1")
+    play = play_interface.operation("play")
+    program_argument = play.argument("program")
+
+    @sc.module(id="test.compute-result-type.consumer")
+    def consumer(
+        context: sc.ModuleContext,
+        frequency: Annotated[
+            sc.Input[Quantity],
+            sc.QuantityType(unit="GHz"),
+        ],
+    ) -> None:
+        program = context.compute(
+            "consume-frequency",
+            fn=consume_frequency,
+            inputs={"frequency": frequency},
+            output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        )
+        source = context.resource("source", requires=(play_interface,))
+        context.invoke(
+            "play-program",
+            resource=source,
+            operation=play,
+            arguments={program_argument: program},
+        )
+
+    @sc.module(id="test.compute-result-type.root")
+    def root(context: sc.ModuleContext) -> None:
+        frequency = context.compute(
+            "produce-frequency",
+            fn=produce_frequency,
+            output_type=sc.ScalarType(sc.QuantityType(dimension="frequency")),
+        )
+        context.call(consumer.instantiate("consumer", frequency=frequency))
+
+    @sc.template(id="test.compute-result-type", kind="compute-result-type")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(root())
+
+    config = config_with_physical_resources(
+        {"source-0": (play_interface.interface_id,)}
+    )
+    bound = bind_invocation(template(), config_profile=config)
+    manifest = execute_bound_run(
+        config=config,
+        experiment=bound.bindings,
+        instruments=[SignalInstrumentDriver()],
+        project_root=tmp_path,
+        payload_codecs=json_payload_codecs("pulse_program"),
+    )
+
+    assert manifest.status == "completed"
+    assert received == [Quantity(value=5.0, unit="GHz")]
 
 
 def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:

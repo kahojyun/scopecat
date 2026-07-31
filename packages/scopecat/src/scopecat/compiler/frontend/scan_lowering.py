@@ -23,7 +23,6 @@ from scopecat.program.scans import (
     AxisSpec,
     ValuesScanSource,
     parameter_cell_lookup,
-    scan_parameter_contracts,
 )
 from scopecat.program.value_refs import (
     ValueRef,
@@ -147,7 +146,7 @@ def _lower_scan_center(
     if isinstance(source.center, ValueRef):
         expression = internal_lower_scalar_value_ref(source.center)
     else:
-        expression = as_scalar_expr(source.center)
+        expression = as_scalar_expr(source.center, value_type=axis.value_type)
     if inputs is None:
         return expression
     return bind_scalar_input_refs(expression, inputs)
@@ -168,7 +167,6 @@ def _lower_scan_center_value_ref(
     return internal_value_ref_from_expression(
         _lower_scan_center(axis, inputs=inputs),
         center_type,
-        parameter_contracts=scan_parameter_contracts(axis),
     )
 
 

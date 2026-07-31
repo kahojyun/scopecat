@@ -1,4 +1,4 @@
-"""Rewrite scalar input references against already-lowered graph values.
+"""Rewrite scalar input references against canonical program expressions.
 
 This module is independent of authoring value handles. Frontends adapt their
 source values into scalar expressions before crossing this boundary.
@@ -14,6 +14,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.program.expression_analysis import plan_input_refs
 from scopecat.program.expressions import (
     BinaryScalarExpr,
@@ -72,6 +73,9 @@ def bind_scalar_input_refs(
         next_resolving = _descend_input_resolution(input_name, resolving)
         if isinstance(value, ScalarExpr):
             value_scalar = cast("ScalarExpression", value)
+            if not is_assignable(value_scalar.value_type, scalar.value_type):
+                msg = f"input {input_name!r} replacement has an incompatible value type"
+                raise TypeError(msg)
             if substitute_once:
                 return value_scalar
             if (
@@ -85,7 +89,7 @@ def bind_scalar_input_refs(
                 resolving=next_resolving,
             )
             return bound
-        return lit(input_cell(value))
+        return lit(input_cell(value), scalar.value_type)
     if isinstance(scalar, ParameterLookupScalarExpr):
         return replace(
             scalar,

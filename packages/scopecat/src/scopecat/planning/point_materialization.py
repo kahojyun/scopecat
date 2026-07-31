@@ -18,7 +18,6 @@ from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
     evaluate_table_value,
 )
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
@@ -40,7 +39,9 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.value_data import Row
+from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
+from scopecat.program.expressions import ScalarExpr
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,13 +226,22 @@ def _materialize_domain_execution_input(
         if input_kind == "program"
         else execution.compiler_inputs[input_name]
     )
+    input_ports = (
+        execution.program.input_ports
+        if input_kind == "program"
+        else execution.program.compiler_input_ports
+    )
+    expected_type = next(
+        port.value_type for port in input_ports if port.id == input_name
+    )
     try:
         evaluated = _evaluate_domain_input(
             input_spec,
             context=context,
+            expected_type=expected_type,
         )
         value = coerce_literal(
-            input_spec.value_type,
+            expected_type,
             evaluated,
             path=(
                 "domain_executions",
@@ -267,10 +277,19 @@ def _evaluate_domain_input(
     input_spec: CompilerValue,
     *,
     context: EvalContext,
+    expected_type: ValueType,
 ) -> object:
-    if isinstance(input_spec, VerifiedRelationPlan):
-        return evaluate_scalar(input_spec, context)
-    return evaluate_table_value(input_spec.source, input_spec.value_type, context)
+    if isinstance(input_spec, ScalarExpr):
+        return evaluate_scalar(
+            input_spec,
+            context,
+            expected_type=cast("Scalar", expected_type),
+        )
+    return evaluate_table_value(
+        input_spec.source,
+        cast("Table", expected_type),
+        context,
+    )
 
 
 def _unwrap_domain_input(value: object) -> object:

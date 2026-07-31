@@ -6,14 +6,8 @@ from dataclasses import replace
 
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import (
-    KnownScalar,
     ParameterCellBinding,
-    residual_scalar_expression,
-    specialize_scalar,
-)
-from scopecat.compiler.relations.verification import (
-    VerifiedRelationPlan,
-    verify_relation_plan,
+    specialize_scalar_expression,
 )
 from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import (
@@ -29,12 +23,16 @@ from scopecat.compiler.typed.program import (
     TypedDomainExecution,
 )
 from scopecat.compiler.typed.state import EnsureStateSpec, SetStateSpec
-from scopecat.program.expressions import lit
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    ScalarExpr,
+    ScalarExpression,
+)
 from scopecat.program.logical import AcquireEffect
 from scopecat.program.point_domain import (
     map_point_axis_centers,
 )
-from scopecat.program.value_graph import ComputeResultRef, OperationId
+from scopecat.program.value_graph import OperationId
 
 
 def specialize_bound_facts(
@@ -101,9 +99,9 @@ def _specialize_point_domain(
     """
 
     def specialize_center(
-        center: VerifiedRelationPlan,
+        center: ScalarExpression,
         _path: tuple[str | int, ...],
-    ) -> VerifiedRelationPlan:
+    ) -> ScalarExpression:
         return _specialize_scalar_value(
             center,
             known=known,
@@ -129,14 +127,14 @@ def _live_compute_nodes(program: BoundProgramFacts) -> tuple[TypedComputeNode, .
             if isinstance(effect, SetStateSpec)
             else ()
         )
-        if isinstance(state.value_use, ComputeResultRef)
+        if isinstance(state.value_use, ComputeResultScalarExpr)
     }
     demanded.update(
         argument.value_use.value_id
         for effect in program.effects
         if isinstance(effect, InvokeEffect)
         for argument in effect.arguments
-        if isinstance(argument.value_use, ComputeResultRef)
+        if isinstance(argument.value_use, ComputeResultScalarExpr)
     )
 
     owners = {node.result.id: node for node in program.compute_nodes}
@@ -151,30 +149,21 @@ def _live_compute_nodes(program: BoundProgramFacts) -> tuple[TypedComputeNode, .
         pending.extend(
             value.value_id
             for value in node.inputs.values()
-            if isinstance(value, ComputeResultRef)
+            if isinstance(value, ComputeResultScalarExpr)
         )
     return tuple(node for node in program.compute_nodes if node.id in live_ids)
 
 
 def _specialize_scalar_value(
-    value: VerifiedRelationPlan,
+    value: ScalarExpression,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> VerifiedRelationPlan:
-    result = specialize_scalar(
-        value.root,
+) -> ScalarExpression:
+    return specialize_scalar_expression(
+        value,
         known=known,
         parameter_cells=parameter_cells,
-    )
-    return verify_relation_plan(
-        (
-            lit(result.value)
-            if isinstance(result, KnownScalar)
-            else residual_scalar_expression(result)
-        ),
-        bindings=value.bindings,
-        expected_type=value.value_type,
     )
 
 
@@ -184,17 +173,16 @@ def _specialize_compute(
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
 ) -> TypedComputeNode:
-    inputs: dict[str, ComputeInput] = {}
-    for name, value in node.inputs.items():
-        inputs[name] = (
+    inputs: dict[str, ComputeInput] = {
+        name: (
             _specialize_scalar_value(
                 value,
                 known=known,
                 parameter_cells=parameter_cells,
             )
-            if isinstance(value, VerifiedRelationPlan)
-            else value
         )
+        for name, value in node.inputs.items()
+    }
     return replace(node, inputs=inputs)
 
 
@@ -224,7 +212,7 @@ def _specialize_effect(
                         known=known,
                         parameter_cells=parameter_cells,
                     )
-                    if isinstance(value, VerifiedRelationPlan)
+                    if isinstance(value, ScalarExpr)
                     else value
                 )
                 for name, value in effect.compiler_inputs.items()
@@ -300,12 +288,12 @@ def _specialize_resource_requirement(
 
 
 def _specialize_value_use(
-    use: VerifiedRelationPlan | ComputeResultRef,
+    use: ScalarExpression,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> VerifiedRelationPlan | ComputeResultRef:
-    if isinstance(use, ComputeResultRef):
+) -> ScalarExpression:
+    if isinstance(use, ComputeResultScalarExpr):
         return use
     return _specialize_scalar_value(
         use,

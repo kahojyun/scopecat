@@ -6,15 +6,15 @@ from dataclasses import dataclass
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_data import CellValue
-from scopecat.program.value_graph import ComputeResultRef
+from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpression
 
-type InvocationValueUse = VerifiedRelationPlan | ComputeResultRef
-type EvaluatedInvocationValue = CellValue | ComputeResultRef
+type InvocationValueUse = ScalarExpression
+type EvaluatedInvocationValue = CellValue | ComputeResultScalarExpr
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +35,7 @@ class InvokeId:
 class InvokeArgument:
     id: str
     value_use: InvocationValueUse
+    value_type: Scalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,10 @@ def evaluate_invoke_argument(
     value_use = argument.value_use
     return (
         value_use
-        if isinstance(value_use, ComputeResultRef)
-        else evaluate_scalar(value_use, ctx)
+        if isinstance(value_use, ComputeResultScalarExpr)
+        else evaluate_scalar(
+            value_use,
+            ctx,
+            expected_type=argument.value_type,
+        )
     )

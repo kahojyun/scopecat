@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from typing import cast
 
 from scopecat.compiler.entity_resolution import (
@@ -20,7 +19,6 @@ from scopecat.compiler.frontend.value_binding import (
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
-    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.compiler.typed.invocation import (
@@ -37,13 +35,19 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Entity, Scalar
 from scopecat.program.bindings import ResourcePort
-from scopecat.program.expressions import LiteralScalarExpr, ScalarExpr
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    LiteralScalarExpr,
+    ScalarExpr,
+    ScalarExpression,
+    lit,
+)
 from scopecat.program.logical import (
     LogicalEnsureState,
     LogicalInvocation,
     LogicalStateAssignment,
 )
-from scopecat.program.value_graph import ComputeResultRef, ValueId
+from scopecat.program.value_graph import ValueId
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_value_ref,
@@ -68,6 +72,7 @@ def lower_state_binding(
         component_path=assignment.component_path,
         property_id=assignment.property_id,
         value=value,
+        value_type=cast("Scalar", program.value_types[assignment.value_id]),
     )
 
 
@@ -105,6 +110,10 @@ def lower_invocation(
                     argument.value_id,
                     program=program,
                 ),
+                value_type=cast(
+                    "Scalar",
+                    program.value_types[argument.value_id],
+                ),
             )
         )
     return InvokeEffect(
@@ -121,14 +130,14 @@ def _lower_effect_value(
     value_id: ValueId,
     *,
     program: VerifiedLogicalProgram,
-) -> VerifiedRelationPlan | ComputeResultRef:
+) -> ScalarExpression:
     lowered = lower_logical_value(
         program,
         value_id,
     )
-    if isinstance(lowered, ComputeResultRef):
+    if isinstance(lowered, ComputeResultScalarExpr):
         return lowered
-    if not isinstance(lowered, VerifiedRelationPlan):
+    if not isinstance(lowered, ScalarExpr):
         raise AssertionError("verified logical effect values must be scalar")
     return lowered
 
@@ -166,7 +175,7 @@ def _resource_entity_expr(
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
-) -> VerifiedRelationPlan:
+) -> ScalarExpression:
     value_type = source.value_type
     lowered = internal_lower_value_ref(source)
     if not (
@@ -177,12 +186,12 @@ def _resource_entity_expr(
         raise AssertionError("verified resource entity source must be a scalar entity")
     bound = bind_scalar_input_refs(lowered, inputs)
     if isinstance(bound, LiteralScalarExpr):
-        bound = replace(
-            bound,
-            value=_resolve_target_entity(
+        bound = lit(
+            _resolve_target_entity(
                 topology,
                 cast("EntityRef | str", bound.value),
             ),
+            bound.value_type,
         )
     return verify_relation_plan(
         bound,

@@ -79,6 +79,7 @@ def _program(
                     output_type,
                     value_id=output_id,
                 ),
+                input_types={},
             ),
         ),
     )

@@ -51,7 +51,7 @@ def test_module_export_edge_remains_symbolic_until_elaboration() -> None:
         internal_require_resolved_value_ref(exported, context="compute input")
 
 
-def test_transform_resolves_exports_nested_in_expression_binding_layers() -> None:
+def test_transform_resolves_exports_nested_in_canonical_expression() -> None:
     value_type = _float_type()
     exported = internal_module_export_value_ref(
         InvocationKey.fresh(),
@@ -80,7 +80,7 @@ def test_transform_resolves_exports_nested_in_expression_binding_layers() -> Non
     assert evaluate_scalar(lowered, EvalContext()) == 8.0
 
 
-def test_transform_requires_exact_value_type_preservation() -> None:
+def test_transform_rejects_an_incompatible_value_type() -> None:
     exported = internal_module_export_value_ref(
         InvocationKey.fresh(),
         "value",
@@ -88,7 +88,7 @@ def test_transform_requires_exact_value_type_preservation() -> None:
     )
     incompatible = internal_input_value_ref("text", Scalar(String()))
 
-    with pytest.raises(TypeError, match="preserve the exact value type"):
+    with pytest.raises(TypeError, match="preserve an assignable value type"):
         internal_transform_value_ref(exported, lambda _leaf: incompatible)
 
 

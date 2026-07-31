@@ -6,16 +6,16 @@ from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
 )
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
 from scopecat.kernel.value_data import CellValue
-from scopecat.program.value_graph import ComputeResultRef
+from scopecat.kernel.value_types import Scalar
+from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpression
 
-type StateValueUse = VerifiedRelationPlan | ComputeResultRef
-type EvaluatedStateValue = ComputeResultRef | CellValue
+type StateValueUse = ScalarExpression
+type EvaluatedStateValue = ComputeResultScalarExpr | CellValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +33,7 @@ class SetStateSpec:
     interface_id: InterfaceId
     property_id: str
     value_use: StateValueUse
+    value_type: Scalar
     component_path: tuple[str, ...] = ()
 
     @property
@@ -90,8 +91,12 @@ def evaluate_state_spec(
             property_id=spec.property_id,
             value=(
                 value_use
-                if isinstance(value_use, ComputeResultRef)
-                else evaluate_scalar(value_use, ctx)
+                if isinstance(value_use, ComputeResultScalarExpr)
+                else evaluate_scalar(
+                    value_use,
+                    ctx,
+                    expected_type=spec.value_type,
+                )
             ),
         )
     ]

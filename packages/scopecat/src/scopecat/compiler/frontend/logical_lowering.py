@@ -22,7 +22,6 @@ from scopecat.compiler.frontend.value_binding import (
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
-    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
@@ -46,13 +45,17 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_type_compatibility import require_assignable
-from scopecat.program.expressions import ScalarExpr, as_scalar_expr
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    ScalarExpr,
+    ScalarExpression,
+    as_scalar_expr,
+)
 from scopecat.program.logical import (
     LocalPythonImplementation,
     LogicalComputeNode,
     LogicalDomainExecution,
     LogicalProgram,
-    PlanExpressionSource,
     ValueDef,
 )
 from scopecat.program.operations import ModuleInputPort
@@ -72,7 +75,6 @@ from scopecat.program.table_values import (
 )
 from scopecat.program.value_graph import (
     ComputeOutput,
-    ComputeResultRef,
     ValueId,
 )
 from scopecat.program.value_refs import (
@@ -107,7 +109,7 @@ class _LogicalProgramProof(Protocol):
     def value_types(self) -> Mapping[ValueId, ValueType]: ...
 
     @property
-    def scalar_values(self) -> Mapping[ValueId, VerifiedRelationPlan]: ...
+    def scalar_values(self) -> Mapping[ValueId, ScalarExpression]: ...
 
 
 def lower_parameter_overlay_intent(
@@ -141,20 +143,19 @@ def lower_parameter_overlay_intent(
             "parameters",
             path=(lookup.table_id, "columns", lookup.column_id),
         )
-    key_values = {
-        name: static_evaluator.scalar(
-            bind_scalar_input_refs(
-                internal_lower_scalar_value_ref(value)
-                if isinstance(value, ValueRef)
-                else as_scalar_expr(value),
-                inputs,
-            ),
+    key_values: dict[str, CellValue] = {}
+    for name, value in key:
+        expression = (
+            internal_lower_scalar_value_ref(value)
+            if isinstance(value, ValueRef)
+            else as_scalar_expr(value, value_type=key_types[name])
+        )
+        key_values[name] = static_evaluator.scalar(
+            bind_scalar_input_refs(expression, inputs),
             bindings=type_bindings,
             expected_type=key_types[name],
             inputs=input_row(inputs),
         )
-        for name, value in key
-    }
     try:
         row_index = static_evaluator.parameters.lookup_row_index(
             lookup.table_id,
@@ -173,6 +174,7 @@ def lower_parameter_overlay_intent(
         key=key_values,
         column_id=lookup.column_id,
         axis_id=intent.id,
+        value_type=intent.value_type,
     )
 
 
@@ -233,10 +235,10 @@ def lower_domain_graph(
         uses_by_product.setdefault(use.product_id, []).append(use.id)
     typed_executions: list[TypedDomainExecution] = []
     for execution in executions:
-        lowered_inputs: dict[str, VerifiedRelationPlan] = {}
+        lowered_inputs: dict[str, ScalarExpression] = {}
         for name, value_id in execution.inputs:
             lowered = cast(
-                "VerifiedRelationPlan",
+                "ScalarExpression",
                 lower_logical_value(
                     program,
                     value_id,
@@ -245,12 +247,9 @@ def lower_domain_graph(
             lowered_inputs[name] = lowered
         lowered_compiler_inputs: dict[str, CompilerValue] = {}
         for name, value_id in execution.compiler_inputs:
-            lowered = cast(
-                "CompilerValue",
-                lower_logical_value(
-                    program,
-                    value_id,
-                ),
+            lowered = lower_logical_value(
+                program,
+                value_id,
             )
             lowered_compiler_inputs[name] = lowered
         result_bindings: list[TypedDomainResultBinding] = []
@@ -286,13 +285,13 @@ def _lower_compute_node(
             program,
             value_id,
         )
-        if isinstance(lowered, VerifiedRelationPlan):
-            lowered_inputs[name] = lowered
-        else:
-            lowered_inputs[name] = cast("ComputeResultRef", lowered)
+        if not isinstance(lowered, ScalarExpr):
+            raise AssertionError("verified compute inputs must be scalar")
+        lowered_inputs[name] = lowered
     return TypedComputeNode(
         id=operation.id,
         implementation=implementation,
+        input_types=dict(operation.input_types),
         inputs=lowered_inputs,
         result=ComputeOutput(
             id=operation.result_id,
@@ -304,9 +303,13 @@ def _lower_compute_node(
 def lower_logical_value(
     program: _LogicalProgramProof,
     value_id: ValueId,
-) -> CompilerValue | ComputeResultRef:
+) -> CompilerValue:
     if value_id in program.operation_results:
-        return ComputeResultRef(value_id)
+        operation = program.operation_results[value_id]
+        return ComputeResultScalarExpr(
+            value_id=value_id,
+            value_type=operation.result_type,
+        )
     scalar = program.scalar_values.get(value_id)
     if scalar is not None:
         return scalar
@@ -424,7 +427,7 @@ def _nested_input_dependencies(
 ) -> set[str]:
     if isinstance(value, ValueRef):
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultRef):
+        if isinstance(lowered, ComputeResultScalarExpr):
             return set()
         if isinstance(lowered, ScalarExpr):
             return set(
@@ -471,8 +474,8 @@ def _nested_input_dependencies(
 
 
 def _value_source_dependencies(source: object) -> tuple[str, ...]:
-    if isinstance(source, PlanExpressionSource):
-        return source.source_inputs
+    if isinstance(source, ScalarExpr):
+        return scalar_input_refs(source)
     if isinstance(source, InputTableSource):
         return (source.input_id,)
     return ()
@@ -503,7 +506,7 @@ def _lower_point_axis(
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> PointAxis[VerifiedRelationPlan]:
+) -> PointAxis[ScalarExpression]:
     source = axis.source
     if isinstance(source, PointAxisValues):
         return PointAxis(

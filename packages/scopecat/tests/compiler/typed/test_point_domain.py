@@ -11,7 +11,6 @@ from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
-    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.compiler.typed.point_domain import (
@@ -39,6 +38,7 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.program.expressions import (
+    ScalarExpression,
     as_scalar_expr,
     input_ref,
     param,
@@ -55,7 +55,7 @@ _INT = Scalar(Int())
 _TIME = Scalar(QuantityType(dimension="time", unit="ns"))
 _ENTITY = Scalar(Entity("qubit"))
 
-type _CenterUse = VerifiedRelationPlan
+type _CenterUse = ScalarExpression
 
 
 def scalar_value_expr(
@@ -63,7 +63,7 @@ def scalar_value_expr(
     *,
     bindings: RelationTypeBindings | None = None,
     expected_type: Scalar,
-) -> VerifiedRelationPlan:
+) -> ScalarExpression:
     return verify_relation_plan(
         as_scalar_expr(expression),
         bindings=bindings or RelationTypeBindings(),
@@ -167,7 +167,7 @@ def test_product_materialization_is_left_major() -> None:
 
 def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
     center = scalar_value_expr(
-        param("center"),
+        param("center", _TIME),
         bindings=RelationTypeBindings(parameters={"center": _TIME}),
         expected_type=_TIME,
     )
@@ -201,9 +201,37 @@ def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
     ]
 
 
+def test_linear_axis_normalizes_center_to_its_declared_value_type() -> None:
+    gigahertz = Scalar(QuantityType(unit="GHz"))
+    hertz = Scalar(QuantityType(unit="Hz"))
+    materialized = _materialize(
+        PointDomain(
+            axes=(
+                point_axis_linear(
+                    "frequency",
+                    gigahertz,
+                    as_scalar_expr(
+                        Quantity(value=5_000_000_000.0, unit="Hz"),
+                        value_type=hertz,
+                    ),
+                    Quantity(value=1.0, unit="Hz"),
+                    4,
+                ),
+            )
+        )
+    )
+
+    assert [point.row["frequency"] for point in materialized.points] == [
+        Quantity(value=4.9999999995, unit="GHz"),
+        Quantity(value=4.999999999833, unit="GHz"),
+        Quantity(value=5.000000000167, unit="GHz"),
+        Quantity(value=5.0000000005, unit="GHz"),
+    ]
+
+
 def test_dynamic_center_evaluation_errors_report_the_center_path() -> None:
     center = scalar_value_expr(
-        param("missing"),
+        param("missing", _TIME),
         bindings=RelationTypeBindings(parameters={"missing": _TIME}),
         expected_type=_TIME,
     )
@@ -246,7 +274,7 @@ def test_duplicate_columns_fail_during_typed_verification() -> None:
 
 def test_linear_center_rejects_an_unresolved_input() -> None:
     center = scalar_value_expr(
-        input_ref("center"),
+        input_ref("center", _TIME),
         bindings=RelationTypeBindings(inputs={"center": _TIME}),
         expected_type=_TIME,
     )
@@ -274,7 +302,7 @@ def test_linear_center_rejects_an_unresolved_input() -> None:
 
 def test_linear_center_rejects_a_point_dependency() -> None:
     center = scalar_value_expr(
-        point_col("other"),
+        point_col("other", _TIME),
         bindings=RelationTypeBindings(
             point_row=RowType((TableColumn("other", _TIME),))
         ),

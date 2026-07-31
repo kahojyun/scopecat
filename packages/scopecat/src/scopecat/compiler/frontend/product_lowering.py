@@ -27,6 +27,7 @@ from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.records import RecordUse
 from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
     ScalarExpr,
     as_scalar_expr,
 )
@@ -37,7 +38,6 @@ from scopecat.program.products import (
     RecordSelection,
     product_axis_dimension_id,
 )
-from scopecat.program.value_graph import ComputeResultRef
 from scopecat.program.value_refs import (
     ValueRef,
     internal_lower_value_ref,
@@ -243,7 +243,7 @@ def _static_axis_size(
     if isinstance(value, ValueRef):
         selected_type = value.value_type
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultRef):
+        if isinstance(lowered, ComputeResultScalarExpr):
             raise AssertionError(
                 "verified product axis unexpectedly depends on a compute result"
             )

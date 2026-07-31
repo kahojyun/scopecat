@@ -17,13 +17,14 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.verification import (
-    PlanImportNamespace,
     RelationTypeBindings,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
+from scopecat.program.expression_analysis import plan_input_refs
 from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
     ScalarExpr,
@@ -32,12 +33,9 @@ from scopecat.program.expressions import (
     param,
 )
 from scopecat.program.logical import (
-    LiteralValueSource,
     LogicalProgram,
-    PlanExpressionSource,
 )
 from scopecat.program.value_graph import (
-    ComputeResultRef,
     OperationId,
     ValueId,
     operation_result_id,
@@ -91,10 +89,8 @@ def _logical_binding_expression(
     value_id = program.bindings[index].value_id
     definition = next(item for item in program.value_defs if item.id == value_id)
     source = definition.source
-    if isinstance(source, PlanExpressionSource):
-        return source.expression
-    assert isinstance(source, LiteralValueSource)
-    return as_scalar_expr(source.value)
+    assert isinstance(source, ScalarExpr)
+    return source
 
 
 def _table_definition(
@@ -334,15 +330,11 @@ def test_compute_inputs_close_template_inputs_before_logical_verification() -> N
     qubit_source = definitions[uses["qubit"]].source
     length_source = definitions[uses["length"]].source
     frequency_source = definitions[uses["frequency"]].source
-    assert isinstance(qubit_source, PlanExpressionSource)
-    assert isinstance(length_source, PlanExpressionSource)
-    assert isinstance(frequency_source, PlanExpressionSource)
-    assert qubit_source.source_inputs == ()
-    assert length_source.source_inputs == ()
-    assert frequency_source.source_inputs == ()
+    assert isinstance(qubit_source, ScalarExpr)
+    assert isinstance(length_source, ScalarExpr)
+    assert isinstance(frequency_source, ScalarExpr)
     assert all(
-        compiled.program.scalar_values[value_id].import_ids(PlanImportNamespace.INPUT)
-        == ()
+        plan_input_refs(compiled.program.scalar_values[value_id]) == ()
         for value_id in uses.values()
     )
     assert operation.result_type == authoring.ScalarType(authoring.PayloadType("pulse"))
@@ -719,17 +711,19 @@ def test_request_projection_explicitly_handles_authoring_semantic_values() -> No
 
 
 def test_request_projection_rejects_transient_typed_and_compiler_values() -> None:
+    entity_type = sc.ScalarType(sc.EntityType())
     typed_value = program_input(
         "subject",
-        sc.ScalarType(sc.EntityType()),
+        entity_type,
     )
     transient_values = (
         typed_value,
-        input_ref("subject"),
-        ComputeResultRef(
+        input_ref("subject", entity_type),
+        ComputeResultScalarExpr(
             value_id=operation_result_id(
                 OperationId(SymbolId(local_id="build-program"))
-            )
+            ),
+            value_type=entity_type,
         ),
     )
 
@@ -821,7 +815,10 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
     assembly = compile_invocation(template()).program.program
 
     assert "drive_frequency" not in assembly.inputs
-    assert _logical_binding_expression(assembly, 0) == param("drive_frequency")
+    assert _logical_binding_expression(assembly, 0) == param(
+        "drive_frequency",
+        _QUANTITY_VALUE,
+    )
 
 
 def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
@@ -948,9 +945,15 @@ def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
 
 def test_expression_input_binding_does_not_capture_sibling_child_inputs() -> None:
     value_type = authoring.ScalarType(authoring.FloatType())
-    child_value = internal_value_ref_from_expression(input_ref("a"), value_type)
+    child_value = internal_value_ref_from_expression(
+        input_ref("a", value_type),
+        value_type,
+    )
     parent_b = program_input("b", value_type)
-    child_b = internal_value_ref_from_expression(as_scalar_expr(10.0), value_type)
+    child_b = internal_value_ref_from_expression(
+        as_scalar_expr(10.0, value_type=value_type),
+        value_type,
+    )
 
     bound = internal_bind_value_ref_inputs(
         child_value,

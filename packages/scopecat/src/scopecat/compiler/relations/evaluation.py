@@ -1,4 +1,4 @@
-"""Runtime bindings and checked evaluation for verified relation plans."""
+"""Runtime bindings and checked evaluation for canonical scalar plans."""
 
 from __future__ import annotations
 
@@ -10,9 +10,11 @@ from scopecat.compiler.relations.scalar_eval import read_path
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
     PointRequirement,
+    RelationTypeBindings,
     RowType,
     TypedPlanImport,
-    VerifiedRelationPlan,
+    relation_plan_imports,
+    relation_plan_point_requirement,
 )
 from scopecat.kernel.value_data import CellValue, Row, is_cell_value
 from scopecat.kernel.value_types import (
@@ -25,6 +27,7 @@ from scopecat.kernel.value_validation import (
     ValueValidationError,
     coerce_literal,
 )
+from scopecat.program.expressions import ScalarExpression
 from scopecat.program.table_values import (
     LiteralTableSource,
     ParameterTableSource,
@@ -33,16 +36,28 @@ from scopecat.program.table_values import (
 
 
 def evaluate_scalar(
-    verified_plan: VerifiedRelationPlan,
+    expression: ScalarExpression,
     ctx: EvalContext,
+    *,
+    bindings: RelationTypeBindings | None = None,
+    expected_type: Scalar | None = None,
 ) -> CellValue:
+    """Evaluate an expression against normalized runtime bindings.
+
+    ``bindings`` and ``expected_type`` retain narrower types selected while
+    verifying a generic canonical expression, without retyping or wrapping it.
+    """
+
     from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
 
-    normalized = _prepare_context(verified_plan, ctx)
-    result = evaluate_scalar_expression(verified_plan.root, normalized)
+    normalized = _prepare_context(expression, ctx, bindings=bindings)
+    result = evaluate_scalar_expression(expression, normalized)
     return cast(
         "CellValue",
-        _normalize_materialized_result(verified_plan.value_type, result),
+        _normalize_materialized_result(
+            expected_type or expression.value_type,
+            result,
+        ),
     )
 
 
@@ -75,7 +90,7 @@ def evaluate_table_value(
 
 
 def normalize_relation_parameter_import(
-    verified_plan: VerifiedRelationPlan,
+    expression: ScalarExpression,
     imported: TypedPlanImport,
     params: ParameterRelationData,
 ) -> object:
@@ -86,8 +101,8 @@ def normalize_relation_parameter_import(
     parameter-type failure merely because no relation has been evaluated yet.
     """
 
-    if imported not in verified_plan.imports:
-        msg = "parameter import is not owned by the supplied relation proof"
+    if imported not in relation_plan_imports(expression):
+        msg = "parameter import is not used by the supplied relation expression"
         raise ValueError(msg)
     return _normalize_parameter_import(
         imported,
@@ -97,10 +112,12 @@ def normalize_relation_parameter_import(
 
 
 def _prepare_context(
-    verified_plan: VerifiedRelationPlan,
+    expression: ScalarExpression,
     ctx: EvalContext,
+    *,
+    bindings: RelationTypeBindings | None,
 ) -> EvalContext:
-    return _normalize_evaluation_context(verified_plan, ctx)
+    return _normalize_evaluation_context(expression, ctx, bindings=bindings)
 
 
 def _normalize_parameter_import(
@@ -193,16 +210,19 @@ def _parameter_table_rows(
 
 
 def _normalize_evaluation_context(
-    verified_plan: VerifiedRelationPlan,
+    expression: ScalarExpression,
     ctx: EvalContext,
+    *,
+    bindings: RelationTypeBindings | None,
 ) -> EvalContext:
-    """Snapshot and normalize every dynamic value the proof actually consumes."""
+    """Snapshot and normalize every dynamic value the expression consumes."""
 
     inputs: dict[str, object] = dict(ctx.inputs)
     parameter_scalars: dict[str, CellValue] = {}
     tables_by_parameter: dict[str, list[Row]] = {}
 
-    for imported in verified_plan.imports:
+    for intrinsic_import in relation_plan_imports(expression):
+        imported = _bound_scalar_import(intrinsic_import, bindings)
         path = (imported.namespace.value + "s", imported.id)
         if imported.namespace is PlanImportNamespace.INPUT:
             try:
@@ -226,7 +246,7 @@ def _normalize_evaluation_context(
         else:
             parameter_scalars[imported.id] = cast("CellValue", normalized)
 
-    point_requirement = verified_plan.external_point_requirement
+    point_requirement = _bound_point_requirement(expression, bindings)
     point_row = (
         _normalize_point_row(
             point_requirement,
@@ -249,6 +269,40 @@ def _normalize_evaluation_context(
         ),
         point_row=point_row,
         inputs=inputs,
+    )
+
+
+def _bound_scalar_import(
+    imported: TypedPlanImport,
+    bindings: RelationTypeBindings | None,
+) -> TypedPlanImport:
+    if bindings is None or imported.lookup is not None:
+        return imported
+    available = (
+        bindings.inputs
+        if imported.namespace is PlanImportNamespace.INPUT
+        else bindings.parameters
+    )
+    value_type = available.get(imported.id)
+    if value_type is None:
+        return imported
+    return TypedPlanImport(
+        namespace=imported.namespace,
+        id=imported.id,
+        value_type=value_type,
+    )
+
+
+def _bound_point_requirement(
+    expression: ScalarExpression,
+    bindings: RelationTypeBindings | None,
+) -> PointRequirement | None:
+    requirement = relation_plan_point_requirement(expression)
+    if requirement is None or bindings is None or bindings.point_row is None:
+        return requirement
+    return PointRequirement(
+        row_type=bindings.point_row,
+        column_references=requirement.column_references,
     )
 
 

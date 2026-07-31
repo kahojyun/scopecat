@@ -428,9 +428,9 @@ def test_parameter_scan_specializes_consumers_against_its_point_column() -> None
 
     [execution] = resolved.bindings.effects
     assert isinstance(execution, TypedDomainExecution)
-    root = execution.inputs["frequency"].root
-    assert isinstance(root, PointColumnScalarExpr)
-    assert root.name == "scanned_frequency"
+    expression = execution.inputs["frequency"]
+    assert isinstance(expression, PointColumnScalarExpr)
+    assert expression.name == "scanned_frequency"
 
 
 def test_parameter_scan_type_must_be_writable_to_catalog_column() -> None:

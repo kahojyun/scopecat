@@ -1,9 +1,4 @@
-"""Static type verification for scalar plans.
-
-The scalar AST deliberately remains an easy-to-author data model. This
-module turns that model into a proof-carrying plan before compiler or runtime
-code may rely on its shape.
-"""
+"""Static verification and dependency analysis for canonical scalar plans."""
 
 from __future__ import annotations
 
@@ -14,18 +9,21 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
+from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import (
     Scalar,
     Table,
     TableColumn,
 )
 from scopecat.kernel.value_validation import ValueValidationError, validate_literal
+from scopecat.program.expression_analysis import scalar_nodes
 from scopecat.program.expression_operators import scalar_operator_result_type
 from scopecat.program.expressions import (
     BinaryScalarExpr,
+    ComputeResultScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
+    ModuleExportScalarExpr,
     ParameterLookupScalarExpr,
     ParameterLookupUse,
     ParameterScalarExpr,
@@ -122,70 +120,13 @@ class RelationPlanVerificationError(ValueError):
         super().__init__(f"{rendered}: {message}" if rendered else message)
 
 
-class VerifiedRelationPlan:
-    """Proof that a scalar plan matches its declared consumer type."""
-
-    __slots__ = (
-        "_bindings",
-        "_external_point_requirement",
-        "_imports",
-        "_root",
-        "_value_type",
-    )
-
-    def __init__(
-        self,
-        root: ScalarExpr,
-        value_type: Scalar,
-        imports: tuple[TypedPlanImport, ...],
-        bindings: RelationTypeBindings,
-        external_point_requirement: PointRequirement | None,
-    ) -> None:
-        self._root = root
-        self._value_type = value_type
-        self._imports = imports
-        self._bindings = bindings
-        self._external_point_requirement = external_point_requirement
-
-    @property
-    def root(self) -> ScalarExpr:
-        return self._root
-
-    @property
-    def value_type(self) -> Scalar:
-        return self._value_type
-
-    @property
-    def imports(self) -> tuple[TypedPlanImport, ...]:
-        return self._imports
-
-    def import_ids(self, namespace: PlanImportNamespace) -> tuple[str, ...]:
-        return tuple(
-            sorted(
-                {
-                    imported.id
-                    for imported in self._imports
-                    if imported.namespace is namespace
-                }
-            )
-        )
-
-    @property
-    def bindings(self) -> RelationTypeBindings:
-        return self._bindings
-
-    @property
-    def external_point_requirement(self) -> PointRequirement | None:
-        return self._external_point_requirement
-
-
 def verify_relation_plan(
     root: ScalarExpr,
     *,
     bindings: RelationTypeBindings | None = None,
     expected_type: Scalar | None = None,
-) -> VerifiedRelationPlan:
-    """Verify imports and types, then certify the root for its consumer."""
+) -> ScalarExpression:
+    """Verify one canonical expression and return the same object."""
 
     selected = bindings or RelationTypeBindings()
     verifier = _Verifier(selected)
@@ -196,24 +137,86 @@ def verify_relation_plan(
             (),
             f"inferred {inferred!r}, which is not assignable to {expected_type!r}",
         )
-    certified = expected_type or inferred
-    return VerifiedRelationPlan(
-        root,
-        certified,
-        tuple(verifier.imports.values()),
-        selected,
-        _external_point_requirement(verifier, selected),
+    return cast("ScalarExpression", root)
+
+
+def relation_plan_imports(root: ScalarExpr) -> tuple[TypedPlanImport, ...]:
+    """Derive the exact typed imports used by a canonical expression."""
+
+    selected: dict[
+        tuple[PlanImportNamespace, str, ParameterLookupUse | None],
+        TypedPlanImport,
+    ] = {}
+    for scalar in scalar_nodes(root):
+        if isinstance(scalar, InputScalarExpr):
+            imported = TypedPlanImport(
+                PlanImportNamespace.INPUT,
+                scalar.name,
+                scalar.value_type,
+            )
+        elif isinstance(scalar, ParameterScalarExpr):
+            imported = TypedPlanImport(
+                PlanImportNamespace.PARAMETER,
+                scalar.name,
+                scalar.value_type,
+            )
+        elif isinstance(scalar, ParameterLookupScalarExpr):
+            imported = TypedPlanImport(
+                PlanImportNamespace.PARAMETER,
+                scalar.use.table_id,
+                scalar.value_type,
+                lookup=scalar.use,
+            )
+        else:
+            continue
+        key = (imported.namespace, imported.id, imported.lookup)
+        selected.setdefault(key, imported)
+    return tuple(selected.values())
+
+
+def relation_plan_import_ids(
+    root: ScalarExpr,
+    namespace: PlanImportNamespace,
+) -> tuple[str, ...]:
+    """Return sorted unique import ids in one namespace."""
+
+    return tuple(
+        sorted(
+            {
+                imported.id
+                for imported in relation_plan_imports(root)
+                if imported.namespace is namespace
+            }
+        )
+    )
+
+
+def relation_plan_point_requirement(
+    root: ScalarExpr,
+) -> PointRequirement | None:
+    """Derive the exact typed point columns read by an expression."""
+
+    references: dict[str, Scalar] = {}
+    for scalar in scalar_nodes(root):
+        if not isinstance(scalar, PointColumnScalarExpr):
+            continue
+        existing = references.get(scalar.name)
+        if existing is not None and existing != scalar.value_type:
+            msg = f"point column {scalar.name!r} has conflicting intrinsic types"
+            raise ValueError(msg)
+        references.setdefault(scalar.name, scalar.value_type)
+    if not references:
+        return None
+    names = tuple(sorted(references))
+    return PointRequirement(
+        row_type=RowType(tuple(TableColumn(name, references[name]) for name in names)),
+        column_references=names,
     )
 
 
 class _Verifier:
     def __init__(self, bindings: RelationTypeBindings) -> None:
         self.bindings = bindings
-        self.external_point_references: set[str] = set()
-        self.imports: dict[
-            tuple[PlanImportNamespace, str, ParameterLookupUse | None],
-            TypedPlanImport,
-        ] = {}
 
     def infer(
         self,
@@ -232,23 +235,32 @@ class _Verifier:
         scalar = cast("ScalarExpression", node)
         match scalar:
             case LiteralScalarExpr():
-                result = self.literal(scalar.value, path, expected)
+                self.validate_literal(scalar.value_type, scalar.value, path)
+                result = scalar.value_type
             case PointColumnScalarExpr():
-                name = scalar.name
-                result = self.row_column(self.bindings.point_row, name, path)
-                self.external_point_references.add(name)
+                bound_type = self.row_column(
+                    self.bindings.point_row,
+                    scalar.name,
+                    path,
+                )
+                self.require_bound_type(bound_type, scalar.value_type, path)
+                result = bound_type
             case InputScalarExpr():
-                result = self.import_scalar(
+                bound_type = self.import_scalar(
                     PlanImportNamespace.INPUT,
                     scalar.name,
                     path,
                 )
+                self.require_bound_type(bound_type, scalar.value_type, path)
+                result = bound_type
             case ParameterScalarExpr():
-                result = self.import_scalar(
+                bound_type = self.import_scalar(
                     PlanImportNamespace.PARAMETER,
                     scalar.name,
                     path,
                 )
+                self.require_bound_type(bound_type, scalar.value_type, path)
+                result = bound_type
             case ParameterLookupScalarExpr():
                 result = self.parameter_lookup(scalar, path)
             case BinaryScalarExpr():
@@ -270,6 +282,19 @@ class _Verifier:
                         (*path, "right"),
                         "division denominator is statically zero",
                     )
+                self.require_inferred_type(result, scalar.value_type, path)
+            case ComputeResultScalarExpr():
+                raise self.error(
+                    "compute_result_unavailable",
+                    path,
+                    "compute results cannot appear inside a pure relation plan",
+                )
+            case ModuleExportScalarExpr():
+                raise self.error(
+                    "unresolved_module_export",
+                    path,
+                    f"unresolved module export {scalar.export_id!r}",
+                )
         self.require_expected(result, expected, path)
         return result
 
@@ -286,17 +311,8 @@ class _Verifier:
                 (*path, "key", name),
                 selected_key_types[name],
             )
-        import_key = (PlanImportNamespace.PARAMETER, use.table_id, use)
-        self.imports.setdefault(
-            import_key,
-            TypedPlanImport(
-                PlanImportNamespace.PARAMETER,
-                use.table_id,
-                use.result_type,
-                lookup=use,
-            ),
-        )
-        return use.result_type
+        self.require_intrinsic_type(use.result_type, node.value_type, path)
+        return node.value_type
 
     def import_scalar(
         self,
@@ -317,8 +333,6 @@ class _Verifier:
                 path,
                 f"unknown {namespace.value} {import_id!r}",
             ) from error
-        key = (namespace, import_id, None)
-        self.imports.setdefault(key, TypedPlanImport(namespace, import_id, value_type))
         return value_type
 
     def row_column(
@@ -343,23 +357,6 @@ class _Verifier:
             )
         return exact.value_type
 
-    def literal(
-        self,
-        value: object,
-        path: PlanPath,
-        expected: Scalar | None,
-    ) -> Scalar:
-        if expected is not None:
-            self.validate_literal(expected, value, path)
-            return expected
-        if value is None:
-            raise self.error(
-                "unsupported_null",
-                path,
-                "null literals are not supported",
-            )
-        return literal_scalar_type(value)
-
     def validate_literal(
         self,
         expected: Scalar,
@@ -370,6 +367,48 @@ class _Verifier:
             validate_literal(expected, value, path=path or ("value",))
         except ValueValidationError as error:
             raise self.error("invalid_literal", path, error.reason) from error
+
+    def require_bound_type(
+        self,
+        bound: Scalar,
+        intrinsic: Scalar,
+        path: PlanPath,
+    ) -> None:
+        if is_assignable(bound, intrinsic):
+            return
+        raise self.error(
+            "intrinsic_type_mismatch",
+            path,
+            f"bound type {bound!r} is not assignable to intrinsic {intrinsic!r}",
+        )
+
+    def require_intrinsic_type(
+        self,
+        inferred: Scalar,
+        intrinsic: Scalar,
+        path: PlanPath,
+    ) -> None:
+        if inferred == intrinsic:
+            return
+        raise self.error(
+            "intrinsic_type_mismatch",
+            path,
+            f"inferred {inferred!r}, which differs from intrinsic {intrinsic!r}",
+        )
+
+    def require_inferred_type(
+        self,
+        inferred: Scalar,
+        intrinsic: Scalar,
+        path: PlanPath,
+    ) -> None:
+        if is_assignable(inferred, intrinsic):
+            return
+        raise self.error(
+            "intrinsic_type_mismatch",
+            path,
+            f"inferred {inferred!r} is not assignable to intrinsic {intrinsic!r}",
+        )
 
     def require_expected(
         self,
@@ -403,42 +442,6 @@ def _frozen_mapping(
         msg = f"{label} ids must be non-empty"
         raise ValueError(msg)
     return MappingProxyType(copied)
-
-
-def _external_point_requirement(
-    verifier: _Verifier,
-    bindings: RelationTypeBindings,
-) -> PointRequirement | None:
-    return _point_requirement(
-        bindings.point_row,
-        verifier.external_point_references,
-    )
-
-
-def _point_requirement(
-    row_type: RowType | None,
-    references: set[str],
-) -> PointRequirement | None:
-    if not references:
-        return None
-    bound = row_type or RowType()
-    selected_ids = {_row_column_root_id(bound, reference) for reference in references}
-    required_type = RowType(
-        tuple(column for column in bound.columns if column.id in selected_ids),
-    )
-    return PointRequirement(
-        row_type=required_type,
-        column_references=tuple(references),
-    )
-
-
-def _row_column_root_id(row: RowType | None, name: str) -> str:
-    if row is None:
-        raise AssertionError("verified row reference has no row type")
-    column_ids = {column.id for column in row.columns}
-    if name in column_ids:
-        return name
-    raise AssertionError(f"verified row reference {name!r} has no column")
 
 
 def _is_zero_literal(node: ScalarExpr) -> bool:

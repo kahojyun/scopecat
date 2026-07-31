@@ -39,6 +39,7 @@ from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
+    relation_plan_imports,
 )
 from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.compiler.typed.program import BoundProgramFacts, bound_domain_executions
@@ -110,6 +111,11 @@ def bind_program(
             program,
             environment,
         )
+        return _bind_program_facts(
+            program,
+            lowered,
+            environment,
+        )
     except RelationPlanVerificationError as error:
         raise_frontend_problem(
             f"relation_plan_{error.code}",
@@ -121,11 +127,6 @@ def bind_program(
                 "plan_path": list(error.path),
             },
         )
-    return _bind_program_facts(
-        program,
-        lowered,
-        environment,
-    )
 
 
 def _lower_logical_program(
@@ -355,7 +356,7 @@ def _relation_import_problems(
     problems: list[Problem] = []
     for consumer in bound_relation_consumers(program, point_domain):
         plan = consumer.plan
-        for imported in plan.imports:
+        for imported in relation_plan_imports(plan):
             if imported.namespace is PlanImportNamespace.INPUT:
                 problems.append(_unresolved_input_problem(consumer, imported.id))
                 continue

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from enum import IntEnum, StrEnum
+from typing import Annotated
 
 import pytest
 
+import scopecat as sc
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -46,6 +48,7 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
     lit,
     point_col,
 )
@@ -56,12 +59,12 @@ from scopecat.program.logical import (
 from scopecat.program.point_domain import point_axis_values
 from scopecat.program.value_graph import (
     ComputeOutput,
-    ComputeResultRef,
     OperationId,
     ValueId,
     operation_result_id,
 )
-from tests.testkit.authoring import load_config
+from scopecat.sdk.instruments import InterfaceRef
+from tests.testkit.authoring import bind_invocation, load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
@@ -235,24 +238,32 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                     lambda: {"unused": True},
                 ),
                 result=_output(unused_id, Scalar(Payload("unused_program"))),
+                input_types={},
             ),
             TypedComputeNode(
                 id=producer_id,
                 implementation=_implementation(producer_id, _identity_value),
                 inputs={
                     "value": scalar_value_expr(
-                        point_col("value"),
+                        point_col("value", Scalar(Float())),
                         expected_type=Scalar(Float()),
                         bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(producer_id, Scalar(Float())),
+                input_types={"value": Scalar(Float())},
             ),
             TypedComputeNode(
                 id=consumer_id,
                 implementation=_implementation(consumer_id, _wrap_value),
-                inputs={"value": ComputeResultRef(producer_output_id)},
+                inputs={
+                    "value": ComputeResultScalarExpr(
+                        value_id=producer_output_id,
+                        value_type=Scalar(Float()),
+                    )
+                },
                 result=_output(consumer_id, Scalar(Payload("pulse_program"))),
+                input_types={"value": Scalar(Float())},
             ),
         ),
         resource_requirements=(
@@ -267,7 +278,12 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 resource_port_id=_resource("source-0"),
                 interface="test.play_program/v1",
                 operation="play",
-                arguments={"program": compute_result(consumer_output_id)},
+                arguments={
+                    "program": compute_result(
+                        consumer_output_id,
+                        value_type=Scalar(Payload("pulse_program")),
+                    )
+                },
             ),
         ),
     )
@@ -324,7 +340,10 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
             )
             if call.logical_compute_node_id == consumer_id.qualified_name
         )
-        assert consumer.inputs["value"] == OutputInput(producer_output_id)
+        assert consumer.inputs["value"] == OutputInput(
+            producer_output_id,
+            Scalar(Float()),
+        )
         assert consumer.payload_slot is not None
         payload_ids.append(consumer.payload_slot.id)
 
@@ -378,12 +397,18 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
                 implementation=_implementation(node_id, _quantity_value),
                 inputs={
                     "frequency": scalar_value_expr(
-                        point_col("frequency"),
+                        point_col(
+                            "frequency",
+                            Scalar(QuantityType(unit="GHz")),
+                        ),
                         expected_type=Scalar(QuantityType(unit="GHz")),
                         bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(node_id, Scalar(Float())),
+                input_types={
+                    "frequency": Scalar(QuantityType(unit="GHz")),
+                },
             ),
         ),
     )
@@ -402,6 +427,88 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
     ]
 
 
+def test_composed_module_input_keeps_its_declared_compute_input_type() -> None:
+    play_interface = InterfaceRef("test.compute_input_type/v1")
+    play = play_interface.operation("play")
+    program_argument = play.argument("program")
+    frequency = sc.coordinate(
+        "frequency",
+        sc.ScalarType(sc.QuantityType(dimension="frequency")),
+    )
+
+    @sc.module(id="test.compute-input-type.child")
+    def child(
+        context: sc.ModuleContext,
+        frequency_input: Annotated[
+            sc.Input[Quantity],
+            sc.QuantityType(unit="GHz"),
+        ],
+    ) -> None:
+        program = context.compute(
+            "build-program",
+            fn=_wrap_value,
+            inputs={"value": frequency_input},
+            output_type=sc.ScalarType(sc.PayloadType("test.compute_input_type")),
+        )
+        drive = context.resource("drive", requires=(play_interface,))
+        context.invoke(
+            "play-program",
+            resource=drive,
+            operation=play,
+            arguments={program_argument: program},
+        )
+
+    @sc.template(id="test.compute-input-type", kind="compute-input-type")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(child(frequency_input=frequency))
+        experiment.scan(sc.axis(frequency, (5_000.0,), unit="MHz"))
+
+    config = config_with_physical_resources({"drive-a": (play_interface.interface_id,)})
+    plan = materialize_local_execution(
+        bind_invocation(template(), config_profile=config)
+    )
+
+    [call] = operations_of_type(plan, ComputeOperation, point_index=0)
+    assert call.inputs["value"] == BoundInput(Quantity(value=5.0, unit="GHz"))
+
+
+def test_composed_state_expression_keeps_its_declared_value_type() -> None:
+    set_frequency = InterfaceRef("test.set_frequency/v1")
+    frequency = sc.coordinate(
+        "frequency",
+        sc.ScalarType(sc.QuantityType(unit="MHz")),
+    )
+
+    @sc.module(id="test.state-value-type.child")
+    def child(
+        context: sc.ModuleContext,
+        frequency_input: Annotated[
+            sc.Input[Quantity],
+            sc.QuantityType(unit="GHz"),
+        ],
+    ) -> None:
+        drive = context.resource("drive", requires=(set_frequency,))
+        context.bind_property(
+            drive,
+            set_frequency.property("value"),
+            value=sc.input_ref(frequency_input) + Quantity(0.0, "GHz"),
+        )
+
+    @sc.template(id="test.state-value-type", kind="state-value-type")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(child(frequency_input=frequency))
+        experiment.scan(sc.axis(frequency, (5_000.0,), unit="MHz"))
+
+    config = load_config()
+    plan = materialize_local_execution(
+        bind_invocation(template(), config_profile=config)
+    )
+
+    [operation] = operations_of_type(plan, ApplyStateOperation, point_index=0)
+    [target] = operation.targets
+    assert target.value.root == Quantity(value=5.0, unit="GHz")
+
+
 def test_compute_payload_input_rejects_mismatched_schema_before_binding() -> None:
     point_type = Table(
         columns=(TableColumn("payload", Scalar(Payload("source-payload"))),),
@@ -409,7 +516,7 @@ def test_compute_payload_input_rejects_mismatched_schema_before_binding() -> Non
 
     with pytest.raises(RelationPlanVerificationError) as caught:
         scalar_value_expr(
-            point_col("payload"),
+            point_col("payload", Scalar(Payload("source-payload"))),
             expected_type=Scalar(Payload("expected-payload")),
             bindings=_point_bindings(point_type),
         )
@@ -446,12 +553,13 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
                 implementation=_implementation(node_id, _mapping_size),
                 inputs={
                     "payload": scalar_value_expr(
-                        point_col("payload"),
+                        point_col("payload", Scalar(Payload("mapping"))),
                         expected_type=Scalar(Payload("mapping")),
                         bindings=_point_bindings(point_type),
                     )
                 },
                 result=_output(node_id, Scalar(Float())),
+                input_types={"payload": Scalar(Payload("mapping"))},
             ),
         ),
     )

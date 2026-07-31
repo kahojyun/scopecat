@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
@@ -28,8 +27,12 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.measurements.records import plan_records, validate_record_axes
+from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
+    ScalarExpr,
+    ScalarExpression,
+)
 from scopecat.program.point_domain import iter_point_axis_linear
-from scopecat.program.value_graph import ComputeResultRef
 
 
 def _verify_bound_facts(
@@ -112,7 +115,7 @@ class ProgramRelationConsumer:
     """One scalar plan paired with its semantic role and diagnostic path."""
 
     kind: ProgramRelationConsumerKind
-    plan: VerifiedRelationPlan
+    plan: ScalarExpression
     location: ModelLocation
 
 
@@ -139,7 +142,7 @@ def verify_bound_facts(
 
 def _consumer(
     kind: ProgramRelationConsumerKind,
-    value: VerifiedRelationPlan,
+    value: ScalarExpression,
     location: ModelLocation,
 ) -> ProgramRelationConsumer:
     return ProgramRelationConsumer(
@@ -174,7 +177,7 @@ def bound_relation_consumers(
 def _program_relation_consumers(
     program: BoundProgramFacts,
 ) -> Iterator[ProgramRelationConsumer]:
-    """Index relation proofs already built with their exact lowering bindings."""
+    """Index canonical expressions with their exact lowering bindings."""
 
     for requirement_index, requirement in enumerate(program.resource_requirements):
         for expression_index, use in enumerate(requirement.entity_uses):
@@ -191,7 +194,7 @@ def _program_relation_consumers(
 
     for node in program.compute_nodes:
         for input_name, input_value in node.inputs.items():
-            if isinstance(input_value, ComputeResultRef):
+            if isinstance(input_value, ComputeResultScalarExpr):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.COMPUTE_INPUT,
@@ -207,6 +210,8 @@ def _program_relation_consumers(
 
     for execution_index, execution in enumerate(bound_domain_executions(program)):
         for input_name, input_value in execution.inputs.items():
+            if isinstance(input_value, ComputeResultScalarExpr):
+                continue
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_EXECUTION_INPUT,
                 input_value,
@@ -218,7 +223,9 @@ def _program_relation_consumers(
                 ),
             )
         for input_name, input_value in execution.compiler_inputs.items():
-            if not isinstance(input_value, VerifiedRelationPlan):
+            if not isinstance(input_value, ScalarExpr) or isinstance(
+                input_value, ComputeResultScalarExpr
+            ):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.DOMAIN_COMPILER_INPUT,
@@ -232,7 +239,7 @@ def _program_relation_consumers(
             )
 
     for state_index, state in enumerate(bound_state(program)):
-        if not isinstance(state.value_use, ComputeResultRef):
+        if not isinstance(state.value_use, ComputeResultScalarExpr):
             yield _consumer(
                 ProgramRelationConsumerKind.STATE_VALUE,
                 state.value_use,
@@ -241,7 +248,7 @@ def _program_relation_consumers(
 
     for invocation_index, invocation in enumerate(bound_invocations(program)):
         for argument in invocation.arguments:
-            if isinstance(argument.value_use, ComputeResultRef):
+            if isinstance(argument.value_use, ComputeResultScalarExpr):
                 continue
             yield _consumer(
                 ProgramRelationConsumerKind.INVOCATION_ARGUMENT,

@@ -12,7 +12,6 @@ from scopecat.compiler.relations.context import (
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
-    VerifiedRelationPlan,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -49,6 +48,7 @@ from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.expressions import (
     ParameterLookupUse,
     ScalarExpr,
+    ScalarExpression,
     input_ref,
     param,
     parameter_lookup,
@@ -110,9 +110,9 @@ def _values_axis(
     axis_id: str,
     value_type: Scalar,
     values: tuple[CellValue, ...],
-) -> PointAxis[VerifiedRelationPlan]:
+) -> PointAxis[ScalarExpression]:
     return cast(
-        "PointAxis[VerifiedRelationPlan]",
+        "PointAxis[ScalarExpression]",
         point_axis_values(axis_id, value_type, values),
     )
 
@@ -123,7 +123,7 @@ def _linear_axis(
     *,
     bindings: RelationTypeBindings | None = None,
     count: int = 2,
-) -> PointAxis[VerifiedRelationPlan]:
+) -> PointAxis[ScalarExpression]:
     return point_axis_linear(
         axis_id,
         _FREQUENCY,
@@ -139,7 +139,7 @@ def _linear_axis(
 
 def _entity_rows(
     values: tuple[CellValue, ...],
-) -> PointAxis[VerifiedRelationPlan]:
+) -> PointAxis[ScalarExpression]:
     return _values_axis(
         "subject",
         Scalar(Entity()),
@@ -160,7 +160,7 @@ def _symbolic_program() -> BoundProgramFacts:
         ),
         _linear_axis(
             "c",
-            param("drive_frequency"),
+            param("drive_frequency", _DRIVE_FREQUENCY),
             bindings=RelationTypeBindings(
                 parameters={"drive_frequency": _DRIVE_FREQUENCY}
             ),
@@ -413,7 +413,7 @@ def test_config_problems_do_not_produce_an_environment() -> None:
     ("expression", "bindings"),
     (
         (
-            param("definitely_missing"),
+            param("definitely_missing", _FREQUENCY),
             RelationTypeBindings(parameters={"definitely_missing": _FREQUENCY}),
         ),
         (
@@ -496,7 +496,7 @@ def test_bind_rejects_remaining_relation_input_imports() -> None:
                 interface_id="test.set_frequency/v1",
                 property_id="value",
                 value=scalar_value_expr(
-                    input_ref(input_id),
+                    input_ref(input_id, _FLOAT),
                     bindings=RelationTypeBindings(inputs={input_id: _FLOAT}),
                     expected_type=_FLOAT,
                 ),
@@ -523,7 +523,8 @@ def test_bind_reports_every_missing_import_in_one_axis_center() -> None:
             axes=(
                 _linear_axis(
                     "value",
-                    param(missing_ids[0]) + param(missing_ids[1]),
+                    param(missing_ids[0], _FREQUENCY)
+                    + param(missing_ids[1], _FREQUENCY),
                     bindings=RelationTypeBindings(
                         parameters=dict.fromkeys(missing_ids, _FREQUENCY)
                     ),

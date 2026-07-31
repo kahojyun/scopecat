@@ -15,13 +15,10 @@ from scopecat.program.bindings import (
     ResourcePort,
 )
 from scopecat.program.domain import DomainExecution
-from scopecat.program.expressions import (
-    ScalarExpr,
-)
+from scopecat.program.expressions import ComputeResultScalarExpr, lit
 from scopecat.program.logical import (
     AcquireEffect,
     ImplementationId,
-    LiteralValueSource,
     LocalPythonImplementation,
     LogicalComputeNode,
     LogicalDomainExecution,
@@ -32,9 +29,7 @@ from scopecat.program.logical import (
     LogicalProgram,
     LogicalStateAssignment,
     MeasurementPostprocessorId,
-    PlanExpressionSource,
     ValueDef,
-    ValueSource,
 )
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.operations import (
@@ -47,7 +42,6 @@ from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl, RecordSelection
 from scopecat.program.scans import AxisSpec
 from scopecat.program.value_graph import (
-    ComputeResultRef,
     OperationId,
     ValueId,
     operation_result_id,
@@ -172,6 +166,7 @@ class _LogicalProgramBuilder:
         operation = LogicalComputeNode(
             id=operation_id,
             inputs=inputs,
+            input_types=declaration.input_types,
             result_id=output_id,
             result_type=declaration.output_type,
         )
@@ -416,19 +411,14 @@ class _LogicalProgramBuilder:
             # Its definition is owned by the corresponding authored operation.
             return value_id
         lowered = internal_lower_value_ref(value)
-        if isinstance(lowered, ComputeResultRef):
+        if isinstance(lowered, ComputeResultScalarExpr):
             msg = "non-compute logical values must lower to a plan expression"
             raise TypeError(msg)
-        source: ValueSource
-        if isinstance(lowered, ScalarExpr):
-            source = PlanExpressionSource(lowered)
-        else:
-            source = lowered
         self._add_definition(
             ValueDef(
                 id=value_id,
                 value_type=value.value_type,
-                source=source,
+                source=lowered,
             )
         )
         return value_id
@@ -438,12 +428,12 @@ class _LogicalProgramBuilder:
         value_id: ValueId,
         value: object,
     ) -> None:
-        input_cell(value)
+        value_type = literal_scalar_type(value)
         self._add_definition(
             ValueDef(
                 id=value_id,
-                value_type=literal_scalar_type(value),
-                source=LiteralValueSource(value),
+                value_type=value_type,
+                source=lit(input_cell(value), value_type),
             )
         )
 

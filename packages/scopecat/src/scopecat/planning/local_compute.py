@@ -7,7 +7,6 @@ from collections.abc import Set as AbstractSet
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.program import TypedComputeNode
 from scopecat.execution.local.program import (
     BoundInput,
@@ -20,6 +19,7 @@ from scopecat.kernel.problems import Problem, model_location
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.kernel.value_validation import coerce_literal
 from scopecat.planning.local_values import evaluate_scalar_value
+from scopecat.program.expressions import ComputeResultScalarExpr
 from scopecat.program.value_graph import ValueId
 
 
@@ -41,24 +41,32 @@ def bind_compute_operations(
         inputs: dict[str, BoundInput | OutputInput] = {}
         failed = False
         for name, input_spec in node.inputs.items():
+            expected_type = node.input_types[name]
             try:
-                if isinstance(input_spec, VerifiedRelationPlan):
-                    value = unwrap_payload_values(
-                        coerce_literal(
-                            input_spec.value_type,
-                            evaluate_scalar_value(input_spec, ctx),
-                            path=("compute", *node.id.scope, node.id.local_id, name),
-                        )
-                    )
-                    inputs[name] = BoundInput(value)
-                else:
+                if isinstance(input_spec, ComputeResultScalarExpr):
                     if input_spec.value_id not in available_results:
                         msg = (
                             f"compute result "
                             f"{input_spec.value_id.qualified_name!r} is not available"
                         )
                         raise ValueError(msg)
-                    inputs[name] = OutputInput(input_spec.value_id)
+                    inputs[name] = OutputInput(
+                        value_id=input_spec.value_id,
+                        value_type=expected_type,
+                    )
+                else:
+                    value = unwrap_payload_values(
+                        coerce_literal(
+                            expected_type,
+                            evaluate_scalar_value(
+                                input_spec,
+                                ctx,
+                                expected_type=expected_type,
+                            ),
+                            path=("compute", *node.id.scope, node.id.local_id, name),
+                        )
+                    )
+                    inputs[name] = BoundInput(value)
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(

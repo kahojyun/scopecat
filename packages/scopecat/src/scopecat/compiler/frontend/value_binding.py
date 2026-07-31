@@ -7,10 +7,7 @@ from typing import cast, override
 
 from scopecat.kernel.value_data import CellValue
 from scopecat.program import expression_binding
-from scopecat.program.expressions import (
-    ScalarExpr,
-    lit,
-)
+from scopecat.program.expressions import ScalarExpr
 from scopecat.program.table_values import (
     InputTableSource,
     LiteralTableSource,
@@ -69,10 +66,6 @@ def bind_table_source(
     return literal_table_source(
         cast("Sequence[Mapping[str, CellValue]]", value),
     )
-
-
-def literal_scalar_expr(value: object) -> ScalarExpr:
-    return lit(input_cell(_lower_authoring_value(value)))
 
 
 def input_cell(value: object) -> CellValue:

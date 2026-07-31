@@ -43,12 +43,14 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_data import CellValue
+from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
 from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementDType
+from scopecat.program.expressions import ComputeResultScalarExpr
 from scopecat.program.logical import (
     AcquireEffect,
     AcquireId,
@@ -56,7 +58,6 @@ from scopecat.program.logical import (
     LogicalProgram,
 )
 from scopecat.program.value_graph import (
-    ComputeResultRef,
     OperationId,
     ValueId,
     operation_result_id,
@@ -70,6 +71,7 @@ def overlay_parameter_cell(
     key: dict[str, CellValue],
     column_id: str,
     axis_id: str,
+    value_type: Scalar,
 ) -> PointParameterOverlay:
     """Build one statically bound point-local cell overlay."""
 
@@ -79,10 +81,15 @@ def overlay_parameter_cell(
         key=key,
         column_id=column_id,
         axis_id=axis_id,
+        value_type=value_type,
     )
 
 
-def compute_result(value: ValueId | OperationId | str) -> ComputeResultRef:
+def compute_result(
+    value: ValueId | OperationId | str,
+    *,
+    value_type: Scalar,
+) -> ComputeResultScalarExpr:
     """Reference an exact output or one operation's current single result."""
 
     if isinstance(value, ValueId):
@@ -94,7 +101,7 @@ def compute_result(value: ValueId | OperationId | str) -> ComputeResultRef:
             else OperationId(SymbolId(local_id=value))
         )
         selected = operation_result_id(operation_id)
-    return ComputeResultRef(value_id=selected)
+    return ComputeResultScalarExpr(value_id=selected, value_type=value_type)
 
 
 def observable_product(
@@ -201,7 +208,11 @@ def instrument_invocation(
         component_path=tuple(component_path),
         operation_id=operation,
         arguments=tuple(
-            InvokeArgument(id=argument_id, value_use=value_use)
+            InvokeArgument(
+                id=argument_id,
+                value_use=value_use,
+                value_type=value_use.value_type,
+            )
             for argument_id, value_use in (arguments or {}).items()
         ),
     )

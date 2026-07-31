@@ -1,10 +1,9 @@
 from dataclasses import replace
 from typing import Never, cast
 
-from scopecat.compiler.relations.context import EvalContext
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import (
-    ResidualScalar,
-    specialize_scalar,
+    specialize_scalar_expression,
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -28,6 +27,7 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.expressions import (
+    param,
     parameter_lookup,
     point_col,
 )
@@ -90,6 +90,7 @@ def _frequency_overlay(*, axis_id: str):
         key={"device_id": "r0"},
         column_id="frequency",
         axis_id=axis_id,
+        value_type=_FREQUENCY,
     )
 
 
@@ -121,7 +122,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
                 property_id="frequency",
                 value=parameter_lookup(
                     READOUT_FREQUENCY_LOOKUP,
-                    key={"device_id": point_col("device_id")},
+                    key={"device_id": point_col("device_id", _DEVICE_ID)},
                 ),
                 bindings=point_bindings,
             )
@@ -212,12 +213,51 @@ def test_domain_compiler_table_is_point_scoped_after_overlay() -> None:
     ]
 
 
+def test_domain_input_materializes_with_its_port_type() -> None:
+    generic_frequency = Scalar(QuantityType(dimension="frequency"))
+    ghz_frequency = Scalar(QuantityType(dimension="frequency", unit="GHz"))
+    execution = TypedDomainExecution(
+        id="consume-frequency",
+        program=DomainProgramDef(
+            id="frequency-consumer",
+            dialect_id="test",
+            dialect_version="1",
+            body=object(),
+            input_ports=(DomainInputPort("frequency", ghz_frequency),),
+        ),
+        inputs={"frequency": param("frequency", generic_frequency)},
+    )
+    spec = typed_program(
+        point_domain=PointDomain(axes=()),
+        domain_execution=execution,
+    )
+    environment = replace(
+        build_config_environment(config_with_physical_resources({})),
+        parameters=ParameterRelationData(
+            scalars={
+                "frequency": Quantity(value=5_000.0, unit="MHz"),
+            }
+        ),
+    )
+
+    bound_points = materialize_bound_points(bind_program_facts(spec, environment))
+    [(input_id, bound_values)] = bound_points.bind_domain_inputs(
+        execution.id,
+        "program",
+        ("frequency",),
+        (0,),
+    )
+
+    assert input_id == "frequency"
+    assert bound_values == (Quantity(value=5.0, unit="GHz"),)
+
+
 def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
     overlay = _frequency_overlay(axis_id="frequency")
     parameters_for_run = parameters()
     cells = parameter_cell_bindings((overlay,))
 
-    result = specialize_scalar(
+    result = specialize_scalar_expression(
         parameter_lookup(
             READOUT_FREQUENCY_LOOKUP,
             key={"device_id": "r0"},
@@ -226,5 +266,4 @@ def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
         parameter_cells=cells,
     )
 
-    assert isinstance(result, ResidualScalar)
-    assert result.expression == point_col("frequency")
+    assert result == point_col("frequency", _FREQUENCY)

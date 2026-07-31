@@ -8,7 +8,6 @@ from scopecat.compiler.relations.evaluation import (
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
-    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.compiler.typed.program import set_state_property
@@ -20,10 +19,11 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Scalar
 from scopecat.program.expressions import (
+    ComputeResultScalarExpr,
     ScalarExpr,
+    ScalarExpression,
     as_scalar_expr,
 )
-from scopecat.program.value_graph import ComputeResultRef
 
 
 def scalar_value_expr(
@@ -31,12 +31,12 @@ def scalar_value_expr(
     *,
     bindings: RelationTypeBindings | None = None,
     expected_type: Scalar | None = None,
-) -> VerifiedRelationPlan:
+) -> ScalarExpression:
     return verify_relation_plan(
         (
             expression
             if isinstance(expression, ScalarExpr)
-            else as_scalar_expr(expression)
+            else as_scalar_expr(expression, value_type=expected_type)
         ),
         bindings=bindings or RelationTypeBindings(),
         expected_type=expected_type,
@@ -49,7 +49,7 @@ def state_property(
     interface_id: str,
     property_id: str,
     component_path: tuple[str, ...] = (),
-    value: object | ComputeResultRef,
+    value: object | ComputeResultScalarExpr,
     bindings: RelationTypeBindings | None = None,
     value_type: Scalar | None = None,
 ) -> SetStateSpec:
@@ -65,7 +65,7 @@ def state_property(
         property_id=property_id,
         value=(
             value
-            if isinstance(value, ComputeResultRef)
+            if isinstance(value, ComputeResultScalarExpr)
             else scalar_value_expr(
                 value,
                 bindings=selected_bindings,
@@ -82,14 +82,17 @@ def evaluate_scalar(
     bindings: RelationTypeBindings | None = None,
     expected_type: Scalar | None = None,
 ) -> CellValue:
+    selected_bindings = bindings or RelationTypeBindings()
     verified = verify_relation_plan(
         expression,
-        bindings=bindings or RelationTypeBindings(),
+        bindings=selected_bindings,
         expected_type=expected_type,
     )
     return evaluate_selected_scalar(
         verified,
         ctx,
+        bindings=selected_bindings,
+        expected_type=expected_type,
     )
 
 

@@ -8,13 +8,23 @@ explicitly selected compiler concern.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.frozen import FrozenMapping
+from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_data import CellValue as _CellValue
 from scopecat.kernel.value_data import is_cell_value as _is_cell_value
+from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
 from scopecat.kernel.value_types import Scalar
-from scopecat.program.expression_operators import ScalarOperator
+from scopecat.program.expression_operators import (
+    ScalarOperator,
+    scalar_operator_result_type,
+)
+from scopecat.program.identities import InvocationKey
+from scopecat.program.value_graph import ValueId
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +56,8 @@ class ParameterLookupUse:
 
 class ScalarExpr:
     """Common base for scalar plan variants."""
+
+    value_type: Scalar = cast("Scalar", NotImplemented)
 
     def _binary(self, op: ScalarOperator, other: object) -> BinaryScalarExpr:
         return BinaryScalarExpr(
@@ -95,30 +107,89 @@ class ScalarExpr:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class LiteralScalarExpr(ScalarExpr):
-    value: _CellValue
+    """One typed literal captured by value at the program boundary."""
+
+    value_type: Scalar = field()
+    _value: _CellValue = field(hash=False, repr=False)
+
+    def __init__(
+        self,
+        value: _CellValue,
+        value_type: Scalar | None = None,
+    ) -> None:
+        selected_type = value_type or literal_scalar_type(value)
+        object.__setattr__(self, "value_type", selected_type)
+        object.__setattr__(
+            self,
+            "_value",
+            cast("_CellValue", _snapshot_literal(value)),
+        )
+
+    @property
+    def value(self) -> _CellValue:
+        """Return a defensive snapshot of the retained literal."""
+
+        return cast("_CellValue", _snapshot_literal(self._value))
 
 
 @dataclass(frozen=True, slots=True)
 class PointColumnScalarExpr(ScalarExpr):
     name: str
+    value_type: Scalar = field()
 
 
 @dataclass(frozen=True, slots=True)
 class InputScalarExpr(ScalarExpr):
     name: str
+    value_type: Scalar = field()
 
 
 @dataclass(frozen=True, slots=True)
 class ParameterScalarExpr(ScalarExpr):
     name: str
+    value_type: Scalar = field()
+
+
+@dataclass(frozen=True, slots=True)
+class ComputeResultScalarExpr(ScalarExpr):
+    """One point-local compute result retained as an opaque scalar edge."""
+
+    value_id: ValueId
+    value_type: Scalar = field()
+    origin: tuple[object, ...] = ()
+    point_dependencies: tuple[tuple[str, Scalar], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleExportScalarExpr(ScalarExpr):
+    """One unresolved scalar projection from a module invocation."""
+
+    invocation_key: InvocationKey
+    export_id: str
+    value_type: Scalar = field()
 
 
 @dataclass(frozen=True, slots=True)
 class ParameterLookupScalarExpr(ScalarExpr):
     use: ParameterLookupUse
-    key: dict[str, ScalarExpression]
+    key: Mapping[str, ScalarExpression] = field(hash=False)
+    value_type: Scalar = field(init=False)
+
+    def __post_init__(self) -> None:
+        key = FrozenMapping(self.key.items())
+        expected = dict(self.use.key_input_types)
+        if set(key) != set(expected):
+            msg = "parameter lookup key expressions must exactly match its typed inputs"
+            raise ValueError(msg)
+        for name, expression in key.items():
+            if not is_assignable(expression.value_type, expected[name]):
+                msg = f"parameter lookup key {name!r} has an incompatible value type"
+                raise TypeError(msg)
+            _require_plan_expression(expression)
+        object.__setattr__(self, "key", key)
+        object.__setattr__(self, "value_type", self.use.result_type)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +197,20 @@ class BinaryScalarExpr(ScalarExpr):
     op: ScalarOperator
     left: ScalarExpression
     right: ScalarExpression
+    value_type: Scalar = field(init=False)
+
+    def __post_init__(self) -> None:
+        _require_plan_expression(self.left)
+        _require_plan_expression(self.right)
+        object.__setattr__(
+            self,
+            "value_type",
+            scalar_operator_result_type(
+                self.left.value_type,
+                self.right.value_type,
+                self.op,
+            ),
+        )
 
 
 type ScalarExpression = (
@@ -133,27 +218,32 @@ type ScalarExpression = (
     | PointColumnScalarExpr
     | InputScalarExpr
     | ParameterScalarExpr
+    | ComputeResultScalarExpr
+    | ModuleExportScalarExpr
     | ParameterLookupScalarExpr
     | BinaryScalarExpr
 )
 
 
-def lit(value: _CellValue) -> LiteralScalarExpr:
-    return LiteralScalarExpr(value=value)
+def lit(
+    value: _CellValue,
+    value_type: Scalar | None = None,
+) -> LiteralScalarExpr:
+    return LiteralScalarExpr(value, value_type)
 
 
-def point_col(name: str) -> PointColumnScalarExpr:
+def point_col(name: str, value_type: Scalar) -> PointColumnScalarExpr:
     """Reference a field from the current experiment point."""
 
-    return PointColumnScalarExpr(name=name)
+    return PointColumnScalarExpr(name=name, value_type=value_type)
 
 
-def input_ref(name: str) -> InputScalarExpr:
-    return InputScalarExpr(name=name)
+def input_ref(name: str, value_type: Scalar) -> InputScalarExpr:
+    return InputScalarExpr(name=name, value_type=value_type)
 
 
-def param(parameter_id: str) -> ParameterScalarExpr:
-    return ParameterScalarExpr(name=parameter_id)
+def param(parameter_id: str, value_type: Scalar) -> ParameterScalarExpr:
+    return ParameterScalarExpr(name=parameter_id, value_type=value_type)
 
 
 def parameter_lookup(
@@ -166,16 +256,66 @@ def parameter_lookup(
     if key_ids != expected_key_ids:
         msg = "parameter lookup key expressions must exactly match its typed key inputs"
         raise ValueError(msg)
+    key_types = dict(use.key_input_types)
     return ParameterLookupScalarExpr(
         use=use,
-        key={name: as_scalar_expr(value) for name, value in key.items()},
+        key={
+            name: as_scalar_expr(value, value_type=key_types[name])
+            for name, value in key.items()
+        },
     )
 
 
-def as_scalar_expr(value: object) -> ScalarExpression:
+def as_scalar_expr(
+    value: object,
+    *,
+    value_type: Scalar | None = None,
+) -> ScalarExpression:
     if isinstance(value, ScalarExpr):
         return cast("ScalarExpression", value)
     if _is_cell_value(value):
-        return lit(value)
+        return lit(value, value_type)
     msg = f"cannot convert {value!r} to scalar expression"
     raise TypeError(msg)
+
+
+def _require_plan_expression(expression: ScalarExpr) -> None:
+    """Reject compute results nested inside a pure scalar expression."""
+
+    pending = [expression]
+    while pending:
+        selected = pending.pop()
+        if isinstance(selected, ComputeResultScalarExpr):
+            msg = (
+                "compute outputs cannot be bound inside scalar expressions; "
+                "express this calculation with ModuleContext.compute"
+            )
+            raise TypeError(msg)
+        if isinstance(selected, ParameterLookupScalarExpr):
+            pending.extend(selected.key.values())
+        elif isinstance(selected, BinaryScalarExpr):
+            pending.extend((selected.left, selected.right))
+
+
+def _snapshot_literal(value: object) -> object:
+    """Copy literal containers without cloning opaque payload bodies."""
+
+    if isinstance(value, PayloadValue):
+        return value
+    if isinstance(value, EntityRef | Quantity):
+        return value.model_copy(deep=True)
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, Mapping):
+        mapping = cast("Mapping[object, object]", value)
+        return {
+            key: _snapshot_literal(nested_value)
+            for key, nested_value in mapping.items()
+        }
+    if isinstance(value, list):
+        items = cast("list[object]", value)
+        return [_snapshot_literal(item) for item in items]
+    if isinstance(value, tuple):
+        items = cast("tuple[object, ...]", value)
+        return tuple(_snapshot_literal(item) for item in items)
+    return value

@@ -484,6 +484,7 @@ class ModuleContext:
             ModuleOperationDecl(
                 id=definition.id,
                 declaration_key=definition.declaration_key,
+                input_types=definition.input_types,
                 inputs=definition.inputs,
                 output_type=definition.output_type,
             )

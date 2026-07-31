@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.typed.invocation import InvokeEffect
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -38,6 +37,7 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
+from scopecat.kernel.value_types import Scalar
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
@@ -47,6 +47,7 @@ from scopecat.measurements.products import (
 )
 from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementVariableRole
+from scopecat.program.expressions import ScalarExpression
 from scopecat.program.logical import (
     AcquireEffect,
     LocalPythonImplementation,
@@ -54,14 +55,13 @@ from scopecat.program.logical import (
 )
 from scopecat.program.value_graph import (
     ComputeOutput,
-    ComputeResultRef,
     OperationId,
 )
 
-type ComputeInput = VerifiedRelationPlan | ComputeResultRef
+type ComputeInput = ScalarExpression
 
 
-def _empty_scalar_value_inputs() -> dict[str, VerifiedRelationPlan]:
+def _empty_scalar_value_inputs() -> dict[str, ScalarExpression]:
     return {}
 
 
@@ -88,7 +88,7 @@ class TypedDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: Mapping[str, VerifiedRelationPlan] = field(
+    inputs: Mapping[str, ScalarExpression] = field(
         default_factory=_empty_scalar_value_inputs
     )
     compiler_inputs: Mapping[str, CompilerValue] = field(
@@ -97,7 +97,7 @@ class TypedDomainExecution:
     results: tuple[TypedDomainResultBinding, ...] = ()
 
     def __post_init__(self) -> None:
-        selected_inputs: dict[str, VerifiedRelationPlan] = dict(self.inputs)
+        selected_inputs: dict[str, ScalarExpression] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
 
@@ -134,11 +134,14 @@ class TypedComputeNode:
     id: OperationId
     implementation: LocalPythonImplementation
     result: ComputeOutput
+    input_types: Mapping[str, Scalar]
     inputs: Mapping[str, ComputeInput] = field(default_factory=_empty_compute_inputs)
 
     def __post_init__(self) -> None:
         selected_inputs: dict[str, ComputeInput] = dict(self.inputs)
+        selected_input_types: dict[str, Scalar] = dict(self.input_types)
         object.__setattr__(self, "inputs", selected_inputs)
+        object.__setattr__(self, "input_types", selected_input_types)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +155,7 @@ class LogicalResourceRequirement:
 
     port_id: LogicalResourcePortId
     interfaces: tuple[InterfaceId, ...] = ()
-    entity_uses: tuple[VerifiedRelationPlan, ...] = ()
+    entity_uses: tuple[ScalarExpression, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +222,8 @@ def set_state_property(
     resource_port_id: LogicalResourcePortId,
     interface_id: InterfaceId,
     property_id: str,
-    value: VerifiedRelationPlan | ComputeResultRef,
+    value: ScalarExpression,
+    value_type: Scalar | None = None,
     component_path: tuple[str, ...] = (),
 ) -> SetStateSpec:
     """Build desired state from explicit interface and property identities."""
@@ -230,6 +234,7 @@ def set_state_property(
         component_path=component_path,
         property_id=property_id,
         value_use=value,
+        value_type=value_type or value.value_type,
     )
 
 

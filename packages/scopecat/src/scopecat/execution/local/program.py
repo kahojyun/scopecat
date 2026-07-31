@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.state import StateValue
+from scopecat.kernel.value_types import Scalar
 from scopecat.program.value_graph import ComputeOutput, ValueId
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
@@ -38,6 +39,7 @@ class OutputInput:
     """Reference an earlier compute result in the same point."""
 
     value_id: ValueId
+    value_type: Scalar
 
 
 type ComputeInput = BoundInput | OutputInput

@@ -69,8 +69,9 @@ from scopecat.planning.routing import (
     ResourcePortManifest,
     RoutingView,
 )
+from scopecat.program.expressions import ComputeResultScalarExpr
 from scopecat.program.logical import AcquireEffect
-from scopecat.program.value_graph import ComputeResultRef, ValueId
+from scopecat.program.value_graph import ValueId
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.commands import (
     CollectAxisRequest,
@@ -169,8 +170,20 @@ def materialize_local_execution(
         for effect in program.effects
         if isinstance(effect, InvokeEffect)
         for argument in effect.arguments
-        if isinstance(argument.value_use, ComputeResultRef)
+        if isinstance(argument.value_use, ComputeResultScalarExpr)
     }
+    demanded_payload_results.update(
+        state.value_use.value_id
+        for effect in program.effects
+        for state in (
+            effect.assignments
+            if isinstance(effect, EnsureStateSpec)
+            else (effect,)
+            if isinstance(effect, SetStateSpec)
+            else ()
+        )
+        if isinstance(state.value_use, ComputeResultScalarExpr)
+    )
     payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {}
     compute_effects: list[RunCoverageEffect] = []
     for ordinal in ordinals:
@@ -258,6 +271,8 @@ def materialize_local_execution(
                     state_group_index=effect_index,
                     resources=resources,
                     point_index=ordinal,
+                    payload_ids=payload_ids_by_ordinal[ordinal],
+                    known_compute_results=known_compute_results,
                     problems=problems,
                 )
                 ordered = _order_instrument_operations(
@@ -305,6 +320,8 @@ def materialize_local_execution(
                 state_group_index=effect_index,
                 resources=resources,
                 point_index=ordinal,
+                payload_ids=payload_ids_by_ordinal[ordinal],
+                known_compute_results=known_compute_results,
                 problems=problems,
             )
             ordered = _order_instrument_operations(
@@ -367,6 +384,10 @@ def materialize_local_final_state(
         state_group_index=len(target.bindings.effects),
         resources=resources,
         point_index=0,
+        payload_ids={},
+        known_compute_results={
+            node.result.id for node in target.bindings.compute_nodes
+        },
         problems=problems,
         state_context="normal completion",
         state_location=model_location("final_state"),
@@ -627,6 +648,8 @@ def _bind_desired_state(
     state_group_index: int,
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     point_index: int,
+    payload_ids: Mapping[ValueId, str],
+    known_compute_results: AbstractSet[ValueId],
     problems: list[Problem],
     state_context: str | None = None,
     state_location: ModelLocation | None = None,
@@ -676,13 +699,38 @@ def _bind_desired_state(
         interface_id = record.interface_id
         component_path = record.component_path
         property_id = record.property_id
-        state_value = _state_value(record.value)
+        if isinstance(record.value, ComputeResultScalarExpr):
+            result_id = record.value.value_id
+            if result_id not in known_compute_results:
+                problems.append(
+                    _problem(
+                        "compute_payload_unknown_output",
+                        "state references unknown compute result "
+                        f"{result_id.qualified_name!r}",
+                        selected_location,
+                    )
+                )
+                continue
+            payload_id = payload_ids.get(result_id)
+            if payload_id is None:
+                problems.append(
+                    _problem(
+                        "compute_payload_unavailable",
+                        "state compute output is not an available payload: "
+                        f"{result_id.qualified_name!r}",
+                        selected_location,
+                    )
+                )
+                continue
+            state_value = StateValue(PayloadRef(payload_id=payload_id))
+        else:
+            state_value = _state_value(record.value)
         if state_value is None:
             problems.append(
                 _problem(
                     "state_value_unsupported",
                     "state values must be finite numbers, quantities, "
-                    "strings, or booleans",
+                    "strings, booleans, or available compute payloads",
                     model_location("desired_state", "value"),
                 )
             )
@@ -840,7 +888,7 @@ def _bind_invocation(
                 )
             )
             continue
-        if isinstance(value, ComputeResultRef):
+        if isinstance(value, ComputeResultScalarExpr):
             if value.value_id not in known_compute_results:
                 problems.append(
                     _problem(

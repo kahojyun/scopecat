@@ -110,6 +110,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
                 key={"device_id": "r0"},
                 column_id="frequency",
                 axis_id="readout_frequency",
+                value_type=Scalar(QuantityType(unit="GHz")),
             )
         ],
         state=[
@@ -223,7 +224,12 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
                 resource_port_id=drive,
                 interface="test.play_waveforms/v1",
                 operation="play",
-                arguments={"program": compute_result("build-waveform")},
+                arguments={
+                    "program": compute_result(
+                        "build-waveform",
+                        value_type=Scalar(Payload("waveform_bundle")),
+                    )
+                },
             )
         ],
         resource_requirements=(
@@ -243,6 +249,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
                     id=result_id,
                     value_type=Scalar(Payload("waveform_bundle")),
                 ),
+                input_types={},
                 inputs={},
             )
         ],
@@ -280,6 +287,55 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     )
 
 
+def test_materialized_state_can_reference_a_compute_payload() -> None:
+    def build_waveform() -> dict[str, object]:
+        return {"kind": "waveform"}
+
+    operation_id = OperationId(SymbolId(local_id="build-waveform"))
+    result_id = operation_result_id(operation_id)
+    payload_type = Scalar(Payload("waveform_bundle"))
+    drive = logical_resource_port_id("drive")
+    spec = typed_program(
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=drive,
+                interfaces=("test.play_waveforms/v1",),
+            ),
+        ),
+        state=[
+            set_state_property(
+                drive,
+                interface_id="test.play_waveforms/v1",
+                property_id="program",
+                value=compute_result("build-waveform", value_type=payload_type),
+            )
+        ],
+        compute_nodes=[
+            TypedComputeNode(
+                id=operation_id,
+                implementation=LocalPythonImplementation(
+                    id=ImplementationId("python.build-waveform.v1"),
+                    kernel=build_waveform,
+                ),
+                result=ComputeOutput(id=result_id, value_type=payload_type),
+                input_types={},
+            )
+        ],
+    )
+
+    preview = materialized_effects_contract(
+        spec,
+        _parameters(),
+        config=config_with_physical_resources({"drive-a": ("test.play_waveforms/v1",)}),
+    )
+
+    [step] = operations_of_type(preview, ComputeOperation, point_index=0)
+    assert step.payload_slot is not None
+    [(_point_index, _state, target)] = materialized_state_properties(preview)
+    assert target.value.root == PayloadRef(payload_id=step.payload_slot.id)
+
+
 def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     operation_id = OperationId(SymbolId(local_id="build-waveform"))
     result_id = operation_result_id(operation_id)
@@ -301,14 +357,24 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
                 resource_port_id="drive-a",
                 interface="test.play_waveforms/v1",
                 operation="play",
-                arguments={"program": compute_result("build-waveform")},
+                arguments={
+                    "program": compute_result(
+                        "build-waveform",
+                        value_type=Scalar(Payload("waveform_bundle")),
+                    )
+                },
             ),
             instrument_invocation(
                 id="preview-waveform",
                 resource_port_id="drive-a",
                 interface="test.play_waveforms/v1",
                 operation="preview",
-                arguments={"program": compute_result("build-waveform")},
+                arguments={
+                    "program": compute_result(
+                        "build-waveform",
+                        value_type=Scalar(Payload("waveform_bundle")),
+                    )
+                },
             ),
         ],
         compute_nodes=[
@@ -322,6 +388,7 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
                     id=result_id,
                     value_type=Scalar(Payload("waveform_bundle")),
                 ),
+                input_types={},
             )
         ],
     )

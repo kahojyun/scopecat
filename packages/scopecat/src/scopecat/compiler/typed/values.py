@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.kernel.value_types import Table
+from scopecat.program.expressions import ScalarExpression
 from scopecat.program.table_values import TableSource
 
 
@@ -17,4 +17,4 @@ class TableValue:
     value_type: Table
 
 
-type CompilerValue = VerifiedRelationPlan | TableValue
+type CompilerValue = ScalarExpression | TableValue

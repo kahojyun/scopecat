@@ -12,8 +12,10 @@ from scopecat.compiler.relations.scalar_eval import (
 from scopecat.kernel.value_data import CellValue
 from scopecat.program.expressions import (
     BinaryScalarExpr,
+    ComputeResultScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
+    ModuleExportScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     PointColumnScalarExpr,
@@ -33,6 +35,12 @@ def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> Cell
             return read_path(ctx.inputs, scalar.name)
         case ParameterScalarExpr():
             return ctx.params.scalar(scalar.name)
+        case ComputeResultScalarExpr():
+            msg = "compute results cannot be evaluated as pure scalar expressions"
+            raise TypeError(msg)
+        case ModuleExportScalarExpr():
+            msg = "unresolved module exports cannot be evaluated"
+            raise ValueError(msg)
         case ParameterLookupScalarExpr():
             resolved_key = {
                 name: evaluate_scalar_expression(value, ctx)

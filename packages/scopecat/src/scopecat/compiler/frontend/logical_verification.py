@@ -19,13 +19,11 @@ from scopecat.compiler.frontend.logical_lowering import (
 from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
     bind_table_source,
-    literal_scalar_expr,
 )
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
-    VerifiedRelationPlan,
     verify_relation_plan,
 )
 from scopecat.kernel.errors import CheckFailed
@@ -44,12 +42,10 @@ from scopecat.kernel.units import is_supported_unit
 from scopecat.kernel.value_types import Entity, Payload, Scalar, ValueType
 from scopecat.program.bindings import ResourcePort
 from scopecat.program.expression_analysis import plan_point_refs
-from scopecat.program.expressions import ScalarExpr
+from scopecat.program.expressions import ScalarExpr, ScalarExpression
 from scopecat.program.logical import (
-    LiteralValueSource,
     LogicalComputeNode,
     LogicalProgram,
-    PlanExpressionSource,
     ValueDef,
 )
 from scopecat.program.logical_graph import verify_logical_graph
@@ -78,7 +74,7 @@ class VerifiedLogicalProgram:
 
     program: LogicalProgram
     product_declarations: Mapping[ProductId, ModuleProductDecl]
-    scalar_values: Mapping[ValueId, VerifiedRelationPlan]
+    scalar_values: Mapping[ValueId, ScalarExpression]
     value_defs: Mapping[ValueId, ValueDef] = field(
         init=False,
         compare=False,
@@ -209,22 +205,18 @@ def _bind_value_definition_inputs(
     inputs: Mapping[str, object],
 ) -> ValueDef:
     source = definition.source
-    if isinstance(source, PlanExpressionSource):
+    if isinstance(source, ScalarExpr):
         return replace(
             definition,
-            source=PlanExpressionSource(
-                bind_scalar_input_refs(source.expression, inputs)
-            ),
+            source=bind_scalar_input_refs(source, inputs),
         )
-    if isinstance(source, LiteralValueSource):
-        return definition
     return replace(definition, source=bind_table_source(source, inputs))
 
 
 def _verify_scalar_values(
     program: LogicalProgram,
     problems: list[Problem],
-) -> Mapping[ValueId, VerifiedRelationPlan]:
+) -> Mapping[ValueId, ScalarExpression]:
     point_columns = analyze_point_domain(program.point_domain).columns
     bindings = RelationTypeBindings(
         inputs={
@@ -240,21 +232,17 @@ def _verify_scalar_values(
         },
         point_row=RowType(point_columns) if point_columns else None,
     )
-    verified: dict[ValueId, VerifiedRelationPlan] = {}
+    verified: dict[ValueId, ScalarExpression] = {}
     for definition in sorted(
         program.value_defs,
         key=lambda item: item.id.qualified_name,
     ):
         source = definition.source
-        if isinstance(source, PlanExpressionSource):
-            expression = source.expression
-        elif isinstance(source, LiteralValueSource):
-            expression = literal_scalar_expr(source.value)
-        else:
+        if not isinstance(source, ScalarExpr):
             continue
         try:
             verified[definition.id] = verify_relation_plan(
-                expression,
+                source,
                 bindings=bindings,
                 expected_type=cast("Scalar", definition.value_type),
             )
@@ -510,9 +498,7 @@ def _verify_final_state_dependencies(
             )
         definition = definitions.get(assignment.value_id)
         source = None if definition is None else definition.source
-        if isinstance(source, PlanExpressionSource) and plan_point_refs(
-            source.expression
-        ):
+        if isinstance(source, ScalarExpr) and plan_point_refs(source):
             problems.append(
                 _problem(
                     "experiment_final_state_depends_on_point",

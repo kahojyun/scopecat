@@ -69,10 +69,3 @@ class ComputeOutput:
 
     id: ValueId
     value_type: Scalar
-
-
-@dataclass(frozen=True, slots=True)
-class ComputeResultRef:
-    """Internal symbolic reference to one point-local compute result."""
-
-    value_id: ValueId
