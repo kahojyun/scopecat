@@ -248,8 +248,8 @@ def _verify_domain_execution(
     program = execution.program
     location = ("domain_executions", str(execution_index))
     input_ports = {port.id: port for port in program.input_ports}
-    for name, use in execution.inputs:
-        value_type = value_types[use.value_id]
+    for name, value_id in execution.inputs:
+        value_type = value_types[value_id]
         port = input_ports[name]
         if not is_assignable(
             value_type,
@@ -265,7 +265,7 @@ def _verify_domain_execution(
                     name,
                 )
             )
-        if use.value_id in operation_results:
+        if value_id in operation_results:
             problems.append(
                 _problem(
                     "semantic_domain_execution_input_stage_unavailable",
@@ -276,8 +276,8 @@ def _verify_domain_execution(
                 )
             )
     compiler_input_ports = {port.id: port for port in program.compiler_input_ports}
-    for name, use in execution.compiler_inputs:
-        value_type = value_types[use.value_id]
+    for name, value_id in execution.compiler_inputs:
+        value_type = value_types[value_id]
         port = compiler_input_ports[name]
         if not is_assignable(
             value_type,
@@ -293,7 +293,7 @@ def _verify_domain_execution(
                     name,
                 )
             )
-        if use.value_id in operation_results:
+        if value_id in operation_results:
             problems.append(
                 _problem(
                     "semantic_domain_compiler_input_stage_unavailable",
@@ -318,8 +318,8 @@ def _topological_operations(
         operation.id: set() for operation in declared
     }
     for operation in declared:
-        for _name, use in operation.inputs:
-            producer_operation = operation_results.get(use.value_id)
+        for _name, value_id in operation.inputs:
+            producer_operation = operation_results.get(value_id)
             if producer_operation is None:
                 continue
             producer = producer_operation.id

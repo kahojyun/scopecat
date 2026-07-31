@@ -37,7 +37,6 @@ from scopecat.program.logical import (
     PlanExpressionSource,
     ValueDef,
     ValueSource,
-    ValueUse,
 )
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.operations import (
@@ -150,12 +149,10 @@ class _LogicalSemanticsBuilder:
         inputs = tuple(
             (
                 name,
-                ValueUse(
-                    self._add_compute_input(
-                        value,
-                        operation_id=operation_id,
-                        input_name=name,
-                    )
+                self._add_compute_input(
+                    value,
+                    operation_id=operation_id,
+                    input_name=name,
                 ),
             )
             for name, value in declaration.inputs
@@ -192,12 +189,10 @@ class _LogicalSemanticsBuilder:
             inputs=tuple(
                 (
                     name,
-                    ValueUse(
-                        self._add_compute_input(
-                            value,
-                            operation_id=operation_id,
-                            input_name=name,
-                        )
+                    self._add_compute_input(
+                        value,
+                        operation_id=operation_id,
+                        input_name=name,
                     ),
                 )
                 for name, value in execution.input_bindings
@@ -205,12 +200,10 @@ class _LogicalSemanticsBuilder:
             compiler_inputs=tuple(
                 (
                     name,
-                    ValueUse(
-                        self._add_compute_input(
-                            value,
-                            operation_id=operation_id,
-                            input_name=name,
-                        )
+                    self._add_compute_input(
+                        value,
+                        operation_id=operation_id,
+                        input_name=name,
                     ),
                 )
                 for name, value in execution.compiler_input_bindings

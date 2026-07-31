@@ -32,6 +32,7 @@ from scopecat.graph.relations.model import (
 from scopecat.graph.values import (
     ComputeResultRef,
     OperationId,
+    ValueId,
     operation_result_id,
 )
 from scopecat.kernel.entity import EntityRef
@@ -42,7 +43,6 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.program.logical import (
     LogicalProgram,
     PlanExpressionSource,
-    ValueUse,
 )
 from scopecat.program.scans import (
     AxisSpec,
@@ -342,10 +342,10 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     }
     uses = dict(operation.inputs)
 
-    assert all(isinstance(use, ValueUse) for use in uses.values())
-    qubit_source = definitions[uses["qubit"].value_id].source
-    length_source = definitions[uses["length"].value_id].source
-    frequency_source = definitions[uses["frequency"].value_id].source
+    assert all(isinstance(use, ValueId) for use in uses.values())
+    qubit_source = definitions[uses["qubit"]].source
+    length_source = definitions[uses["length"]].source
+    frequency_source = definitions[uses["frequency"]].source
     assert isinstance(qubit_source, PlanExpressionSource)
     assert isinstance(length_source, PlanExpressionSource)
     assert isinstance(frequency_source, PlanExpressionSource)

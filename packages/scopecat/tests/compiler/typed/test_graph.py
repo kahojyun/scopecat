@@ -10,9 +10,6 @@ from scopecat.graph.values import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar
-from scopecat.program.logical import (
-    ValueUse,
-)
 
 
 def test_symbol_qualified_name_encodes_structural_segments_injectively() -> None:
@@ -80,8 +77,8 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
     assert operations[2].id.scope == ("parent", "second-consumer")
     for consumer in operations[1:]:
         use = dict(consumer.inputs)["program"]
-        assert isinstance(use, ValueUse)
-        assert use.value_id == operations[0].result_id
+        assert isinstance(use, ValueId)
+        assert use == operations[0].result_id
 
 
 def _identity_program(*, program: object) -> object:

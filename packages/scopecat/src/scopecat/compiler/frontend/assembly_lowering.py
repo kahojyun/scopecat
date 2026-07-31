@@ -244,11 +244,11 @@ def lower_semantic_domain_graph(
     typed_executions: list[TypedDomainExecution] = []
     for execution in executions:
         lowered_inputs: dict[str, ScalarValueInput] = {}
-        for name, use in execution.inputs:
+        for name, value_id in execution.inputs:
             lowered = cast(
                 "ValueInput",
                 _lower_semantic_input(
-                    use.value_id,
+                    value_id,
                     definitions=program.value_defs,
                     operation_results=program.operation_results,
                     value_types=program.value_types,
@@ -258,11 +258,11 @@ def lower_semantic_domain_graph(
             )
             lowered_inputs[name] = cast("ScalarValueInput", lowered)
         lowered_compiler_inputs: dict[str, ValueInput] = {}
-        for name, use in execution.compiler_inputs:
+        for name, value_id in execution.compiler_inputs:
             lowered = cast(
                 "ValueInput",
                 _lower_semantic_input(
-                    use.value_id,
+                    value_id,
                     definitions=program.value_defs,
                     operation_results=program.operation_results,
                     value_types=program.value_types,
@@ -303,9 +303,9 @@ def _lower_semantic_operation(
     type_bindings: RelationTypeBindings,
 ) -> TypedComputeNode:
     lowered_inputs: dict[str, ComputeInput] = {}
-    for name, use in operation.inputs:
+    for name, value_id in operation.inputs:
         lowered = _lower_semantic_input(
-            use.value_id,
+            value_id,
             definitions=definitions,
             operation_results=operation_results,
             value_types=value_types,

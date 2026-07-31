@@ -130,10 +130,10 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
             OperationId(SymbolId(scope=("second-consumer",), local_id="consume"))
         ].inputs
     )["payload"]
-    assert results[first_input.value_id].id == OperationId(
+    assert results[first_input].id == OperationId(
         SymbolId(scope=("first-producer",), local_id="produce")
     )
-    assert results[second_input.value_id].id == OperationId(
+    assert results[second_input].id == OperationId(
         SymbolId(scope=("second-producer",), local_id="produce")
     )
 
@@ -193,7 +193,7 @@ def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
     )
     sink_input = dict(sink_node.inputs)["payload"]
     results = {operation.result_id: operation for operation in assembly.compute_nodes}
-    assert results[sink_input.value_id].id == OperationId(
+    assert results[sink_input].id == OperationId(
         SymbolId(scope=("outer", "child"), local_id="produce")
     )
 
@@ -315,7 +315,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
     )
     capture_inputs = dict(capture_node.inputs)
     definitions = {definition.id: definition for definition in flattened.value_defs}
-    passthrough = definitions[capture_inputs["passthrough"].value_id]
+    passthrough = definitions[capture_inputs["passthrough"]]
     assert isinstance(passthrough.source, PlanExpressionSource)
     assert isinstance(passthrough.source.expression, ScalarExpr)
     assert (
@@ -325,7 +325,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         )
         == 1.25
     )
-    shifted = definitions[capture_inputs["shifted"].value_id]
+    shifted = definitions[capture_inputs["shifted"]]
     assert isinstance(shifted.source, PlanExpressionSource)
     assert isinstance(shifted.source.expression, ScalarExpr)
     assert (
@@ -409,7 +409,7 @@ def test_module_export_arithmetic_resolves_during_elaboration() -> None:
     )
     captured = dict(capture_node.inputs)["consumed"]
     definitions = {definition.id: definition for definition in flattened.value_defs}
-    shifted_definition = definitions[captured.value_id]
+    shifted_definition = definitions[captured]
     assert isinstance(shifted_definition.source, PlanExpressionSource)
     assert isinstance(shifted_definition.source.expression, ScalarExpr)
     assert (

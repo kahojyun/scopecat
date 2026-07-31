@@ -134,16 +134,9 @@ class ValueDef:
 
 
 @dataclass(frozen=True, slots=True)
-class ValueUse:
-    """A use contains only the identity of its target definition."""
-
-    value_id: graph_values.ValueId
-
-
-@dataclass(frozen=True, slots=True)
 class LogicalComputeNode:
     id: graph_values.OperationId
-    inputs: tuple[tuple[str, ValueUse], ...]
+    inputs: tuple[tuple[str, graph_values.ValueId], ...]
     result_id: graph_values.ValueId
     result_type: Scalar
 
@@ -154,8 +147,8 @@ class LogicalDomainExecution:
 
     id: str
     program: DomainProgramDef
-    inputs: tuple[tuple[str, ValueUse], ...] = ()
-    compiler_inputs: tuple[tuple[str, ValueUse], ...] = ()
+    inputs: tuple[tuple[str, graph_values.ValueId], ...] = ()
+    compiler_inputs: tuple[tuple[str, graph_values.ValueId], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
 
 

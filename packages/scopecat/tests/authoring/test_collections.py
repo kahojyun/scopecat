@@ -218,7 +218,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
     producer = next(
         operation
         for operation in assembly.compute_nodes
-        if operation.result_id == program_use.value_id
+        if operation.result_id == program_use
     )
     assert producer.id == OperationId(SymbolId(local_id="produce"))
 

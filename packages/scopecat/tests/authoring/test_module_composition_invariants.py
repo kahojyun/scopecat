@@ -15,13 +15,11 @@ from scopecat.compiler.frontend.logical_verification import (
     verify_logical_program,
 )
 from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.graph.values import ValueId
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
-from scopecat.program.logical import (
-    LogicalProgram,
-    ValueUse,
-)
+from scopecat.program.logical import LogicalProgram
 from scopecat.sdk.instruments import InterfaceRef
 
 _MEASURE = InterfaceRef("test.measure/v1")
@@ -187,11 +185,11 @@ def _normalized_signature(
     definitions = verified.value_defs
     results = verified.operation_results
 
-    def input_signature(value: ValueUse) -> object:
-        operation = results.get(value.value_id)
+    def input_signature(value: ValueId) -> object:
+        operation = results.get(value)
         if operation is not None:
             return ("compute", operation.id.local_id, operation.result_type)
-        definition = definitions[value.value_id]
+        definition = definitions[value]
         return (type(definition.source).__name__, definition.value_type)
 
     return (
@@ -374,7 +372,7 @@ def test_scoped_export_can_feed_another_instance_without_capture() -> None:
         if operation.id.scope == ("sink",) and operation.id.local_id == "consume-export"
     )
     payload_input = dict(sink_node.inputs)["payload"]
-    producer = verified.operation_results[payload_input.value_id].id
+    producer = verified.operation_results[payload_input].id
 
     assert producer.scope == ("source",)
     assert producer.local_id == "consume"
