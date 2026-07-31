@@ -41,7 +41,7 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.point_domain import VerifiedPointDomain
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import CoreProgram, core_domain_executions
 from scopecat.compiler.typed.specialization import specialize_core_program
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
@@ -62,7 +62,30 @@ from scopecat.program.logical import AcquireEffect, LogicalProgram
 from scopecat.program.parameters import (
     ParameterValueContract,
 )
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    DomainTargetInstrumentMember,
+    DomainTargetMember,
+)
 from scopecat.records.parameter import ParameterCatalog
+
+
+@dataclass(frozen=True, slots=True)
+class BoundDomainTarget:
+    """The sole domain target selected from the accepted configuration."""
+
+    id: str
+    kind: str
+    exclusivity_key: str
+    members: tuple[DomainTargetMember, ...]
+
+    @property
+    def instrument_ids(self) -> tuple[str, ...]:
+        return tuple(
+            member.instrument_id
+            for member in self.members
+            if isinstance(member, DomainTargetInstrumentMember)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +99,7 @@ class BoundPlan:
 
     _verified_program: VerifiedCoreProgram
     environment: ConfigEnvironment
+    domain_target: BoundDomainTarget | None
 
     @property
     def program(self) -> CoreProgram:
@@ -285,9 +309,53 @@ def _bind_core_program(
     )
     if problems:
         raise CheckFailed(problems)
-    return BoundPlan(
+    return _make_bound_plan(
         verified_program,
         environment,
+    )
+
+
+def _make_bound_plan(
+    verified_program: VerifiedCoreProgram,
+    environment: ConfigEnvironment,
+) -> BoundPlan:
+    """Attach shared config-bound facts to one already verified core program."""
+
+    return BoundPlan(
+        _verified_program=verified_program,
+        environment=environment,
+        domain_target=_bind_domain_target(
+            verified_program.program,
+            environment.config,
+        ),
+    )
+
+
+def _bind_domain_target(
+    program: CoreProgram,
+    config: ConfigProfileSnapshot,
+) -> BoundDomainTarget | None:
+    """Select the one configured target for every domain call in the program."""
+
+    if not core_domain_executions(program):
+        return None
+    target = config.domain_target
+    if target is None:
+        raise CheckFailed(
+            (
+                compiler_problem(
+                    "domain_target_missing",
+                    "the accepted system configuration has no domain target",
+                    model_location("config", "system", "domain_target"),
+                    phase=ProblemPhase.PLANNING,
+                ),
+            )
+        )
+    return BoundDomainTarget(
+        id=target.id,
+        kind=target.kind,
+        exclusivity_key=target.exclusivity_key,
+        members=tuple(member.model_copy(deep=True) for member in target.members),
     )
 
 

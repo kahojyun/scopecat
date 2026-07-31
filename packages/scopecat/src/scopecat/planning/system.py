@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.compiler.bind import BoundPlan
+from scopecat.compiler.bind import BoundDomainTarget, BoundPlan
 from scopecat.compiler.typed.domain_results import (
     domain_result_closure,
 )
@@ -168,11 +168,11 @@ def _compile_system_program(
         )
         for execution_id, result_closure in domain_result_closures.items()
     }
-    domain_target_requirement = _domain_target_requirement(
-        system,
-        config=config,
-        has_domain_calls=bool(domain_calls),
+    _validate_domain_compiler(
+        system.domain_compiler,
+        target=bound.domain_target,
     )
+    domain_target_requirement = _domain_target_requirement(bound.domain_target)
     domain_footprint = _domain_target_footprint(domain_target_requirement)
     domain_owned_product_use_ids = frozenset(
         use_id
@@ -331,32 +331,19 @@ def _host_binding(
     )
 
 
-def _domain_target_requirement(
-    system: ExperimentSystem,
+def _validate_domain_compiler(
+    compiler: DomainCompiler | None,
     *,
-    config: ConfigProfileSnapshot,
-    has_domain_calls: bool,
-) -> DomainTargetRequirement | None:
-    if not has_domain_calls or system.domain_compiler is None:
-        return None
-    compiler = system.domain_compiler
-    target = config.domain_target
-    if target is None:
-        raise CheckFailed(
-            [
-                _planning_problem(
-                    "domain_target_missing",
-                    "the accepted system configuration has no domain target",
-                )
-            ]
-        )
+    target: BoundDomainTarget | None,
+) -> None:
+    if target is None or compiler is None:
+        return
     if compiler.target_id != target.id:
         raise CheckFailed(
             [
                 _planning_problem(
                     "domain_target_mismatch",
-                    "the domain compiler target does not match the accepted system "
-                    "configuration",
+                    "the domain compiler target does not match the bound target",
                     details={
                         "compiler_target_id": compiler.target_id,
                         "configured_target_id": target.id,
@@ -369,8 +356,7 @@ def _domain_target_requirement(
             [
                 _planning_problem(
                     "domain_target_kind_mismatch",
-                    "the domain compiler adapter does not match the accepted "
-                    "system configuration",
+                    "the domain compiler adapter does not match the bound target",
                     details={
                         "compiler_target_kind": compiler.target_kind,
                         "configured_target_kind": target.kind,
@@ -378,6 +364,13 @@ def _domain_target_requirement(
                 )
             ]
         )
+
+
+def _domain_target_requirement(
+    target: BoundDomainTarget | None,
+) -> DomainTargetRequirement | None:
+    if target is None:
+        return None
     return DomainTargetRequirement(
         id=target.id,
         kind=target.kind,

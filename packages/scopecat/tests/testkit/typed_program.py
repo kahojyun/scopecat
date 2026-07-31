@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from scopecat.compiler.bind import BoundPlan
+from scopecat.compiler.bind import (
+    BoundPlan,
+    _make_bound_plan,
+)
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.typed.invocation import (
     InvocationValueUse,
@@ -244,7 +247,7 @@ def bind_core_program(
 ) -> BoundPlan:
     """Bind a trusted low-level program for focused compiler tests."""
 
-    return BoundPlan(
+    return _make_bound_plan(
         seal_typed_program(
             program,
             phase=ProblemPhase.PLANNING,

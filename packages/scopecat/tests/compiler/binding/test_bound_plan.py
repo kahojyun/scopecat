@@ -17,6 +17,7 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
+    TypedDomainExecution,
     record_product,
     set_state_property,
 )
@@ -25,6 +26,7 @@ from scopecat.compiler.typed.verification import (
     program_relation_consumers,
 )
 from scopecat.config.environment import build_config_environment
+from scopecat.domain.program import DomainProgramDef
 from scopecat.execution.local.program import CollectOperation
 from scopecat.graph.relations.model import (
     CellValue,
@@ -56,6 +58,12 @@ from scopecat.kernel.value_types import (
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.logical import AcquireEffect
+from scopecat.records.config import (
+    DomainTargetBinding,
+    DomainTargetInstrumentMember,
+    DomainTargetPrivateEndpoint,
+    VirtualInstrumentConnection,
+)
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
@@ -226,6 +234,104 @@ def test_link_retains_unit_domain() -> None:
         for consumer in program_relation_consumers(bound._verified_program)
     )
     assert bound.point_domain.coordinate_columns == ()
+    assert bound.domain_target is None
+
+
+def test_bind_selects_and_snapshots_the_complete_domain_target() -> None:
+    config = load_config()
+    configured_target = DomainTargetBinding(
+        id="tests.selected-target",
+        exclusivity_key="physical:selected-target",
+        kind="tests.selected-kind",
+        members=[
+            DomainTargetInstrumentMember(
+                role="readout",
+                instrument_id="source-0",
+            ),
+            DomainTargetPrivateEndpoint(
+                role="controller",
+                connection=VirtualInstrumentConnection(
+                    options={"address": "private-controller"}
+                ),
+            ),
+        ],
+    )
+    config = config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={"domain_target": configured_target}
+            )
+        }
+    )
+    program = CoreProgram(
+        id="domain-target-bound-plan",
+        kind="compiler_test",
+        point_domain=PointDomain(axes=()),
+        effects=(
+            TypedDomainExecution(
+                id="domain",
+                program=DomainProgramDef(
+                    id="program",
+                    dialect_id="tests.domain",
+                    dialect_version="1",
+                    body=(),
+                ),
+            ),
+        ),
+    )
+
+    bound = bind_core_program(program, build_config_environment(config))
+
+    target = bound.domain_target
+    assert target is not None
+    assert (target.id, target.kind, target.exclusivity_key) == (
+        "tests.selected-target",
+        "tests.selected-kind",
+        "physical:selected-target",
+    )
+    assert target.instrument_ids == ("source-0",)
+    assert target.members == tuple(configured_target.members)
+    assert all(
+        selected is not configured
+        for selected, configured in zip(
+            target.members,
+            configured_target.members,
+            strict=True,
+        )
+    )
+
+
+def test_bind_rejects_a_domain_program_without_a_configured_target() -> None:
+    config = load_config()
+    config = config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"domain_target": None}),
+        }
+    )
+    program = CoreProgram(
+        id="missing-domain-target-bound-plan",
+        kind="compiler_test",
+        point_domain=PointDomain(axes=()),
+        effects=(
+            TypedDomainExecution(
+                id="domain",
+                program=DomainProgramDef(
+                    id="program",
+                    dialect_id="tests.domain",
+                    dialect_version="1",
+                    body=(),
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        bind_core_program(program, build_config_environment(config))
+
+    [issue] = caught.value.problems
+    assert issue.code == "domain_target_missing"
+    assert issue.phase is ProblemPhase.PLANNING
+    assert issue.location == model_location("config", "system", "domain_target")
 
 
 def test_raw_link_retains_product_metadata_and_accepted_environment() -> None:

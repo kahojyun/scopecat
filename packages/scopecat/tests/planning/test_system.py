@@ -77,6 +77,8 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
     DomainTargetInstrumentMember,
+    DomainTargetPrivateEndpoint,
+    VirtualInstrumentConnection,
     config_content_hash,
 )
 from scopecat.sdk.domain import (
@@ -537,18 +539,32 @@ def _config_with_domain_resources(
 ) -> ConfigProfileSnapshot:
     config = load_config()
     selected = set(instrument_ids)
+    known_ids = {instrument.id for instrument in config.instrument_registry.instruments}
+    seed = config.instrument_registry.instruments[0]
     registry = config.instrument_registry.model_copy(
         update={
             "instruments": [
-                instrument.model_copy(
-                    update={
-                        "exclusivity_key": f"physical:{instrument.id}",
-                    }
-                )
-                if instrument.id in selected
-                else instrument
-                for instrument in config.instrument_registry.instruments
-            ]
+                *(
+                    instrument.model_copy(
+                        update={
+                            "exclusivity_key": f"physical:{instrument.id}",
+                        }
+                    )
+                    if instrument.id in selected
+                    else instrument
+                    for instrument in config.instrument_registry.instruments
+                ),
+                *(
+                    seed.model_copy(
+                        update={
+                            "id": instrument_id,
+                            "exclusivity_key": f"physical:{instrument_id}",
+                        }
+                    )
+                    for instrument_id in instrument_ids
+                    if instrument_id not in known_ids
+                ),
+            ],
         }
     )
     system = config.system.model_copy(
@@ -556,14 +572,20 @@ def _config_with_domain_resources(
             "instrument_registry": registry,
             "domain_target": DomainTargetBinding(
                 id="tests.domain.target",
-                exclusivity_key="tests.domain.target",
+                exclusivity_key="physical:tests.domain.target",
                 kind="tests.domain",
                 members=[
-                    DomainTargetInstrumentMember(
-                        role=instrument_id,
-                        instrument_id=instrument_id,
-                    )
-                    for instrument_id in instrument_ids
+                    *(
+                        DomainTargetInstrumentMember(
+                            role=instrument_id,
+                            instrument_id=instrument_id,
+                        )
+                        for instrument_id in instrument_ids
+                    ),
+                    DomainTargetPrivateEndpoint(
+                        role="controller",
+                        connection=VirtualInstrumentConnection(),
+                    ),
                 ],
             ),
         }
@@ -860,6 +882,28 @@ def test_domain_target_instrument_does_not_require_a_local_manifest(
     )
     assert set(plan.resource_requirements) == {
         ResourceRequirement("source-0"),
+        ResourceRequirement("tests.domain.target", "target"),
+    }
+
+
+def test_domain_target_footprint_contains_every_instrument_member() -> None:
+    bound = _bound_program(
+        config=_config_with_domain_resources("source-0", "target-member-1")
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=_DomainCompiler("tests.complete-target-footprint"),
+    ).compile(bound)
+
+    assert plan.domain_target_requirement == DomainTargetRequirement(
+        id="tests.domain.target",
+        kind="tests.domain",
+        instrument_ids=("source-0", "target-member-1"),
+    )
+    assert set(plan.resource_requirements) == {
+        ResourceRequirement("source-0"),
+        ResourceRequirement("target-member-1"),
         ResourceRequirement("tests.domain.target", "target"),
     }
 
