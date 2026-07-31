@@ -28,11 +28,7 @@ from scopecat.program.bindings import (
     prefix_resource_port,
 )
 from scopecat.program.definitions import ExperimentDef
-from scopecat.program.domain import (
-    DomainExecution,
-    LoweredDomainExecution,
-    lower_domain_execution,
-)
+from scopecat.program.domain import DomainExecution
 from scopecat.program.identities import InvocationKey
 from scopecat.program.logical import (
     AcquireEffect,
@@ -91,7 +87,7 @@ type _FragmentEffect = (
     BindingIntent
     | EnsureStateIntent
     | InvocationIntent
-    | LoweredDomainExecution
+    | DomainExecution
     | AcquireEffect
 )
 
@@ -204,7 +200,7 @@ def _merge_module_fragments(
         effects.extend(fragment.effects)
     merged_point_dependencies = _merge_point_dependencies(*point_dependencies)
     execution_ids = tuple(
-        effect.id for effect in effects if isinstance(effect, LoweredDomainExecution)
+        effect.id for effect in effects if isinstance(effect, DomainExecution)
     )
     if len(execution_ids) != len(set(execution_ids)):
         raise ValueError("module fragments contain repeated domain execution ids")
@@ -427,10 +423,7 @@ def _lower_module_effect(
     if isinstance(effect, InvocationIntent):
         return _resolve_invocation(effect, resolver=resolver)
     if isinstance(effect, DomainExecution):
-        return _resolve_domain_execution(
-            lower_domain_execution(effect),
-            resolver=resolver,
-        )
+        return _resolve_domain_execution(effect, resolver=resolver)
     return AcquireEffect(
         id=AcquireId(SymbolId(local_id=effect.id)),
         resource_port_id=effect.resource_port_id,
@@ -705,10 +698,10 @@ def _resolve_operation(
 
 
 def _resolve_domain_execution(
-    execution: LoweredDomainExecution,
+    execution: DomainExecution,
     *,
     resolver: _ModuleValueResolver,
-) -> LoweredDomainExecution:
+) -> DomainExecution:
     return replace(
         execution,
         input_bindings=tuple(
@@ -785,7 +778,7 @@ def _module_fragment_value_roots(
     add_semantic_roots(
         value
         for execution in fragment.effects
-        if isinstance(execution, LoweredDomainExecution)
+        if isinstance(execution, DomainExecution)
         for _name, value in (
             *execution.input_bindings,
             *execution.compiler_input_bindings,
@@ -928,7 +921,7 @@ def _scope_fragment_effect(
             origin=origin,
             resource_ids=resource_ids,
         )
-    if isinstance(effect, LoweredDomainExecution):
+    if isinstance(effect, DomainExecution):
         return _scope_domain_execution(
             effect,
             inputs,
@@ -953,12 +946,12 @@ def _scope_fragment_effect(
 
 
 def _scope_domain_execution(
-    execution: LoweredDomainExecution,
+    execution: DomainExecution,
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
-) -> LoweredDomainExecution:
+) -> DomainExecution:
     return replace(
         execution,
         id=_scope_domain_execution_id(execution.id, scope),
@@ -981,8 +974,15 @@ def _scope_domain_execution(
             for name, value in execution.compiler_input_bindings
         ),
         result_bindings=tuple(
-            (name, product_id.prefixed(*scope))
-            for name, product_id in execution.result_bindings
+            (
+                name,
+                replace(
+                    product,
+                    product_id=product.product_id.prefixed(*scope),
+                    origin=(*origin, *product.origin),
+                ),
+            )
+            for name, product in execution.result_bindings
         ),
     )
 

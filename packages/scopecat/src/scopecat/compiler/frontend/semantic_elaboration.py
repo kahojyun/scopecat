@@ -23,7 +23,7 @@ from scopecat.program.bindings import (
     EnsureStateIntent,
     InvocationIntent,
 )
-from scopecat.program.domain import LoweredDomainExecution
+from scopecat.program.domain import DomainExecution
 from scopecat.program.logical import (
     AcquireEffect,
     ImplementationId,
@@ -65,7 +65,7 @@ def close_logical_program(
         BindingIntent
         | EnsureStateIntent
         | InvocationIntent
-        | LoweredDomainExecution
+        | DomainExecution
         | AcquireEffect
     ] = (),
     final_state: EnsureStateIntent | None = None,
@@ -161,7 +161,7 @@ class _LogicalSemanticsBuilder:
 
     def add_domain_execution(
         self,
-        execution: LoweredDomainExecution,
+        execution: DomainExecution,
     ) -> LogicalDomainExecution:
         program = execution.program
         operation_id = OperationId(
@@ -192,7 +192,10 @@ class _LogicalSemanticsBuilder:
                 )
                 for name, value in execution.compiler_input_bindings
             ),
-            results=execution.result_bindings,
+            results=tuple(
+                (result_id, product.product_id)
+                for result_id, product in execution.result_bindings
+            ),
         )
 
     def add_effect(
@@ -201,7 +204,7 @@ class _LogicalSemanticsBuilder:
             BindingIntent
             | EnsureStateIntent
             | InvocationIntent
-            | LoweredDomainExecution
+            | DomainExecution
             | AcquireEffect
         ),
         *,
@@ -238,7 +241,7 @@ class _LogicalSemanticsBuilder:
                 ),
                 scope=effect.scope,
             )
-        if isinstance(effect, LoweredDomainExecution):
+        if isinstance(effect, DomainExecution):
             return self.add_domain_execution(effect)
         return effect
 
