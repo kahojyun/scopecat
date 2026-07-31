@@ -204,34 +204,6 @@ class ModulePythonImplementation:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleBindingEffect:
-    """Apply one desired-state binding at this position."""
-
-    intent: ExperimentBindingIntent
-
-
-@dataclass(frozen=True, slots=True)
-class ModuleEnsureEffect:
-    """Ensure one coherent desired state at this effect position."""
-
-    intent: EnsureStateIntent
-
-
-@dataclass(frozen=True, slots=True)
-class ModuleInvokeEffect:
-    """Invoke one atomic hardware operation at this effect position."""
-
-    intent: InvocationIntent
-
-
-@dataclass(frozen=True, slots=True)
-class ModuleDomainEffect:
-    """Invoke one opaque domain program at this position."""
-
-    execution: DomainExecution
-
-
-@dataclass(frozen=True, slots=True)
 class ModuleAcquireResult:
     """Map one hardware acquisition result to a logical product."""
 
@@ -278,10 +250,10 @@ class ModuleAcquireEffect:
 
 type ModuleEffectIR = (
     ModuleInstanceIR
-    | ModuleBindingEffect
-    | ModuleEnsureEffect
-    | ModuleInvokeEffect
-    | ModuleDomainEffect
+    | ExperimentBindingIntent
+    | EnsureStateIntent
+    | InvocationIntent
+    | DomainExecution
     | ModuleAcquireEffect
 )
 
@@ -395,10 +367,10 @@ class ModuleBodyIR:
             binding
             for effect in self.effects
             for binding in (
-                (effect.intent,)
-                if isinstance(effect, ModuleBindingEffect)
-                else effect.intent.assignments
-                if isinstance(effect, ModuleEnsureEffect)
+                (effect,)
+                if isinstance(effect, ExperimentBindingIntent)
+                else effect.assignments
+                if isinstance(effect, EnsureStateIntent)
                 else ()
             )
         )
@@ -406,17 +378,13 @@ class ModuleBodyIR:
     @property
     def domain_executions(self) -> tuple[DomainExecution, ...]:
         return tuple(
-            effect.execution
-            for effect in self.effects
-            if isinstance(effect, ModuleDomainEffect)
+            effect for effect in self.effects if isinstance(effect, DomainExecution)
         )
 
     @property
     def invocations(self) -> tuple[InvocationIntent, ...]:
         return tuple(
-            effect.intent
-            for effect in self.effects
-            if isinstance(effect, ModuleInvokeEffect)
+            effect for effect in self.effects if isinstance(effect, InvocationIntent)
         )
 
     @property

@@ -27,7 +27,11 @@ from scopecat.program.bindings import (
     ResourceSelector,
     prefix_resource_port,
 )
-from scopecat.program.domain import LoweredDomainExecution, lower_domain_execution
+from scopecat.program.domain import (
+    DomainExecution,
+    LoweredDomainExecution,
+    lower_domain_execution,
+)
 from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.identities import InvocationKey
 from scopecat.program.logical import (
@@ -39,14 +43,10 @@ from scopecat.program.logical import (
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
     ModuleAcquireEffect,
-    ModuleBindingEffect,
     ModuleBodyIR,
     ModuleDef,
-    ModuleDomainEffect,
-    ModuleEnsureEffect,
     ModuleInstanceIR,
     ModuleInterfaceIR,
-    ModuleInvokeEffect,
     ModulePythonImplementation,
 )
 from scopecat.program.operations import (
@@ -381,30 +381,30 @@ def _elaborate_program_ir(
 
 def _lower_module_effect(
     effect: (
-        ModuleBindingEffect
-        | ModuleEnsureEffect
-        | ModuleInvokeEffect
-        | ModuleDomainEffect
+        ExperimentBindingIntent
+        | EnsureStateIntent
+        | InvocationIntent
+        | DomainExecution
         | ModuleAcquireEffect
     ),
     *,
     resolver: _ModuleValueResolver,
 ) -> _FragmentEffect:
-    if isinstance(effect, ModuleBindingEffect):
-        return _resolve_binding(effect.intent, resolver=resolver)
-    if isinstance(effect, ModuleEnsureEffect):
+    if isinstance(effect, ExperimentBindingIntent):
+        return _resolve_binding(effect, resolver=resolver)
+    if isinstance(effect, EnsureStateIntent):
         return replace(
-            effect.intent,
+            effect,
             assignments=tuple(
                 _resolve_binding(assignment, resolver=resolver)
-                for assignment in effect.intent.assignments
+                for assignment in effect.assignments
             ),
         )
-    if isinstance(effect, ModuleInvokeEffect):
-        return _resolve_invocation(effect.intent, resolver=resolver)
-    if isinstance(effect, ModuleDomainEffect):
+    if isinstance(effect, InvocationIntent):
+        return _resolve_invocation(effect, resolver=resolver)
+    if isinstance(effect, DomainExecution):
         return _resolve_domain_execution(
-            lower_domain_execution(effect.execution),
+            lower_domain_execution(effect),
             resolver=resolver,
         )
     return AcquireEffect(

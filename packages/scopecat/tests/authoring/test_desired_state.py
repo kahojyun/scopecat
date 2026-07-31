@@ -15,7 +15,7 @@ from scopecat.planning.local_materialization import (
     materialize_local_final_state,
     prepare_local_target,
 )
-from scopecat.program.module import ModuleEnsureEffect
+from scopecat.program.bindings import EnsureStateIntent
 from scopecat.sdk.instruments import InterfaceRef, PropertyRef
 from tests.testkit.authoring import bind_invocation
 from tests.testkit.local_materialization import materialize_local_execution
@@ -66,8 +66,8 @@ def test_ensure_binds_one_declarative_target_with_point_resolved_values() -> Non
     assert isinstance(desired_state.bindings[0].value, sc.ValueRef)
     assert desired_state.bindings[1].value is True
     [effect] = desired_state.effects
-    assert isinstance(effect, ModuleEnsureEffect)
-    assert len(effect.intent.assignments) == 2
+    assert isinstance(effect, EnsureStateIntent)
+    assert len(effect.assignments) == 2
 
 
 def test_ensure_rejects_an_empty_target() -> None:

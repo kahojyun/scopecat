@@ -45,17 +45,13 @@ from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
     ModuleAcquireEffect,
     ModuleAcquireResult,
-    ModuleBindingEffect,
     ModuleBodyIR,
     ModuleDef,
-    ModuleDomainEffect,
     ModuleEffectIR,
-    ModuleEnsureEffect,
     ModuleImportBinding,
     ModuleInstanceIR,
     ModuleInstanceLookup,
     ModuleInterfaceIR,
-    ModuleInvokeEffect,
     ModulePythonImplementation,
     ModuleResourceBinding,
     ModuleValueExport,
@@ -187,7 +183,7 @@ class ModuleContext:
     def append_domain_call_internal(self, call: DomainCall) -> None:
         """Append one native domain occurrence and its result declarations."""
 
-        self._effects.append(ModuleDomainEffect(call.execution))
+        self._effects.append(call.execution)
         self._product_declarations.extend(call.product_declarations)
 
     def close_definition_internal(
@@ -305,14 +301,12 @@ class ModuleContext:
                 "module bindings require a scalar typed value or scalar literal"
             )
         self._effects.append(
-            ModuleBindingEffect(
-                binding_property(
-                    resource.id,
-                    interface=property.interface_id,
-                    component_path=property.component_path,
-                    property=property.property_id,
-                    value=cast("BindingInput", _capture_binding_literal(value)),
-                )
+            binding_property(
+                resource.id,
+                interface=property.interface_id,
+                component_path=property.component_path,
+                property=property.property_id,
+                value=cast("BindingInput", _capture_binding_literal(value)),
             )
         )
 
@@ -324,11 +318,7 @@ class ModuleContext:
         """Declare one coherent target state for a logical resource."""
 
         self._require_owned_resource(resource)
-        self._effects.append(
-            ModuleEnsureEffect(
-                build_ensure_state_intent(resource.port_id, target),
-            )
-        )
+        self._effects.append(build_ensure_state_intent(resource.port_id, target))
 
     def invoke(
         self,
@@ -351,21 +341,19 @@ class ModuleContext:
         ):
             raise TypeError("module invocation arguments require scalar values")
         self._effects.append(
-            ModuleInvokeEffect(
-                invoke_operation(
-                    id,
-                    port_id=resource.id,
-                    interface=operation.interface_id,
-                    component_path=operation.component_path,
-                    operation=operation.operation_id,
-                    arguments={
-                        target.argument_id: cast(
-                            "InvocationInput",
-                            _capture_binding_literal(value),
-                        )
-                        for target, value in selected_arguments.items()
-                    },
-                )
+            invoke_operation(
+                id,
+                port_id=resource.id,
+                interface=operation.interface_id,
+                component_path=operation.component_path,
+                operation=operation.operation_id,
+                arguments={
+                    target.argument_id: cast(
+                        "InvocationInput",
+                        _capture_binding_literal(value),
+                    )
+                    for target, value in selected_arguments.items()
+                },
             )
         )
 
