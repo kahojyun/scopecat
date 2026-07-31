@@ -33,15 +33,17 @@ from scopecat.authoring._module_handles import (
 )
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import (
-    ExperimentDefinition,
-    ExperimentInvocation,
     ExperimentTemplate,
-    create_experiment_definition_internal,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.program.bindings import ExperimentBindingIntent
+from scopecat.program.definitions import (
+    ExperimentDef,
+    ExperimentInvocation,
+    create_experiment_def,
+)
 from scopecat.program.domain import DomainCall
 from scopecat.program.products import (
     ProductRef,
@@ -568,9 +570,9 @@ def _close_experiment_body(
     metadata: Mapping[str, MetadataValue] | None,
     input_defaults: Mapping[str, RuntimeInput],
     required_inputs: Sequence[str],
-) -> ExperimentDefinition:
+) -> ExperimentDef:
     program = build_experiment_program(body.module)
-    return create_experiment_definition_internal(
+    return create_experiment_def(
         id=id,
         kind=kind,
         program=program,

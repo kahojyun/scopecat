@@ -7,8 +7,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
 
-from scopecat.authoring.scans import Scan
-from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
@@ -37,9 +35,11 @@ from scopecat.kernel.value_type_compatibility import (
     describe_value_type,
     is_assignable,
 )
+from scopecat.program.definitions import ExperimentInvocation
 from scopecat.program.parameters import merge_parameter_contracts
 from scopecat.program.scans import (
     AxisSpec,
+    Scan,
     scan_parameter_contracts,
 )
 from scopecat.program.value_refs import (
