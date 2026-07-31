@@ -7,7 +7,6 @@ from typing import Annotated
 import pytest
 
 import scopecat as sc
-from scopecat.compiler.frontend.assembly_lowering import validate_assembly_entrypoint
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.resolution import (
@@ -36,11 +35,13 @@ from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.program.bindings import requires, resource_port
+from scopecat.program.domain import domain_program
 from scopecat.program.products import ModuleProductDecl, record_product
 from scopecat.program.values import compute as program_compute
 from scopecat.program.values import input as program_input
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.domain import domain_call
 
 _PLAY_WAVEFORMS = InterfaceRef("test.play_waveforms/v1")
 _PLAY_WAVEFORMS_PLAY = _PLAY_WAVEFORMS.operation("play")
@@ -182,16 +183,28 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
 
     @sc.module(id="test.graph.record-schema")
     def module(context: sc.ModuleContext) -> None:
-        context.compute(
-            "consume-parameter",
-            fn=_identity_value,
-            inputs={"value": missing_parameter},
-            output_type=value_type,
-        )
         context.product("signal", axes=(duplicate_axis, duplicate_axis))
 
+    program = domain_program(
+        "consume-parameter",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        compiler_inputs={"value": value_type},
+    )
+
+    @sc.template(id="test.graph.record-schema", kind="record-schema")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(module())
+        experiment.run(
+            domain_call(
+                program,
+                compiler_inputs={"value": missing_parameter},
+            )
+        )
+
     with pytest.raises(CheckFailed) as error:
-        _resolve(module)
+        link_invocation(template(), config_profile=load_config())
 
     assert error.value.problems[0].code == ("product_axis_duplicate")
     assert error.value.problems[0].location == model_location(
@@ -428,35 +441,6 @@ def test_compile_verifies_and_seals_the_final_program_once(
     assert resolved.program.id == "test.graph.single-proof"
 
 
-@pytest.mark.parametrize(
-    ("assembly", "code", "root"),
-    (
-        (
-            SemanticExperimentIR(kind="graph"),
-            "experiment_assembly_entrypoint_missing_id",
-            "experiment_id",
-        ),
-        (
-            SemanticExperimentIR(experiment_id="test.graph"),
-            "experiment_assembly_entrypoint_missing_kind",
-            "kind",
-        ),
-    ),
-)
-def test_entrypoint_closure_is_an_authoring_problem(
-    assembly: SemanticExperimentIR,
-    code: str,
-    root: str,
-) -> None:
-    with pytest.raises(CheckFailed) as error:
-        validate_assembly_entrypoint(assembly)
-
-    problem = error.value.problems[0]
-    assert problem.code == code
-    assert problem.phase is ProblemPhase.AUTHORING
-    assert problem.location == model_location(root)
-
-
 def test_resource_selector_requires_a_scalar_entity_value() -> None:
     invalid_entity = program_input("subject", sc.ScalarType(sc.StringType()))
     port = resource_port(
@@ -465,7 +449,13 @@ def test_resource_selector_requires_a_scalar_entity_value() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(SemanticExperimentIR(resource_ports=(port,)))
+        verify_assembly_graph(
+            SemanticExperimentIR(
+                experiment_id="test.graph.resource-selector",
+                kind="graph",
+                resource_ports=(port,),
+            )
+        )
 
     problem = error.value.problems[0]
     assert problem.code == "module_resource_entity_input_invalid"
@@ -497,6 +487,8 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
 
     verify_assembly_graph(
         SemanticExperimentIR(
+            experiment_id="test.graph.payload-collision",
+            kind="graph",
             point_domain=(point_source,),
             product_declarations=(ModuleProductDecl(id="payload"),),
             record_selections=(record_product("payload"),),
@@ -514,6 +506,8 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(
             SemanticExperimentIR(
+                experiment_id="test.graph.coordinate-collision",
+                kind="graph",
                 point_domain=(point_source,),
                 product_declarations=(ModuleProductDecl(id="coordinate"),),
                 record_selections=(record_product("coordinate"),),

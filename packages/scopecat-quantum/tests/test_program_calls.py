@@ -295,8 +295,8 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
         context.record(placed.results.iq_shots)
 
     invocation = experiment()
-    assert invocation.definition.module.body.child_instances == ()
-    assert len(invocation.definition.module.body.domain_executions) == 1
+    assert invocation.definition.program.body.child_instances == ()
+    assert len(invocation.definition.program.body.domain_executions) == 1
     assert invocation.definition.record_selections[0].product_id.qualified_name == (
         "call/iq_shots"
     )
@@ -406,10 +406,10 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
         context.run(left)
         context.run(right)
 
-    assert repeated_explicit.definition.module.body.child_instances == ()
+    assert repeated_explicit.definition.program.body.child_instances == ()
     assert tuple(
         execution.id
-        for execution in repeated_explicit.definition.module.body.domain_executions
+        for execution in repeated_explicit.definition.program.body.domain_executions
     ) == (
         "left/test.quantum.repeated",
         "right/test.quantum.repeated",

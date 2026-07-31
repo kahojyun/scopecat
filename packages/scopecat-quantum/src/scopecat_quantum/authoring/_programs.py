@@ -10,7 +10,6 @@ from typing import Protocol, cast
 
 from scopecat.authoring import (
     ComputeInput,
-    DomainProgramDef,
     IntType,
     ProductOutputs,
     ScalarType,
@@ -18,13 +17,17 @@ from scopecat.authoring import (
     ValueType,
     shot_axis,
 )
-from scopecat.authoring import (
-    domain_program as _core_domain_program,
-)
+from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.program.domain import DomainCall, create_domain_call_internal
+from scopecat.program.domain import (
+    DomainCall,
+    create_domain_call_internal,
+)
+from scopecat.program.domain import (
+    domain_program as _core_domain_program,
+)
 from scopecat.program.identities import DomainCallKey
 from scopecat.program.products import (
     ModuleProductDecl,

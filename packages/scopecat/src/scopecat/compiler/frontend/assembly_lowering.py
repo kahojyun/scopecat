@@ -355,25 +355,6 @@ def _lower_semantic_input(
     )
 
 
-def validate_assembly_entrypoint(assembly: SemanticExperimentIR) -> None:
-    """Require the identity needed to lower a verified root assembly."""
-
-    if not assembly.experiment_id:
-        raise_frontend_problem(
-            "experiment_assembly_entrypoint_missing_id",
-            "experiment assembly must be linked with an experiment id",
-            "experiment_id",
-            phase=ProblemPhase.AUTHORING,
-        )
-    if not assembly.kind:
-        raise_frontend_problem(
-            "experiment_assembly_entrypoint_missing_kind",
-            "experiment assembly must be linked with an experiment kind",
-            "kind",
-            phase=ProblemPhase.AUTHORING,
-        )
-
-
 def coerce_assembly_inputs(
     ports: Sequence[ModuleInputPort],
     inputs: Mapping[str, object],

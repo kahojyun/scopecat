@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
@@ -10,6 +11,8 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.measurements.results import MeasurementScalar, MeasurementValue
+from scopecat.program.domain import domain_program
+from scopecat.program.products import ModuleProductDecl
 from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainPointRef,
@@ -21,6 +24,7 @@ from scopecat.sdk.domain._bridge import (
     make_domain_call_view,
 )
 from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.domain import domain_call
 
 
 def _domain_scenario(
@@ -31,7 +35,7 @@ def _domain_scenario(
 ) -> MaterializedLinkedPoints:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.coordinate(f"{namespace}_count", count_type)
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test.context",
         dialect_version="1",
@@ -51,35 +55,42 @@ def _domain_scenario(
             )
         }
 
-    postprocessor = sc.measurement_postprocessor(
-        "summarize",
-        input="raw",
-        outputs={"summary": "summary"},
-        kernel=summarize,
-    )
-
     @sc.module(id=f"test.sdk.context.{namespace}")
-    def domain_module(module: sc.ModuleContext) -> None:
-        raw = module.product("raw", unit="count", dtype="int64")
-        module.product("summary", unit="count", dtype="int64")
-        module.measurement_postprocessor(postprocessor)
-        module.domain(
-            sc.domain_execution(
-                program,
-                inputs={"count": count},
-                results={"raw": raw},
+    def domain_module(
+        module: sc.ModuleContext,
+        count_input: Annotated[sc.Input[int], sc.IntType(minimum=0)],
+    ) -> None:
+        summary = module.product("summary", unit="count", dtype="int64")
+        call = domain_call(
+            program,
+            inputs={"count": sc.input_ref(count_input)},
+            products={
+                "raw": ModuleProductDecl(
+                    "raw",
+                    unit="count",
+                    dtype="int64",
+                )
+            },
+        )
+        module.measurement_postprocessor(
+            sc.measurement_postprocessor(
+                "summarize",
+                input=call.results.raw,
+                outputs={"summary": summary},
+                kernel=summarize,
             )
         )
+        module.call(call)
 
     @sc.template(
         id=f"test.sdk.context.{namespace}",
         kind="domain_context",
     )
     def template(experiment: sc.ExperimentContext) -> None:
-        module_call = experiment.run(domain_module())
+        module_call = experiment.run(domain_module(count_input=count))
         experiment.scan(sc.axis(count, (1, 3, 5)))
         if record_raw:
-            experiment.record(module_call.products.raw, record_id="raw")
+            experiment.record(module_call.products["call/raw"], record_id="raw")
         experiment.record(module_call.products.summary, record_id="summary")
 
     resolved = link_invocation(

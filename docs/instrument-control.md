@@ -230,12 +230,12 @@ def capture_experiment(experiment: sc.ExperimentContext) -> None:
 
 All `finalize(...)` declarations form one desired state applied
 only after every point and measurement block completes successfully. A
-postcondition may use fixed values, experiment inputs, or configuration
+final_state may use fixed values, experiment inputs, or configuration
 parameters, but not scan coordinates or point-local compute results: there is
 no distinguished scan point after the scan. Failure, cancellation, and unknown
 hardware outcomes skip this normal-completion state and remain governed by the
 daemon's configured safety/finalization policy. Consequently modules do not
-register global `finalize` callbacks, and an experiment postcondition is not a
+register global `finalize` callbacks, and an experiment final_state is not a
 substitute for safety cleanup.
 
 The same typed state objects are shared by direct control and experiment
@@ -375,7 +375,7 @@ by an earlier use of that mode.
 
 This recovery belongs to the pinned system configuration rather than an
 experiment. It runs only for failure, cancellation, or the terminal fallback;
-a successful run instead uses its experiment postcondition. A conclusive driver
+a successful run instead uses its experiment final_state. A conclusive driver
 rejection is returned as a finalization problem. An unknown abort, observation,
 or apply outcome faults the connection, quarantines the run, and sends no
 further commands.

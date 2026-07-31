@@ -9,6 +9,8 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.results import MeasurementValue
+from scopecat.program.domain import domain_program
+from tests.testkit.domain import domain_call
 
 
 def _identity(value: MeasurementValue) -> dict[str, MeasurementValue]:
@@ -18,8 +20,8 @@ def _identity(value: MeasurementValue) -> dict[str, MeasurementValue]:
 def _postprocessor(
     id: str,
     *,
-    source: str,
-    output: str,
+    source: str | sc.ProductRef,
+    output: str | sc.ProductRef,
 ) -> sc.MeasurementPostprocessor:
     return sc.measurement_postprocessor(
         id,
@@ -154,7 +156,7 @@ def test_postprocessor_chaining_is_rejected() -> None:
 
 
 def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
@@ -164,12 +166,12 @@ def test_domain_and_postprocessor_cannot_own_the_same_product() -> None:
 
     @sc.module(id="test.postprocessor.owner")
     def module(context: sc.ModuleContext) -> None:
+        call = domain_call(program)
         context.product("source")
-        raw = context.product("raw")
         context.measurement_postprocessor(
-            _postprocessor("derive", source="source", output="raw")
+            _postprocessor("derive", source="source", output=call.results.raw)
         )
-        context.domain(sc.domain_execution(program, results={"raw": raw}))
+        context.call(call)
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(elaborate_module(module.ir))

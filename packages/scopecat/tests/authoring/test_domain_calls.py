@@ -17,14 +17,18 @@ from scopecat.compiler.typed.program import (
     core_acquisitions,
     core_domain_executions,
 )
+from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.table_values import LiteralTableSource
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.program.domain import domain_execution, domain_program
+from scopecat.program.products import ModuleProductDecl
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_request,
     make_domain_call_view,
 )
 from tests.testkit.authoring import link_invocation, load_config
+from tests.testkit.domain import domain_call
 
 
 def _domain_table_type() -> sc.TableType:
@@ -37,10 +41,10 @@ def _domain_table_type() -> sc.TableType:
     )
 
 
-def _domain_module() -> tuple[sc.ExperimentModule[...], sc.DomainProgramDef, object]:
+def _domain_module() -> tuple[sc.ExperimentModule[...], DomainProgramDef, object]:
     value_type = sc.ScalarType(sc.IntType(minimum=0))
     body = object()
-    program = sc.domain_program(
+    program = domain_program(
         "x-count-program",
         dialect_id="test.quantum",
         dialect_version="1",
@@ -54,8 +58,19 @@ def _domain_module() -> tuple[sc.ExperimentModule[...], sc.DomainProgramDef, obj
         context: sc.ModuleContext,
         x_count: Annotated[sc.Input[int], sc.IntType(minimum=0)],
     ) -> None:
-        del x_count
-        context.product("counts", unit="count", dtype="int64")
+        context.call(
+            domain_call(
+                program,
+                inputs={"x_count": sc.input_ref(x_count)},
+                products={
+                    "counts": ModuleProductDecl(
+                        "counts",
+                        unit="count",
+                        dtype="int64",
+                    )
+                },
+            )
+        )
 
     return module, program, body
 
@@ -67,7 +82,7 @@ def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
     def product_module(context: sc.ModuleContext) -> None:
         context.product("result")
 
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
@@ -77,13 +92,13 @@ def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
     )
 
     with pytest.raises(ValueError, match="unknown"):
-        sc.domain_execution(
+        domain_execution(
             program,
             inputs={"value": 1, "typo": 2},
             results={"result": product_module.products["result"]},
         )
     with pytest.raises(ValueError, match="missing"):
-        sc.domain_execution(
+        domain_execution(
             program,
             inputs={},
             results={"result": product_module.products["result"]},
@@ -92,7 +107,7 @@ def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
 
 def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
     value_type = sc.ScalarType(sc.IntType())
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
@@ -100,15 +115,16 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
         inputs={"value": value_type},
         compiler_inputs={"calibration_revision": value_type},
     )
-    execution = sc.domain_execution(
-        program,
-        inputs={"value": 3},
-        compiler_inputs={"calibration_revision": 7},
-    )
 
     @sc.module(id="test.domain.compiler-inputs")
     def module(context: sc.ModuleContext) -> None:
-        context.domain(execution)
+        context.call(
+            domain_call(
+                program,
+                inputs={"value": 3},
+                compiler_inputs={"calibration_revision": 7},
+            )
+        )
 
     semantic = elaborate_module(module.ir).domain_executions[0]
 
@@ -124,7 +140,7 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
 
 def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> None:
     table_type = _domain_table_type()
-    program = sc.domain_program(
+    program = domain_program(
         "table-program",
         dialect_id="test",
         dialect_version="1",
@@ -137,8 +153,8 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         context: sc.ModuleContext,
         rows: Annotated[list[dict[str, object]], _domain_table_type()],
     ) -> None:
-        context.domain(
-            sc.domain_execution(
+        context.call(
+            domain_call(
                 program,
                 id="compile",
                 compiler_inputs={"rows": sc.input_ref(rows)},
@@ -199,7 +215,7 @@ def test_domain_program_tables_are_compiler_inputs_only() -> None:
     )
 
     with pytest.raises(TypeError, match="use compiler_inputs"):
-        sc.domain_program(
+        domain_program(
             "program",
             dialect_id="test",
             dialect_version="1",
@@ -212,7 +228,7 @@ def test_domain_program_rejects_overlapping_input_namespaces() -> None:
     value_type = sc.ScalarType(sc.IntType())
 
     with pytest.raises(ValueError, match="ids must be unique"):
-        sc.domain_program(
+        domain_program(
             "program",
             dialect_id="test",
             dialect_version="1",
@@ -225,7 +241,7 @@ def test_domain_program_rejects_overlapping_input_namespaces() -> None:
 def test_domain_execution_captures_literal_inputs_at_authoring_ingress() -> None:
     body = object()
     payload = PayloadValue(schema_id="test.program", payload=body)
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
@@ -233,7 +249,7 @@ def test_domain_execution_captures_literal_inputs_at_authoring_ingress() -> None
         inputs={"payload": sc.ScalarType(sc.PayloadType("test.program"))},
     )
 
-    execution = sc.domain_execution(program, inputs={"payload": payload})
+    execution = domain_execution(program, inputs={"payload": payload})
 
     captured = execution.input_bindings[0][1]
     assert isinstance(captured, PayloadValue)
@@ -242,11 +258,11 @@ def test_domain_execution_captures_literal_inputs_at_authoring_ingress() -> None
     assert captured.payload is body
 
     with pytest.raises(ValueError, match="finite"):
-        sc.domain_execution(program, inputs={"payload": float("nan")})
+        domain_execution(program, inputs={"payload": float("nan")})
 
 
-def test_domain_execution_must_bind_a_product_from_the_template_module() -> None:
-    program = sc.domain_program(
+def test_native_domain_call_owns_its_result_products() -> None:
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
@@ -254,50 +270,39 @@ def test_domain_execution_must_bind_a_product_from_the_template_module() -> None
         results={"result": None},
     )
 
-    @sc.module(id="test.domain.foreign")
-    def foreign(context: sc.ModuleContext) -> None:
-        context.product("result")
+    call = domain_call(program, id="owned")
 
-    execution = sc.domain_execution(
-        program,
-        results={"result": foreign.products["result"]},
-    )
+    @sc.module(id="test.domain.local")
+    def local(context: sc.ModuleContext) -> None:
+        context.call(call)
 
-    with pytest.raises(CheckFailed) as error:
-
-        @sc.module(id="test.domain.local")
-        def local(context: sc.ModuleContext) -> None:
-            context.product("result")
-            context.domain(execution)
-
-    assert "domain_execution_product_foreign_instance" in {
-        problem.code for problem in error.value.problems
-    }
+    [declaration] = call.product_declarations
+    assert declaration.qualified_id == "owned/result"
+    assert call.results.result.id == "owned/result"
+    assert local.products["owned/result"].id == "owned/result"
 
 
 def test_module_preserves_ordered_domain_executions() -> None:
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
         body=object(),
     )
-    first = sc.domain_execution(program, id="first")
-    second = sc.domain_execution(program, id="second")
 
     @sc.module(id="test.domain.single")
     def module(context: sc.ModuleContext) -> None:
-        context.domain(first)
-        context.domain(second)
+        context.call(domain_call(program, id="first"))
+        context.call(domain_call(program, id="second"))
 
     assert tuple(call.id for call in module.domain_executions) == (
-        "first",
-        "second",
+        "first/program",
+        "second/program",
     )
 
 
 def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
@@ -307,12 +312,10 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
 
     @sc.module(id="test.domain.reusable")
     def child(context: sc.ModuleContext) -> None:
-        result = context.product("result")
-        context.domain(
-            sc.domain_execution(
+        context.call(
+            domain_call(
                 program,
                 id="call",
-                results={"result": result},
             )
         )
 
@@ -327,18 +330,18 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
     assembly = elaborate_module(root.ir)
 
     assert tuple(execution.id for execution in assembly.domain_executions) == (
-        "right/call",
-        "left/call",
+        "right/call/program",
+        "left/call/program",
     )
     assert tuple(
         execution.results[0][1].qualified_name
         for execution in assembly.domain_executions
-    ) == ("right/result", "left/result")
+    ) == ("right/call/result", "left/call/result")
 
 
 def test_domain_execution_rejects_execute_stage_compute_input() -> None:
     value_type = sc.ScalarType(sc.IntType())
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
@@ -354,12 +357,10 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
             fn=lambda: 1,
             output_type=value_type,
         )
-        result = context.product("result")
-        context.domain(
-            sc.domain_execution(
+        context.call(
+            domain_call(
                 program,
                 inputs={"value": compute},
-                results={"result": result},
             )
         )
 
@@ -373,7 +374,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
 def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses() -> (
     None
 ):
-    child, program, body = _domain_module()
+    child, _program, body = _domain_module()
 
     @sc.module(id="test.domain.wrapper")
     def wrapper(
@@ -394,13 +395,6 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     ) -> None:
         outer = wrapper.instantiate("outer", x_count=x_count)
         context.call(outer)
-        context.domain(
-            sc.domain_execution(
-                program,
-                inputs={"x_count": x_count},
-                results={"counts": outer.products["inner/counts"]},
-            )
-        )
 
     assembly = elaborate_module(root_module.ir, x_count=point_x_count)
     assert len(assembly.domain_executions) == 1
@@ -409,13 +403,13 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         == "x-count-program"
     )
     assert assembly.domain_executions[0].results[0][1].qualified_name == (
-        "outer/inner/counts"
+        "outer/inner/call/counts"
     )
 
     @sc.template(id="test.domain", kind="domain")
     def template(experiment: sc.ExperimentContext) -> None:
         call = experiment.run(root_module(point_x_count))
-        selected_product = call.products["outer/inner/counts"]
+        selected_product = call.products["outer/inner/call/counts"]
         experiment.scan(sc.axis(point_x_count, (1, 2)))
         experiment.record(selected_product, record_id="counts_first")
         experiment.record(selected_product, record_id="counts_second")
@@ -431,14 +425,14 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     assert typed_execution.program.body is body
     assert isinstance(typed_execution.inputs["x_count"], ValueInput)
     result = typed_execution.results[0]
-    assert result.product_id.qualified_name == "root/outer/inner/counts"
+    assert result.product_id.qualified_name == "root/outer/inner/call/counts"
     assert result.product_use_ids == tuple(use.id for use in typed.product_uses)
     assert len(result.product_use_ids) == 2
 
 
 def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
     value_type = sc.ScalarType(sc.IntType())
-    program = sc.domain_program(
+    program = domain_program(
         "program",
         dialect_id="test",
         dialect_version="1",
@@ -455,19 +449,17 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
             inputs={"value": 1},
             output_type=value_type,
         )
-        result = context.product("result")
-        context.domain(
-            sc.domain_execution(
+        context.call(
+            domain_call(
                 program,
                 inputs={"value": 2},
-                results={"result": result},
             )
         )
 
     graph = elaborate_module(module.ir).semantic_graph
     value_ids = {definition.id.qualified_name for definition in graph.value_defs}
     assert "domain/inputs/value" in value_ids
-    assert "domain_execution/program/inputs/value" in value_ids
+    assert "domain_execution/call%2Fprogram/inputs/value" in value_ids
 
 
 def _identity_value(value: object) -> object:

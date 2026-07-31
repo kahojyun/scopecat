@@ -58,6 +58,8 @@ from scopecat.program.value_refs import (
     internal_value_ref_module_export,
     internal_value_ref_operation_id,
     internal_value_ref_operation_origin,
+    internal_value_ref_parameter_contracts,
+    internal_value_ref_point_dependencies,
     internal_value_ref_unbound_input_ids,
 )
 from scopecat.program.value_types import ValueType
@@ -489,6 +491,24 @@ def _module_closure_problems(module: ModuleIR) -> list[Problem]:
         )
 
     for value in _module_lexical_value_refs(module):
+        if internal_value_ref_point_dependencies(value):
+            add_problem(
+                "module_point_dependency_free",
+                "point_dependencies",
+                message=(
+                    f"module {module.id!r} cannot depend on experiment coordinates; "
+                    "declare a typed module input instead"
+                ),
+            )
+        if internal_value_ref_parameter_contracts(value):
+            add_problem(
+                "module_parameter_dependency_free",
+                "parameter_dependencies",
+                message=(
+                    f"module {module.id!r} cannot depend on experiment parameters; "
+                    "declare a typed module input instead"
+                ),
+            )
         for input_id in internal_value_ref_unbound_input_ids(value):
             if input_id not in imports:
                 add_problem(

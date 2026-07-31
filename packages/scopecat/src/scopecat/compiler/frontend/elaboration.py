@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import cast
+from typing import Protocol, cast
 
 from scopecat.compiler.frontend.semantic_elaboration import (
     ScopedPythonImplementation,
@@ -41,16 +41,20 @@ from scopecat.program.bindings import (
     prefix_resource_port,
 )
 from scopecat.program.domain import LoweredDomainExecution, lower_domain_execution
+from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.identities import InvocationKey
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
     ModuleAcquireEffect,
     ModuleBindingEffect,
+    ModuleBodyIR,
     ModuleDomainEffect,
     ModuleEnsureEffect,
     ModuleInstanceIR,
+    ModuleInterfaceIR,
     ModuleInvokeEffect,
     ModuleIR,
+    ModulePythonImplementation,
 )
 from scopecat.program.operations import (
     ComputeNodeInputValue,
@@ -105,12 +109,10 @@ type AssemblyEffect = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class _ExperimentEnvelope:
     """Non-dataflow intents carried alongside transient semantic graphs."""
 
-    experiment_id: str | None = None
-    kind: str | None = None
     inputs: dict[str, object] = field(default_factory=dict)
     input_ports: tuple[ModuleInputPort, ...] = ()
     entity_inputs: tuple[str, ...] = ()
@@ -122,7 +124,7 @@ class _ExperimentEnvelope:
     parameter_contracts: tuple[ParameterContract, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class _ModuleFragment(_ExperimentEnvelope):
     """Hierarchy-free module declarations before semantic graph closure."""
 
@@ -158,10 +160,27 @@ class _ModuleFragmentValueRoots:
     semantic: tuple[object, ...]
 
 
-@dataclass(frozen=True)
+class _HierarchyRoot(Protocol):
+    """Structural program container accepted by hierarchy elaboration."""
+
+    @property
+    def interface(self) -> ModuleInterfaceIR: ...
+
+    @property
+    def body(self) -> ModuleBodyIR: ...
+
+    @property
+    def python_implementations(
+        self,
+    ) -> tuple[ModulePythonImplementation, ...]: ...
+
+
+@dataclass(frozen=True, kw_only=True)
 class SemanticExperimentIR(_ExperimentEnvelope):
     """Closed config-free semantic graph plus plan and resource intents."""
 
+    experiment_id: str
+    kind: str
     point_domain: PointAxes[ValueRef] = ()
     semantic_graph: SemanticGraphIR = field(default_factory=SemanticGraphIR)
     implementations: Mapping[OperationId, LocalPythonImplementation] = field(
@@ -170,9 +189,11 @@ class SemanticExperimentIR(_ExperimentEnvelope):
         compare=False,
     )
     effects: tuple[AssemblyEffect, ...] = ()
-    postcondition: EnsureStateIntent | None = None
+    final_state: EnsureStateIntent | None = None
 
     def __post_init__(self) -> None:
+        if not self.experiment_id or not self.kind:
+            raise ValueError("semantic experiment requires an id and kind")
         object.__setattr__(
             self,
             "implementations",
@@ -194,7 +215,7 @@ class SemanticExperimentIR(_ExperimentEnvelope):
         )
         return (
             *effect_bindings,
-            *(() if self.postcondition is None else self.postcondition.assignments),
+            *(() if self.final_state is None else self.final_state.assignments),
         )
 
     @property
@@ -230,8 +251,6 @@ class SemanticExperimentIR(_ExperimentEnvelope):
 
 def _merge_module_fragments(
     *,
-    experiment_id: str,
-    kind: str,
     fragments: Sequence[_ModuleFragment],
 ) -> _ModuleFragment:
     if not fragments:
@@ -271,8 +290,6 @@ def _merge_module_fragments(
     if len(execution_ids) != len(set(execution_ids)):
         raise ValueError("module fragments contain repeated domain execution ids")
     return _ModuleFragment(
-        experiment_id=experiment_id,
-        kind=kind,
         inputs=merged_inputs,
         input_ports=tuple(input_ports),
         entity_inputs=tuple(entity_inputs),
@@ -296,8 +313,40 @@ def elaborate_module(
 ) -> SemanticExperimentIR:
     """Elaborate one root module through the only hierarchy-flattening pass."""
 
-    fragment = _elaborate_module_ir(
+    return _elaborate_hierarchy(
         module,
+        experiment_id=module.id,
+        kind=module.id,
+        inputs=inputs,
+    )
+
+
+def elaborate_experiment_program(
+    program: ExperimentProgram,
+    *,
+    experiment_id: str,
+    kind: str,
+    inputs: Mapping[str, object],
+) -> SemanticExperimentIR:
+    """Elaborate a native experiment root without a synthetic module."""
+
+    return _elaborate_hierarchy(
+        program,
+        experiment_id=experiment_id,
+        kind=kind,
+        inputs=inputs,
+    )
+
+
+def _elaborate_hierarchy(
+    root: _HierarchyRoot,
+    *,
+    experiment_id: str,
+    kind: str,
+    inputs: Mapping[str, object],
+) -> SemanticExperimentIR:
+    fragment = _elaborate_program_ir(
+        root,
         inputs=inputs,
     )
     value_roots = _module_fragment_value_roots(fragment)
@@ -313,8 +362,8 @@ def elaborate_module(
         parameter_contracts=fragment.parameter_contracts,
     )
     return SemanticExperimentIR(
-        experiment_id=fragment.experiment_id,
-        kind=fragment.kind,
+        experiment_id=experiment_id,
+        kind=kind,
         inputs=fragment.inputs,
         input_ports=fragment.input_ports,
         entity_inputs=fragment.entity_inputs,
@@ -330,8 +379,8 @@ def elaborate_module(
     )
 
 
-def _elaborate_module_ir(
-    module: ModuleIR,
+def _elaborate_program_ir(
+    module: _HierarchyRoot,
     *,
     inputs: Mapping[str, object],
 ) -> _ModuleFragment:
@@ -404,8 +453,6 @@ def _elaborate_module_ir(
         for instance in module.body.child_instances
     )
     combined = _merge_module_fragments(
-        experiment_id=module.id,
-        kind=module.id,
         fragments=(*ordered_sources, own),
     )
     effects: list[_FragmentEffect] = []
@@ -417,8 +464,6 @@ def _elaborate_module_ir(
             effects.append(next(own_effect_iterator))
     return replace(
         combined,
-        experiment_id=None,
-        kind=None,
         effects=tuple(effects),
     )
 
@@ -477,7 +522,7 @@ def _elaborate_instance(
         binding.import_id: resolver.resolve(binding.source)
         for binding in instance.input_bindings
     }
-    fragment = _elaborate_module_ir(instance.module, inputs=local_inputs)
+    fragment = _elaborate_program_ir(instance.module, inputs=local_inputs)
     return _scope_instance_graph(
         fragment,
         instance=instance,
@@ -552,7 +597,7 @@ def _merge_point_dependencies(
 class _ModuleValueResolver:
     """Resolve explicit instance-export edges within one Module IR boundary."""
 
-    def __init__(self, module: ModuleIR) -> None:
+    def __init__(self, module: _HierarchyRoot) -> None:
         self._instances = {
             instance.invocation_key: instance
             for instance in module.body.child_instances

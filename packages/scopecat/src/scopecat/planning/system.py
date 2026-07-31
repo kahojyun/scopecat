@@ -58,7 +58,7 @@ from scopecat.planning.local_effects import (
 )
 from scopecat.planning.local_materialization import (
     materialize_local_execution,
-    materialize_local_postcondition,
+    materialize_local_final_state,
     prepare_local_target,
 )
 from scopecat.planning.provider_binding import (
@@ -238,8 +238,8 @@ def _compile_system_program(
         if local_target is not None
         else None
     )
-    local_postcondition = (
-        materialize_local_postcondition(
+    local_final_state = (
+        materialize_local_final_state(
             linked,
             target=local_target,
         )
@@ -248,7 +248,7 @@ def _compile_system_program(
     )
     local_requirements = _local_resource_requirements(
         local_effects,
-        postcondition=local_postcondition,
+        final_state=local_final_state,
     )
     _reject_local_domain_overlap(
         local_requirements=local_requirements,
@@ -287,7 +287,7 @@ def _compile_system_program(
                         tuple(effect.operation for effect in effects)
                         for effects in local_effects.effect_operations
                     ),
-                    local_postcondition,
+                    local_final_state,
                 )
             ),
             problems=(),
@@ -297,7 +297,7 @@ def _compile_system_program(
         config_content_hash=config_content_hash(config),
         host=host,
         coverage=coverage,
-        postcondition=local_postcondition,
+        final_state=local_final_state,
         points=point_catalog,
         measurements=measurements,
         measurement_postprocessors=linked.program.measurement_postprocessors,
@@ -415,9 +415,9 @@ def _sorted_requirements(
 def _local_resource_requirements(
     local_effects: MaterializedLocalEffects | None,
     *,
-    postcondition: Sequence[LocalOperation] = (),
+    final_state: Sequence[LocalOperation] = (),
 ) -> tuple[ResourceRequirement, ...]:
-    if local_effects is None and not postcondition:
+    if local_effects is None and not final_state:
         return ()
     effect_operations = (
         ()
@@ -434,7 +434,7 @@ def _local_resource_requirements(
     return _sorted_requirements(
         tuple(
             requirement
-            for operation in (*effect_operations, *postcondition)
+            for operation in (*effect_operations, *final_state)
             for requirement in local_operation_resource_requirements(operation)
         )
     )

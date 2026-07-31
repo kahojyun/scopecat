@@ -110,24 +110,24 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     assert result.admitted_points == points
 
 
-def test_normal_completion_applies_postcondition_after_point_coverage() -> None:
+def test_normal_completion_applies_final_state_after_point_coverage() -> None:
     driver = SignalInstrumentDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("postcondition-point"), {}),
+        RunPoint(_logical_point_id("final_state-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_requirements=_requirements("source-0"),
     )
 
     result = RunEffectInterpreter(
-        run_id="postcondition-run",
+        run_id="final_state-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(
         complete_coverage_operations(program),
         points=program.points,
-        postcondition=(_gain_operation("source-0", 0.0),),
+        final_state=(_gain_operation("source-0", 0.0),),
     )
 
     assert not result.problems and not result.indeterminate
@@ -555,24 +555,24 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     assert result.final_state == result.prepared_state
 
 
-def test_failed_coverage_does_not_apply_normal_completion_postcondition() -> None:
+def test_failed_coverage_does_not_apply_normal_completion_final_state() -> None:
     driver = _BlockingStateDriver(instrument_id="source-0")
     program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("failed-postcondition-point"), {}),
+        RunPoint(_logical_point_id("failed-final_state-point"), {}),
         (_gain_operation("source-0", 1.0),),
         resource_order=("source-0",),
         resource_requirements=_requirements("source-0"),
     )
 
     result = RunEffectInterpreter(
-        run_id="failed-postcondition-run",
+        run_id="failed-final_state-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost((driver,)),
         journal=FakeExecutionJournal(),
     ).run(
         complete_coverage_operations(program),
         points=program.points,
-        postcondition=(_gain_operation("source-0", 0.0),),
+        final_state=(_gain_operation("source-0", 0.0),),
     )
 
     assert result.problems

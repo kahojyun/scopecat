@@ -73,18 +73,18 @@ def specialize_core_program(
             _specialize_effect(effect, known=known, parameter_cells=parameter_cells)
             for effect in program.effects
         ),
-        postcondition=(
+        final_state=(
             None
-            if program.postcondition is None
+            if program.final_state is None
             else replace(
-                program.postcondition,
+                program.final_state,
                 assignments=tuple(
                     _specialize_state(
                         state,
                         known=known,
                         parameter_cells=parameter_cells,
                     )
-                    for state in program.postcondition.assignments
+                    for state in program.final_state.assignments
                 ),
             )
         ),

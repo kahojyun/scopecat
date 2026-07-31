@@ -207,7 +207,7 @@ class CoreProgram:
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
     effects: tuple[CoreEffect, ...] = ()
-    postcondition: EnsureStateSpec | None = None
+    final_state: EnsureStateSpec | None = None
     measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
@@ -240,7 +240,7 @@ def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
     )
     return (
         *effect_state,
-        *(() if program.postcondition is None else program.postcondition.assignments),
+        *(() if program.final_state is None else program.final_state.assignments),
     )
 
 

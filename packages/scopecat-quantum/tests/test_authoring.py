@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import scopecat as sc
 from scopecat import Quantity
+from scopecat.program.domain import domain_program
 
 from scopecat_quantum import authoring
 from scopecat_quantum._ids import AcquisitionSlotId, QubitId
@@ -265,7 +266,7 @@ def test_domain_call_rejects_forged_ports_and_normalizes_number_literal() -> Non
     )
     assert call.execution.input_bindings == (("amplitude", 1.0),)
 
-    forged = sc.domain_program(
+    forged = domain_program(
         declaration.id,
         dialect_id=authoring.QUANTUM_PROGRAM_DIALECT_ID,
         dialect_version=authoring.QUANTUM_PROGRAM_DIALECT_VERSION,

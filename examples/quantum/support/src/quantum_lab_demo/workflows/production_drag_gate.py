@@ -15,6 +15,7 @@ from scopecat_quantum.measurement_postprocessors import (
 from scopecat_quantum.standard_gates import X90, XM90
 
 from quantum_lab_demo.virtual_lab.parameters import (
+    QUBIT_PARAMETER_TABLE_TYPE,
     q0_drag_beta_lookup,
     qubit_parameters,
 )
@@ -67,13 +68,23 @@ _DISCRIMINATOR = BinaryIqDiscriminator(
 
 
 @sc.module(id="quantum_lab_demo.production.drag_x90.capture")
-def production_drag_capture(module: sc.ModuleContext) -> None:
+def production_drag_capture(
+    module: sc.ModuleContext,
+    drag_beta: Annotated[
+        sc.Input[Quantity],
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+    qubits: Annotated[
+        sc.Input[list[dict[str, object]]],
+        QUBIT_PARAMETER_TABLE_TYPE,
+    ],
+) -> None:
     call = (
         production_drag_program(
             qubit="q0",
-            drag_beta=q0_drag_beta_lookup(),
+            drag_beta=drag_beta,
         )
-        .with_compiler_inputs(qubits=qubit_parameters())
+        .with_compiler_inputs(qubits=sc.input_ref(qubits))
         .with_shots(PRODUCTION_DRAG_GATE_SHOTS)
     )
     module.call(call)
@@ -94,7 +105,12 @@ def production_drag_capture(module: sc.ModuleContext) -> None:
     kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
 )
 def production_drag_template(experiment: sc.ExperimentContext) -> None:
-    capture = experiment.run(production_drag_capture())
+    capture = experiment.run(
+        production_drag_capture(
+            drag_beta=q0_drag_beta_lookup(),
+            qubits=qubit_parameters(),
+        )
+    )
     experiment.record(
         capture.products.probability_0,
         capture.products.probability_1,

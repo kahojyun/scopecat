@@ -280,6 +280,7 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         context: sc.ModuleContext,
         qubit: _EntityInput,
         pulse_length: _QuantityInput,
+        frequency: _QuantityInput,
     ) -> None:
         qubit_ref = sc.input_ref(qubit)
         build = context.compute(
@@ -289,12 +290,7 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
             inputs={
                 "qubit": qubit_ref,
                 "length": pulse_length,
-                "frequency": sc.parameter_lookup(
-                    "sample_qubits",
-                    key={"qubit": qubit_ref},
-                    column="drive_frequency",
-                    value_type=authoring.ScalarType(authoring.QuantityType()),
-                ),
+                "frequency": frequency,
             },
         )
         drive = context.resource("drive", requires=(_PLAY_PULSE_PROGRAM,))
@@ -305,13 +301,32 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
             arguments={_PLAY_PULSE_PROGRAM_ARGUMENT: build},
         )
 
-    template = template_fixture(
-        module,
-        id="test.compute_provenance",
-        kind="compute_provenance",
-        defaults={"pulse_length": Quantity(value=20.0, unit="ns")},
+    @sc.template(id="test.compute_provenance", kind="compute_provenance")
+    def template(
+        experiment: sc.ExperimentContext,
+        qubit: _EntityInput,
+        pulse_length: _QuantityInput,
+    ) -> None:
+        qubit_ref = sc.input_ref(qubit)
+        experiment.run(
+            module(
+                qubit=qubit,
+                pulse_length=pulse_length,
+                frequency=sc.parameter_lookup(
+                    "sample_qubits",
+                    key={"qubit": qubit_ref},
+                    column="drive_frequency",
+                    value_type=authoring.ScalarType(authoring.QuantityType()),
+                ),
+            )
+        )
+
+    compiled = compile_invocation(
+        template(
+            qubit="q0",
+            pulse_length=Quantity(value=20.0, unit="ns"),
+        )
     )
-    compiled = compile_invocation(template.bind(qubit="q0"))
     graph = compiled.assembly.source.semantic_graph
     operation = next(
         operation
@@ -451,21 +466,21 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
     )
 
     @sc.module(id="test.runtime_entity_scan")
-    def module(context: sc.ModuleContext) -> None:
+    def module(
+        context: sc.ModuleContext,
+        qubit_input: _LogicalDeviceInput,
+        drive_frequency: _QuantityInput,
+    ) -> None:
+        qubit_ref = sc.input_ref(qubit_input)
         drive = context.resource(
             "drive",
             requires=(_SET_FREQUENCY,),
-            for_entities=(qubit,),
+            for_entities=(qubit_ref,),
         )
         context.bind_property(
             drive,
             _SET_FREQUENCY_VALUE,
-            value=authoring.parameter_lookup(
-                "sample_qubits",
-                key={"qubit": qubit},
-                column="drive_frequency",
-                value_type=authoring.ScalarType(authoring.QuantityType(unit="GHz")),
-            ),
+            value=drive_frequency,
         )
         signal = context.product("signal", unit="ratio")
         context.acquire(
@@ -474,12 +489,20 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
             results={_SET_FREQUENCY_SIGNAL: signal},
         )
 
-    template = template_fixture(
-        module,
-        id="test.runtime_entity_scan",
-        kind="runtime_entity_scan",
-        records=(authoring.record_product(module.products.signal),),
-    )
+    @sc.template(id="test.runtime_entity_scan", kind="runtime_entity_scan")
+    def template(experiment: sc.ExperimentContext) -> None:
+        call = experiment.run(
+            module(
+                qubit_input=qubit,
+                drive_frequency=authoring.parameter_lookup(
+                    "sample_qubits",
+                    key={"qubit": qubit},
+                    column="drive_frequency",
+                    value_type=authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+                ),
+            )
+        )
+        experiment.record(call.products.signal)
 
     resolved = link_invocation(
         template.bind().scan(
@@ -822,20 +845,29 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         )
 
     @sc.module(id="test.invocation_expression.parent")
-    def parent(context: sc.ModuleContext) -> None:
+    def parent(
+        context: sc.ModuleContext,
+        drive_frequency: _QuantityInput,
+    ) -> None:
         context.call(
             child.instantiate(
                 "expression-child",
-                drive_frequency=authoring.parameter(
-                    "drive_frequency",
-                    authoring.ScalarType(authoring.QuantityType()),
-                ),
+                drive_frequency=drive_frequency,
             )
         )
 
-    assembly = elaborate_module(
-        parent.ir,
-    )
+    @sc.template(id="test.invocation-expression", kind="expression")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(
+            parent(
+                drive_frequency=authoring.parameter(
+                    "drive_frequency",
+                    authoring.ScalarType(authoring.QuantityType()),
+                )
+            )
+        )
+
+    assembly = compile_invocation(template()).assembly.source
 
     assert "drive_frequency" not in assembly.inputs
     assert isinstance(assembly.bindings[0].value, ValueRef)
@@ -866,12 +898,25 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
     def parent(
         context: sc.ModuleContext,
         parent_value: _FloatInput,
+        unused_parameter: _FloatInput,
+        unused_point: _FloatInput,
     ) -> None:
         parent_ref = sc.input_ref(parent_value)
         context.call(
             child.instantiate(
                 "deferred-child",
                 child_value=parent_ref + 0.25,
+                unused_parameter=unused_parameter,
+                unused_point=unused_point,
+            )
+        )
+
+    @sc.template(id="test.invocation-deferred", kind="deferred")
+    def template(experiment: sc.ExperimentContext) -> None:
+        experiment.run(
+            parent.instantiate(
+                "deferred-parent",
+                parent_value=1.5,
                 unused_parameter=authoring.parameter(
                     "unused_parameter",
                     value_type,
@@ -880,11 +925,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
             )
         )
 
-    @sc.module(id="test.invocation_deferred.root")
-    def root(context: sc.ModuleContext) -> None:
-        context.call(parent.instantiate("deferred-parent", parent_value=1.5))
-
-    assembly = elaborate_module(root.ir)
+    assembly = compile_invocation(template()).assembly.source
 
     assert isinstance(assembly.bindings[0].value, ValueRef)
     expression = internal_lower_scalar_value_ref(assembly.bindings[0].value)
@@ -1273,6 +1314,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     def module(
         context: sc.ModuleContext,
         qubit: _EntityInput,
+        drive_frequency: _QuantityInput,
     ) -> None:
         drive = context.resource(
             "drive",
@@ -1282,18 +1324,29 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         context.bind_property(
             drive,
             _SET_FREQUENCY_VALUE,
-            value=authoring.parameter(
-                "drive_frequency",
-                authoring.ScalarType(authoring.QuantityType(unit="GHz")),
-            ),
+            value=drive_frequency,
+        )
+
+    @sc.template(
+        id="test.entity_selected_resource",
+        kind="entity_selected_resource",
+    )
+    def template(
+        experiment: sc.ExperimentContext,
+        qubit: _EntityInput,
+    ) -> None:
+        experiment.run(
+            module(
+                qubit=qubit,
+                drive_frequency=authoring.parameter(
+                    "drive_frequency",
+                    authoring.ScalarType(authoring.QuantityType(unit="GHz")),
+                ),
+            )
         )
 
     resolved = link_invocation(
-        template_fixture(
-            module,
-            id="test.entity_selected_resource",
-            kind="entity_selected_resource",
-        ).bind(qubit="q1"),
+        template(qubit="q1"),
         config_profile=config,
     )
 

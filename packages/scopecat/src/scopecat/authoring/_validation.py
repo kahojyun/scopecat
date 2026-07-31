@@ -21,7 +21,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import ValueType
 from scopecat.kernel.value_validation import ValueValidationError, validate_literal
-from scopecat.program.module import ModuleIR
+from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
@@ -46,7 +46,7 @@ class ExperimentInputDefinition(Protocol):
 
 def validate_experiment_definition(
     *,
-    module: ModuleIR,
+    program: ExperimentProgram,
     defaults: Mapping[str, object],
     default_scans: Sequence[Scan],
 ) -> dict[str, ValueType]:
@@ -54,7 +54,7 @@ def validate_experiment_definition(
 
     problems: list[Problem] = []
     input_types, input_type_problems = _definition_input_types(
-        module,
+        program,
         default_scans,
     )
     problems.extend(input_type_problems)
@@ -105,10 +105,10 @@ def validate_experiment_inputs(
 
 
 def _definition_input_types(
-    module: ModuleIR,
+    program: ExperimentProgram,
     default_scans: Sequence[Scan],
 ) -> tuple[dict[str, ValueType], list[Problem]]:
-    selected = {port.id: port.value_type for port in module.interface.imports}
+    selected = {port.id: port.value_type for port in program.interface.imports}
     problems: list[Problem] = []
 
     for scan in default_scans:

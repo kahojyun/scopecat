@@ -13,7 +13,7 @@ from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
     SemanticExperimentIR,
-    elaborate_module,
+    elaborate_experiment_program,
 )
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.problems import frontend_problem as _problem
@@ -112,36 +112,36 @@ def _compile_invocation_definition(
     inputs: Mapping[str, object],
 ) -> SemanticExperimentIR:
     definition = invocation.definition
-    module_input_ids = {port.id for port in definition.module.interface.imports}
-    module_inputs: dict[str, ModuleInput] = {}
+    program_input_ids = {port.id for port in definition.program.interface.imports}
+    program_inputs: dict[str, ModuleInput] = {}
     for input_id, value in inputs.items():
-        if input_id not in module_input_ids:
+        if input_id not in program_input_ids:
             continue
-        module_inputs[input_id] = cast("ModuleInput", value)
-    assembly = elaborate_module(
-        definition.module,
-        **module_inputs,
+        program_inputs[input_id] = cast("ModuleInput", value)
+    assembly = elaborate_experiment_program(
+        definition.program,
+        experiment_id=definition.id,
+        kind=definition.kind,
+        inputs=program_inputs,
     )
-    postcondition = definition.postcondition
-    postcondition_contracts = tuple(
+    final_state = definition.final_state
+    final_state_contracts = tuple(
         contract
-        for assignment in (() if postcondition is None else postcondition.assignments)
+        for assignment in (() if final_state is None else final_state.assignments)
         if isinstance((value := assignment.value), ValueRef)
         for contract in internal_value_ref_parameter_contracts(value)
     )
     return replace(
         assembly,
-        experiment_id=definition.id,
-        kind=definition.kind,
         record_selections=(
             *assembly.record_selections,
             *definition.record_selections,
         ),
         parameter_contracts=merge_parameter_contracts(
             assembly.parameter_contracts,
-            postcondition_contracts,
+            final_state_contracts,
         ),
-        postcondition=postcondition,
+        final_state=final_state,
     )
 
 

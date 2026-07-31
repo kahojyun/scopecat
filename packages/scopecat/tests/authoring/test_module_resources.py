@@ -21,8 +21,10 @@ from scopecat.program.bindings import (
     EnsureStateIntent,
     InvocationIntent,
 )
+from scopecat.program.domain import domain_program
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
+from tests.testkit.domain import domain_call
 from tests.testkit.materialized_effects import config_with_physical_resources
 
 _SET_FREQUENCY = InterfaceRef("test.set_frequency/v1")
@@ -182,7 +184,7 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
 
 def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> None:
     value = sc.Quantity(value=5.0, unit="GHz")
-    program = sc.domain_program(
+    program = domain_program(
         "noop",
         dialect_id="test",
         dialect_version="1",
@@ -197,7 +199,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
-        context.domain(sc.domain_execution(program, id="call"))
+        context.call(domain_call(program, id="call"))
         signal = context.product("signal")
         context.acquire(
             "read-signal",
@@ -224,7 +226,7 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
             _SET_FREQUENCY_VALUE_PATH,
             value=value,
         )
-        context.domain(sc.domain_execution(program, id="root-call"))
+        context.call(domain_call(program, id="root-call"))
         root_signal = context.product("root-signal")
         context.acquire(
             "root-read",
@@ -248,10 +250,10 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     ] == [
         ("binding", "drive.v1"),
         ("binding", "drive.v1"),
-        ("domain", "child/call"),
+        ("domain", "child/call/noop"),
         ("acquire", "child/read-signal"),
         ("binding", "drive.v1"),
-        ("domain", "root-call"),
+        ("domain", "root-call/noop"),
         ("acquire", "root-read"),
     ]
 
@@ -275,10 +277,10 @@ def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> N
     ] == [
         "binding",
         "binding",
-        "domain:child/call",
+        "domain:child/call/noop",
         "acquire:child/read-signal",
         "binding",
-        "domain:root-call",
+        "domain:root-call/noop",
         "acquire:root-read",
     ]
     assert (

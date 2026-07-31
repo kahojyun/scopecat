@@ -9,6 +9,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
+from scopecat.kernel.errors import CheckFailed
 from scopecat.sdk.instruments import InterfaceRef
 
 _COUNT_TYPE = sc.IntType(minimum=0)
@@ -73,7 +74,7 @@ def test_module_definition_rejects_global_symbolic_values() -> None:
             output_type=sc.ScalarType(_COUNT_TYPE),
         )
 
-    with pytest.raises(TypeError, match="declare typed module parameters"):
+    with pytest.raises(CheckFailed, match="declare a typed module input"):
         sc.module(captured)
 
 
@@ -171,10 +172,10 @@ def test_template_and_scratch_share_the_context_protocol() -> None:
     )
     assert tuple(
         instance.module.id
-        for instance in template.definition.module.body.child_instances
+        for instance in template.definition.program.body.child_instances
     ) == tuple(
         instance.module.id
-        for instance in scratch_invocation.definition.module.body.child_instances
+        for instance in scratch_invocation.definition.program.body.child_instances
     )
     assert inspect.signature(scratch).parameters == inspect.Signature().parameters
     assert scratch.__wrapped__ is body
@@ -199,7 +200,7 @@ def test_scratch_preserves_typed_call_contract() -> None:
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
     invocation = assert_type(count_scratch(3), sc.ExperimentInvocation)
-    [instance] = invocation.definition.module.body.child_instances
+    [instance] = invocation.definition.program.body.child_instances
     assert [binding.import_id for binding in instance.input_bindings] == ["count"]
 
     if TYPE_CHECKING:
@@ -242,5 +243,5 @@ def test_repeated_default_module_calls_require_explicit_instances() -> None:
         experiment.run(source.instantiate("right"))
 
     assert tuple(
-        call.instance_id for call in explicit.definition.module.body.child_instances
+        call.instance_id for call in explicit.definition.program.body.child_instances
     ) == ("left", "right")

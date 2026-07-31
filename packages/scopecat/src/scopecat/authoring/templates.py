@@ -18,7 +18,7 @@ from scopecat.program.bindings import (
     EnsureStateIntent,
     ExperimentBindingIntent,
 )
-from scopecat.program.module import ModuleIR
+from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.products import RecordSelection
 from scopecat.program.value_refs import (
     capture_runtime_inputs,
@@ -57,11 +57,11 @@ class ExperimentDefinition:
 
     id: str
     kind: str
-    module: ModuleIR
+    program: ExperimentProgram
     inputs: tuple[ExperimentInput, ...] = ()
     default_scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
-    postcondition: EnsureStateIntent | None = None
+    final_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
 
@@ -148,12 +148,12 @@ def create_experiment_definition_internal(
     *,
     id: str,
     kind: str,
-    module: ModuleIR,
+    program: ExperimentProgram,
     record_selections: Sequence[RecordSelection] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
     default_scans: Sequence[Scan] = (),
-    postcondition_bindings: Sequence[ExperimentBindingIntent] = (),
+    final_state_bindings: Sequence[ExperimentBindingIntent] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentDefinition:
     """Normalize all experiment semantics at one immutable boundary."""
@@ -169,15 +169,15 @@ def create_experiment_definition_internal(
     selected_defaults = _capture_experiment_inputs(input_defaults or {})
     selected_required = tuple(required_inputs)
     input_types = validate_experiment_definition(
-        module=module,
+        program=program,
         defaults=selected_defaults,
         default_scans=selected_scans,
     )
-    module_input_ids = tuple(port.id for port in module.interface.imports)
+    program_input_ids = tuple(port.id for port in program.interface.imports)
     input_ids = tuple(
         dict.fromkeys(
             (
-                *module_input_ids,
+                *program_input_ids,
                 *selected_defaults,
                 *selected_required,
                 *input_types,
@@ -196,13 +196,13 @@ def create_experiment_definition_internal(
     return ExperimentDefinition(
         id=id,
         kind=kind,
-        module=module,
+        program=program,
         inputs=normalized_inputs,
         default_scans=selected_scans,
         record_selections=selected_records,
-        postcondition=(
-            EnsureStateIntent(tuple(postcondition_bindings))
-            if postcondition_bindings
+        final_state=(
+            EnsureStateIntent(tuple(final_state_bindings))
+            if final_state_bindings
             else None
         ),
         metadata=freeze_json_mapping(metadata or {}),

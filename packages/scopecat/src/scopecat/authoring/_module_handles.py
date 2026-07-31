@@ -39,6 +39,7 @@ from scopecat.program.bindings import (
     bind_property as binding_property,
 )
 from scopecat.program.domain import DomainCall, DomainExecution
+from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.identities import InvocationKey
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
@@ -339,14 +340,6 @@ class ModuleDefinitionState:
             ),
         )
 
-    def domain(self, execution: DomainExecution) -> ModuleDefinitionState:
-        """Append one opaque domain-program effect to this module effects."""
-
-        return replace(
-            self,
-            effects=(*self.effects, ModuleDomainEffect(execution)),
-        )
-
     def acquire(
         self,
         id: str,
@@ -489,6 +482,7 @@ class DefinitionResource:
     """One logical resource owned by a module definition context."""
 
     port_id: LogicalResourcePortId
+    owner: object = field(repr=False, compare=False)
 
     @property
     def id(self) -> str:
@@ -498,9 +492,10 @@ class DefinitionResource:
 class ModuleContext:
     """Explicit typed recorder injected into one ``@module`` definition."""
 
-    __slots__ = ("_state",)
+    __slots__ = ("_owner", "_state")
 
     def __init__(self) -> None:
+        self._owner = object()
         self._state = ModuleDefinitionState()
 
     @property
@@ -550,7 +545,7 @@ class ModuleContext:
             requires=requires,
             for_entities=for_entities,
         )
-        return DefinitionResource(logical_resource_port_id(id))
+        return DefinitionResource(logical_resource_port_id(id), self._owner)
 
     def bind_property(
         self,
@@ -561,6 +556,7 @@ class ModuleContext:
     ) -> None:
         """Bind one typed persistent property on a logical resource."""
 
+        self._require_owned_resource(resource)
         self._state = self._state.bind_property(
             resource.id,
             property,
@@ -574,6 +570,7 @@ class ModuleContext:
     ) -> None:
         """Declare one coherent target state for a logical resource."""
 
+        self._require_owned_resource(resource)
         self._state = self._state.ensure(resource.id, target)
 
     def invoke(
@@ -586,18 +583,13 @@ class ModuleContext:
     ) -> None:
         """Append one ordered atomic hardware operation."""
 
+        self._require_owned_resource(resource)
         self._state = self._state.invoke(
             id,
             resource=resource.id,
             operation=operation,
             arguments=arguments,
         )
-
-    def domain(self, execution: DomainExecution) -> DomainExecution:
-        """Append one opaque domain-program effect."""
-
-        self._state = self._state.domain(execution)
-        return execution
 
     def product(
         self,
@@ -629,12 +621,17 @@ class ModuleContext:
     ) -> None:
         """Map one acquisition's typed results to declared products."""
 
+        self._require_owned_resource(resource)
         self._state = self._state.acquire(
             id,
             resource=resource.id,
             results=results,
             metadata=metadata,
         )
+
+    def _require_owned_resource(self, resource: DefinitionResource) -> None:
+        if resource.owner is not self._owner:
+            raise ValueError("definition resource must belong to this module context")
 
     def compute(
         self,
@@ -1178,6 +1175,29 @@ def build_module_ir(
         ),
         python_implementations=state.python_implementations,
         metadata=freeze_json_mapping(merged_metadata),
+    )
+
+
+def build_experiment_program(
+    state: ModuleDefinitionState,
+) -> ExperimentProgram:
+    """Close accumulated root state without creating a synthetic module."""
+
+    return ExperimentProgram(
+        interface=ModuleInterfaceIR(imports=state.input_ports),
+        body=ModuleBodyIR(
+            effects=tuple(
+                _module_instance_ir(effect)
+                if isinstance(effect, ModuleInvocation)
+                else effect
+                for effect in state.effects
+            ),
+            operations=state.operations,
+            measurement_postprocessors=state.measurement_postprocessor_intents,
+            products=state.product_declarations,
+        ),
+        python_implementations=state.python_implementations,
+        metadata=state.metadata,
     )
 
 

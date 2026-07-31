@@ -472,21 +472,45 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
     point = sc.coordinate("output_point", value_type)
 
     @sc.module(id="test.outputs.roots")
-    def source(context: sc.ModuleContext, value: _FloatInput) -> None:
+    def source(
+        context: sc.ModuleContext,
+        value: _FloatInput,
+        parameter_value: _FloatInput,
+        point_value: _FloatInput,
+    ) -> None:
         context.export(
             value=sc.input_ref(value),
-            parameter=parameter,
-            point=point,
+            parameter=sc.input_ref(parameter_value),
+            point=sc.input_ref(point_value),
         )
 
     @sc.module(id="test.outputs.roots.wrapper")
     def wrapper(context: sc.ModuleContext, value: _FloatInput) -> None:
         source_instance = context.call(
-            source.instantiate("source", value=sc.input_ref(value))
+            source.instantiate(
+                "source",
+                value=sc.input_ref(value),
+                parameter_value=0.0,
+                point_value=0.0,
+            )
         )
         context.export(value=source_instance.outputs.value)
 
-    assembly = elaborate_module(source.ir)
+    @sc.template(id="test.outputs.roots", kind="outputs")
+    def template(
+        experiment: sc.ExperimentContext,
+        value: _FloatInput,
+    ) -> None:
+        experiment.run(
+            source(
+                value=value,
+                parameter_value=parameter,
+                point_value=point,
+            )
+        )
+        experiment.scan(sc.axis(point, (1.0,)))
+
+    assembly = compile_invocation(template(value=1.0)).assembly.source
 
     assert [(port.id, port.value_type) for port in wrapper.ir.interface.imports] == [
         ("value", value_type)

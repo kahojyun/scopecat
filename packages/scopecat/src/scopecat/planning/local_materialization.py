@@ -324,15 +324,15 @@ def materialize_local_execution(
     )
 
 
-def materialize_local_postcondition(
+def materialize_local_final_state(
     linked: LinkedPlan,
     *,
     target: LocalTargetPlan,
 ) -> tuple[ApplyStateOperation, ...]:
     """Materialize the fixed desired state applied after normal completion."""
 
-    postcondition = target.program.postcondition
-    if postcondition is None:
+    final_state = target.program.final_state
+    if final_state is None:
         return ()
     problems: list[Problem] = []
     resources = _select_resources(
@@ -342,12 +342,11 @@ def materialize_local_postcondition(
         context="normal completion",
         problems=problems,
         selected_port_ids=frozenset(
-            assignment.resource_target.port_id
-            for assignment in postcondition.assignments
+            assignment.resource_target.port_id for assignment in final_state.assignments
         ),
     )
     records: list[StateRecord] = []
-    for assignment in postcondition.assignments:
+    for assignment in final_state.assignments:
         try:
             records.extend(
                 evaluate_state_spec(
@@ -359,20 +358,20 @@ def materialize_local_postcondition(
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             problems.append(
                 _problem(
-                    "experiment_postcondition_evaluation_failed",
-                    f"experiment postcondition evaluation failed: {error}",
-                    model_location("postcondition"),
+                    "experiment_final_state_evaluation_failed",
+                    f"experiment final_state evaluation failed: {error}",
+                    model_location("final_state"),
                 )
             )
     desired = _bind_desired_state(
         records,
-        point_uid=f"{target.program.id}.postcondition",
+        point_uid=f"{target.program.id}.final_state",
         state_group_index=len(target.program.effects),
         resources=resources,
         point_index=0,
         problems=problems,
         state_context="normal completion",
-        state_location=model_location("postcondition"),
+        state_location=model_location("final_state"),
     )
     if problems:
         raise CheckFailed(problems)
@@ -610,8 +609,8 @@ def _active_resource_port_ids(
             selected.add(effect.resource_port_id)
         elif not isinstance(effect, TypedDomainExecution):
             selected.update(_state_resource_port_ids(effect))
-    if program.postcondition is not None:
-        selected.update(_state_resource_port_ids(program.postcondition))
+    if program.final_state is not None:
+        selected.update(_state_resource_port_ids(program.final_state))
     return frozenset(selected)
 
 

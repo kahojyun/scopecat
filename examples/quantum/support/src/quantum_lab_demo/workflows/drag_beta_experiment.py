@@ -13,6 +13,7 @@ from scopecat_quantum.measurement_postprocessors import (
 )
 
 from quantum_lab_demo.virtual_lab.parameters import (
+    QUBIT_PARAMETER_TABLE_TYPE,
     q0_drag_beta_lookup,
     qubit_parameters,
 )
@@ -50,6 +51,10 @@ def drag_beta_capture(
         sc.Input[Quantity],
         sc.ScalarType(sc.QuantityType(unit="ns")),
     ],
+    qubits: Annotated[
+        sc.Input[list[dict[str, object]]],
+        QUBIT_PARAMETER_TABLE_TYPE,
+    ],
 ) -> None:
     """Capture and discriminate one DRAG-beta program call."""
 
@@ -59,7 +64,7 @@ def drag_beta_capture(
             amplification=amplification,
             beta=beta,
         )
-        .with_compiler_inputs(qubits=qubit_parameters())
+        .with_compiler_inputs(qubits=sc.input_ref(qubits))
         .with_shots(DRAG_BETA_SHOTS)
     )
     module.call(call)
@@ -83,6 +88,7 @@ def _drag_beta_experiment_body(
         drag_beta_capture(
             amplification=AMPLIFICATION,
             beta=q0_drag_beta_lookup(),
+            qubits=qubit_parameters(),
         )
     )
     experiment.scan(*scans)

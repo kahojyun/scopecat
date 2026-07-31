@@ -18,6 +18,7 @@ from scopecat.config.environment import build_config_environment
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
+from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.products import RecordSelection
 from scopecat.program.values import MetadataValue
 from scopecat.records.config import ConfigProfileSnapshot
@@ -67,7 +68,12 @@ def template_fixture(
     experiment_definition = create_experiment_definition_internal(
         id=id,
         kind=kind,
-        module=module.ir,
+        program=ExperimentProgram(
+            interface=module.ir.interface,
+            body=module.ir.body,
+            python_implementations=module.ir.python_implementations,
+            metadata=module.ir.metadata,
+        ),
         record_selections=tuple(records),
         input_defaults=defaults,
         required_inputs=tuple(required_inputs),

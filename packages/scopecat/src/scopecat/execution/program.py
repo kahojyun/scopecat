@@ -78,7 +78,7 @@ class RunProgram:
     measurements: MeasurementProjection = field(repr=False)
     resource_requirements: tuple[ResourceRequirement, ...]
     domain_target_requirement: DomainTargetRequirement | None
-    postcondition: tuple[ApplyStateOperation, ...] = field(
+    final_state: tuple[ApplyStateOperation, ...] = field(
         default=(),
         repr=False,
         compare=False,

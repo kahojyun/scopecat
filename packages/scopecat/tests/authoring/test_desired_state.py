@@ -12,7 +12,7 @@ import scopecat as sc
 from scopecat.compiler.typed.state import EnsureStateSpec
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.planning.local_materialization import (
-    materialize_local_postcondition,
+    materialize_local_final_state,
     prepare_local_target,
 )
 from scopecat.program.module import ModuleEnsureEffect
@@ -148,12 +148,12 @@ def test_adjacent_ensure_calls_remain_separate_state_effects() -> None:
     assert [operation.targets[0].value.root for operation in operations] == [1.0, 2.0]
 
 
-def test_root_postcondition_is_materialized_outside_point_effects() -> None:
-    @sc.module(id="test.postcondition-module")
+def test_root_final_state_is_materialized_outside_point_effects() -> None:
+    @sc.module(id="test.final_state-module")
     def module(context: sc.ModuleContext) -> None:
         context.resource("source", requires=(_SOURCE,))
 
-    @sc.template(id="test.postcondition", kind="desired-state")
+    @sc.template(id="test.final_state", kind="desired-state")
     def experiment_definition(
         experiment: sc.ExperimentContext,
         level: float = 0.0,
@@ -172,9 +172,9 @@ def test_root_postcondition_is_materialized_outside_point_effects() -> None:
     )
 
     assert linked.program.effects == ()
-    postcondition = linked.program.postcondition
-    assert isinstance(postcondition, EnsureStateSpec)
-    assert [assignment.property_id for assignment in postcondition.assignments] == [
+    final_state = linked.program.final_state
+    assert isinstance(final_state, EnsureStateSpec)
+    assert [assignment.property_id for assignment in final_state.assignments] == [
         "level",
         "enabled",
     ]
@@ -183,7 +183,7 @@ def test_root_postcondition_is_materialized_outside_point_effects() -> None:
         product_use_ids=frozenset(),
         instrument_order=("source-device",),
     )
-    [operation] = materialize_local_postcondition(linked, target=target)
+    [operation] = materialize_local_final_state(linked, target=target)
     assert operation.instrument_id == "source-device"
     assert [target.property_id for target in operation.targets] == [
         "level",
@@ -192,8 +192,8 @@ def test_root_postcondition_is_materialized_outside_point_effects() -> None:
     assert operation.targets[0].value.root == 0.0
 
 
-def test_root_postcondition_rejects_scan_coordinates() -> None:
-    @sc.module(id="test.postcondition-coordinate")
+def test_root_final_state_rejects_scan_coordinates() -> None:
+    @sc.module(id="test.final_state-coordinate")
     def module(context: sc.ModuleContext) -> None:
         context.resource("source", requires=(_SOURCE,))
 
@@ -202,10 +202,10 @@ def test_root_postcondition_rejects_scan_coordinates() -> None:
 
     with pytest.raises(
         ValueError,
-        match="postcondition cannot depend on scan coordinates",
+        match="final_state cannot depend on scan coordinates",
     ):
 
-        @sc.template(id="test.postcondition-coordinate", kind="desired-state")
+        @sc.template(id="test.final_state-coordinate", kind="desired-state")
         def experiment_definition(experiment: sc.ExperimentContext) -> None:
             experiment.run(call)
             experiment.finalize(

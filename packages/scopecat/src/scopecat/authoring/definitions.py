@@ -1,4 +1,4 @@
-"""Function-based experiment definitions lowered to the existing authoring IR."""
+"""Function-based module and experiment definitions."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from scopecat.authoring._module_handles import (
     ModuleInvocation,
     ModuleResource,
     build_ensure_state_intent,
+    build_experiment_program,
     build_module_ir,
     create_experiment_module_internal,
     domain_use_call,
@@ -105,7 +106,7 @@ class _ExperimentDefinitionState:
     module: ModuleDefinitionState = field(default_factory=ModuleDefinitionState)
     scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
-    postcondition_bindings: tuple[ExperimentBindingIntent, ...] = ()
+    final_state_bindings: tuple[ExperimentBindingIntent, ...] = ()
 
     def scan(
         self,
@@ -168,7 +169,7 @@ class _ExperimentDefinitionState:
             record_selections=(*self.record_selections, *selections),
         )
 
-    def postcondition(
+    def finalize(
         self,
         resource: ModuleResource,
         target: DesiredState,
@@ -182,7 +183,7 @@ class _ExperimentDefinitionState:
         }
         if resource.owner not in owners:
             raise ValueError(
-                "experiment postcondition resource must belong to this experiment"
+                "experiment final_state resource must belong to this experiment"
             )
         intent = build_ensure_state_intent(resource.port_id, target)
         for assignment in intent.assignments:
@@ -191,16 +192,16 @@ class _ExperimentDefinitionState:
                 continue
             if internal_value_ref_requires_execution(value):
                 raise ValueError(
-                    "experiment postcondition cannot depend on point-local compute"
+                    "experiment final_state cannot depend on point-local compute"
                 )
             if internal_value_ref_point_dependencies(value):
                 raise ValueError(
-                    "experiment postcondition cannot depend on scan coordinates"
+                    "experiment final_state cannot depend on scan coordinates"
                 )
         return replace(
             self,
-            postcondition_bindings=(
-                *self.postcondition_bindings,
+            final_state_bindings=(
+                *self.final_state_bindings,
                 *intent.assignments,
             ),
         )
@@ -300,7 +301,7 @@ class ExperimentContext:
     ) -> None:
         """Declare the desired state after normal experiment completion."""
 
-        self._body = self._body.postcondition(resource, target)
+        self._body = self._body.finalize(resource, target)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -507,7 +508,6 @@ def _module_from_function[**P](
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentModule[P]:
     source = cast("DefinitionFunction", fn)
-    _reject_global_value_refs(source)
     contract = _definition_contract(
         source,
         defaults=False,
@@ -536,22 +536,6 @@ def _module_from_function[**P](
         definition=cast("Callable[P, object]", fn),
         signature=contract.signature,
     )
-
-
-def _reject_global_value_refs(fn: DefinitionFunction) -> None:
-    globals_used = cast(
-        "Mapping[str, object]",
-        inspect.getclosurevars(fn).globals,
-    )
-    captured = tuple(
-        name for name, value in globals_used.items() if isinstance(value, ValueRef)
-    )
-    if captured:
-        names = ", ".join(repr(name) for name in sorted(captured))
-        raise TypeError(
-            "@module definitions cannot capture global symbolic values: "
-            f"{names}; declare typed module parameters instead"
-        )
 
 
 def _template_from_function[**P](
@@ -624,16 +608,16 @@ def _close_experiment_body(
     input_defaults: Mapping[str, RuntimeInput],
     required_inputs: Sequence[str],
 ) -> ExperimentDefinition:
-    module_ir = build_module_ir(body.module, id=f"{id}.module")
+    program = build_experiment_program(body.module)
     return create_experiment_definition_internal(
         id=id,
         kind=kind,
-        module=module_ir,
+        program=program,
         record_selections=body.record_selections,
         input_defaults=input_defaults,
         required_inputs=required_inputs,
         default_scans=body.scans,
-        postcondition_bindings=body.postcondition_bindings,
+        final_state_bindings=body.final_state_bindings,
         metadata=metadata,
     )
 

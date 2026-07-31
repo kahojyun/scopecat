@@ -176,11 +176,11 @@ def _lower_verified_assembly(
         else domain_effects[effect.id]
         for effect in assembly.effects
     )
-    postcondition = (
+    final_state = (
         None
-        if assembly.postcondition is None
+        if assembly.final_state is None
         else lower_ensure_state(
-            assembly.postcondition,
+            assembly.final_state,
             inputs=inputs,
             type_bindings=type_bindings,
         )
@@ -192,7 +192,7 @@ def _lower_verified_assembly(
         resource_requirements=tuple(resource_requirements),
         compute_nodes=compute_nodes,
         effects=ordered_effects,
-        postcondition=postcondition,
+        final_state=final_state,
         measurement_postprocessors=measurement_postprocessors.postprocessors,
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(

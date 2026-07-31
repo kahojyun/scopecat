@@ -18,6 +18,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.check_results import ExperimentCheckResult
+from scopecat.program.domain import domain_program
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
@@ -28,6 +29,7 @@ from scopecat.sdk.domain.batch import (
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from tests.testkit.authoring import simple_template, template_fixture
+from tests.testkit.domain import domain_call
 from tests.testkit.in_process_lab import (
     InProcessLab,
     InProcessPreparedExperiment,
@@ -112,7 +114,7 @@ class _RejectingDomainCompiler:
 
 
 def _domain_invocation() -> sc.ExperimentInvocation:
-    program = sc.domain_program(
+    program = domain_program(
         "check-program",
         dialect_id="test",
         dialect_version="1",
@@ -121,7 +123,7 @@ def _domain_invocation() -> sc.ExperimentInvocation:
 
     @sc.module(id="test.check-domain")
     def module(context: sc.ModuleContext) -> None:
-        context.domain(sc.domain_execution(program))
+        context.call(domain_call(program))
 
     return template_fixture(
         module,

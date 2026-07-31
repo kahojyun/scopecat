@@ -22,16 +22,6 @@ from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
 )
-from scopecat.domain.program import (
-    DomainInputPort,
-    DomainProgramDef,
-    DomainResultPort,
-)
-from scopecat.program.domain import (
-    DomainExecution,
-    domain_execution,
-    domain_program,
-)
 from scopecat.program.measurements import (
     MeasurementPostprocessor,
     measurement_postprocessor,
@@ -102,10 +92,6 @@ __all__ = [
     "ComputeInput",
     "DefinitionResource",
     "DesiredState",
-    "DomainExecution",
-    "DomainInputPort",
-    "DomainProgramDef",
-    "DomainResultPort",
     "EntityType",
     "ExperimentContext",
     "ExperimentInvocation",
@@ -141,8 +127,6 @@ __all__ = [
     "ValueType",
     "ValueValidationError",
     "coordinate",
-    "domain_execution",
-    "domain_program",
     "entity_axis",
     "input_ref",
     "measurement_postprocessor",
