@@ -202,7 +202,6 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
     bound = bind_core_program(program, _environment())
 
     assert bound.program != program
-    assert bound.point_domain is bound._verified_program.point_domain
     assert bound.point_domain.axes != program.point_domain.axes
     assert bound.point_domain.cardinality == 4
     assert tuple(column.id for column in bound.point_domain.coordinate_columns) == (
@@ -213,7 +212,10 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
     )
     assert tuple(
         consumer.location.path
-        for consumer in program_relation_consumers(bound._verified_program)
+        for consumer in program_relation_consumers(
+            bound.program,
+            bound.point_domain,
+        )
         if consumer.kind is ProgramRelationConsumerKind.POINT_AXIS_CENTER
     ) == (("axes", 2, "source", "center"),)
 
@@ -231,7 +233,10 @@ def test_link_retains_unit_domain() -> None:
     assert bound.point_domain.cardinality == 1
     assert all(
         consumer.kind is not ProgramRelationConsumerKind.POINT_AXIS_CENTER
-        for consumer in program_relation_consumers(bound._verified_program)
+        for consumer in program_relation_consumers(
+            bound.program,
+            bound.point_domain,
+        )
     )
     assert bound.point_domain.coordinate_columns == ()
     assert bound.domain_target is None

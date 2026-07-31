@@ -45,9 +45,8 @@ from scopecat.compiler.typed.program import CoreProgram, core_domain_executions
 from scopecat.compiler.typed.specialization import specialize_core_program
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
-    VerifiedCoreProgram,
     program_relation_consumers,
-    seal_typed_program,
+    verify_core_program,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem, ProblemPhase, model_location
@@ -90,26 +89,12 @@ class BoundDomainTarget:
 
 @dataclass(frozen=True, slots=True)
 class BoundPlan:
-    """One symbolic program bound to its sole accepted configuration.
+    """One verified residual program bound to its accepted configuration."""
 
-    ``VerifiedCoreProgram`` is a private transitional residual while logical
-    expressions and effects move into the shared program model. Physical
-    points and targets remain planning concerns.
-    """
-
-    _verified_program: VerifiedCoreProgram
+    program: CoreProgram
+    point_domain: VerifiedPointDomain
     environment: ConfigEnvironment
     domain_target: BoundDomainTarget | None
-
-    @property
-    def program(self) -> CoreProgram:
-        """Return the specialized residual program."""
-
-        return self._verified_program.program
-
-    @property
-    def point_domain(self) -> VerifiedPointDomain:
-        return self._verified_program.point_domain
 
 
 def bind_program(
@@ -294,38 +279,43 @@ def _bind_core_program(
 ) -> BoundPlan:
     """Specialize and seal the transitional residual compiler program."""
 
-    verified_program = seal_typed_program(
-        specialize_core_program(
-            program,
-            parameters=environment.parameters,
-        ),
+    specialized = specialize_core_program(
+        program,
+        parameters=environment.parameters,
+    )
+    point_domain = verify_core_program(
+        specialized,
         phase=ProblemPhase.PLANNING,
     )
     problems = list(
         _relation_import_problems(
-            verified_program,
+            specialized,
+            point_domain,
             environment.parameters,
         )
     )
     if problems:
         raise CheckFailed(problems)
     return _make_bound_plan(
-        verified_program,
+        specialized,
+        point_domain,
         environment,
     )
 
 
 def _make_bound_plan(
-    verified_program: VerifiedCoreProgram,
+    program: CoreProgram,
+    point_domain: VerifiedPointDomain,
     environment: ConfigEnvironment,
 ) -> BoundPlan:
     """Attach shared config-bound facts to one already verified core program."""
 
     return BoundPlan(
-        _verified_program=verified_program,
+        program=program,
+        point_domain=point_domain,
         environment=environment,
         domain_target=_bind_domain_target(
-            verified_program.program,
+            program,
             environment.config,
         ),
     )
@@ -360,11 +350,12 @@ def _bind_domain_target(
 
 
 def _relation_import_problems(
-    verified_program: VerifiedCoreProgram,
+    program: CoreProgram,
+    point_domain: VerifiedPointDomain,
     parameters: ParameterRelationData,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    for consumer in program_relation_consumers(verified_program):
+    for consumer in program_relation_consumers(program, point_domain):
         plan = consumer.plan
         for imported in plan.imports:
             if imported.namespace is PlanImportNamespace.INPUT:

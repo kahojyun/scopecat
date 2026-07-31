@@ -1,10 +1,9 @@
-"""Seal the invariants introduced while lowering a verified assembly."""
+"""Verify invariants introduced while lowering a logical program."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from dataclasses import field as dc_field
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
@@ -35,7 +34,7 @@ from scopecat.kernel.problems import (
 from scopecat.measurements.records import plan_records, validate_record_axes
 
 
-def _seal_core_program(
+def _verify_core_program(
     program: CoreProgram,
 ) -> VerifiedPointDomain:
     """Build final proofs without rechecking facts owned by earlier stages."""
@@ -117,27 +116,15 @@ class ProgramRelationConsumer:
     location: ModelLocation
 
 
-@dataclass(frozen=True, slots=True)
-class VerifiedCoreProgram:
-    """A trusted lowered program paired with its final derived proofs."""
-
-    program: CoreProgram
-    point_domain: VerifiedPointDomain = dc_field(init=False)
-
-    def __post_init__(self) -> None:
-        point_domain = _seal_core_program(self.program)
-        object.__setattr__(self, "point_domain", point_domain)
-
-
-def seal_typed_program(
+def verify_core_program(
     program: CoreProgram,
     *,
     phase: ProblemPhase = ProblemPhase.AUTHORING,
-) -> VerifiedCoreProgram:
-    """Seal lowering-owned facts on one trusted transient program."""
+) -> VerifiedPointDomain:
+    """Verify one residual program and return its derived point-domain proof."""
 
     try:
-        return VerifiedCoreProgram(program)
+        return _verify_core_program(program)
     except CheckFailed as error:
         if phase is ProblemPhase.AUTHORING:
             raise
@@ -174,12 +161,13 @@ def _point_axis_center_consumers(
 
 
 def program_relation_consumers(
-    verified: VerifiedCoreProgram,
+    program: CoreProgram,
+    point_domain: VerifiedPointDomain,
 ) -> Iterator[ProgramRelationConsumer]:
     """Iterate relation plans with paths only when diagnostics need them."""
 
-    yield from _point_axis_center_consumers(verified.point_domain)
-    yield from _program_relation_consumers(verified.program)
+    yield from _point_axis_center_consumers(point_domain)
+    yield from _program_relation_consumers(program)
 
 
 def _program_relation_consumers(
@@ -281,6 +269,5 @@ def _problem(code: str, message: str, location: ModelLocation) -> Problem:
 __all__ = [
     "ProgramRelationConsumer",
     "ProgramRelationConsumerKind",
-    "VerifiedCoreProgram",
-    "seal_typed_program",
+    "verify_core_program",
 ]

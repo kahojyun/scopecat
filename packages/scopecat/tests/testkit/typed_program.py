@@ -25,7 +25,7 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementPostprocessor,
 )
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.compiler.typed.verification import seal_typed_program
+from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.graph.relations.model import CellValue
 from scopecat.graph.values import (
     ComputeResultRef,
@@ -248,7 +248,8 @@ def bind_core_program(
     """Bind a trusted low-level program for focused compiler tests."""
 
     return _make_bound_plan(
-        seal_typed_program(
+        program,
+        verify_core_program(
             program,
             phase=ProblemPhase.PLANNING,
         ),

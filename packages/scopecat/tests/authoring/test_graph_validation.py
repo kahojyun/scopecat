@@ -11,11 +11,9 @@ from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.logical_verification import verify_logical_program
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.semantic.verification import verify_logical_graph
+from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.compiler.typed.verification import (
-    VerifiedCoreProgram,
-    seal_typed_program,
-)
+from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import input_ref
 from scopecat.graph.relations.point_domain import point_axis_values
@@ -395,10 +393,10 @@ def test_compile_invocation_projects_request_metadata() -> None:
     assert compiled.request.operator == "alice"
 
 
-def test_compile_verifies_and_seals_the_final_program_once(
+def test_compile_verifies_the_final_program_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls = {"graph": 0, "seal": 0}
+    calls = {"graph": 0, "core": 0}
 
     def counted_graph(
         value_defs: tuple[ValueDef, ...],
@@ -419,21 +417,21 @@ def test_compile_verifies_and_seals_the_final_program_once(
             effects=effects,
         )
 
-    def counted_seal(
+    def counted_core(
         program: CoreProgram,
         *,
         phase: ProblemPhase = ProblemPhase.AUTHORING,
-    ) -> VerifiedCoreProgram:
-        calls["seal"] += 1
-        return seal_typed_program(program, phase=phase)
+    ) -> VerifiedPointDomain:
+        calls["core"] += 1
+        return verify_core_program(program, phase=phase)
 
     monkeypatch.setattr(
         "scopecat.compiler.frontend.logical_verification.verify_logical_graph",
         counted_graph,
     )
     monkeypatch.setattr(
-        "scopecat.compiler.bind.seal_typed_program",
-        counted_seal,
+        "scopecat.compiler.bind.verify_core_program",
+        counted_core,
     )
 
     @sc.template(id="test.graph.single-proof", kind="graph")
@@ -446,7 +444,7 @@ def test_compile_verifies_and_seals_the_final_program_once(
         build_config_environment(load_config()),
     )
 
-    assert calls == {"graph": 1, "seal": 1}
+    assert calls == {"graph": 1, "core": 1}
     assert resolved.program.id == "test.graph.single-proof"
 
 
