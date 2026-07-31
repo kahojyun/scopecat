@@ -21,7 +21,6 @@ from scopecat.program.expressions import (
     InputScalarExpr,
     ParameterLookupScalarExpr,
     ScalarExpr,
-    ScalarExpression,
     lit,
 )
 
@@ -62,7 +61,7 @@ def bind_scalar_input_refs(
 ) -> ScalarExpr:
     """Bind scalar input nodes without exposing relation syntax to users."""
 
-    scalar = cast("ScalarExpression", expression)
+    scalar = expression
     if isinstance(scalar, InputScalarExpr):
         input_name = scalar.name
         if input_name not in inputs:
@@ -72,7 +71,7 @@ def bind_scalar_input_refs(
         value = selected.value if substitute_once else selected
         next_resolving = _descend_input_resolution(input_name, resolving)
         if isinstance(value, ScalarExpr):
-            value_scalar = cast("ScalarExpression", value)
+            value_scalar = value
             if not is_assignable(value_scalar.value_type, scalar.value_type):
                 msg = f"input {input_name!r} replacement has an incompatible value type"
                 raise TypeError(msg)

@@ -36,7 +36,7 @@ from scopecat.measurements.products import (
 )
 from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementVariableRole
-from scopecat.program.expressions import ScalarExpression
+from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     MeasurementPostprocessorId,
 )
@@ -85,7 +85,7 @@ class LogicalResourceRequirement:
 
     port_id: LogicalResourcePortId
     interfaces: tuple[InterfaceId, ...] = ()
-    entity_uses: tuple[ScalarExpression, ...] = ()
+    entity_uses: tuple[ScalarExpr, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

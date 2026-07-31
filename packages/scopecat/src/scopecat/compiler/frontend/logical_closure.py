@@ -405,7 +405,7 @@ class _LogicalProgramBuilder:
             return value_id
         lowered = internal_lower_value_ref(value)
         if isinstance(lowered, ComputeResultScalarExpr):
-            msg = "non-compute logical values must lower to a plan expression"
+            msg = "non-compute logical values must lower to a scalar expression"
             raise TypeError(msg)
         self._add_definition(
             ValueDef(

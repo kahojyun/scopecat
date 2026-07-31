@@ -11,7 +11,7 @@ from scopecat.compiler.relations.context import (
     ParameterRelationData,
 )
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -45,7 +45,6 @@ from scopecat.planning.point_materialization import materialize_bound_points
 from scopecat.program.expressions import (
     ParameterLookupUse,
     ScalarExpr,
-    ScalarExpression,
     input_ref,
     param,
     parameter_lookup,
@@ -63,11 +62,11 @@ from scopecat.records.config import (
     VirtualInstrumentConnection,
 )
 from tests.testkit.authoring import load_config
+from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.typed_program import (
     DomainExecutionFixture,
     ProgramFixture,
@@ -108,9 +107,9 @@ def _values_axis(
     axis_id: str,
     value_type: Scalar,
     values: tuple[CellValue, ...],
-) -> PointAxis[ScalarExpression]:
+) -> PointAxis[ScalarExpr]:
     return cast(
-        "PointAxis[ScalarExpression]",
+        "PointAxis[ScalarExpr]",
         point_axis_values(axis_id, value_type, values),
     )
 
@@ -119,13 +118,13 @@ def _linear_axis(
     axis_id: str,
     expression: ScalarExpr,
     *,
-    bindings: RelationTypeBindings | None = None,
+    bindings: ExpressionTypeBindings | None = None,
     count: int = 2,
-) -> PointAxis[ScalarExpression]:
+) -> PointAxis[ScalarExpr]:
     return point_axis_linear(
         axis_id,
         _FREQUENCY,
-        scalar_value_expr(
+        verified_scalar_expr(
             expression,
             bindings=bindings,
             expected_type=_FREQUENCY,
@@ -137,7 +136,7 @@ def _linear_axis(
 
 def _entity_rows(
     values: tuple[CellValue, ...],
-) -> PointAxis[ScalarExpression]:
+) -> PointAxis[ScalarExpr]:
     return _values_axis(
         "subject",
         Scalar(Entity()),
@@ -159,7 +158,7 @@ def _symbolic_program() -> ProgramFixture:
         _linear_axis(
             "c",
             param("drive_frequency", _DRIVE_FREQUENCY),
-            bindings=RelationTypeBindings(
+            bindings=ExpressionTypeBindings(
                 parameters={"drive_frequency": _DRIVE_FREQUENCY}
             ),
         ),
@@ -416,21 +415,21 @@ def test_config_problems_do_not_produce_an_environment() -> None:
     (
         (
             param("definitely_missing", _FREQUENCY),
-            RelationTypeBindings(parameters={"definitely_missing": _FREQUENCY}),
+            ExpressionTypeBindings(parameters={"definitely_missing": _FREQUENCY}),
         ),
         (
             parameter_lookup(
                 _lookup_use("definitely_missing"),
                 key={"key": "selected"},
             ),
-            RelationTypeBindings(),
+            ExpressionTypeBindings(),
         ),
     ),
     ids=("scalar-center", "lookup-center"),
 )
 def test_bind_closes_every_used_axis_center_parameter_import(
     expression: ScalarExpr,
-    bindings: RelationTypeBindings,
+    bindings: ExpressionTypeBindings,
 ) -> None:
     program = typed_program(
         point_domain=PointDomain(
@@ -460,7 +459,7 @@ def test_bind_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
                         _lookup_use(parameter_id),
                         key={"key": "selected"},
                     ),
-                    bindings=RelationTypeBindings(),
+                    bindings=ExpressionTypeBindings(),
                 ),
             ),
         ),
@@ -497,9 +496,9 @@ def test_bind_rejects_remaining_relation_input_imports() -> None:
                 logical_resource_port_id("source"),
                 interface_id="test.set_frequency/v1",
                 property_id="value",
-                value=scalar_value_expr(
+                value=verified_scalar_expr(
                     input_ref(input_id, _FLOAT),
-                    bindings=RelationTypeBindings(inputs={input_id: _FLOAT}),
+                    bindings=ExpressionTypeBindings(inputs={input_id: _FLOAT}),
                     expected_type=_FLOAT,
                 ),
             ),
@@ -527,7 +526,7 @@ def test_bind_reports_every_missing_import_in_one_axis_center() -> None:
                     "value",
                     param(missing_ids[0], _FREQUENCY)
                     + param(missing_ids[1], _FREQUENCY),
-                    bindings=RelationTypeBindings(
+                    bindings=ExpressionTypeBindings(
                         parameters=dict.fromkeys(missing_ids, _FREQUENCY)
                     ),
                 ),

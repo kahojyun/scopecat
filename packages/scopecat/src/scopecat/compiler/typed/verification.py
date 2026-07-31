@@ -25,7 +25,6 @@ from scopecat.measurements.records import plan_records, validate_record_axes
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 from scopecat.program.point_domain import iter_point_axis_linear
 
@@ -111,10 +110,10 @@ def _product_demand_problems(
 
 @dataclass(frozen=True, slots=True)
 class ProgramRelationConsumer:
-    """One scalar plan paired with its semantic role and diagnostic path."""
+    """One scalar expression paired with its semantic role and diagnostic path."""
 
     kind: ProgramRelationConsumerKind
-    plan: ScalarExpression
+    plan: ScalarExpr
     location: ModelLocation
 
 
@@ -142,7 +141,7 @@ def verify_bound_facts(
 
 def _consumer(
     kind: ProgramRelationConsumerKind,
-    value: ScalarExpression,
+    value: ScalarExpr,
     location: ModelLocation,
 ) -> ProgramRelationConsumer:
     return ProgramRelationConsumer(
@@ -169,7 +168,7 @@ def bound_relation_consumers(
     program: BoundProgramFacts,
     point_domain: VerifiedPointDomain,
 ) -> Iterator[ProgramRelationConsumer]:
-    """Iterate relation plans with paths only when diagnostics need them."""
+    """Iterate scalar expressions with paths only when diagnostics need them."""
 
     yield from _point_axis_center_consumers(point_domain)
     yield from _program_relation_consumers(logical, program)

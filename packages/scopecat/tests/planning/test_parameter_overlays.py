@@ -6,7 +6,7 @@ from scopecat.compiler.relations.specialization import (
     specialize_scalar_expression,
 )
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
 )
 from scopecat.compiler.typed.parameter_overlays import (
@@ -35,6 +35,7 @@ from scopecat.program.point_domain import (
     point_axis_values,
 )
 from scopecat.program.table_values import ParameterTableSource
+from tests.testkit.expressions import state_property
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
@@ -45,7 +46,6 @@ from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
     parameters,
 )
-from tests.testkit.relation_plans import state_property
 from tests.testkit.typed_program import (
     DomainExecutionFixture,
     bind_program_facts,
@@ -72,8 +72,8 @@ def _point_domain(
     return PointDomain(axes=tuple(factors))
 
 
-def _point_bindings(points: PointDomain) -> RelationTypeBindings:
-    return RelationTypeBindings(
+def _point_bindings(points: PointDomain) -> ExpressionTypeBindings:
+    return ExpressionTypeBindings(
         parameters={
             parameter_id: value_type
             for parameter_id, value_type in _PARAMETER_TYPES.items()

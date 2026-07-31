@@ -13,7 +13,6 @@ from scopecat.program.expressions import (
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 from scopecat.records._run_request_values import (
     normalize_json_value,
@@ -71,7 +70,7 @@ def project_run_request_value(
 def project_run_request_scalar(expression: ScalarExpr) -> object:
     """Project transient relation syntax into durable request semantics."""
 
-    scalar = cast("ScalarExpression", expression)
+    scalar = expression
     if isinstance(scalar, LiteralScalarExpr):
         return project_run_request_value(scalar.value, path="expression.literal")
     if isinstance(scalar, ParameterScalarExpr):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
@@ -41,13 +41,13 @@ from scopecat.program.value_graph import (
     OperationId,
     operation_result_id,
 )
+from tests.testkit.expressions import (
+    state_property,
+    verified_scalar_expr,
+)
 from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
     parameters,
-)
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
-    state_property,
 )
 from tests.testkit.typed_program import (
     ComputeNodeFixture,
@@ -144,18 +144,18 @@ def test_bound_fact_specialization_preserves_exact_empty_point_composition() -> 
 def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None:
     frequency = Scalar(Quantity(unit="GHz"))
     point_row = RowType((TableColumn("frequency", frequency),))
-    point_bindings = RelationTypeBindings(
+    point_bindings = ExpressionTypeBindings(
         point_row=point_row,
     )
-    center = scalar_value_expr(
+    center = verified_scalar_expr(
         parameter_lookup(
             READOUT_FREQUENCY_LOOKUP,
             key={"device_id": "r0"},
         ),
-        bindings=RelationTypeBindings(),
+        bindings=ExpressionTypeBindings(),
         expected_type=frequency,
     )
-    overlaid_lookup = scalar_value_expr(
+    overlaid_lookup = verified_scalar_expr(
         parameter_lookup(
             READOUT_FREQUENCY_LOOKUP,
             key={"device_id": "r0"},

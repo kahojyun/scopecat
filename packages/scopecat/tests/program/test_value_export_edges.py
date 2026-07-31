@@ -21,7 +21,7 @@ from scopecat.program.value_refs import (
     internal_transform_value_ref,
     internal_value_ref_module_export,
 )
-from tests.testkit.relation_plans import evaluate_scalar
+from tests.testkit.expressions import evaluate_scalar
 
 
 def _float_type() -> Scalar:

@@ -1,4 +1,4 @@
-"""Static verification and dependency analysis for canonical scalar plans."""
+"""Static verification and dependency analysis for scalar expressions."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import cast
 
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.value_type_compatibility import is_assignable
@@ -29,11 +28,10 @@ from scopecat.program.expressions import (
     ParameterScalarExpr,
     PointColumnScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 
-type PlanPathItem = str | int
-type PlanPath = tuple[PlanPathItem, ...]
+type ExpressionPathItem = str | int
+type ExpressionPath = tuple[ExpressionPathItem, ...]
 
 
 def _empty_value_bindings() -> dict[str, Scalar]:
@@ -58,7 +56,7 @@ class RowType:
 
 
 @dataclass(frozen=True, slots=True)
-class PointRequirement:
+class ExpressionPointRequirement:
     """The typed fields that a plan reads from the current experiment point.
 
     ``column_references`` retains the exact authored paths, while ``row_type``
@@ -80,7 +78,7 @@ class PointRequirement:
 
 
 @dataclass(frozen=True, slots=True)
-class RelationTypeBindings:
+class ExpressionTypeBindings:
     """Typed imports and the optional experiment-point row."""
 
     inputs: Mapping[str, Scalar] = field(default_factory=_empty_value_bindings)
@@ -96,23 +94,23 @@ class RelationTypeBindings:
         )
 
 
-class PlanImportNamespace(StrEnum):
+class ExpressionImportNamespace(StrEnum):
     INPUT = "input"
     PARAMETER = "parameter"
 
 
 @dataclass(frozen=True, slots=True)
-class TypedPlanImport:
-    namespace: PlanImportNamespace
+class TypedExpressionImport:
+    namespace: ExpressionImportNamespace
     id: str
     value_type: Scalar
     lookup: ParameterLookupUse | None = None
 
 
-class RelationPlanVerificationError(ValueError):
-    """A deterministic static relation-plan failure."""
+class ExpressionVerificationError(ValueError):
+    """A deterministic static scalar-expression failure."""
 
-    def __init__(self, code: str, path: PlanPath, message: str) -> None:
+    def __init__(self, code: str, path: ExpressionPath, message: str) -> None:
         self.code = code
         self.path = path
         self.reason = message
@@ -120,49 +118,49 @@ class RelationPlanVerificationError(ValueError):
         super().__init__(f"{rendered}: {message}" if rendered else message)
 
 
-def verify_relation_plan(
+def verify_scalar_expression(
     root: ScalarExpr,
     *,
-    bindings: RelationTypeBindings | None = None,
+    bindings: ExpressionTypeBindings | None = None,
     expected_type: Scalar | None = None,
-) -> ScalarExpression:
+) -> ScalarExpr:
     """Verify one canonical expression and return the same object."""
 
-    selected = bindings or RelationTypeBindings()
+    selected = bindings or ExpressionTypeBindings()
     verifier = _Verifier(selected)
     inferred = verifier.infer(root, (), expected_type)
     if expected_type is not None and not is_assignable(inferred, expected_type):
-        raise RelationPlanVerificationError(
+        raise ExpressionVerificationError(
             "incompatible_result_type",
             (),
             f"inferred {inferred!r}, which is not assignable to {expected_type!r}",
         )
-    return cast("ScalarExpression", root)
+    return root
 
 
-def relation_plan_imports(root: ScalarExpr) -> tuple[TypedPlanImport, ...]:
+def scalar_expression_imports(root: ScalarExpr) -> tuple[TypedExpressionImport, ...]:
     """Derive the exact typed imports used by a canonical expression."""
 
     selected: dict[
-        tuple[PlanImportNamespace, str, ParameterLookupUse | None],
-        TypedPlanImport,
+        tuple[ExpressionImportNamespace, str, ParameterLookupUse | None],
+        TypedExpressionImport,
     ] = {}
     for scalar in scalar_nodes(root):
         if isinstance(scalar, InputScalarExpr):
-            imported = TypedPlanImport(
-                PlanImportNamespace.INPUT,
+            imported = TypedExpressionImport(
+                ExpressionImportNamespace.INPUT,
                 scalar.name,
                 scalar.value_type,
             )
         elif isinstance(scalar, ParameterScalarExpr):
-            imported = TypedPlanImport(
-                PlanImportNamespace.PARAMETER,
+            imported = TypedExpressionImport(
+                ExpressionImportNamespace.PARAMETER,
                 scalar.name,
                 scalar.value_type,
             )
         elif isinstance(scalar, ParameterLookupScalarExpr):
-            imported = TypedPlanImport(
-                PlanImportNamespace.PARAMETER,
+            imported = TypedExpressionImport(
+                ExpressionImportNamespace.PARAMETER,
                 scalar.use.table_id,
                 scalar.value_type,
                 lookup=scalar.use,
@@ -174,9 +172,9 @@ def relation_plan_imports(root: ScalarExpr) -> tuple[TypedPlanImport, ...]:
     return tuple(selected.values())
 
 
-def relation_plan_import_ids(
+def scalar_expression_import_ids(
     root: ScalarExpr,
-    namespace: PlanImportNamespace,
+    namespace: ExpressionImportNamespace,
 ) -> tuple[str, ...]:
     """Return sorted unique import ids in one namespace."""
 
@@ -184,16 +182,16 @@ def relation_plan_import_ids(
         sorted(
             {
                 imported.id
-                for imported in relation_plan_imports(root)
+                for imported in scalar_expression_imports(root)
                 if imported.namespace is namespace
             }
         )
     )
 
 
-def relation_plan_point_requirement(
+def scalar_expression_point_requirement(
     root: ScalarExpr,
-) -> PointRequirement | None:
+) -> ExpressionPointRequirement | None:
     """Derive the exact typed point columns read by an expression."""
 
     references: dict[str, Scalar] = {}
@@ -208,20 +206,20 @@ def relation_plan_point_requirement(
     if not references:
         return None
     names = tuple(sorted(references))
-    return PointRequirement(
+    return ExpressionPointRequirement(
         row_type=RowType(tuple(TableColumn(name, references[name]) for name in names)),
         column_references=names,
     )
 
 
 class _Verifier:
-    def __init__(self, bindings: RelationTypeBindings) -> None:
+    def __init__(self, bindings: ExpressionTypeBindings) -> None:
         self.bindings = bindings
 
     def infer(
         self,
         node: ScalarExpr,
-        path: PlanPath,
+        path: ExpressionPath,
         expected: Scalar | None = None,
     ) -> Scalar:
         return self.scalar(node, path, expected)
@@ -229,10 +227,10 @@ class _Verifier:
     def scalar(
         self,
         node: ScalarExpr,
-        path: PlanPath,
+        path: ExpressionPath,
         expected: Scalar | None,
     ) -> Scalar:
-        scalar = cast("ScalarExpression", node)
+        scalar = node
         match scalar:
             case LiteralScalarExpr():
                 self.validate_literal(scalar.value_type, scalar.value, path)
@@ -247,7 +245,7 @@ class _Verifier:
                 result = bound_type
             case InputScalarExpr():
                 bound_type = self.import_scalar(
-                    PlanImportNamespace.INPUT,
+                    ExpressionImportNamespace.INPUT,
                     scalar.name,
                     path,
                 )
@@ -255,7 +253,7 @@ class _Verifier:
                 result = bound_type
             case ParameterScalarExpr():
                 bound_type = self.import_scalar(
-                    PlanImportNamespace.PARAMETER,
+                    ExpressionImportNamespace.PARAMETER,
                     scalar.name,
                     path,
                 )
@@ -287,7 +285,7 @@ class _Verifier:
                 raise self.error(
                     "compute_result_unavailable",
                     path,
-                    "compute results cannot appear inside a pure relation plan",
+                    "compute results cannot appear inside a pure scalar expression",
                 )
             case ModuleExportScalarExpr():
                 raise self.error(
@@ -295,13 +293,15 @@ class _Verifier:
                     path,
                     f"unresolved module export {scalar.export_id!r}",
                 )
+            case _:
+                raise AssertionError("unknown scalar expression node")
         self.require_expected(result, expected, path)
         return result
 
     def parameter_lookup(
         self,
         node: ParameterLookupScalarExpr,
-        path: PlanPath,
+        path: ExpressionPath,
     ) -> Scalar:
         use = node.use
         selected_key_types = dict(use.key_input_types)
@@ -316,13 +316,13 @@ class _Verifier:
 
     def import_scalar(
         self,
-        namespace: PlanImportNamespace,
+        namespace: ExpressionImportNamespace,
         import_id: str,
-        path: PlanPath,
+        path: ExpressionPath,
     ) -> Scalar:
         available = (
             self.bindings.inputs
-            if namespace is PlanImportNamespace.INPUT
+            if namespace is ExpressionImportNamespace.INPUT
             else self.bindings.parameters
         )
         try:
@@ -339,7 +339,7 @@ class _Verifier:
         self,
         row: RowType | None,
         name: str,
-        path: PlanPath,
+        path: ExpressionPath,
     ) -> Scalar:
         if row is None:
             raise self.error(
@@ -361,7 +361,7 @@ class _Verifier:
         self,
         expected: Scalar,
         value: object,
-        path: PlanPath,
+        path: ExpressionPath,
     ) -> None:
         try:
             validate_literal(expected, value, path=path or ("value",))
@@ -372,7 +372,7 @@ class _Verifier:
         self,
         bound: Scalar,
         intrinsic: Scalar,
-        path: PlanPath,
+        path: ExpressionPath,
     ) -> None:
         if is_assignable(bound, intrinsic):
             return
@@ -386,7 +386,7 @@ class _Verifier:
         self,
         inferred: Scalar,
         intrinsic: Scalar,
-        path: PlanPath,
+        path: ExpressionPath,
     ) -> None:
         if inferred == intrinsic:
             return
@@ -400,7 +400,7 @@ class _Verifier:
         self,
         inferred: Scalar,
         intrinsic: Scalar,
-        path: PlanPath,
+        path: ExpressionPath,
     ) -> None:
         if is_assignable(inferred, intrinsic):
             return
@@ -414,7 +414,7 @@ class _Verifier:
         self,
         actual: Scalar,
         expected: Scalar | None,
-        path: PlanPath,
+        path: ExpressionPath,
     ) -> None:
         if expected is not None and not is_assignable(actual, expected):
             raise self.error(
@@ -426,10 +426,10 @@ class _Verifier:
     @staticmethod
     def error(
         code: str,
-        path: PlanPath,
+        path: ExpressionPath,
         message: str,
-    ) -> RelationPlanVerificationError:
-        return RelationPlanVerificationError(code, path, message)
+    ) -> ExpressionVerificationError:
+        return ExpressionVerificationError(code, path, message)
 
 
 def _frozen_mapping(
@@ -453,7 +453,7 @@ def _is_zero_literal(node: ScalarExpr) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and value == 0
 
 
-def _format_path(path: PlanPath) -> str:
+def _format_path(path: ExpressionPath) -> str:
     if not path:
         return ""
     rendered = "root"

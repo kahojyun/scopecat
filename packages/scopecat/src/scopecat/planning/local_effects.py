@@ -21,7 +21,7 @@ from scopecat.kernel.resource_identity import LogicalResourcePortId, ResourceReq
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Scalar
 from scopecat.planning.routing import ResourcePortManifest
-from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpression
+from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.logical import LogicalStateAssignment
 
 type EvaluatedEffectValue = CellValue | ComputeResultScalarExpr
@@ -44,7 +44,7 @@ class StateRecord:
 
 
 def evaluate_effect_value(
-    value: ScalarExpression,
+    value: ScalarExpr,
     value_type: Scalar,
     *,
     ctx: EvalContext,
@@ -58,7 +58,7 @@ def evaluate_effect_value(
 
 def evaluate_state_assignment(
     assignment: LogicalStateAssignment,
-    value: ScalarExpression,
+    value: ScalarExpr,
     value_type: Scalar,
     *,
     point_index: int,

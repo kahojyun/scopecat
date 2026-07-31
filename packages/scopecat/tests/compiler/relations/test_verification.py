@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 
 from scopecat.compiler.relations.verification import (
-    PointRequirement,
-    RelationPlanVerificationError,
-    RelationTypeBindings,
+    ExpressionPointRequirement,
+    ExpressionTypeBindings,
+    ExpressionVerificationError,
     RowType,
-    relation_plan_imports,
-    relation_plan_point_requirement,
-    verify_relation_plan,
+    scalar_expression_imports,
+    scalar_expression_point_requirement,
+    verify_scalar_expression,
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
@@ -42,8 +42,8 @@ BOUNDED_FREQUENCY = Scalar(Quantity(unit="GHz", minimum=4.0, maximum=6.0))
 
 
 def test_typed_null_literal_is_rejected() -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(lit(None, INT))
+    with pytest.raises(ExpressionVerificationError) as caught:
+        verify_scalar_expression(lit(None, INT))
 
     assert caught.value.code == "invalid_literal"
     assert caught.value.path == ()
@@ -53,38 +53,38 @@ def test_literal_carries_its_contextual_scalar_type() -> None:
     entity_type = Scalar(Entity())
     source = lit("q0", entity_type)
 
-    verified = verify_relation_plan(source, expected_type=entity_type)
+    verified = verify_scalar_expression(source, expected_type=entity_type)
 
     assert verified is source
     assert verified.value_type == entity_type
 
 
 def test_only_referenced_typed_imports_enter_the_proof() -> None:
-    bindings = RelationTypeBindings(
+    bindings = ExpressionTypeBindings(
         inputs={"used": INT, "unused": FLOAT},
         parameters={"unused": STRING},
     )
 
-    verified = verify_relation_plan(input_ref("used", INT), bindings=bindings)
+    verified = verify_scalar_expression(input_ref("used", INT), bindings=bindings)
 
-    assert [(item.id, item.value_type) for item in relation_plan_imports(verified)] == [
-        ("used", INT)
-    ]
+    assert [
+        (item.id, item.value_type) for item in scalar_expression_imports(verified)
+    ] == [("used", INT)]
 
 
 def test_input_and_parameter_namespaces_are_typed_independently() -> None:
-    bindings = RelationTypeBindings(
+    bindings = ExpressionTypeBindings(
         inputs={"shared": INT},
         parameters={"shared": FLOAT},
     )
 
-    verified = verify_relation_plan(
+    verified = verify_scalar_expression(
         input_ref("shared", INT) + param("shared", FLOAT),
         bindings=bindings,
     )
 
     assert {
-        (item.namespace.value, item.id) for item in relation_plan_imports(verified)
+        (item.namespace.value, item.id) for item in scalar_expression_imports(verified)
     } == {
         ("input", "shared"),
         ("parameter", "shared"),
@@ -92,8 +92,8 @@ def test_input_and_parameter_namespaces_are_typed_independently() -> None:
 
 
 def test_unknown_import_reports_a_stable_code() -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(input_ref("missing", INT))
+    with pytest.raises(ExpressionVerificationError) as caught:
+        verify_scalar_expression(input_ref("missing", INT))
 
     assert caught.value.code == "unknown_input"
     assert caught.value.path == ()
@@ -108,12 +108,12 @@ def test_point_interface_projects_only_referenced_columns() -> None:
         ),
     )
 
-    verified = verify_relation_plan(
+    verified = verify_scalar_expression(
         point_col("device", device),
-        bindings=RelationTypeBindings(point_row=point),
+        bindings=ExpressionTypeBindings(point_row=point),
     )
 
-    assert relation_plan_point_requirement(verified) == PointRequirement(
+    assert scalar_expression_point_requirement(verified) == ExpressionPointRequirement(
         RowType((TableColumn("device", device),)),
         ("device",),
     )
@@ -127,19 +127,19 @@ def test_exact_dotted_point_column_is_selected() -> None:
         )
     )
 
-    verified = verify_relation_plan(
+    verified = verify_scalar_expression(
         point_col("device.rank", INT),
-        bindings=RelationTypeBindings(point_row=point),
+        bindings=ExpressionTypeBindings(point_row=point),
     )
 
     assert verified.value_type == INT
 
 
 def test_binding_must_be_assignable_to_the_expression_intrinsic_type() -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(
+    with pytest.raises(ExpressionVerificationError) as caught:
+        verify_scalar_expression(
             input_ref("value", FLOAT),
-            bindings=RelationTypeBindings(inputs={"value": INT}),
+            bindings=ExpressionTypeBindings(inputs={"value": INT}),
         )
 
     assert caught.value.code == "intrinsic_type_mismatch"
@@ -149,9 +149,9 @@ def test_binding_must_be_assignable_to_the_expression_intrinsic_type() -> None:
 def test_narrow_binding_satisfies_a_generic_intrinsic_and_expected_type() -> None:
     source = param("frequency", QUANTITY)
 
-    verified = verify_relation_plan(
+    verified = verify_scalar_expression(
         source,
-        bindings=RelationTypeBindings(parameters={"frequency": BOUNDED_FREQUENCY}),
+        bindings=ExpressionTypeBindings(parameters={"frequency": BOUNDED_FREQUENCY}),
         expected_type=BOUNDED_FREQUENCY,
     )
 
@@ -168,8 +168,8 @@ def test_binary_intrinsic_type_is_cross_checked_during_verification() -> None:
     expression = lit(1) + 1
     object.__setattr__(expression, "value_type", FLOAT)
 
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(expression)
+    with pytest.raises(ExpressionVerificationError) as caught:
+        verify_scalar_expression(expression)
 
     assert caught.value.code == "intrinsic_type_mismatch"
 
@@ -183,12 +183,12 @@ def test_lookup_use_is_typed_without_importing_the_whole_table() -> None:
         result_type=FLOAT,
     )
 
-    verified = verify_relation_plan(
+    verified = verify_scalar_expression(
         parameter_lookup(use, key={"mode": 1, "device": "q0"})
     )
 
     assert verified.value_type == FLOAT
-    imports = relation_plan_imports(verified)
+    imports = scalar_expression_imports(verified)
     assert imports[0].lookup == use
     assert imports[0].value_type == FLOAT
 
@@ -202,8 +202,8 @@ def test_lookup_use_preserves_key_expression_errors() -> None:
         result_type=FLOAT,
     )
 
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(
+    with pytest.raises(ExpressionVerificationError) as caught:
+        verify_scalar_expression(
             parameter_lookup(use, key={"device": input_ref("missing", STRING)}),
         )
 
@@ -247,11 +247,11 @@ def test_lookup_expression_requires_exactly_its_declared_key_inputs() -> None:
         ),
     ],
 )
-def test_pure_relation_plan_rejects_opaque_expression_edges(
+def test_pure_scalar_expression_rejects_opaque_execution_edges(
     expression: ComputeResultScalarExpr | ModuleExportScalarExpr,
     code: str,
 ) -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(expression)
+    with pytest.raises(ExpressionVerificationError) as caught:
+        verify_scalar_expression(expression)
 
     assert caught.value.code == code

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.scalar_eval import (
     eval_binary,
@@ -20,12 +18,11 @@ from scopecat.program.expressions import (
     ParameterScalarExpr,
     PointColumnScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 
 
 def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> CellValue:
-    scalar = cast("ScalarExpression", expression)
+    scalar = expression
     match scalar:
         case LiteralScalarExpr():
             return scalar.value
@@ -54,3 +51,5 @@ def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> Cell
                 evaluate_scalar_expression(scalar.left, ctx),
                 evaluate_scalar_expression(scalar.right, ctx),
             )
+        case _:
+            raise AssertionError("unknown scalar expression node")

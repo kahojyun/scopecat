@@ -1,6 +1,6 @@
 import pytest
 
-from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.relations.verification import ExpressionTypeBindings
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
@@ -23,15 +23,15 @@ from scopecat.program.point_domain import (
     point_axis_linear,
     point_axis_values,
 )
+from tests.testkit.expressions import (
+    state_property as set_state_property,
+)
+from tests.testkit.expressions import (
+    verified_scalar_expr,
+)
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import materialized_effects_contract
 from tests.testkit.parameter_fixtures import parameters
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
-)
-from tests.testkit.relation_plans import (
-    state_property as set_state_property,
-)
 from tests.testkit.typed_program import (
     instrument_acquisition,
     instrument_acquisitions,
@@ -190,9 +190,9 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
     None
 ):
     center_type = Scalar(QuantityType(unit="GHz"))
-    center = scalar_value_expr(
+    center = verified_scalar_expr(
         param("missing_center", center_type),
-        bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+        bindings=ExpressionTypeBindings(parameters={"missing_center": center_type}),
         expected_type=center_type,
     )
     spec = typed_program(

@@ -9,9 +9,9 @@ from hypothesis import strategies as st
 
 from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
-    verify_relation_plan,
+    verify_scalar_expression,
 )
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
@@ -38,7 +38,7 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.program.expressions import (
-    ScalarExpression,
+    ScalarExpr,
     as_scalar_expr,
     input_ref,
     param,
@@ -55,18 +55,18 @@ _INT = Scalar(Int())
 _TIME = Scalar(QuantityType(dimension="time", unit="ns"))
 _ENTITY = Scalar(Entity("qubit"))
 
-type _CenterUse = ScalarExpression
+type _CenterUse = ScalarExpr
 
 
-def scalar_value_expr(
+def verified_scalar_expr(
     expression: object,
     *,
-    bindings: RelationTypeBindings | None = None,
+    bindings: ExpressionTypeBindings | None = None,
     expected_type: Scalar,
-) -> ScalarExpression:
-    return verify_relation_plan(
+) -> ScalarExpr:
+    return verify_scalar_expression(
         as_scalar_expr(expression),
-        bindings=bindings or RelationTypeBindings(),
+        bindings=bindings or ExpressionTypeBindings(),
         expected_type=expected_type,
     )
 
@@ -166,9 +166,9 @@ def test_product_materialization_is_left_major() -> None:
 
 
 def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
-    center = scalar_value_expr(
+    center = verified_scalar_expr(
         param("center", _TIME),
-        bindings=RelationTypeBindings(parameters={"center": _TIME}),
+        bindings=ExpressionTypeBindings(parameters={"center": _TIME}),
         expected_type=_TIME,
     )
     verified = _verify(
@@ -230,9 +230,9 @@ def test_linear_axis_normalizes_center_to_its_declared_value_type() -> None:
 
 
 def test_dynamic_center_evaluation_errors_report_the_center_path() -> None:
-    center = scalar_value_expr(
+    center = verified_scalar_expr(
         param("missing", _TIME),
-        bindings=RelationTypeBindings(parameters={"missing": _TIME}),
+        bindings=ExpressionTypeBindings(parameters={"missing": _TIME}),
         expected_type=_TIME,
     )
     verified = _verify(
@@ -273,9 +273,9 @@ def test_duplicate_columns_fail_during_typed_verification() -> None:
 
 
 def test_linear_center_rejects_an_unresolved_input() -> None:
-    center = scalar_value_expr(
+    center = verified_scalar_expr(
         input_ref("center", _TIME),
-        bindings=RelationTypeBindings(inputs={"center": _TIME}),
+        bindings=ExpressionTypeBindings(inputs={"center": _TIME}),
         expected_type=_TIME,
     )
 
@@ -301,9 +301,9 @@ def test_linear_center_rejects_an_unresolved_input() -> None:
 
 
 def test_linear_center_rejects_a_point_dependency() -> None:
-    center = scalar_value_expr(
+    center = verified_scalar_expr(
         point_col("other", _TIME),
-        bindings=RelationTypeBindings(
+        bindings=ExpressionTypeBindings(
             point_row=RowType((TableColumn("other", _TIME),))
         ),
         expected_type=_TIME,

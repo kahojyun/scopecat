@@ -1,8 +1,6 @@
-"""Free-input analysis for scalar plans."""
+"""Dependency analysis for scalar expressions."""
 
 from __future__ import annotations
-
-from typing import cast
 
 from scopecat.program.expressions import (
     BinaryScalarExpr,
@@ -13,7 +11,6 @@ from scopecat.program.expressions import (
     ParameterScalarExpr,
     PointColumnScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 from scopecat.program.identities import InvocationKey
 
@@ -29,7 +26,7 @@ def plan_input_refs(root: ScalarExpr) -> tuple[str, ...]:
 
 
 def plan_point_refs(root: ScalarExpr) -> tuple[str, ...]:
-    """Return point-column ids read by one scalar plan."""
+    """Return point-column ids read by one scalar expression."""
 
     point_ids = {
         scalar.name
@@ -75,13 +72,13 @@ def plan_requires_execution(root: ScalarExpr) -> bool:
     )
 
 
-def scalar_nodes(root: ScalarExpr) -> tuple[ScalarExpression, ...]:
+def scalar_nodes(root: ScalarExpr) -> tuple[ScalarExpr, ...]:
     """Return scalar nodes in stable depth-first order."""
 
-    selected: list[ScalarExpression] = []
+    selected: list[ScalarExpr] = []
     pending = [root]
     while pending:
-        scalar = cast("ScalarExpression", pending.pop())
+        scalar = pending.pop()
         selected.append(scalar)
         if isinstance(scalar, ParameterLookupScalarExpr):
             pending.extend(reversed(tuple(scalar.key.values())))

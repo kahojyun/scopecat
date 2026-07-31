@@ -13,7 +13,7 @@ from scopecat.kernel.value_types import Float, Scalar
 from scopecat.program.expressions import (
     ParameterLookupScalarExpr,
     ParameterLookupUse,
-    ScalarExpression,
+    ScalarExpr,
     lit,
 )
 from scopecat.program.logical import LogicalComputeNode
@@ -155,4 +155,4 @@ def test_parameter_lookup_expression_captures_an_immutable_key() -> None:
     hash(expression)
     hash(expression + 1.0)
     with pytest.raises(TypeError, match="frozen mapping is immutable"):
-        cast("dict[str, ScalarExpression]", expression.key)["frequency"] = lit(7.0)
+        cast("dict[str, ScalarExpr]", expression.key)["frequency"] = lit(7.0)

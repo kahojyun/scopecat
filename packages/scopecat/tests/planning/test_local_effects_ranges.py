@@ -1,7 +1,7 @@
 import pytest
 
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -25,15 +25,15 @@ from scopecat.program.point_domain import (
     point_axis_values,
 )
 from scopecat.records.config import ConfigProfileSnapshot
+from tests.testkit.expressions import (
+    state_property,
+    verified_scalar_expr,
+)
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
     materialized_state_properties,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
-from tests.testkit.relation_plans import (
-    scalar_value_expr,
-    state_property,
-)
 from tests.testkit.typed_program import (
     ProgramFixture,
     instrument_acquisition,
@@ -85,7 +85,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
             for value in (5.9, 5.925, 5.95, 5.975, 6.0)
         )
     )
-    bindings = RelationTypeBindings(point_row=RowType.from_table(points.value_type))
+    bindings = ExpressionTypeBindings(point_row=RowType.from_table(points.value_type))
     product = observable_product(
         "signal",
         unit="ratio",
@@ -151,9 +151,9 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
 def test_materialized_effects_rejects_bind_problems_without_duplicates() -> None:
     config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     center_type = Scalar(QuantityType(unit="GHz"))
-    center = scalar_value_expr(
+    center = verified_scalar_expr(
         param("missing_center", center_type),
-        bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+        bindings=ExpressionTypeBindings(parameters={"missing_center": center_type}),
         expected_type=center_type,
     )
     spec = typed_program(

@@ -10,7 +10,7 @@ from pydantic import JsonValue
 import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -88,6 +88,7 @@ from scopecat.sdk.instruments.provider import (
 )
 from tests.testkit.authoring import bind_invocation
 from tests.testkit.execution import execute_bound_run
+from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
@@ -99,7 +100,6 @@ from tests.testkit.payload_codecs import json_payload_codecs
 from tests.testkit.records import (
     assert_model_round_trip,
 )
-from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.runtime import (
     sqlite_execution_session,
     sqlite_run_repository,
@@ -808,10 +808,10 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
                 ),
                 input_types={"value": Scalar(QuantityType())},
                 inputs={
-                    "value": scalar_value_expr(
+                    "value": verified_scalar_expr(
                         point_col("frequency", Scalar(QuantityType())),
                         expected_type=Scalar(QuantityType()),
-                        bindings=RelationTypeBindings(
+                        bindings=ExpressionTypeBindings(
                             point_row=RowType.from_table(point_type)
                         ),
                     )
@@ -945,7 +945,7 @@ def test_run_skips_unchanged_state_properties(tmp_path: Path) -> None:
                 base_bindings.resource_requirements[0].port_id,
                 interface_id="test.set_frequency/v1",
                 property_id="frequency",
-                value=scalar_value_expr(
+                value=verified_scalar_expr(
                     lit(Quantity(value=5.9, unit="GHz")),
                     expected_type=Scalar(QuantityType(unit="GHz")),
                 ),

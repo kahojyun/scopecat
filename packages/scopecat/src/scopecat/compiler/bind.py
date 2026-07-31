@@ -31,11 +31,11 @@ from scopecat.compiler.relations.evaluation import (
     normalize_relation_parameter_import,
 )
 from scopecat.compiler.relations.verification import (
-    PlanImportNamespace,
-    RelationPlanVerificationError,
-    RelationTypeBindings,
+    ExpressionImportNamespace,
+    ExpressionTypeBindings,
+    ExpressionVerificationError,
     RowType,
-    relation_plan_imports,
+    scalar_expression_imports,
 )
 from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.compiler.typed.program import BoundProgramFacts
@@ -106,15 +106,15 @@ def bind_program(
             lowered,
             environment,
         )
-    except RelationPlanVerificationError as error:
+    except ExpressionVerificationError as error:
         raise_frontend_problem(
-            f"relation_plan_{error.code}",
+            f"expression_{error.code}",
             error.reason,
-            "relation_plan",
+            "expression",
             path=error.path,
             details={
                 "relation_code": error.code,
-                "plan_path": list(error.path),
+                "expression_path": list(error.path),
             },
         )
 
@@ -210,8 +210,8 @@ def _lower_logical_program(
 def _relation_type_bindings(
     program: LogicalProgram,
     parameter_catalog: ParameterCatalog,
-) -> RelationTypeBindings:
-    """Project logical contracts into the final plan-verification environment."""
+) -> ExpressionTypeBindings:
+    """Project logical contracts into the expression type environment."""
 
     parameter_types: dict[str, Scalar] = {}
     for contract in program.parameter_contracts:
@@ -223,7 +223,7 @@ def _relation_type_bindings(
         )
         if isinstance(value_type, Scalar):
             parameter_types[contract.parameter_id] = value_type
-    return RelationTypeBindings(
+    return ExpressionTypeBindings(
         inputs={
             port.id: port.value_type
             for port in program.input_ports
@@ -326,8 +326,8 @@ def _relation_import_problems(
     problems: list[Problem] = []
     for consumer in bound_relation_consumers(logical, program, point_domain):
         plan = consumer.plan
-        for imported in relation_plan_imports(plan):
-            if imported.namespace is PlanImportNamespace.INPUT:
+        for imported in scalar_expression_imports(plan):
+            if imported.namespace is ExpressionImportNamespace.INPUT:
                 problems.append(_unresolved_input_problem(consumer, imported.id))
                 continue
             try:

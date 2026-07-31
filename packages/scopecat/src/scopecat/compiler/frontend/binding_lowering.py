@@ -16,8 +16,8 @@ from scopecat.compiler.frontend.value_binding import (
     bind_scalar_input_refs,
 )
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    verify_relation_plan,
+    ExpressionTypeBindings,
+    verify_scalar_expression,
 )
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
@@ -28,7 +28,6 @@ from scopecat.program.bindings import ResourcePort
 from scopecat.program.expressions import (
     LiteralScalarExpr,
     ScalarExpr,
-    ScalarExpression,
     lit,
 )
 from scopecat.program.value_refs import (
@@ -43,7 +42,7 @@ def build_resource_requirements(
     ports: Sequence[ResourcePort],
     *,
     inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
 ) -> list[LogicalResourceRequirement]:
     resource_requirements: list[LogicalResourceRequirement] = []
     for port in ports:
@@ -70,8 +69,8 @@ def _resource_entity_expr(
     source: ValueRef,
     inputs: Mapping[str, object],
     *,
-    type_bindings: RelationTypeBindings,
-) -> ScalarExpression:
+    type_bindings: ExpressionTypeBindings,
+) -> ScalarExpr:
     value_type = source.value_type
     lowered = internal_lower_value_ref(source)
     if not (
@@ -89,7 +88,7 @@ def _resource_entity_expr(
             ),
             bound.value_type,
         )
-    return verify_relation_plan(
+    return verify_scalar_expression(
         bound,
         bindings=type_bindings,
         expected_type=value_type,

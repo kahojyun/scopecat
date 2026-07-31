@@ -23,7 +23,7 @@ from scopecat.program.value_graph import OperationId
 from scopecat.program.values import input as program_input
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import load_config
-from tests.testkit.relation_plans import evaluate_scalar
+from tests.testkit.expressions import evaluate_scalar
 from tests.testkit.typed_program import ProgramFixture
 
 

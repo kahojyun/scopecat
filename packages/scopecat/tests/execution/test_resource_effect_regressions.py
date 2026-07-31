@@ -24,7 +24,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.measurements.products import ProductDef
-from scopecat.program.expressions import ScalarExpression, lit
+from scopecat.program.expressions import ScalarExpr, lit
 from scopecat.program.logical import AcquireEffect
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -32,12 +32,12 @@ from scopecat.records.config import (
     RoutingGraph,
 )
 from tests.testkit.authoring import load_config, parameters
+from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.typed_program import (
     ProgramFixture,
     StateAssignmentFixture,
@@ -52,13 +52,13 @@ def _port(value: str) -> LogicalResourcePortId:
     return logical_resource_port_id(value)
 
 
-def _number(value: float) -> ScalarExpression:
-    return scalar_value_expr(lit(value), expected_type=Scalar(Float()))
+def _number(value: float) -> ScalarExpr:
+    return verified_scalar_expr(lit(value), expected_type=Scalar(Float()))
 
 
-def _entity(value: str) -> ScalarExpression:
+def _entity(value: str) -> ScalarExpr:
     value_type = Scalar(Entity())
-    return scalar_value_expr(lit(value, value_type), expected_type=value_type)
+    return verified_scalar_expr(lit(value, value_type), expected_type=value_type)
 
 
 def _unit_program(

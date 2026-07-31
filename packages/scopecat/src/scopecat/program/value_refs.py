@@ -39,7 +39,6 @@ from scopecat.program.expressions import (
     ParameterScalarExpr,
     PointColumnScalarExpr,
     ScalarExpr,
-    ScalarExpression,
     as_scalar_expr,
     input_ref,
     lit,
@@ -387,7 +386,7 @@ def internal_transform_value_ref(
     if not isinstance(source, ParameterLookupScalarExpr | BinaryScalarExpr):
         return _transform_value_leaf(value, transform_leaf)
     transformed_source = _transform_scalar_leaves(
-        cast("ScalarExpression", source),
+        source,
         transform_leaf,
     )
     if transformed_source is source:
@@ -415,7 +414,7 @@ def internal_scope_value_ref(
         return value
     selected_source = (
         _scope_scalar_expression(
-            cast("ScalarExpression", source),
+            source,
             scope=scope,
             origin=origin,
         )
@@ -513,7 +512,7 @@ def internal_lower_value_ref(
     raise AssertionError("resolved value source has an unsupported shape")
 
 
-def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpression:
+def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpr:
     """Expose a canonical pure scalar expression at the compiler boundary."""
 
     if not isinstance(value.value_type, Scalar):
@@ -526,7 +525,7 @@ def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpression:
     if not isinstance(lowered, ScalarExpr):
         msg = "scalar expression requires a scalar value"
         raise TypeError(msg)
-    return cast("ScalarExpression", lowered)
+    return lowered
 
 
 def internal_value_ref_from_expression(
@@ -600,10 +599,7 @@ def internal_bind_value_ref_inputs(
     replacements = {
         input_id: _scalar_expression(bound) for input_id, bound in selected.items()
     }
-    bound_source = cast(
-        "ScalarExpression",
-        substitute_scalar_input_refs(source, replacements),
-    )
+    bound_source = substitute_scalar_input_refs(source, replacements)
     return ValueRef(
         source=bound_source,
         value_type=value.value_type,
@@ -648,7 +644,7 @@ def _binary_value(left: object, right: object, operator: str) -> ValueRef:
     )
 
 
-def _scalar_operand_expression(operand: ScalarOperand) -> ScalarExpression:
+def _scalar_operand_expression(operand: ScalarOperand) -> ScalarExpr:
     return (
         _scalar_expression(operand)
         if isinstance(operand, ValueRef)
@@ -698,7 +694,7 @@ def _merge_point_dependencies(
     return tuple(selected.values())
 
 
-def _scalar_expression(value: ValueRef) -> ScalarExpression:
+def _scalar_expression(value: ValueRef) -> ScalarExpr:
     source = value.source
     if not isinstance(source, ScalarExpr):
         msg = "scalar expression requires a scalar value"
@@ -709,13 +705,13 @@ def _scalar_expression(value: ValueRef) -> ScalarExpression:
             "express this calculation with ModuleContext.compute"
         )
         raise TypeError(msg)
-    return cast("ScalarExpression", source)
+    return source
 
 
 def _transform_scalar_leaves(
-    expression: ScalarExpression,
+    expression: ScalarExpr,
     transform_leaf: Callable[[ValueRef], ValueRef],
-) -> ScalarExpression:
+) -> ScalarExpr:
     if isinstance(expression, ParameterLookupScalarExpr):
         transformed_key = {
             name: _transform_scalar_leaves(value, transform_leaf)
@@ -740,7 +736,7 @@ def _transform_scalar_leaves(
     if not isinstance(source, ScalarExpr):
         msg = "scalar expression leaf must transform to a scalar value"
         raise TypeError(msg)
-    return cast("ScalarExpression", source)
+    return source
 
 
 def _transform_value_leaf(
@@ -773,11 +769,11 @@ def _preserve_bound_value_use(value: ValueRef, selected: ValueRef) -> ValueRef:
 
 
 def _scope_scalar_expression(
-    expression: ScalarExpression,
+    expression: ScalarExpr,
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
-) -> ScalarExpression:
+) -> ScalarExpr:
     if isinstance(expression, ComputeResultScalarExpr):
         return replace(
             expression,

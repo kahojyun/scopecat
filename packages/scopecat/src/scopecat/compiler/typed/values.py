@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.kernel.value_types import Table
-from scopecat.program.expressions import ScalarExpression
+from scopecat.program.expressions import ScalarExpr
 from scopecat.program.table_values import TableSource
 
 
@@ -17,4 +17,4 @@ class TableValue:
     value_type: Table
 
 
-type CompilerValue = ScalarExpression | TableValue
+type CompilerValue = ScalarExpr | TableValue

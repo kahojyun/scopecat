@@ -55,14 +55,14 @@ class ParameterLookupUse:
 
 
 class ScalarExpr:
-    """Common base for scalar plan variants."""
+    """Common base for scalar expression nodes."""
 
     value_type: Scalar = cast("Scalar", NotImplemented)
 
     def _binary(self, op: ScalarOperator, other: object) -> BinaryScalarExpr:
         return BinaryScalarExpr(
             op=op,
-            left=cast("ScalarExpression", self),
+            left=self,
             right=as_scalar_expr(other),
         )
 
@@ -73,7 +73,7 @@ class ScalarExpr:
         return BinaryScalarExpr(
             op="+",
             left=as_scalar_expr(other),
-            right=cast("ScalarExpression", self),
+            right=self,
         )
 
     def __sub__(self, other: object) -> BinaryScalarExpr:
@@ -83,7 +83,7 @@ class ScalarExpr:
         return BinaryScalarExpr(
             op="-",
             left=as_scalar_expr(other),
-            right=cast("ScalarExpression", self),
+            right=self,
         )
 
     def __mul__(self, other: object) -> BinaryScalarExpr:
@@ -93,7 +93,7 @@ class ScalarExpr:
         return BinaryScalarExpr(
             op="*",
             left=as_scalar_expr(other),
-            right=cast("ScalarExpression", self),
+            right=self,
         )
 
     def __truediv__(self, other: object) -> BinaryScalarExpr:
@@ -103,7 +103,7 @@ class ScalarExpr:
         return BinaryScalarExpr(
             op="/",
             left=as_scalar_expr(other),
-            right=cast("ScalarExpression", self),
+            right=self,
         )
 
 
@@ -174,7 +174,7 @@ class ModuleExportScalarExpr(ScalarExpr):
 @dataclass(frozen=True, slots=True)
 class ParameterLookupScalarExpr(ScalarExpr):
     use: ParameterLookupUse
-    key: Mapping[str, ScalarExpression] = field(hash=False)
+    key: Mapping[str, ScalarExpr] = field(hash=False)
     value_type: Scalar = field(init=False)
 
     def __post_init__(self) -> None:
@@ -195,8 +195,8 @@ class ParameterLookupScalarExpr(ScalarExpr):
 @dataclass(frozen=True, slots=True)
 class BinaryScalarExpr(ScalarExpr):
     op: ScalarOperator
-    left: ScalarExpression
-    right: ScalarExpression
+    left: ScalarExpr
+    right: ScalarExpr
     value_type: Scalar = field(init=False)
 
     def __post_init__(self) -> None:
@@ -211,18 +211,6 @@ class BinaryScalarExpr(ScalarExpr):
                 self.op,
             ),
         )
-
-
-type ScalarExpression = (
-    LiteralScalarExpr
-    | PointColumnScalarExpr
-    | InputScalarExpr
-    | ParameterScalarExpr
-    | ComputeResultScalarExpr
-    | ModuleExportScalarExpr
-    | ParameterLookupScalarExpr
-    | BinaryScalarExpr
-)
 
 
 def lit(
@@ -270,9 +258,9 @@ def as_scalar_expr(
     value: object,
     *,
     value_type: Scalar | None = None,
-) -> ScalarExpression:
+) -> ScalarExpr:
     if isinstance(value, ScalarExpr):
-        return cast("ScalarExpression", value)
+        return value
     if _is_cell_value(value):
         return lit(value, value_type)
     msg = f"cannot convert {value!r} to scalar expression"

@@ -1,5 +1,5 @@
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -34,6 +34,9 @@ from scopecat.program.value_graph import (
     OperationId,
     operation_result_id,
 )
+from tests.testkit.expressions import (
+    state_property as set_state_property,
+)
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
@@ -46,9 +49,6 @@ from tests.testkit.parameter_fixtures import (
 )
 from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
-)
-from tests.testkit.relation_plans import (
-    state_property as set_state_property,
 )
 from tests.testkit.typed_program import (
     ComputeNodeFixture,
@@ -80,7 +80,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
             Quantity(value=6.0, unit="GHz"),
         ),
     )
-    bindings = RelationTypeBindings(
+    bindings = ExpressionTypeBindings(
         point_row=RowType.from_table(points.value_type),
     )
     product = observable_product(
@@ -157,7 +157,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
 
 def test_separated_state_groups_have_distinct_operation_ids() -> None:
     points = _point_domain("index", Scalar(Int()), (0,))
-    bindings = RelationTypeBindings(
+    bindings = ExpressionTypeBindings(
         point_row=RowType.from_table(points.value_type),
     )
     drive = logical_resource_port_id("drive")

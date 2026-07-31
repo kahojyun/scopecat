@@ -6,15 +6,15 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.relations.verification import ExpressionTypeBindings
 from scopecat.program.expression_operators import runtime_values_equal
 from scopecat.program.value_refs import internal_lower_scalar_value_ref
 from scopecat.program.values import input as program_input
-from tests.testkit.relation_plans import evaluate_scalar
+from tests.testkit.expressions import evaluate_scalar
 
 
-def _input_bindings(**inputs: sc.ValueType) -> RelationTypeBindings:
-    return RelationTypeBindings(inputs=cast("dict[str, sc.ScalarType]", inputs))
+def _input_bindings(**inputs: sc.ValueType) -> ExpressionTypeBindings:
+    return ExpressionTypeBindings(inputs=cast("dict[str, sc.ScalarType]", inputs))
 
 
 def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:

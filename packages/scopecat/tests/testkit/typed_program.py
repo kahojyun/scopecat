@@ -48,7 +48,6 @@ from scopecat.measurements.results import MeasurementDType
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 from scopecat.program.logical import (
     AcquireEffect,
@@ -76,7 +75,7 @@ class StateAssignmentFixture:
     port_id: LogicalResourcePortId
     interface_id: InterfaceId
     property_id: str
-    value: ScalarExpression
+    value: ScalarExpr
     component_path: tuple[str, ...] = ()
 
 
@@ -86,8 +85,8 @@ class ComputeNodeFixture:
     implementation: LocalPythonImplementation
     result: ComputeOutput
     input_types: Mapping[str, Scalar]
-    inputs: Mapping[str, ScalarExpression] = field(
-        default_factory=lambda: dict[str, ScalarExpression]()
+    inputs: Mapping[str, ScalarExpr] = field(
+        default_factory=lambda: dict[str, ScalarExpr]()
     )
 
 
@@ -97,7 +96,7 @@ class InvocationFixture:
     port_id: LogicalResourcePortId
     interface_id: InterfaceId
     operation_id: str
-    arguments: Mapping[str, ScalarExpression]
+    arguments: Mapping[str, ScalarExpr]
     component_path: tuple[str, ...] = ()
 
 
@@ -112,8 +111,8 @@ class DomainResultFixture:
 class DomainExecutionFixture:
     id: str
     program: DomainProgramDef
-    inputs: Mapping[str, ScalarExpression] = field(
-        default_factory=lambda: dict[str, ScalarExpression]()
+    inputs: Mapping[str, ScalarExpr] = field(
+        default_factory=lambda: dict[str, ScalarExpr]()
     )
     compiler_inputs: Mapping[str, CompilerValue] = field(
         default_factory=lambda: dict[str, CompilerValue]()
@@ -260,7 +259,7 @@ def instrument_invocation(
     resource_port_id: LogicalResourcePortId | str,
     interface: str,
     operation: str,
-    arguments: Mapping[str, ScalarExpression] | None = None,
+    arguments: Mapping[str, ScalarExpr] | None = None,
     component_path: Sequence[str] = (),
 ) -> InvocationFixture:
     """Build one ordered atomic instrument invocation."""
@@ -298,7 +297,7 @@ def typed_program(
     """Build canonical logical semantics plus explicit config-derived facts."""
 
     value_defs: list[ValueDef] = []
-    scalar_values: dict[ValueId, ScalarExpression] = {}
+    scalar_values: dict[ValueId, ScalarExpr] = {}
     values: dict[ValueId, CompilerValue] = {}
     next_value = 0
 

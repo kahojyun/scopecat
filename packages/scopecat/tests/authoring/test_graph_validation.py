@@ -499,7 +499,7 @@ def test_logical_verifier_owns_expression_proofs() -> None:
         verify_logical_program(program)
 
     [problem] = error.value.problems
-    assert problem.code == "relation_plan_unknown_input"
+    assert problem.code == "expression_unknown_input"
     assert problem.location == model_location(
         "logical_program",
         "values",

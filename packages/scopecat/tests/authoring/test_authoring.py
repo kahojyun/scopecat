@@ -17,7 +17,7 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
@@ -65,13 +65,13 @@ from tests.testkit.authoring import (
     load_config,
     simple_template,
 )
+from tests.testkit.expressions import evaluate_scalar
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
     materialized_state_properties,
     measurement_projection_contract,
 )
-from tests.testkit.relation_plans import evaluate_scalar
 
 
 def _identity_value(*, value: object) -> object:
@@ -939,7 +939,7 @@ def test_scalar_input_binding_preserves_parent_same_named_input() -> None:
     assert evaluate_scalar(
         internal_lower_scalar_value_ref(bound),
         EvalContext(inputs={"value": 2.0}),
-        bindings=RelationTypeBindings(inputs={"value": value_type}),
+        bindings=ExpressionTypeBindings(inputs={"value": value_type}),
     ) == pytest.approx(4.0)
 
 
@@ -963,7 +963,7 @@ def test_expression_input_binding_does_not_capture_sibling_child_inputs() -> Non
     assert evaluate_scalar(
         internal_lower_scalar_value_ref(bound),
         EvalContext(inputs={"b": 2.0}),
-        bindings=RelationTypeBindings(inputs={"b": value_type}),
+        bindings=ExpressionTypeBindings(inputs={"b": value_type}),
     ) == pytest.approx(3.0)
 
 

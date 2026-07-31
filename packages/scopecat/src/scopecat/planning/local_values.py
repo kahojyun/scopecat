@@ -5,11 +5,11 @@ from __future__ import annotations
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import evaluate_scalar
 from scopecat.kernel.value_types import Scalar
-from scopecat.program.expressions import ScalarExpression
+from scopecat.program.expressions import ScalarExpr
 
 
 def evaluate_scalar_value(
-    value: ScalarExpression,
+    value: ScalarExpr,
     ctx: EvalContext,
     *,
     expected_type: Scalar | None = None,

@@ -65,7 +65,6 @@ from scopecat.planning.routing import (
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 from scopecat.program.logical import (
     AcquireEffect,
@@ -137,7 +136,7 @@ class _InstrumentOperation(Protocol):
     def instrument_id(self) -> str: ...
 
 
-def _bound_scalar_value(bound: BoundPlan, value_id: ValueId) -> ScalarExpression:
+def _bound_scalar_value(bound: BoundPlan, value_id: ValueId) -> ScalarExpr:
     value = bound.bindings.values[value_id]
     if not isinstance(value, ScalarExpr):
         raise AssertionError("verified effect values must be scalar")

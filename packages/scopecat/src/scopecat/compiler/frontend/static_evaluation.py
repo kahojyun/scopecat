@@ -10,18 +10,18 @@ from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
 )
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    verify_relation_plan,
+    ExpressionTypeBindings,
+    verify_scalar_expression,
 )
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Scalar
 from scopecat.program.expressions import ScalarExpr
 
 
-def _static_bindings(bindings: RelationTypeBindings) -> RelationTypeBindings:
+def _static_bindings(bindings: ExpressionTypeBindings) -> ExpressionTypeBindings:
     """Exclude the point row, which does not exist during host evaluation."""
 
-    return RelationTypeBindings(
+    return ExpressionTypeBindings(
         inputs=bindings.inputs,
         parameters=bindings.parameters,
     )
@@ -37,12 +37,12 @@ class StaticRelationEvaluator:
         self,
         expression: ScalarExpr,
         *,
-        bindings: RelationTypeBindings,
+        bindings: ExpressionTypeBindings,
         inputs: Mapping[str, object],
         expected_type: Scalar | None = None,
     ) -> CellValue:
         selected_bindings = _static_bindings(bindings)
-        verified = verify_relation_plan(
+        verified = verify_scalar_expression(
             expression,
             bindings=selected_bindings,
             expected_type=expected_type,

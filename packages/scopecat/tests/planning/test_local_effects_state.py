@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
+    ExpressionTypeBindings,
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -16,6 +16,7 @@ from scopecat.program.expressions import (
     point_col,
 )
 from scopecat.program.point_domain import point_axis_values
+from tests.testkit.expressions import state_property
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_effects_contract,
@@ -24,7 +25,6 @@ from tests.testkit.materialized_effects import (
 from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
 )
-from tests.testkit.relation_plans import state_property
 from tests.testkit.typed_program import typed_program
 
 
@@ -44,8 +44,8 @@ def _point_domain(
 
 def _point_bindings(
     points: PointDomain,
-) -> RelationTypeBindings:
-    return RelationTypeBindings(
+) -> ExpressionTypeBindings:
+    return ExpressionTypeBindings(
         point_row=RowType.from_table(points.value_type),
     )
 

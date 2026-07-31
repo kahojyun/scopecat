@@ -21,7 +21,6 @@ from scopecat.compiler.typed.program import (
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
-    ScalarExpression,
 )
 from scopecat.program.logical import LogicalInvocation
 from scopecat.program.point_domain import (
@@ -85,9 +84,9 @@ def _specialize_point_domain(
     """
 
     def specialize_center(
-        center: ScalarExpression,
+        center: ScalarExpr,
         _path: tuple[str | int, ...],
-    ) -> ScalarExpression:
+    ) -> ScalarExpr:
         return _specialize_scalar_value(
             center,
             known=known,
@@ -140,11 +139,11 @@ def _live_compute_ids(
 
 
 def _specialize_scalar_value(
-    value: ScalarExpression,
+    value: ScalarExpr,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ScalarExpression:
+) -> ScalarExpr:
     return specialize_scalar_expression(
         value,
         known=known,
@@ -172,11 +171,11 @@ def _specialize_resource_requirement(
 
 
 def _specialize_value_use(
-    use: ScalarExpression,
+    use: ScalarExpr,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ScalarExpression:
+) -> ScalarExpr:
     if isinstance(use, ComputeResultScalarExpr):
         return use
     return _specialize_scalar_value(

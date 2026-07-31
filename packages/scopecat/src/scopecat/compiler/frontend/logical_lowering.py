@@ -21,8 +21,8 @@ from scopecat.compiler.frontend.value_binding import (
     scalar_input_refs,
 )
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    verify_relation_plan,
+    ExpressionTypeBindings,
+    verify_scalar_expression,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -37,7 +37,6 @@ from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
-    ScalarExpression,
     as_scalar_expr,
 )
 from scopecat.program.logical import LogicalComputeNode, LogicalProgram, ValueDef
@@ -89,7 +88,7 @@ class _LogicalProgramProof(Protocol):
     def value_types(self) -> Mapping[ValueId, ValueType]: ...
 
     @property
-    def scalar_values(self) -> Mapping[ValueId, ScalarExpression]: ...
+    def scalar_values(self) -> Mapping[ValueId, ScalarExpr]: ...
 
 
 def lower_parameter_overlay_intent(
@@ -98,7 +97,7 @@ def lower_parameter_overlay_intent(
     intent: AxisSpec,
     inputs: Mapping[str, object],
     *,
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
 ) -> PointParameterOverlay:
     lookup, key = parameter_cell_lookup(intent)
     definition = parameter_catalog.get(lookup.table_id)
@@ -371,7 +370,7 @@ def lower_point_domain(
     point_domain: PointAxes[ValueRef],
     *,
     inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
+    type_bindings: ExpressionTypeBindings,
 ) -> PointDomain:
     """Bind and verify each closed linear-axis center."""
 
@@ -391,8 +390,8 @@ def _lower_point_axis(
     axis: PointAxis[ValueRef],
     *,
     inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
-) -> PointAxis[ScalarExpression]:
+    type_bindings: ExpressionTypeBindings,
+) -> PointAxis[ScalarExpr]:
     source = axis.source
     if isinstance(source, PointAxisValues):
         return PointAxis(
@@ -400,7 +399,7 @@ def _lower_point_axis(
             value_type=axis.value_type,
             source=PointAxisValues(values=tuple(source.values)),
         )
-    center = verify_relation_plan(
+    center = verify_scalar_expression(
         bind_scalar_input_refs(
             internal_lower_scalar_value_ref(source.center),
             inputs,

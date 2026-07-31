@@ -21,10 +21,10 @@ from scopecat.compiler.frontend.value_binding import (
     bind_table_source,
 )
 from scopecat.compiler.relations.verification import (
-    RelationPlanVerificationError,
-    RelationTypeBindings,
+    ExpressionTypeBindings,
+    ExpressionVerificationError,
     RowType,
-    verify_relation_plan,
+    verify_scalar_expression,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -42,7 +42,7 @@ from scopecat.kernel.units import is_supported_unit
 from scopecat.kernel.value_types import Entity, Payload, Scalar, ValueType
 from scopecat.program.bindings import ResourcePort
 from scopecat.program.expression_analysis import plan_point_refs
-from scopecat.program.expressions import ScalarExpr, ScalarExpression
+from scopecat.program.expressions import ScalarExpr
 from scopecat.program.logical import (
     LogicalComputeNode,
     LogicalProgram,
@@ -74,7 +74,7 @@ class VerifiedLogicalProgram:
 
     program: LogicalProgram
     product_declarations: Mapping[ProductId, ModuleProductDecl]
-    scalar_values: Mapping[ValueId, ScalarExpression]
+    scalar_values: Mapping[ValueId, ScalarExpr]
     value_defs: Mapping[ValueId, ValueDef] = field(
         init=False,
         compare=False,
@@ -216,9 +216,9 @@ def _bind_value_definition_inputs(
 def _verify_scalar_values(
     program: LogicalProgram,
     problems: list[Problem],
-) -> Mapping[ValueId, ScalarExpression]:
+) -> Mapping[ValueId, ScalarExpr]:
     point_columns = analyze_point_domain(program.point_domain).columns
-    bindings = RelationTypeBindings(
+    bindings = ExpressionTypeBindings(
         inputs={
             port.id: port.value_type
             for port in program.input_ports
@@ -232,7 +232,7 @@ def _verify_scalar_values(
         },
         point_row=RowType(point_columns) if point_columns else None,
     )
-    verified: dict[ValueId, ScalarExpression] = {}
+    verified: dict[ValueId, ScalarExpr] = {}
     for definition in sorted(
         program.value_defs,
         key=lambda item: item.id.qualified_name,
@@ -241,15 +241,15 @@ def _verify_scalar_values(
         if not isinstance(source, ScalarExpr):
             continue
         try:
-            verified[definition.id] = verify_relation_plan(
+            verified[definition.id] = verify_scalar_expression(
                 source,
                 bindings=bindings,
                 expected_type=cast("Scalar", definition.value_type),
             )
-        except RelationPlanVerificationError as error:
+        except ExpressionVerificationError as error:
             problems.append(
                 problem(
-                    code=f"relation_plan_{error.code}",
+                    code=f"expression_{error.code}",
                     phase=ProblemPhase.AUTHORING,
                     message=error.reason,
                     location=model_location(
@@ -260,7 +260,7 @@ def _verify_scalar_values(
                     ),
                     details={
                         "relation_code": error.code,
-                        "plan_path": list(error.path),
+                        "expression_path": list(error.path),
                     },
                 )
             )

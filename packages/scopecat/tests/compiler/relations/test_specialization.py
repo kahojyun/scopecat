@@ -11,7 +11,7 @@ from scopecat.compiler.relations.specialization import (
     ParameterCellBinding,
     specialize_scalar_expression,
 )
-from scopecat.compiler.relations.verification import RelationPlanVerificationError
+from scopecat.compiler.relations.verification import ExpressionVerificationError
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.value_types import Entity, Float, Int, Scalar, String
 from scopecat.program.expressions import (
@@ -81,7 +81,7 @@ def test_specialization_preserves_an_import_with_an_invalid_known_value() -> Non
 def test_specialization_rejects_a_statically_known_zero_denominator() -> None:
     integer = Scalar(Int())
 
-    with pytest.raises(RelationPlanVerificationError) as caught:
+    with pytest.raises(ExpressionVerificationError) as caught:
         specialize_scalar_expression(
             lit(1, integer) / param("denominator", integer),
             known=EvalContext(params=ParameterRelationData(scalars={"denominator": 0})),
@@ -94,7 +94,7 @@ def test_specialization_rejects_a_statically_known_zero_denominator() -> None:
 def test_specialization_rejects_a_non_finite_known_result() -> None:
     expression = lit(1e308, _FLOAT) * param("scale", _FLOAT)
 
-    with pytest.raises(RelationPlanVerificationError) as caught:
+    with pytest.raises(ExpressionVerificationError) as caught:
         specialize_scalar_expression(
             expression,
             known=EvalContext(params=ParameterRelationData(scalars={"scale": 1e308})),
@@ -110,7 +110,7 @@ def test_specialization_rejects_a_known_lookup_without_one_matching_row() -> Non
         key={"id": "missing"},
     )
 
-    with pytest.raises(RelationPlanVerificationError) as caught:
+    with pytest.raises(ExpressionVerificationError) as caught:
         specialize_scalar_expression(
             expression,
             known=EvalContext(params=_parameters()),

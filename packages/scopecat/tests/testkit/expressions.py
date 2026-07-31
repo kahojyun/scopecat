@@ -1,16 +1,14 @@
-"""Strict test helpers for the verify -> evaluate pipeline."""
+"""Strict test helpers for scalar expression verification and evaluation."""
 
 from __future__ import annotations
-
-from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar as evaluate_selected_scalar,
 )
 from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    verify_relation_plan,
+    ExpressionTypeBindings,
+    verify_scalar_expression,
 )
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -21,25 +19,24 @@ from scopecat.kernel.value_types import Scalar
 from scopecat.program.expressions import (
     ComputeResultScalarExpr,
     ScalarExpr,
-    ScalarExpression,
     as_scalar_expr,
 )
 from tests.testkit.typed_program import StateAssignmentFixture
 
 
-def scalar_value_expr(
+def verified_scalar_expr(
     expression: object,
     *,
-    bindings: RelationTypeBindings | None = None,
+    bindings: ExpressionTypeBindings | None = None,
     expected_type: Scalar | None = None,
-) -> ScalarExpression:
-    return verify_relation_plan(
+) -> ScalarExpr:
+    return verify_scalar_expression(
         (
             expression
             if isinstance(expression, ScalarExpr)
             else as_scalar_expr(expression, value_type=expected_type)
         ),
-        bindings=bindings or RelationTypeBindings(),
+        bindings=bindings or ExpressionTypeBindings(),
         expected_type=expected_type,
     )
 
@@ -51,10 +48,10 @@ def state_property(
     property_id: str,
     component_path: tuple[str, ...] = (),
     value: object | ComputeResultScalarExpr,
-    bindings: RelationTypeBindings | None = None,
+    bindings: ExpressionTypeBindings | None = None,
     value_type: Scalar | None = None,
 ) -> StateAssignmentFixture:
-    selected_bindings = bindings or RelationTypeBindings()
+    selected_bindings = bindings or ExpressionTypeBindings()
     return StateAssignmentFixture(
         port_id=(
             resource_port
@@ -65,9 +62,9 @@ def state_property(
         component_path=component_path,
         property_id=property_id,
         value=(
-            cast("ScalarExpression", value)
+            value
             if isinstance(value, ScalarExpr)
-            else scalar_value_expr(
+            else verified_scalar_expr(
                 value,
                 bindings=selected_bindings,
                 expected_type=value_type,
@@ -80,11 +77,11 @@ def evaluate_scalar(
     expression: ScalarExpr,
     ctx: EvalContext,
     *,
-    bindings: RelationTypeBindings | None = None,
+    bindings: ExpressionTypeBindings | None = None,
     expected_type: Scalar | None = None,
 ) -> CellValue:
-    selected_bindings = bindings or RelationTypeBindings()
-    verified = verify_relation_plan(
+    selected_bindings = bindings or ExpressionTypeBindings()
+    verified = verify_scalar_expression(
         expression,
         bindings=selected_bindings,
         expected_type=expected_type,
@@ -99,6 +96,6 @@ def evaluate_scalar(
 
 __all__ = [
     "evaluate_scalar",
-    "scalar_value_expr",
     "state_property",
+    "verified_scalar_expr",
 ]

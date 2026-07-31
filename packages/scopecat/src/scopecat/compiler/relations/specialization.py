@@ -9,8 +9,8 @@ from typing import cast
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.scalar_eval import cell_matches, eval_binary, read_path
 from scopecat.compiler.relations.verification import (
-    RelationPlanVerificationError,
-    verify_relation_plan,
+    ExpressionVerificationError,
+    verify_scalar_expression,
 )
 from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Scalar
@@ -25,7 +25,6 @@ from scopecat.program.expressions import (
     ParameterScalarExpr,
     PointColumnScalarExpr,
     ScalarExpr,
-    ScalarExpression,
     lit,
 )
 
@@ -39,7 +38,7 @@ class ParameterCellBinding:
     table_id: str
     key: tuple[tuple[str, CellValue], ...]
     column_id: str
-    replacement: ScalarExpression
+    replacement: ScalarExpr
 
     def __post_init__(self) -> None:
         if not self.table_id or not self.column_id or not self.key:
@@ -56,7 +55,7 @@ def specialize_scalar_expression(
     *,
     known: EvalContext,
     parameter_cells: Sequence[ParameterCellBinding] = (),
-) -> ScalarExpression:
+) -> ScalarExpr:
     """Partially evaluate one pure scalar expression.
 
     Missing bindings remain canonical expressions. Fully known operations
@@ -64,7 +63,7 @@ def specialize_scalar_expression(
     external effect can be represented or executed here.
     """
 
-    scalar = cast("ScalarExpression", expression)
+    scalar = expression
     match scalar:
         case LiteralScalarExpr():
             return lit(scalar.value, scalar.value_type)
@@ -94,12 +93,14 @@ def specialize_scalar_expression(
                 known=known,
                 parameter_cells=parameter_cells,
             )
+        case _:
+            raise AssertionError("unknown scalar expression node")
 
 
 def _known_leaf(
-    expression: ScalarExpression,
+    expression: ScalarExpr,
     resolve: Callable[[], object],
-) -> ScalarExpression:
+) -> ScalarExpr:
     try:
         value = resolve()
         return _typed_literal(value, expression.value_type)
@@ -117,7 +118,7 @@ def _specialize_parameter_lookup(
     *,
     known: EvalContext,
     parameter_cells: Sequence[ParameterCellBinding],
-) -> ScalarExpression:
+) -> ScalarExpr:
     key_results = {
         name: specialize_scalar_expression(
             value,
@@ -142,7 +143,7 @@ def _specialize_parameter_lookup(
         try:
             row = known.params.lookup_row(expression.use.table_id, key)
         except ValueError as error:
-            raise RelationPlanVerificationError(
+            raise ExpressionVerificationError(
                 "parameter_lookup_failed",
                 (),
                 str(error),
@@ -166,7 +167,7 @@ def _specialize_binary(
     *,
     known: EvalContext,
     parameter_cells: Sequence[ParameterCellBinding],
-) -> ScalarExpression:
+) -> ScalarExpr:
     left = specialize_scalar_expression(
         expression.left,
         known=known,
@@ -186,9 +187,9 @@ def _specialize_binary(
         try:
             value = eval_binary(expression.op, left.value, right.value)
         except ZeroDivisionError:
-            return verify_relation_plan(residual)
+            return verify_scalar_expression(residual)
         except _KNOWN_EVALUATION_ERRORS as error:
-            raise RelationPlanVerificationError(
+            raise ExpressionVerificationError(
                 "scalar_evaluation_failed",
                 (),
                 str(error),
@@ -197,7 +198,7 @@ def _specialize_binary(
             try:
                 return _typed_literal(value, expression.value_type)
             except _KNOWN_EVALUATION_ERRORS as error:
-                raise RelationPlanVerificationError(
+                raise ExpressionVerificationError(
                     "specialized_result_invalid",
                     (),
                     str(error),

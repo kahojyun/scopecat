@@ -12,16 +12,16 @@ from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
 )
 from scopecat.compiler.relations.verification import (
-    PlanImportNamespace,
-    relation_plan_imports,
-    relation_plan_point_requirement,
+    ExpressionImportNamespace,
+    scalar_expression_imports,
+    scalar_expression_point_requirement,
 )
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.value_data import CellValue, Row
 from scopecat.kernel.value_types import Entity, Table, TableColumn
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.program.expressions import ScalarExpression
+from scopecat.program.expressions import ScalarExpr
 from scopecat.program.point_domain import (
     PointAxes,
     PointAxis,
@@ -36,7 +36,7 @@ from scopecat.program.point_domain import (
 )
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
-type CompilerPointAxes = PointAxes[ScalarExpression]
+type CompilerPointAxes = PointAxes[ScalarExpr]
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +212,7 @@ def _materialize_axes(
 
 
 def _axis_values(
-    axis: PointAxis[ScalarExpression],
+    axis: PointAxis[ScalarExpr],
     *,
     params: ParameterRelationData,
     path: PointDomainPath,
@@ -241,12 +241,12 @@ def _axis_values(
 
 
 def _verify_center_role(
-    value: ScalarExpression,
+    value: ScalarExpr,
     *,
     path: PointDomainPath,
     issues: list[PointDomainVerificationIssue],
 ) -> None:
-    open_interface = relation_plan_point_requirement(value) is not None
+    open_interface = scalar_expression_point_requirement(value) is not None
     if open_interface:
         issues.append(
             PointDomainVerificationIssue(
@@ -256,8 +256,8 @@ def _verify_center_role(
             )
         )
     if any(
-        imported.namespace is PlanImportNamespace.INPUT
-        for imported in relation_plan_imports(value)
+        imported.namespace is ExpressionImportNamespace.INPUT
+        for imported in scalar_expression_imports(value)
     ):
         issues.append(
             PointDomainVerificationIssue(

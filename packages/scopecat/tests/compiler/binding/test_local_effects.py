@@ -8,8 +8,8 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.relations.verification import (
-    RelationPlanVerificationError,
-    RelationTypeBindings,
+    ExpressionTypeBindings,
+    ExpressionVerificationError,
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -63,12 +63,12 @@ from scopecat.program.value_graph import (
 )
 from scopecat.sdk.instruments import InterfaceRef
 from tests.testkit.authoring import bind_invocation, load_config
+from tests.testkit.expressions import state_property, verified_scalar_expr
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.relation_plans import scalar_value_expr, state_property
 from tests.testkit.typed_program import (
     ComputeNodeFixture,
     bind_program_facts,
@@ -150,8 +150,8 @@ def _point_domain(
     )
 
 
-def _point_bindings(value_type: Table) -> RelationTypeBindings:
-    return RelationTypeBindings(point_row=RowType.from_table(value_type))
+def _point_bindings(value_type: Table) -> ExpressionTypeBindings:
+    return ExpressionTypeBindings(point_row=RowType.from_table(value_type))
 
 
 def _resource(value: str) -> LogicalResourcePortId:
@@ -194,7 +194,7 @@ def test_bound_state_preserves_primitive_field_types(
                 _resource("source-0"),
                 interface_id="test.configure/v1",
                 property_id="value",
-                value=scalar_value_expr(lit(value), expected_type=value_type),
+                value=verified_scalar_expr(lit(value), expected_type=value_type),
             ),
         ),
     )
@@ -243,7 +243,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
                 id=producer_id,
                 implementation=_implementation(producer_id, _identity_value),
                 inputs={
-                    "value": scalar_value_expr(
+                    "value": verified_scalar_expr(
                         point_col("value", Scalar(Float())),
                         expected_type=Scalar(Float()),
                         bindings=_point_bindings(point_type),
@@ -395,7 +395,7 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
                 id=node_id,
                 implementation=_implementation(node_id, _quantity_value),
                 inputs={
-                    "frequency": scalar_value_expr(
+                    "frequency": verified_scalar_expr(
                         point_col(
                             "frequency",
                             Scalar(QuantityType(unit="GHz")),
@@ -513,8 +513,8 @@ def test_compute_payload_input_rejects_mismatched_schema_before_binding() -> Non
         columns=(TableColumn("payload", Scalar(Payload("source-payload"))),),
     )
 
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        scalar_value_expr(
+    with pytest.raises(ExpressionVerificationError) as caught:
+        verified_scalar_expr(
             point_col("payload", Scalar(Payload("source-payload"))),
             expected_type=Scalar(Payload("expected-payload")),
             bindings=_point_bindings(point_type),
@@ -551,7 +551,7 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
                 id=node_id,
                 implementation=_implementation(node_id, _mapping_size),
                 inputs={
-                    "payload": scalar_value_expr(
+                    "payload": verified_scalar_expr(
                         point_col("payload", Scalar(Payload("mapping"))),
                         expected_type=Scalar(Payload("mapping")),
                         bindings=_point_bindings(point_type),
