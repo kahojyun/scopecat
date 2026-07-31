@@ -97,8 +97,8 @@ def _empty_python_implementations() -> dict[OperationId, ComputeFunction]:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _AssemblyEnvelope:
-    """Non-dataflow intents carried alongside transient semantic graphs."""
+class _ModuleFragment:
+    """Hierarchy-free module declarations before logical graph closure."""
 
     inputs: dict[str, object] = field(default_factory=dict)
     input_ports: tuple[ModuleInputPort, ...] = ()
@@ -109,12 +109,6 @@ class _AssemblyEnvelope:
     product_declarations: tuple[ModuleProductDecl, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
-
-
-@dataclass(frozen=True, kw_only=True)
-class _ModuleFragment(_AssemblyEnvelope):
-    """Hierarchy-free module declarations before semantic graph closure."""
-
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: Mapping[OperationId, ComputeFunction] = field(
         default_factory=_empty_python_implementations
@@ -141,12 +135,6 @@ class _ModuleFragment(_AssemblyEnvelope):
 class _ValueRefDependencies:
     point: tuple[PointValueDependency, ...]
     parameters: tuple[ParameterContract, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _ModuleFragmentValueRoots:
-    consumed: tuple[object, ...]
-    semantic: tuple[object, ...]
 
 
 class _HierarchyRoot(Protocol):
@@ -272,7 +260,7 @@ def _elaborate_hierarchy(
     )
     _require_closed_module_fragment(
         fragment,
-        (*value_roots.consumed, *final_state_values),
+        (*value_roots, *final_state_values),
     )
     final_state_dependencies = _summarize_value_ref_dependencies(
         value for root in final_state_values for value in _nested_value_refs(root)
@@ -308,7 +296,7 @@ def _elaborate_hierarchy(
         measurement_postprocessors=fragment.measurement_postprocessors,
         effects=fragment.effects,
         final_state=final_state,
-        value_roots=(*value_roots.semantic, *final_state_values),
+        value_roots=(*value_roots, *final_state_values),
     )
 
 
@@ -363,7 +351,7 @@ def _elaborate_program_ir(
         if isinstance(value, ValueRef)
     }
     value_roots = (
-        *_module_fragment_value_roots(own).consumed,
+        *_module_fragment_value_roots(own),
         *(resolver.resolve(export.source) for export in module.interface.exports),
     )
     value_dependencies = _summarize_value_ref_dependencies(
@@ -744,38 +732,35 @@ def _require_closed_module_fragment(
 
 def _module_fragment_value_roots(
     fragment: _ModuleFragment,
-) -> _ModuleFragmentValueRoots:
-    """Summarize values that contribute to the fragment's two root sets.
+) -> tuple[object, ...]:
+    """Return the values that contribute to the fragment's logical graph.
 
     ``fragment.inputs`` is the environment available to those roots, not a set
     of uses.  Rooting every supplied binding would turn an otherwise unused
     child input into a dependency of the whole experiment.
     """
 
-    consumed: list[object] = []
-    semantic: list[object] = []
+    roots: list[object] = []
 
-    def add_semantic_roots(values: Iterable[object]) -> None:
-        selected = tuple(values)
-        consumed.extend(selected)
-        semantic.extend(selected)
+    def add_roots(values: Iterable[object]) -> None:
+        roots.extend(values)
 
-    add_semantic_roots(
+    add_roots(
         source
         for port in fragment.resource_ports
         for source in port.selector.entity_inputs
     )
-    add_semantic_roots(binding.value for binding in fragment.bindings)
-    add_semantic_roots(
+    add_roots(binding.value for binding in fragment.bindings)
+    add_roots(
         argument.value
         for effect in fragment.effects
         if isinstance(effect, InvocationIntent)
         for argument in effect.arguments
     )
-    add_semantic_roots(
+    add_roots(
         value for operation in fragment.operations for _name, value in operation.inputs
     )
-    add_semantic_roots(
+    add_roots(
         value
         for execution in fragment.effects
         if isinstance(execution, DomainExecution)
@@ -784,13 +769,10 @@ def _module_fragment_value_roots(
             *execution.compiler_input_bindings,
         )
     )
-    add_semantic_roots(
+    add_roots(
         axis.size for product in fragment.product_declarations for axis in product.axes
     )
-    return _ModuleFragmentValueRoots(
-        consumed=tuple(consumed),
-        semantic=tuple(semantic),
-    )
+    return tuple(roots)
 
 
 def _scope_instance_graph(
@@ -868,7 +850,7 @@ def _scope_instance_graph(
     )
     value_roots = _module_fragment_value_roots(scoped)
     value_dependencies = _summarize_value_ref_dependencies(
-        value for root in value_roots.consumed for value in _nested_value_refs(root)
+        value for root in value_roots for value in _nested_value_refs(root)
     )
     return replace(
         scoped,
