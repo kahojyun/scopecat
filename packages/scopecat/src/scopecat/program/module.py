@@ -31,8 +31,8 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
 )
@@ -250,7 +250,7 @@ class ModuleAcquireEffect:
 
 type ModuleEffectIR = (
     ModuleInstanceIR
-    | ExperimentBindingIntent
+    | BindingIntent
     | EnsureStateIntent
     | InvocationIntent
     | DomainExecution
@@ -362,13 +362,13 @@ class ModuleBodyIR:
         )
 
     @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
+    def bindings(self) -> tuple[BindingIntent, ...]:
         return tuple(
             binding
             for effect in self.effects
             for binding in (
                 (effect,)
-                if isinstance(effect, ExperimentBindingIntent)
+                if isinstance(effect, BindingIntent)
                 else effect.assignments
                 if isinstance(effect, EnsureStateIntent)
                 else ()

@@ -35,7 +35,7 @@ from scopecat.authoring.templates import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.program.bindings import ExperimentBindingIntent
+from scopecat.program.bindings import BindingIntent
 from scopecat.program.definitions import (
     ExperimentDef,
     ExperimentInvocation,
@@ -114,7 +114,7 @@ class ExperimentContext:
         self._program = ModuleContext()
         self._scans: list[Scan] = []
         self._record_selections: list[RecordSelection] = []
-        self._final_state_bindings: list[ExperimentBindingIntent] = []
+        self._final_state_bindings: list[BindingIntent] = []
 
     def close_definition_internal(
         self,

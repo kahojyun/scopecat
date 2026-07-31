@@ -19,8 +19,8 @@ from scopecat.graph.values import (
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
     InvocationIntent,
 )
 from scopecat.program.domain import LoweredDomainExecution
@@ -67,7 +67,7 @@ class _ElaboratedSemantics:
     measurement_postprocessors: tuple[LogicalMeasurementPostprocessor, ...]
     implementations: Mapping[OperationId, LocalPythonImplementation]
     effects: tuple[
-        ExperimentBindingIntent
+        BindingIntent
         | EnsureStateIntent
         | InvocationIntent
         | LogicalDomainExecution
@@ -82,7 +82,7 @@ def elaborate_logical_semantics(
     *,
     measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
     effects: Sequence[
-        ExperimentBindingIntent
+        BindingIntent
         | EnsureStateIntent
         | InvocationIntent
         | LoweredDomainExecution
@@ -231,7 +231,7 @@ class _LogicalSemanticsBuilder:
         self,
         *,
         effects: tuple[
-            ExperimentBindingIntent
+            BindingIntent
             | EnsureStateIntent
             | InvocationIntent
             | LogicalDomainExecution

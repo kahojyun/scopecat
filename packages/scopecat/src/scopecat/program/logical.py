@@ -29,8 +29,8 @@ from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
 )
@@ -209,7 +209,7 @@ class LocalPythonImplementation:
 
 
 type LogicalEffect = (
-    ExperimentBindingIntent
+    BindingIntent
     | EnsureStateIntent
     | InvocationIntent
     | LogicalDomainExecution
@@ -259,13 +259,13 @@ class LogicalProgram:
         )
 
     @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
+    def bindings(self) -> tuple[BindingIntent, ...]:
         effect_bindings = tuple(
             binding
             for effect in self.effects
             for binding in (
                 (effect,)
-                if isinstance(effect, ExperimentBindingIntent)
+                if isinstance(effect, BindingIntent)
                 else effect.assignments
                 if isinstance(effect, EnsureStateIntent)
                 else ()

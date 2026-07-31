@@ -54,14 +54,11 @@ class BindingIntent:
     value: BindingValue
 
 
-ExperimentBindingIntent = BindingIntent
-
-
 @dataclass(frozen=True)
 class EnsureStateIntent:
     """One coherent desired-state assertion over a logical resource."""
 
-    assignments: tuple[ExperimentBindingIntent, ...]
+    assignments: tuple[BindingIntent, ...]
 
     def __post_init__(self) -> None:
         if not self.assignments:

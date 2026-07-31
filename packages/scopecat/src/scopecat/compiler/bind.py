@@ -53,8 +53,8 @@ from scopecat.kernel.problems import Problem, ProblemPhase, model_location
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
     InvocationIntent,
 )
 from scopecat.program.logical import AcquireEffect, LogicalProgram
@@ -197,7 +197,7 @@ def _lower_logical_program(
             inputs=inputs,
             type_bindings=type_bindings,
         )
-        if isinstance(effect, ExperimentBindingIntent)
+        if isinstance(effect, BindingIntent)
         else lower_ensure_state(
             effect,
             inputs=inputs,

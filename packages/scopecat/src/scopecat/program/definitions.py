@@ -9,8 +9,8 @@ from typing import cast
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
 )
 from scopecat.program.module import (
     ModuleBodyIR,
@@ -124,7 +124,7 @@ def create_experiment_def(
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
     default_scans: Sequence[Scan] = (),
-    final_state_bindings: Sequence[ExperimentBindingIntent] = (),
+    final_state_bindings: Sequence[BindingIntent] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentDef:
     """Normalize all experiment semantics at one immutable boundary."""

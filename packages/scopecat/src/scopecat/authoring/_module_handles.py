@@ -27,8 +27,8 @@ from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.kernel.value_types import Payload
 from scopecat.measurements.results import MeasurementDType
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
     ResourceSelector,
@@ -693,7 +693,7 @@ class ExperimentModule[**P]:
         return self._ir.interface.resources
 
     @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
+    def bindings(self) -> tuple[BindingIntent, ...]:
         return self._ir.body.bindings
 
     @property
@@ -952,7 +952,7 @@ def build_ensure_state_intent(
     if not assignments:
         raise ValueError("ensure requires at least one target assignment")
 
-    bindings: list[ExperimentBindingIntent] = []
+    bindings: list[BindingIntent] = []
     for property, value in assignments:
         if _is_payload_binding_input(value):
             raise TypeError("persistent properties cannot contain opaque payloads")

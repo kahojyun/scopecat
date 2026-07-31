@@ -20,8 +20,8 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.bindings import (
+    BindingIntent,
     EnsureStateIntent,
-    ExperimentBindingIntent,
     InvocationIntent,
     ResourcePort,
     ResourceSelector,
@@ -87,7 +87,7 @@ from scopecat.program.value_types import (
 )
 
 type _FragmentEffect = (
-    ExperimentBindingIntent
+    BindingIntent
     | EnsureStateIntent
     | InvocationIntent
     | LoweredDomainExecution
@@ -120,13 +120,13 @@ class _ModuleFragment(_AssemblyEnvelope):
     effects: tuple[_FragmentEffect, ...] = ()
 
     @property
-    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
+    def bindings(self) -> tuple[BindingIntent, ...]:
         return tuple(
             binding
             for effect in self.effects
             for binding in (
                 (effect,)
-                if isinstance(effect, ExperimentBindingIntent)
+                if isinstance(effect, BindingIntent)
                 else effect.assignments
                 if isinstance(effect, EnsureStateIntent)
                 else ()
@@ -379,7 +379,7 @@ def _elaborate_program_ir(
 
 def _lower_module_effect(
     effect: (
-        ExperimentBindingIntent
+        BindingIntent
         | EnsureStateIntent
         | InvocationIntent
         | DomainExecution
@@ -388,7 +388,7 @@ def _lower_module_effect(
     *,
     resolver: _ModuleValueResolver,
 ) -> _FragmentEffect:
-    if isinstance(effect, ExperimentBindingIntent):
+    if isinstance(effect, BindingIntent):
         return _resolve_binding(effect, resolver=resolver)
     if isinstance(effect, EnsureStateIntent):
         return replace(
@@ -626,10 +626,10 @@ def _resolve_resource_port(
 
 
 def _resolve_binding(
-    binding: ExperimentBindingIntent,
+    binding: BindingIntent,
     *,
     resolver: _ModuleValueResolver,
-) -> ExperimentBindingIntent:
+) -> BindingIntent:
     return replace(
         binding,
         value=(
@@ -875,7 +875,7 @@ def _scope_fragment_effect(
     origin: tuple[object, ...],
     resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
 ) -> _FragmentEffect:
-    if isinstance(effect, ExperimentBindingIntent):
+    if isinstance(effect, BindingIntent):
         return _scope_binding(
             effect,
             inputs,
@@ -1061,13 +1061,13 @@ def _scope_value_ref(
 
 
 def _scope_binding(
-    binding: ExperimentBindingIntent,
+    binding: BindingIntent,
     inputs: Mapping[str, object],
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
     resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
-) -> ExperimentBindingIntent:
+) -> BindingIntent:
     port_id = resource_ids.get(binding.port_id, binding.port_id)
     if isinstance(binding.value, ValueRef):
         return replace(
