@@ -12,7 +12,11 @@ from scopecat.program.bindings import (
     EnsureStateIntent,
     ExperimentBindingIntent,
 )
-from scopecat.program.experiment import ExperimentProgram
+from scopecat.program.module import (
+    ModuleBodyIR,
+    ModuleInterfaceIR,
+    ModulePythonImplementation,
+)
 from scopecat.program.products import RecordSelection
 from scopecat.program.scans import Scan
 from scopecat.program.value_refs import (
@@ -52,16 +56,30 @@ class ExperimentInputDef:
 
 @dataclass(frozen=True, slots=True)
 class ExperimentDef:
-    """Canonical config-free definition shared by every invocation path."""
+    """Canonical config-free root and policy shared by every invocation path.
+
+    Unlike a reusable :class:`ModuleDef`, the root body may consume experiment
+    coordinates and parameter expressions directly.
+    """
 
     id: str
     kind: str
-    program: ExperimentProgram
+    interface: ModuleInterfaceIR
+    body: ModuleBodyIR
+    python_implementations: tuple[ModulePythonImplementation, ...] = ()
     inputs: tuple[ExperimentInputDef, ...] = ()
     default_scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
     final_state: EnsureStateIntent | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+
+    def __post_init__(self) -> None:
+        product_ids = tuple(
+            product.qualified_id for product in self.body.exposed_products
+        )
+        if len(product_ids) != len(set(product_ids)):
+            raise ValueError("experiment definition contains duplicate product ids")
+        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -99,7 +117,9 @@ def create_experiment_def(
     *,
     id: str,
     kind: str,
-    program: ExperimentProgram,
+    interface: ModuleInterfaceIR,
+    body: ModuleBodyIR,
+    python_implementations: Sequence[ModulePythonImplementation] = (),
     record_selections: Sequence[RecordSelection] = (),
     input_defaults: Mapping[str, RuntimeInput] | None = None,
     required_inputs: Sequence[str] = (),
@@ -120,11 +140,11 @@ def create_experiment_def(
     selected_defaults = capture_experiment_inputs(input_defaults or {})
     selected_required = tuple(required_inputs)
     input_types = validate_experiment_definition(
-        program=program,
+        input_ports=interface.imports,
         defaults=selected_defaults,
         default_scans=selected_scans,
     )
-    program_input_ids = tuple(port.id for port in program.interface.imports)
+    program_input_ids = tuple(port.id for port in interface.imports)
     input_ids = tuple(
         dict.fromkeys(
             (
@@ -147,7 +167,9 @@ def create_experiment_def(
     return ExperimentDef(
         id=id,
         kind=kind,
-        program=program,
+        interface=interface,
+        body=body,
+        python_implementations=tuple(python_implementations),
         inputs=normalized_inputs,
         default_scans=selected_scans,
         record_selections=selected_records,

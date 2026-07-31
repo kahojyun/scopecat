@@ -103,16 +103,14 @@ def _compile_invocation_definition(
     inputs: Mapping[str, object],
 ) -> LogicalProgram:
     definition = invocation.definition
-    program_input_ids = {port.id for port in definition.program.interface.imports}
+    program_input_ids = {port.id for port in definition.interface.imports}
     program_inputs: dict[str, ModuleInput] = {}
     for input_id, value in inputs.items():
         if input_id not in program_input_ids:
             continue
         program_inputs[input_id] = cast("ModuleInput", value)
     assembly = compose_experiment(
-        definition.program,
-        experiment_id=definition.id,
-        kind=definition.kind,
+        definition,
         inputs=program_inputs,
     )
     final_state = definition.final_state

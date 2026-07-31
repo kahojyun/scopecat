@@ -27,12 +27,12 @@ from scopecat.program.bindings import (
     ResourceSelector,
     prefix_resource_port,
 )
+from scopecat.program.definitions import ExperimentDef
 from scopecat.program.domain import (
     DomainExecution,
     LoweredDomainExecution,
     lower_domain_execution,
 )
-from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.identities import InvocationKey
 from scopecat.program.logical import (
     AcquireEffect,
@@ -234,18 +234,16 @@ def compose_module(
 
 
 def compose_experiment(
-    program: ExperimentProgram,
+    definition: ExperimentDef,
     *,
-    experiment_id: str,
-    kind: str,
     inputs: Mapping[str, object],
 ) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
     return _elaborate_hierarchy(
-        program,
-        experiment_id=experiment_id,
-        kind=kind,
+        definition,
+        experiment_id=definition.id,
+        kind=definition.kind,
         inputs=inputs,
     )
 

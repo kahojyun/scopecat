@@ -128,12 +128,17 @@ class ExperimentContext:
     ) -> ExperimentDef:
         """Freeze this context directly as one experiment definition."""
 
+        interface, body, python_implementations = (
+            self._program.close_experiment_parts_internal(
+                input_ports=input_ports,
+            )
+        )
         return create_experiment_def(
             id=id,
             kind=kind,
-            program=self._program.close_experiment_program_internal(
-                input_ports=input_ports,
-            ),
+            interface=interface,
+            body=body,
+            python_implementations=python_implementations,
             record_selections=self._record_selections,
             input_defaults=input_defaults,
             required_inputs=required_inputs,

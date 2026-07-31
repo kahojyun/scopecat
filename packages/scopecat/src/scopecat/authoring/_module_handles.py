@@ -39,7 +39,6 @@ from scopecat.program.bindings import (
     bind_property as binding_property,
 )
 from scopecat.program.domain import DomainCall
-from scopecat.program.experiment import ExperimentProgram
 from scopecat.program.identities import InvocationKey
 from scopecat.program.measurements import MeasurementPostprocessor
 from scopecat.program.module import (
@@ -207,17 +206,21 @@ class ModuleContext:
             metadata=freeze_json_mapping(metadata or {}),
         )
 
-    def close_experiment_program_internal(
+    def close_experiment_parts_internal(
         self,
         *,
         input_ports: Sequence[ModuleInputPort] = (),
-    ) -> ExperimentProgram:
-        """Freeze this context as the non-reusable root experiment program."""
+    ) -> tuple[
+        ModuleInterfaceIR,
+        ModuleBodyIR,
+        tuple[ModulePythonImplementation, ...],
+    ]:
+        """Freeze the structural parts owned directly by an experiment."""
 
-        return ExperimentProgram(
-            interface=ModuleInterfaceIR(imports=tuple(input_ports)),
-            body=self._close_body(),
-            python_implementations=tuple(self._python_implementations),
+        return (
+            ModuleInterfaceIR(imports=tuple(input_ports)),
+            self._close_body(),
+            tuple(self._python_implementations),
         )
 
     def _close_body(self) -> ModuleBodyIR:
